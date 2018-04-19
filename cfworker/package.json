@@ -1,0 +1,16 @@
+{
+  "name": "files.gg-cfworker",
+  "version": "1.0.0",
+  "description": "Cloudflare Worker Script",
+  "main": "index.js",
+  "dependencies": {
+    "mithril": "^1.1.6",
+    "mithril-node-render": "^2.3.0"
+  },
+  "devDependencies": {},
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "author": "",
+  "license": "ISC"
+}
