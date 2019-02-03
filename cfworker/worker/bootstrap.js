@@ -1,0 +1,1 @@
+require('mithril/test-utils/browserMock')(global);

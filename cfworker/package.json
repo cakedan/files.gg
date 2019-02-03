@@ -1,16 +1,19 @@
 {
-  "name": "files.gg-cfworker",
-  "version": "1.0.0",
-  "description": "Cloudflare Worker Script",
+  "name": "filesgg-cfworker",
+  "version": "0.0.1",
+  "description": "",
   "main": "index.js",
-  "dependencies": {
-    "mithril": "^1.1.6",
-    "mithril-node-render": "^2.3.0"
-  },
-  "devDependencies": {},
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "build": "nodejs tools build",
+    "deploy": "nodejs tools deploy",
+    "upload": "nodejs tools upload"
   },
-  "author": "",
-  "license": "ISC"
+  "author": "cakedan",
+  "license": "MIT",
+  "dependencies": {
+    "detritus-rest": "^0.0.6",
+    "mithril": "^1.1.6",
+    "mithril-node-render": "^2.3.0",
+    "webpack": "^4.6.0"
+  }
 }

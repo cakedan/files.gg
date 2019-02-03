@@ -1,0 +1,142 @@
+.page.auth-login {
+	@extend .d-flex;
+	@extend .flex-column;
+	@extend .align-items-center;
+
+	.form-data {
+		@extend .d-flex;
+		@extend .flex-column;
+		@extend .justify-content-center;
+
+		background-color: $filesBlack;
+		border-radius: 15px;
+		padding: 5px 10px;
+		margin-top: 15px;
+
+		.head {
+			@extend .text-center;
+	
+			span {
+				cursor: pointer;
+				color: $filesGreyLight;
+			}
+		}
+
+		.data {
+			@extend .d-flex;
+			@extend .flex-row;
+			@extend .justify-content-center;
+
+			.fields {
+				@extend .d-flex;
+				@extend .flex-column;
+				@extend .justify-content-center;
+
+				width: 100%;
+				margin: 5px 0;
+
+				input, input:focus {
+					background-color: transparent;
+					color: white;
+					outline: none;
+					border: none;
+				}
+
+				input {
+					border-bottom: 1px solid $filesGreyLightish;
+					transition: border-bottom .15s;
+				}
+				input:focus {
+					border-bottom: 1px solid $filesGreyLight;
+					transition: border-bottom .15s;
+				}
+
+				.field {
+					@extend .d-flex;
+					@extend .flex-column;
+					@extend .align-content-center;
+
+					.label {
+						color: $filesGreyLight;
+					}
+				}
+			}
+		}
+
+		.captcha {
+			@extend .d-flex;
+			@extend .flex-row;
+			@extend .justify-content-center;
+
+			margin: 10px 0 5px 0;
+		}
+
+		.submit {
+			@extend .d-flex;
+			@extend .flex-row;
+			@extend .justify-content-center;
+
+			margin: 5px 0;
+
+			span {
+				@extend .btn;
+
+				background-color: $filesGreen;
+				color: white;
+			}
+		}
+	}
+
+	.oauth {
+		@extend .d-flex;
+		@extend .flex-column;
+		@extend .justify-content-center;
+
+		border-top: solid 1px $filesGreyDark;
+		margin: 10px 0;
+
+		.sites {
+			@extend .d-flex;
+			@extend .flex-row;
+			@extend .justify-content-between;
+			@extend .align-content-center;
+
+			.site {
+				@extend .p-2;
+				@extend .btn;
+	
+				display: inline-block;
+				height: 7.5vmin;
+				width: 15vmin;
+				background-repeat: no-repeat;
+				background-position: center;
+				background-size: contain;
+				border: none;
+				outline: none;
+				box-shadow: none;
+			}
+			.site.discord {
+				background-color: $blurple;
+				background-image: url('/assets/images/oauth_discord.svg');
+			}
+			.site.discord:hover, .site.discord:focus, .site.discord:active {
+				background-color: $blurpleDark;
+			}
+			.site.google {
+				height: 7.5vmin;
+				width: 7.5vmin;
+				background-image: url('/assets/images/oauth_google_light_normal.svg');
+			}
+			.site.google:hover, .site.google:focus {
+				background-image: url('/assets/images/oauth_google_light_focus.svg');
+			}
+			.site.google:active {
+				background-image: url('/assets/images/oauth_google_light_pressed.svg');
+			}
+			.site.google.disabled {
+				cursor: default;
+				background-image: url('/assets/images/oauth_google_light_disabled.svg');
+			}
+		}
+	}
+}
