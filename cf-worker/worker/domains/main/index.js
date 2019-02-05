@@ -1,7 +1,7 @@
 import m from 'mithril/hyperscript';
 import toHtml from 'mithril-node-render';
 
-import { ApiError, DomainRouter } from 'cf-worker-router';
+import { ApiError, ApiRedirect, DomainRouter } from 'cf-worker-router';
 import { formatBytes } from '../../utils';
 
 const router = new DomainRouter('(?:[w]{3}.)?files.gg');
@@ -136,7 +136,8 @@ const mimetypes = {
   image: ['image/png', 'image/x-citrix-png', 'image/x-png', 'image/jpg', 'image/jpeg', 'image/pjpeg', 'image/x-citrix-jpeg', 'image/webp', 'image/gif'],
   video: ['video/mp4', 'video/webm', 'video/quicktime', 'video/mpeg', 'video/ogg', 'video/avi', 'video/msvideo']
 };
-router.route('/:fileId...', async(event) => {
+router.route('/:fileId...', ['GET', 'HEAD'], async(event) => {
+  const userAgent = event.request.headers.get('user-agent') || '';
   const fileId = event.parameters.fileId.split('.').shift();
 
   const apiUrl = new URL(event.url);
@@ -151,6 +152,36 @@ router.route('/:fileId...', async(event) => {
   const metatags = new Metatags(defaultMetatags);
   if (apiResponse.ok) {
     const file = await apiResponse.json();
+    const mime = file.mimetype.split('/').shift();
+
+    if (userAgent.match(/sharex/i)) {
+      return new ApiRedirect(file.urls.cdn);
+    } else if (userAgent.match(/bot/i)) {
+      // deal with special bots here
+      if (userAgent.match(/telegrambot/i)) {
+        return new ApiRedirect(file.urls.cdn);
+      }
+    } else {
+      if (!event.request.headers.get('accept-language')) {
+        // not a browser, might as well redirect
+        return new ApiRedirect(file.urls.cdn);
+      }
+
+      const acceptedHeader = (event.request.headers.get('accept') || '').split(',').map((x) => x.split(';').shift().trim()).filter((v) => v);
+      // Browsers always have this header, redirect since it's probably a bot
+      if (!acceptedHeader.length) {
+        return new ApiRedirect(file.urls.cdn);
+      }
+
+      // Check if this is a forum embed request ({type}/*)
+      if (mime in mimetypes) {
+        const accepted = acceptedHeader.some((x) => x === `${mime}/*`);
+        if (accepted) {
+          return new ApiRedirect(file.urls.cdn);
+        }
+      }
+    }
+
     const filename = [file.filename, file.extension].join('.');
 
     metatags.set('mimetype', file.mimetype);
@@ -161,7 +192,6 @@ router.route('/:fileId...', async(event) => {
     metatags.set('[og:type]', 'article');
     //og:image is a thumbnail
 
-    const mime = file.mimetype.split('/').shift();
     if (mime in mimetypes && mimetypes[mime].includes(file.mimetype)) {
       switch (mime) {
         case 'image': {
