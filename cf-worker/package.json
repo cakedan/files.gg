@@ -1,0 +1,18 @@
+{
+    "name": "files.gg",
+    "version": "0.0.1",
+    "description": "",
+    "main": "index.js",
+    "scripts": {
+        "build": "nodejs tools build",
+        "deploy": "nodejs tools deploy",
+        "upload": "nodejs tools upload"
+    },
+    "author": "cakedan",
+    "license": "MIT",
+    "dependencies": {
+        "cf-worker-router": "^0.0.3",
+        "detritus-rest": "^0.0.6",
+        "webpack": "^4.29.0"
+    }
+}

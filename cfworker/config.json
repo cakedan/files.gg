@@ -1,9 +1,0 @@
-{
-    "CF_ZONE_ID": "",
-    "CF_API_KEY": "",
-    "CF_AUTH_EMAIL": "",
-
-    "workerDefines": {
-		"GCS_BUCKET": "cdn.files.gg"
-    }
-}

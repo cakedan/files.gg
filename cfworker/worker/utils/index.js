@@ -1,1 +1,0 @@
-module.exports = {Tools: require('./tools')};
