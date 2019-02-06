@@ -5,18 +5,18 @@ import { FetchRouter } from 'cf-worker-router';
 import { 
   apiRouter,
   cdnRouter,
-  mainRouter,
+  stableRouter,
 } from './domains';
 
 const router = new FetchRouter();
 
-router.route('/favicon.ico', ['GET', 'HEAD', 'OPTIONS'], async(event) => {
+router.route('/favicon.ico', '*', async(event) => {
   return await fetch('https://cdn.files.gg/assets/favicon.ico', event.fetchRequest);
 });
 
 router.addRouter(apiRouter);
 router.addRouter(cdnRouter);
-router.addRouter(mainRouter);
+router.addRouter(stableRouter);
 
 addEventListener('fetch', (event) => {
   router.onFetch(event);  

@@ -1,6 +1,7 @@
+import json
+
 from flask import Response
 from urllib.parse import urlencode
-import json
 
 import api.library.errors as errors
 
@@ -22,6 +23,10 @@ class APIResponse(Response):
             kwargs['status'] = status
 
         Response.__init__(self, **kwargs)
+
+        self.headers.add('access-control-allow-headers', '*')
+        self.headers.add('access-control-allow-methods', '*')
+        self.headers.add('access-control-allow-origin', '*')
 
 
 class APIError(Exception, APIResponse):
