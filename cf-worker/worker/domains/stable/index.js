@@ -52,6 +52,7 @@ const defaultMetatags = {
   'og:site_name': 'https://files.gg',
   'twitter:card': 'summary',
   //'twitter:site': '@filesgg',
+  viewport: 'width=device-width, initial-scale=1.0',
 };
 
 const renderHtml = async(event, metatags) => {
@@ -75,8 +76,6 @@ const renderHtml = async(event, metatags) => {
         src: manifest.js,
       }),
     ]);
-
-    manifestBody.push(m('div', {id: 'app'}));
   } else {
     manifestBody.push(m('span', 'script unavailable srry bro'));
   }
@@ -94,13 +93,13 @@ const renderHtml = async(event, metatags) => {
   return new Response(html, {headers: {'content-type': 'text/html'}});
 };
 
-router.route(['/panel', '/panel/*'], async(event) => {
+router.route(['/dashboard', '/dashboard/*'], async(event) => {
   const metatags = new Metatags(defaultMetatags);
-  metatags.set('title', 'File Uploader Panel');
+  metatags.set('title', 'File Uploader Dashboard');
   return renderHtml(event, metatags);
 });
 
-router.route('/panel/files', async(event) => {
+router.route('/dashboard/files', async(event) => {
   const metatags = new Metatags(defaultMetatags);
   metatags.set('description', 'View your files here.');
   return renderHtml(event, metatags);
@@ -130,12 +129,6 @@ router.route('/auth/logout', async(event) => {
   return renderHtml(event, metatags);
 }, {priority: 1});
 
-router.route('/info(?:\/)?', async(event) => {
-  const metatags = new Metatags(defaultMetatags);
-  metatags.set('description', '??');
-  return renderHtml(event, metatags);
-}, {priority: 1});
-
 router.route(['/info', '/info/*'], async(event) => {
   const metatags = new Metatags(defaultMetatags);
   metatags.set('description', '??');
@@ -152,15 +145,13 @@ router.route('/info/terms-of-service', async(event) => {
 const mimetypes = {
   audio: ['audio/mpeg', 'audio/mpeg3', 'audio/x-mpeg-3', 'audio/ogg', 'audio/wav', 'audio/wave', 'audio/x-pn-wav', 'audio/x-wav'],
   image: ['image/png', 'image/x-citrix-png', 'image/x-png', 'image/jpg', 'image/jpeg', 'image/pjpeg', 'image/x-citrix-jpeg', 'image/webp', 'image/gif'],
-  video: ['video/mp4', 'video/webm', 'video/quicktime', 'video/mpeg', 'video/ogg', 'video/avi', 'video/msvideo']
+  video: ['video/mp4', 'video/webm', 'video/quicktime', 'video/mpeg', 'video/ogg', 'video/avi', 'video/msvideo'],
 };
 router.route('/:fileId...', ['GET', 'HEAD'], async(event) => {
   const userAgent = event.request.headers.get('user-agent') || '';
 
   const metatags = new Metatags(defaultMetatags);
-  if (event.url.pathname === '/') {
-    //default homepage
-  } else {
+  if (event.url.pathname !== '/') {
     const fileId = event.parameters.fileId.split('.').shift();
     const apiResponse = await requestApi(event.request, {
       method: 'GET',

@@ -6,11 +6,11 @@ export async function requestApi(request, options) {
   if (typeof(options) === 'string') {
     options = {path: options};
   } else {
-    options = Object.assign({method: request.method}, options);
+    options = Object.assign({}, options);
   }
 
   const url = new URL(request.url);
-  url.hostname = 'filesgg.appspot.com';
+  url.hostname = 'api.files.gg';
   if (options.path) {
     url.pathname = options.path;
   }
@@ -19,13 +19,6 @@ export async function requestApi(request, options) {
   return await fetch(request, options);
 };
 
-router.route('/*', '*', async (event) => {
-  let response = await requestApi(event.request);
-  response = new Response(response.body, response);
-  response.headers.set('access-control-allow-origin', '*');
-  response.headers.set('access-control-allow-methods', '*');
-  response.headers.set('access-control-allow-headers', '*');
-  return response;
-});
+router.route('/*', '*', (event) => fetch(event.request));
 
 export default router;

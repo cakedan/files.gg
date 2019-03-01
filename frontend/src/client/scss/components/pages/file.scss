@@ -1,0 +1,190 @@
+.page.file {
+    @extend .page;
+
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    min-height: calc(100% - 64px);
+
+    .context {
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        position: relative;
+
+        max-height: 90vh;
+        //min-height: 25vh;
+        max-width: 80vw;
+        min-width: 20vw;
+
+        margin-top: 10px;
+        background-color: $filesGreyDark;
+        border-radius: 5px;
+
+        .thumbnail {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+
+            .max-dimensions {
+                max-height: 70vh;
+                max-width: 80vw;
+            }
+
+            .media-container {
+                @extend .max-dimensions;
+
+                border-radius: 5px 5px 0 0;
+                max-width: 100%;
+                min-width: 100%;
+
+                img {
+                    @extend .max-dimensions;
+
+                    border-radius: 5px 5px 0 0;
+                    max-width: 100%;
+                }
+
+                video {
+                    @extend .max-dimensions;
+
+                    border-radius: 5px 5px 0 0;
+                    max-width: 100%;
+                    min-width: 100%;
+                }
+
+                .monaco {
+                    height: 70vh;
+                    width: 80vw;
+                }
+            }
+
+            .media-container.audio {
+                width: 50vw;
+
+                .controls {
+                    border-radius: 5px 5px 0 0;
+                }
+            }
+
+            .information {
+                color: $filesGreyLight;
+                max-width: 100%;
+                padding-top: 5px;
+                text-align: center;
+
+                white-space: nowrap;
+                overflow: hidden;
+                text-overflow: ellipsis;
+            }
+        }
+
+        .footer {
+            display: flex;
+            flex-direction: column;
+    
+            padding-top: 15px;
+            color: $filesGreyLighter;
+    
+            .sections {
+                display: flex;
+                flex-direction: row;
+                justify-content: space-between;
+    
+                .section {
+                    display: flex;
+                    flex-direction: column;
+                    justify-content: center;
+        
+                    width: 50%;
+                    max-width: 50vmin;
+        
+                    span {
+                        word-wrap: break-word;
+                        max-width: 100%;
+                        margin-bottom: 10px;
+                    }
+    
+                    i {
+                        max-width: 100%;
+                    }
+                }
+        
+                .section.left {
+                    padding-left: 5px;
+        
+                    span {
+                        text-align: left;
+                    }
+                }
+                .section.right {
+                    padding-right: 5px;
+        
+                    span {
+                        text-align: right;
+                    }
+                    a {
+                        align-self: flex-end;
+                    }
+                }
+            }
+    
+            .buttons {
+                @extend .noselect;
+    
+                align-self: center;
+                display: flex;
+                flex-direction: row;
+                justify-content: flex-end;
+                margin-bottom: 5px;
+    
+                .copy-link {
+                    cursor: pointer;
+                    transition: .15s color ease;
+                }
+    
+                .copy-link:hover, .copy-link:focus {
+                    color: rgb(174, 178, 185);
+                    transition: .15s color ease;
+                }
+    
+                .download {
+                    //@extend .button;
+                    color: $filesGreen;
+                    text-decoration: none;
+                    transition: .15s color ease;
+                }
+    
+                .download:hover, .download:focus {
+                    color: $filesGreenDark;
+                    transition: .15s color ease;
+                }
+            }
+    
+            .timestamp {
+                color: $filesGreyLight;
+                margin: 5px 10px;
+                text-align: center;
+            }
+        }
+        .resizer {
+            @extend .noselect;
+    
+            align-self: flex-end;
+            display: flex;
+            flex-direction: row;
+            justify-content: flex-end;
+    
+            //position: absolute;
+            //height: 100%;
+            width: 100%;
+    
+            i {
+                cursor: nwse-resize;
+                transform: scaleY(-1);
+            }
+        }
+    }
+}

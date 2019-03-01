@@ -1,0 +1,36 @@
+version: '3'
+
+services:
+  cloud-sql-proxy:
+    image: gcr.io/cloudsql-docker/gce-proxy:1.13
+    command: /cloud_sql_proxy -instances=myinstance:us-central1:myproject=tcp:0.0.0.0:5433 -credential_file=/credentials
+    volumes:
+      - ./gconfig.json:/credentials
+    expose:
+      - 5433
+  api:
+    build: ./api/
+    image: api:v1
+    container_name: api
+    depends_on:
+      - cloud-sql-proxy
+    environment:
+      SECRET_KEY: notsosecretxd
+      RPC_KEY: RPC
+      GOOGLE_APPLICATION_CREDENTIALS: /credentials
+      STORAGE_BUCKET: 
+      DATABASE_URL: 
+    volumes:
+      - ./gconfig.json:/credentials
+    expose:
+      - 8080
+  nginx: 
+    image: nginx:latest
+    depends_on:
+      - api
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf
+      - ./nginx/certificates:/certificates
+    ports:
+      - 80:80
+      - 443:443

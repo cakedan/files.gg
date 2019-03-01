@@ -1,0 +1,119 @@
+.page.home {
+    display: flex;
+    flex-direction: column;
+
+    .title {
+
+    }
+
+    .upload {
+        margin-top: 25px;
+        width: 75vw;
+
+        .upload-types {
+            display: flex;
+            flex-direction: row;
+            justify-content: center;
+
+            margin-bottom: 25px;
+
+            span {
+                @extend .button;
+
+                background-color: $filesBlue;
+                margin: 0 10px;
+            }
+            span:hover, span:focus, span.active {
+                background-color: $filesBlueDark;
+            }
+            span.active  {
+                cursor: not-allowed;
+            }
+        }
+
+        .upload-type {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+
+            width: 100%;
+
+            .languages {
+                align-self: center;
+                margin: 10px 0;
+
+                max-width: 100%;
+                min-width: 10vw;
+
+                select {
+                    color: $filesGreyLighter;
+                    height: 100%;
+                    width: 100%;
+                }
+            }
+
+            .media-container {
+                width: 100%;
+            }
+            .media-container.text {
+                height: 50vh;
+            }
+
+            .file {
+                display: flex;
+                flex-direction: column;
+                align-items: center;
+
+                .picker {
+                    margin-bottom: 10px;
+
+                    input {
+                        display: none;
+                    }
+                    label {
+                        @extend .button;
+
+                        background-color: $filesBlue;
+                    }
+                    label:focus, label:hover {
+                        background-color: $filesBlueDark;
+                    }
+                }
+            }
+
+            .thumbnail {
+                display: flex;
+                flex-direction: column;
+                align-items: center;
+            }
+        }
+
+        .options {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+
+            margin: 30px 0;
+
+            .submit {
+                @extend .button;
+
+                width: 60%;
+            }
+
+            .submit.disabled {
+                background-color: $filesRed;
+                cursor: not-allowed;
+
+                transition: background-color .15s ease-in-out;
+            }
+        }
+    }
+
+    .uploads {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+    }
+}

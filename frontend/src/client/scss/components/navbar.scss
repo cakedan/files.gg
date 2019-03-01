@@ -1,0 +1,137 @@
+nav {
+    @extend .noselect;
+
+    background-color: transparent;
+    display: flex;
+    justify-content: center;
+    height: auto;
+    width: 100%;
+
+    .material-icons {
+        @extend .noselect;
+
+        line-height: 64px;
+    }
+
+    .mobile, .desktop {
+        max-width: 1600px;
+        padding: 0 30px;
+        width: 100%;
+    }
+
+    ul {
+        display: flex;
+        flex-flow: row nowrap;
+    }
+
+    a {
+        color: white;
+        cursor: pointer;
+        display: block;
+        font-size: 14px;
+        font-weight: 50;
+        height: 64px;
+        line-height: 64px;
+        opacity: 0.7;
+        padding: 0 15px;
+        text-decoration: none;
+        transition: .3s opacity;
+    }
+    a:hover, a:focus {
+        opacity: 1;
+        transition: .3s opacity;
+    }
+
+    .trigger {
+        @extend .noselect;
+
+        cursor: pointer;
+        float: left;
+    }
+
+    .brand {
+        float: left;
+        font-size: 22px;
+        opacity: 1;
+
+        .material-icons {
+            float: left;
+            margin-right: 15px;
+        }
+    }
+
+    .mobile {
+        .brand {
+            float: none;
+            left: 50%;
+            position: absolute;
+            transform: translateX(-50%);
+        }
+    }
+
+    .divider {
+        background-color: white;
+        border-radius: 1px;
+        height: 15px;
+        opacity: 0.3;
+        width: 2px;
+    }
+
+    ul {
+        li {
+            display: flex;
+            align-items: center;
+            flex-flow: row nowrap;
+        }
+    }
+}
+
+.dropdown {
+    top: 64px;
+    position: absolute;
+
+    background-color: $filesGrey;
+    border-radius: 5px;
+}
+
+.sidenav-overlay {
+	height: 100%;
+    width: 100%;
+
+    top: 0;
+    left: 0;
+    position: fixed;
+
+    background-color: black;
+    opacity: 0.1;
+	z-index: 9998;
+}
+
+.sidenav {
+    height: 100%;
+    width: 300px;
+
+    top: 0;
+    left: 0;
+    position: fixed;
+
+    background-color: $filesGrey;
+    flex-flow: column wrap;
+    display: flex;
+    z-index: 9999;
+
+	li {
+		width: 100%;
+	}
+
+	a {
+		padding: 0 30px;
+    }
+
+    .divider {
+        align-self: center;
+
+        height: 2px;
+        width: 90%;
+    }
+}

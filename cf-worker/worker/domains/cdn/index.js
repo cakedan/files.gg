@@ -16,18 +16,20 @@ export const requestStorage = async(request, options) => {
 
   request = new Request(url, request);
   let response = await fetch(request, options);
-  if (response.ok) {
+  if (response.status < 400) {
     response = new Response(response.body, response);
+
+    for (let header of response.headers.keys()) {
+      if (header.startsWith('x-g')) {
+        response.headers.delete(header);
+      }
+    }
   } else {
     let status = response.status;
-    if (400 <= status && status < 600) {
-      if (status === 403) {
-        status = 404;
-      }
-      response = new ApiError({status});
-    } else {
-      response = new Response(response.body, response);
+    if (status === 403) {
+      status = 404;
     }
+    response = new ApiError({status});
   }
   response.headers.set('access-control-allow-origin', '*');
   response.headers.set('access-control-allow-methods', '*');
@@ -38,6 +40,13 @@ export const requestStorage = async(request, options) => {
 router.route('/*', ['GET', 'HEAD', 'OPTIONS'], async(event) => {
   return await requestStorage(event.request, event.url.pathname);
 });
+
+
+const displayAsText = [
+  'application/xhtml+xml',
+  'image/svg+xml',
+  'text/html',
+];
 
 router.route('/files/:fileId...', ['GET', 'HEAD', 'OPTIONS'], async(event) => {
   const fileId = event.parameters.fileId.split('.').shift();
@@ -55,14 +64,18 @@ router.route('/files/:fileId...', ['GET', 'HEAD', 'OPTIONS'], async(event) => {
       const filename = encodeURIComponent([file.filename, file.extension].join('.'));
 
       let mimetype = file.mimetype;
-      switch (mimetype) {
-        case 'text/html': {
-          mimetype = 'text/plain';
-        }; break;
+      if (displayAsText.includes(mimetype)) {
+        mimetype = 'text/plain';
+      } else if ((event.url.searchParams.get('force-text') || '') === 'true') {
+        mimetype = 'text/plain';
       }
 
+      let disposition = 'inline';
+      if ((event.url.searchParams.get('download') || '').toLowerCase() === 'true') {
+        disposition = 'attachment';
+      }
       response.headers.set('content-type', mimetype);
-      response.headers.set('content-disposition', `inline; filename="${filename}"`);
+      response.headers.set('content-disposition', `${disposition}; filename="${filename}"`);
     }
   } else {
     response = new Response(response.body, response);

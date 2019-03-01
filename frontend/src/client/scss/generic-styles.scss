@@ -1,0 +1,31 @@
+input {
+    background-color: transparent;
+    border: none;
+    border-bottom: 1px solid white;
+    color: white;
+    outline: none;
+}
+
+.button {
+    @extend .noselect;
+
+    background-color: $filesGreen;
+    border: 1px solid transparent;
+    border-radius: .25rem;
+    color: white;
+    cursor: pointer;
+    display: inline-block;
+    font-size: 1rem;
+    line-height: 1.5;
+    padding: .375rem .75rem;
+    text-align: center;
+    text-decoration: none;
+    transition: background-color .15s ease-in-out, color .15s ease-in-out, border-color .15s ease-in-out, box-shadow .15s ease-in-out;
+    vertical-align: middle;
+    white-space: nowrap;
+}
+
+.button.active, .button:hover, .button:focus {
+    background-color: $filesGreenDark;
+    transition: background-color .15s ease-in-out, color .15s ease-in-out, border-color .15s ease-in-out, box-shadow .15s ease-in-out;
+}

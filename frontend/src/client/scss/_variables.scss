@@ -1,0 +1,35 @@
+$filesGreen: rgb(67, 181, 129);
+$filesGreenDark: rgb(47, 161, 109);
+$filesGreenDarker: rgb(27, 121, 69);
+
+$filesGrey: rgb(54, 57, 62);
+$filesGreyDark: rgb(42, 45, 50);
+$filesGreyLightish: rgb(72, 75, 81);
+$filesGreyLight: rgb(114, 118, 125);
+$filesGreyLighter: rgb(194, 198, 205);
+
+$filesBlack: rgb(32, 34, 37);
+
+$filesBlue: rgb(40, 121, 255);
+$filesBlueDark: rgb(20, 101, 235);
+
+$filesRed: rgb(240, 71, 71);
+$filesYellow: rgb(250, 166, 26);
+
+$blurple: rgb(114, 137, 218);
+$blurpleDark: rgb(103, 123, 196);
+
+$mediaBar: rgb(21, 24, 22);
+$mediaBarButtons: rgb(161, 162, 163);
+$mediaBarSlider: rgb(126, 126, 128);
+$mediaBarSliderSeek: rgb(164, 164, 166);
+
+$mediaBarProgress: $filesGreen;
+$mediaBarBubble: $mediaBarProgress;
+$mediaBarBubbleHover: rgb(87, 201, 149);
+
+$mediaBarVolume: $mediaBar;
+$mediaBarVolumeProgressBackground: rgb(67, 68, 70);
+$mediaBarVolumeProgress: $mediaBarProgress;
+$mediaBarVolumeProgressBubble: $mediaBarVolumeProgress;
+$mediaBarVolumeProgressBubbleHover: $mediaBarBubbleHover;
