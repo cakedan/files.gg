@@ -82,46 +82,50 @@
         }
 
         .footer {
+            align-self: center;
             display: flex;
             flex-direction: column;
-    
-            padding-top: 15px;
+
+            max-width: 50vw;
+            width: 100%;
+
             color: $filesGreyLighter;
-    
+            padding-top: 15px;
+
             .sections {
                 display: flex;
                 flex-direction: row;
                 justify-content: space-between;
-    
+
                 .section {
                     display: flex;
                     flex-direction: column;
                     justify-content: center;
-        
+
                     width: 50%;
                     max-width: 50vmin;
-        
+
                     span {
                         word-wrap: break-word;
                         max-width: 100%;
                         margin-bottom: 10px;
                     }
-    
+
                     i {
                         max-width: 100%;
                     }
                 }
-        
+
                 .section.left {
                     padding-left: 5px;
-        
+
                     span {
                         text-align: left;
                     }
                 }
                 .section.right {
                     padding-right: 5px;
-        
+
                     span {
                         text-align: right;
                     }
@@ -130,7 +134,7 @@
                     }
                 }
             }
-    
+
             .buttons {
                 @extend .noselect;
     
@@ -139,30 +143,30 @@
                 flex-direction: row;
                 justify-content: flex-end;
                 margin-bottom: 5px;
-    
+
                 .copy-link {
                     cursor: pointer;
                     transition: .15s color ease;
                 }
-    
+
                 .copy-link:hover, .copy-link:focus {
                     color: rgb(174, 178, 185);
                     transition: .15s color ease;
                 }
-    
+
                 .download {
                     //@extend .button;
                     color: $filesGreen;
                     text-decoration: none;
                     transition: .15s color ease;
                 }
-    
+
                 .download:hover, .download:focus {
                     color: $filesGreenDark;
                     transition: .15s color ease;
                 }
             }
-    
+
             .timestamp {
                 color: $filesGreyLight;
                 margin: 5px 10px;
@@ -171,16 +175,16 @@
         }
         .resizer {
             @extend .noselect;
-    
+
             align-self: flex-end;
             display: flex;
             flex-direction: row;
             justify-content: flex-end;
-    
+
             //position: absolute;
             //height: 100%;
             width: 100%;
-    
+
             i {
                 cursor: nwse-resize;
                 transform: scaleY(-1);

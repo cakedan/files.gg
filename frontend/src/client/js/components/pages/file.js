@@ -121,22 +121,17 @@ class FileItem {
 
 export class FilePage {
   constructor(vnode) {
-    if (typeof(vnode.attrs.zoom) !== 'boolean') {
-      vnode.attrs.zoom = (vnode.attrs.zoom || '').toLowerCase() === 'true';
-    }
-
-    if (typeof(vnode.attrs.monaco) !== 'boolean') {
-      vnode.attrs.monaco = (vnode.attrs.monaco || 'true').toLowerCase() === 'true';
-    }
+    vnode.attrs.monaco = String(vnode.attrs.monaco || 'true').toLowerCase() === 'true';
+    vnode.attrs.zoom = String(vnode.attrs.zoom).toLowerCase() === 'true';
 
     this.loading = true;
     this.file = null;
     this.error = null;
-  
+
     this.div = null;
     this.dragging = false;
-    this.height = 0;
-    this.width = 0;
+    this.height = null;
+    this.width = null;
 
     this.listeners = {
       mousemove: this.onMouseMove.bind(this),
@@ -192,6 +187,7 @@ export class FilePage {
     const rect = this.div.getBoundingClientRect();
     //this.height = Math.min(clientY - rect.top, window.innerHeight * 0.80);
     this.width = Math.min(clientX - rect.left, window.innerWidth * 0.70) + parent.offsetWidth;
+    this.width = Math.max(this.width, 0);
     m.redraw();
   }
 
@@ -219,8 +215,8 @@ export class FilePage {
       m('div', {
         class: 'context',
         style: [
-          (this.height) ? `height: ${this.height}px` : null,
-          (this.width) ? `width: ${this.width}px` : null,
+          (this.height !== null) ? `height: ${this.height}px` : null,
+          (this.width !== null) ? `width: ${this.width}px` : null,
         ].filter((v) => v).join('; ') || undefined,
       }, [
         m('div', {class: 'thumbnail'}, [
@@ -247,6 +243,7 @@ export class FilePage {
               class: 'download material-icons',
               href: this.file.urls.cdn + '?download=true',
               download: this.file.name,
+              title: 'Download',
             }, 'file_download'),
           ]),
           m('span', {class: 'timestamp'}, [

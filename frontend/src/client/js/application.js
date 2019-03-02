@@ -1,6 +1,7 @@
 import m from 'mithril';
 
 import Auth from './auth';
+import { Head } from './components/head';
 import { Mimetypes } from './utils';
 
 import { Navbar } from './components/navbar';
@@ -58,6 +59,7 @@ class Application {
   }
 
   async run(id) {
+    Head.initialize();
     //const pages = await new Promise((resolve) => require(['./components/pages'], resolve));
 
     let div;
@@ -71,10 +73,10 @@ class Application {
 
     m.route(div, '/', {
       '/': new RouteResolver(HomePage, {class: 'home'}),
-      '/info/terms-of-service': new RouteResolver(TermsOfServicePage),//pages.InfoTOS),
+      '/info/terms-of-service': new RouteResolver(TermsOfServicePage),
       '/info/error': new RouteResolver(ErrorPage),
       '/info/:path...': new RouteResolver(ErrorPage),
-      '/auth/login': new RouteResolver(AuthLoginPage),//pages.AuthLogin),
+      '/auth/login': new RouteResolver(AuthLoginPage, {class: 'auth-login'}),
       '/auth/logout': new RouteResolver(),//pages.AuthLogout),
       '/auth/callback': new RouteResolver(),//pages.AuthCallback),
       '/auth/:path...': new RouteResolver(ErrorPage),

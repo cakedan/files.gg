@@ -6,15 +6,16 @@ Object.defineProperty(window, 'browser', {
 
 import m from 'mithril';
 
-import Application from './application';
-import Api from './api';
-
 Object.defineProperty(window, 'isMobile', {
   get: () => window.innerWidth <= 992,
 });
 
 Object.defineProperty(window, 'currentPath', {
   get: () => m.route.get().split('?').shift(),
+});
+
+Object.defineProperty(window, 'redraw', {
+  get: () => m.redraw,
 });
 
 Object.defineProperty(window, 'savedVolume', {
@@ -41,7 +42,13 @@ Object.defineProperty(window, 'savedVolume', {
 // for monaco
 window.addEventListener('resize', () => m.redraw());
 
+import Application from './application';
+import Api from './api';
+import { setSiteKey } from './components/recaptcha';
+
+
 document.addEventListener('DOMContentLoaded', () => {
+  setSiteKey('6Ld9nFcUAAAAAACsN328JLBsqikCn2wbTQDTVj4J');
   Api.setBaseUrl('https://api.files.gg');
   Application.setPrefix('');
   Application.run();

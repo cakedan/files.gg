@@ -2,11 +2,11 @@ import m from 'mithril/hyperscript';
 import toHtml from 'mithril-node-render';
 
 import { ApiRedirect, DomainRouter } from 'cf-worker-router';
-import { requestApi } from '../api';
-import { requestStorage } from '../cdn';
-import { formatBytes } from '../../utils';
+import { requestApi } from './api';
+import { requestStorage } from './cdn';
+import { formatBytes } from '../utils';
 
-const router = new DomainRouter('(?:[w]{3}.)?files.gg');
+export const router = new DomainRouter('(?:[w]{3}.)?files.gg');
 const version = 'stable';
 
 class Metatags extends Map {
@@ -275,5 +275,3 @@ router.route('/api/:apiRoute...', '*', async(event) => {
     path: event.parameters.apiRoute,
   });
 });
-
-export default router;

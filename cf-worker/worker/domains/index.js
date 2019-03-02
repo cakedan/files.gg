@@ -1,3 +1,3 @@
-export { default as apiRouter } from './api';
-export { default as cdnRouter } from './cdn';
-export { default as stableRouter } from './stable';
+export { router as apiRouter } from './api';
+export { router as cdnRouter } from './cdn';
+export { router as stableRouter } from './stable';

@@ -1,8 +1,8 @@
 import { ApiError, DomainRouter } from 'cf-worker-router';
-import { requestApi } from '../api';
+import { requestApi } from './api';
 
 
-const router = new DomainRouter('cdn.files.gg');
+export const router = new DomainRouter('cdn.files.gg');
 
 export const requestStorage = async(request, options) => {
   if (typeof(options) === 'string') {
@@ -85,5 +85,3 @@ router.route('/files/:fileId...', ['GET', 'HEAD', 'OPTIONS'], async(event) => {
   }
   return response;
 });
-
-export default router;

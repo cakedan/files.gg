@@ -92,8 +92,10 @@ export class Monaco {
   }
 
   onremove(vnode) {
-    this.editor.dispose();
-    this.editor = null;
+    if (this.editor) {
+      this.editor.dispose();
+      this.editor = null;
+    }
   }
 
   view(vnode) {

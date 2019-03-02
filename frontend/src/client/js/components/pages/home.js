@@ -1,6 +1,7 @@
 import m from 'mithril';
 
 import Api from '../../api';
+import { Head } from '../head';
 import { formatBytes } from '../../utils';
 
 import {
@@ -27,6 +28,7 @@ const Store = {
       filename: 'random',
       extension: 'txt',
       language: null,
+      languageId: null,
       type: 'text/plain',
     },
   },
@@ -38,6 +40,12 @@ const Store = {
 
 
 export class HomePage {
+  oninit(vnode) {
+    Head.setMetas({
+      title: 'File Uploader',
+    });
+  }
+
   view(vnode) {
     return [
       m(UploadField, vnode.attrs),
@@ -64,6 +72,8 @@ class UploadField {
     if (uploadTypes.includes(vnode.attrs.type)) {
       this.type = vnode.attrs.type;
     }
+
+    Store.text.options.languageId = vnode.attrs.language;
   }
 
   get canUpload() {

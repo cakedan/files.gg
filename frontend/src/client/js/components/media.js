@@ -129,12 +129,13 @@ class MediaHoverDragChild extends MediaChild {
     this._hovering = false;
     this._dragging = false;
 
-    if (typeof(vnode.attrs.ondrag) === 'function') {
-      this.ondrag = vnode.attrs.ondrag;
+    if (typeof(vnode.attrs.oninteract) === 'function') {
+      this.oninteract = vnode.attrs.oninteract;
     }
-    if (typeof(vnode.attrs.onhover) === 'function') {
-      this.onhover = vnode.attrs.onhover;
-    }
+  }
+
+  get interacting() {
+    return this.hovering || this.dragging;
   }
 
   get hovering() {
@@ -143,7 +144,7 @@ class MediaHoverDragChild extends MediaChild {
 
   set hovering(value) {
     this._hovering = value
-    this.onhover(this._hovering);
+    this.oninteract(this.interacting);
     return this._hovering;
   }
 
@@ -153,12 +154,11 @@ class MediaHoverDragChild extends MediaChild {
 
   set dragging(value) {
     this._dragging = value
-    this.ondrag(this._dragging);
+    this.oninteract(this.interacting);
     return this._dragging;
   }
 
-  ondrag() {}
-  onhover() {}
+  oninteract() {}
 }
 
 
@@ -225,10 +225,6 @@ class MediaBar extends MediaHoverDragChild {
       hour = (3600 <= this.media.media.duration);
     }
     return formatTime(this.seekTime * 1000, {hour, ms: true});
-  }
-
-  get shouldShow() {
-    return this.hovering || this.dragging;
   }
 
   onClick(event) {
@@ -305,7 +301,7 @@ class MediaBar extends MediaHoverDragChild {
         m('div', {
           class: [
             'seek-timestamp',
-            (this.shouldShow) ? null : 'hidden',
+            (this.interacting) ? null : 'hidden',
           ].filter((v) => v).join(' '),
           style: `left: ${this.seekPercent}%`,
         }, this.seekTimeFormatted),
@@ -316,7 +312,7 @@ class MediaBar extends MediaHoverDragChild {
           m('span', {
             class: [
               'bubble',
-              (this.shouldShow) ? 'active' : null,
+              (this.interacting) ? 'active' : null,
             ].filter((v) => v).join(' '),
           }),
         ]),
@@ -344,10 +340,6 @@ class MediaVolume extends MediaHoverDragChild {
 
   get isMute() {
     return (this.media.volume === 0);
-  }
-
-  get shouldShow() {
-    return this.hovering || this.dragging;
   }
 
   onClick(event) {
@@ -415,7 +407,7 @@ class MediaVolume extends MediaHoverDragChild {
         ontouchcancel: (event) => this.onMouseUp(event, true),
         ontouchend: (event) => this.onMouseUp(event, true),
       }, [
-        (this.shouldShow) ? [
+        (this.interacting) ? [
           m('div', {
             class: 'volume-area',
             onmousemove: () => this.hovering = true,
@@ -517,7 +509,7 @@ export class VideoMedia extends Media {
     super(vnode);
 
     this.hovering = true;
-    this.show = {media: {}, volume: {}};
+    this.interacting = {media: false, volume: false};
 
     this.fullscreen = false;
 
@@ -527,9 +519,7 @@ export class VideoMedia extends Media {
   }
 
   get showControls() {
-    return this.hovering ||
-      (this.show.media.dragging || this.show.media.hovering) ||
-      (this.show.volume.dragging || this.show.volume.hovering);
+    return this.hovering || this.interacting.media || this.interacting.volume;
   }
 
   view(vnode) {
@@ -581,13 +571,11 @@ export class VideoMedia extends Media {
           m(MediaTimestamp, {media: this.media}),
           m(MediaBar, {
             media: this.media,
-            ondrag: (dragging) => this.show.media.dragging = dragging,
-            onhover: (hovering) => this.show.media.hovering = hovering,
+            oninteract: (interacting) => this.interacting.media = interacting,
           }),
           m(MediaVolume, {
             media: this.media,
-            ondrag: (dragging) => this.show.volume.dragging = dragging,
-            onhover: (hovering) => this.show.volume.hovering = hovering,
+            oninteract: (interacting) => this.interacting.volume = interacting,
           }),
           m('div', {
             class: 'fullscreen',
@@ -649,8 +637,13 @@ export class TextMedia {
 
   view(vnode) {
     const useMonaco = (vnode.attrs.useMonaco === undefined) || vnode.attrs.useMonaco;
-
-    return m('div', {class: 'media-container text'}, [
+    return m('div', {
+      class: [
+        'media-container',
+        'text',
+        (useMonaco && monacoIsLoaded()) ? 'is-monaco' : null,
+      ].filter((v) => v).join(' '),
+    }, [
       (useMonaco) ? [
         (monacoIsLoaded()) ? [
           m(Monaco, Object.assign({
