@@ -1,24 +1,27 @@
 import m from 'mithril';
 
-let monaco = null;
 
-export function requireMonaco() {
-  if (monaco) {
-    return Promise.resolve(monaco);
-  }
-  return new Promise((resolve) => {
-    require(['monaco-editor'], resolve);
-  }).then((monacoEditor) => {
-    return monaco = monacoEditor;
-  }).catch(console.error);
-};
+let monaco;
+export const Monaco = Object.freeze({
+  get monaco() {
+    return monaco;
+  },
+  get languages() {
+    return (monaco) ? monaco.languages.getLanguages() : [];
+  },
+  get isLoaded() {
+    return !!monaco;
+  },
+  async load() {
+    if (!this.isLoaded) {
+      monaco = await import('monaco-editor');
+    }
+    return monaco;
+  },
+});
 
-export function monacoIsLoaded() {
-  return !!monaco;
-};
 
-
-export class Monaco {
+export class MonacoComponent {
   oninit(vnode) {
     if (!monaco) {
       throw new Error('Monaco isn\'t loaded!');

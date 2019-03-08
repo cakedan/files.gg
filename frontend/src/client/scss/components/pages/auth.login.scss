@@ -1,4 +1,6 @@
 .page.auth-login {
+    @extend .noselect;
+
     display: flex;
     flex-direction: column;
 
@@ -23,12 +25,16 @@
             height: 90%;
             width: 90%;
 
+            padding: 40px;
+
             .title {
                 text-align: center;
 
-                span {
-                    cursor: pointer;
-                    color: $filesGreyLight;
+                .header {
+                    color: white;
+                    font-size: 26px;
+                    font-weight: 300;
+                    line-height: 32px;
                 }
             }
 
@@ -46,17 +52,20 @@
 
                     input, input:focus {
                         background-color: transparent;
+                        border: none;
                         color: white;
                         outline: none;
-                        border: none;
                     }
 
                     input {
+                        font-size: 16px;
+                        font-weight: 400;
+
                         border-bottom: 1px solid $filesGreyLightish;
                         transition: border-bottom .15s;
                     }
                     input:focus {
-                        border-bottom: 1px solid $filesGreyLight;
+                        border-bottom: 1px solid $filesGreen;
                         transition: border-bottom .15s;
                     }
 
@@ -65,25 +74,75 @@
                         flex-direction: column;
                         align-items: center;
 
-                        margin: 6px 0;
+                        margin: 12px 0;
 
                         .label {
                             color: $filesGreyLighter;
                             font-size: 12px;
-                            font-weight: 600;
                             letter-spacing: .5px;
-                            margin-bottom: 4px;
-                            text-transform: uppercase;
                             width: 100%;
+
+                            transition: color .15s;
+
+                            .type {
+                                font-weight: 600;
+                                text-transform: uppercase;
+                            }
+
+                            .error {
+                                font-style: 'italic';
+                                font-weight: 400;
+
+                                .separator {
+                                    padding: 0 4px;
+                                }
+                            }
                         }
                         .label.active {
-                            color: white;
+                            color: $filesGreen;
+                            transition: color .15s;
                         }
 
                         input {
+                            margin-top: 6px;
                             min-width: 15vw;
+                            padding: 6px 0;
                             width: 100%;
                         }
+                    }
+
+                    .field.invalid {
+                        .label {
+                            span {
+                                color: $filesRed;
+                                transition: color .15s;
+                            }
+                        }
+                        input {
+                            border-bottom: 1px solid $filesRed;
+                        }
+                    }
+                }
+
+                .forgot {
+                    display: flex;
+                    flex-direction: row;
+
+                    color: $filesGreyLight;
+                    font-size: 14px;
+                    line-height: 16px;
+                    margin: 10px 0;
+                    width: 100%;
+
+                    span {
+                        color: $filesGreen;
+                        cursor: pointer;
+                        margin: 0 4px;
+                        transition: color .15s;
+                    }
+                    span:hover {
+                        color: $filesGreenDark;
+                        transition: color .15s;
                     }
                 }
 
@@ -106,6 +165,8 @@
                     flex-direction: row;
 
                     color: $filesGreyLight;
+                    font-size: 14px;
+                    line-height: 16px;
                     margin: 10px 0;
                     width: 100%;
 
@@ -116,6 +177,11 @@
                     .flipper {
                         color: $filesGreen;
                         cursor: pointer;
+                        transition: color .15s;
+                    }
+                    .flipper:hover {
+                        color: $filesGreenDark;
+                        transition: color .15s;
                     }
                 }
 

@@ -1,77 +1,110 @@
 import m from 'mithril';
-import Api from './api';
+
+import { Api } from './api';
 
 
-class Auth {
-  constructor() {
-    this.authed = false;
+const Store = {
+  fingerprint: null,
+  isAuthed: false,
+  me: null,
+  token: null,
+};
 
-    this._token = null;
-  }
-
+export const Auth = Object.freeze({
   get isAuthed() {
-    return this.authed;
-  }
-
+    return Store.isAuthed;
+  },
   get token() {
-    return this._token;
-  }
-
-  set token(token) {
-    Api.setToken(token);
-    return this._token = token;
-  }
-
+    return Store.token;
+  },
   get hasToken() {
-    return !!this.token;
-  }
-
+    return !!Store.token;
+  },
   clear(redraw) {
     if (localStorage.getItem('token')) {
       localStorage.removeItem('token');
     }
 
-    // clear data from store
-    this.token = null;
-    this.authed = false;
+    Store.token = null;
+    Store.isAuthed = false;
+
     if (redraw === undefined || redraw) {
       m.redraw();
     }
-  }
-
+  },
   get() {
     if (localStorage.getItem('token')) {
       try {
-        this.token = JSON.parse(localStorage.getItem('token'));
+        Store.token = JSON.parse(localStorage.getItem('token'));
       } catch(error) {
         this.clear();
       }
     } else {
-      this.token = null;
+      Store.token = null;
     }
-  }
-
+  },
   set(token) {
     localStorage.setItem('token', JSON.stringify(token));
-    this.token = token;
-  }
-
+    Store.token = token;
+  },
   async try() {
-    if (!this.hasToken) {
-      throw new Error('Token is required to try for auth');
+    if (!this.has) {
+      this.get();
+      if (!this.has) {
+        throw new Error('Token is required to try for auth');
+      }
     }
+
     try {
-      const me = await Api.fetchMe();
-      this.authed = true;
-
-      // set data in store
-
-      return me;
+      Store.me = await Api.fetchMe();
+      Store.isAuthed = true;
     } catch(error) {
       this.clear();
       throw error;
     }
-  }
-}
+  },
+});
 
-export default new Auth();
+
+export const Fingerprint = Object.freeze({
+  get fingerprint() {
+    return Store.fingerprint;
+  },
+  get has() {
+    return !!Store.fingerprint;
+  },
+  clear() {
+    if (localStorage.getItem('fingerprint')) {
+      localStorage.removeItem('fingerprint');
+    }
+
+    Store.fingerprint = null;
+  },
+  get() {
+    if (localStorage.getItem('fingerprint')) {
+      try {
+        Store.fingerprint = JSON.parse(localStorage.getItem('fingerprint'));
+      } catch(error) {
+        this.clear();
+      }
+    } else {
+      Store.fingerprint = null;
+    }
+  },
+  set(fingerprint) {
+    localStorage.setItem('fingerprint', JSON.stringify(fingerprint));
+    return Store.fingerprint = fingerprint;
+  },
+  async fetch() {
+    if (!this.has) {
+      this.get();
+    }
+
+    try {
+      const response = await Api.fetchFingerprint();
+      return this.set(response.fingerprint);
+    } catch(error) {
+      console.error(error);
+    }
+  },
+});

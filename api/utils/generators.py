@@ -63,41 +63,25 @@ import base64
 import itsdangerous
 
 
-SignedToken = namedtuple('SignedToken', [
-    'uid',
-    'timestamp',
-    'secret',
-    'salt',
-    'token',
-])
-
-UnsignedToken = namedtuple('UnsignedToken', [
-    'uid',
-    'timestamp',
-    'safe',
-])
-
-
 class Token:
-    epoch = 0
     secret = None
     salt = None
+    signer_base = itsdangerous.URLSafeSerializer
+    signer = None
 
     @classmethod
-    def set_epoch(cls, epoch):
-        cls.epoch = int(epoch / 1000)
+    def generate_signer(cls):
+        cls.signer = cls.signer_base(cls.secret, salt=cls.salt)
 
     @classmethod
     def set_secret(cls, secret, **kwargs):
         cls.secret = cls.decode(secret, **kwargs)
+        cls.generate_signer()
 
     @classmethod
     def set_salt(cls, salt, **kwargs):
         cls.salt = cls.decode(salt, **kwargs)
-
-    @classmethod
-    def get_timestamp(cls):
-        return int(time.time() - cls.epoch)
+        cls.generate_signer()
 
     @classmethod
     def get_secret(cls, secret=None, secret_is_b64=False, **kwargs):
@@ -115,13 +99,11 @@ class Token:
             salt = cls.salt
         return salt
 
-    @staticmethod
-    def decode(data, string_output=False, is_base64=False):
-        if isinstance(data, str):
-            data = data.encode()
-        if is_base64:
-            data = base64.urlsafe_b64decode(data)
-        return data.decode() if string_output else data
+    @classmethod
+    def get_signer(cls):
+        if cls.signer is None:
+            raise Exception('Signer has not been generated yet')
+        return cls.signer
 
     @staticmethod
     def encode(data, string_output=False):
@@ -131,93 +113,61 @@ class Token:
         return data.decode() if string_output else data
 
     @staticmethod
-    def datetime_to_unix(date):
-        return int(date.timestamp())
+    def decode(data, string_output=False, is_base64=False):
+        if isinstance(data, str):
+            data = data.encode()
+        if is_base64:
+            data = base64.urlsafe_b64decode(data)
+        return data.decode() if string_output else data
 
     @classmethod
-    def generate(cls, uid, **kwargs):
-        secret = cls.get_secret(**kwargs)
-        salt = cls.get_salt(**kwargs)
-
-        signer = itsdangerous.URLSafeSerializer(secret, salt=salt)
-        token = signer.dumps(uid)
-
-        return SignedToken(
-            uid=uid,
-            timestamp=None,
-            secret=cls.encode(secret, True),
-            salt=cls.encode(salt, True),
-            token=token,
-        )
+    def generate(cls, payload, **kwargs):
+        signer = cls.get_signer()
+        return signer.dumps(payload, **kwargs)
 
     @classmethod
-    def generate_time(cls, uid, **kwargs):
-        secret = cls.get_secret(**kwargs)
-        salt = cls.get_salt(**kwargs)
-
-        signer = itsdangerous.TimestampSigner(secret, salt=salt)
-        signer.get_timestamp = cls.get_timestamp
-
-        token = signer.sign(cls.encode(str(uid), True))
-        payload, timestamp = signer.unsign(token, return_timestamp=True)
-
-        return SignedToken(
-            uid=uid,
-            timestamp=cls.datetime_to_unix(timestamp),
-            secret=cls.encode(secret, True),
-            salt=cls.encode(salt, True),
-            token=token.decode(),
-        )
-
-    @classmethod
-    def deconstruct(cls, token, uid_is_int=True, **kwargs):
-        secret = cls.get_secret(**kwargs)
-        salt = cls.get_salt(**kwargs)
-
-        signer = itsdangerous.URLSafeSerializer(secret, salt=salt)
+    def deconstruct(cls, token, **kwargs):
+        signer = cls.get_signer()
 
         if isinstance(token, str):
             token = token.encode()
 
-        try:
-            payload = cls.decode(signer.loads(token), is_base64=True)
-            safe = True
-        except:
-            payload = ''
-            safe = False
+        return signer.loads(token, **kwargs)
 
-        uid = payload
-        if uid_is_int:
-            uid = int(uid)
-        return UnsignedToken(
-            uid=uid,
-            timestamp=None,
-            safe=safe,
-        )
+
+class TimestampToken(Token):
+    epoch = 0
+    signer_base = itsdangerous.URLSafeTimedSerializer
 
     @classmethod
-    def deconstruct_time(cls, token, uid_is_int=True, **kwargs):
-        secret = cls.get_secret(**kwargs)
-        salt = cls.get_salt(**kwargs)
+    def generate_signer(cls):
+        cls.signer = cls.signer_base(cls.secret, salt=cls.salt)
+        cls.signer.get_timestamp = cls.get_timestamp
 
-        signer = itsdangerous.TimestampSigner(secret, salt=salt)
-        signer.get_timestamp = cls.get_timestamp
+    @classmethod
+    def set_epoch(cls, epoch):
+        cls.epoch = int(epoch / 1000)
 
-        try:
-            payload, timestamp = signer.unsign(token.encode(), return_timestamp=True)
-            safe = True
-        except itsdangerous.BadTimeSignature as error:
-            if not error.date_signed:
-                raise error
-            payload = error.payload
-            timestamp = signer.timestamp_to_datetime(error.date_signed)
-            safe = False
+    @classmethod
+    def get_timestamp(cls):
+        return int(time.time() - cls.epoch)
 
-        uid = cls.decode(payload, is_base64=True)
-        if uid_is_int:
-            uid = int(uid)
-        return UnsignedToken(
-            uid=uid,
-            timestamp=cls.datetime_to_unix(timestamp),
-            safe=safe,
-        )
+    @staticmethod
+    def datetime_to_unix(date):
+        return int(date.timestamp())
+
+    @classmethod
+    def deconstruct(cls, token, min_timestamp=None, **kwargs):
+        if min_timestamp is not None:
+            kwargs['max_age'] = cls.get_timestamp() - int(min_timestamp)
+        return super().deconstruct(token, **kwargs)
+
+    @classmethod
+    def validate(cls, token, min_timestamp=None, **kwargs):
+        signer = cls.get_signer()
+
+        if min_timestamp is not None:
+            kwargs['max_age'] = cls.get_timestamp() - int(min_timestamp)
+
+        signer = signer.make_signer()
+        return signer.validate(token, **kwargs)

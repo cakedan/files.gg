@@ -1,5 +1,6 @@
 import m from 'mithril';
-import Api from '../api';
+
+import { Api } from '../api';
 
 
 const defaultMimetypes = {
@@ -12,7 +13,7 @@ const defaultMimetypes = {
 };
 
 
-class Mimetypes extends Map {
+class MimetypeStore extends Map {
   constructor() {
     super();
     this.loading = true;
@@ -141,4 +142,4 @@ class Mimetypes extends Map {
   }
 }
 
-export default new Mimetypes();
+export const Mimetypes = new MimetypeStore();

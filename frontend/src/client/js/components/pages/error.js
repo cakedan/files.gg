@@ -5,10 +5,12 @@ export class ErrorPage {
   oninit(vnode) {
     this._error = vnode.attrs.error;
 
+    /*
     Head.setMetas({
       title: '¯\_(ツ)_/¯',
       description: this.error,
     });
+    */
   }
 
   get error() {

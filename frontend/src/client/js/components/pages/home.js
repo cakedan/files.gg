@@ -1,6 +1,6 @@
 import m from 'mithril';
 
-import Api from '../../api';
+import { Api } from '../../api';
 import { Head } from '../head';
 import { formatBytes } from '../../utils';
 
@@ -41,9 +41,11 @@ const Store = {
 
 export class HomePage {
   oninit(vnode) {
+    /*
     Head.setMetas({
       title: 'File Uploader',
     });
+    */
   }
 
   view(vnode) {
@@ -318,6 +320,9 @@ function digestMessage(message) {
 }
 
 
+import { Monaco } from '../monaco';
+
+
 class TextUpload {
   get data() {
     return Store.text.data;
@@ -339,10 +344,6 @@ class TextUpload {
     return Store.text.options;
   }
 
-  get languages() {
-    return (window.monaco) ? window.monaco.languages.getLanguages() : [];
-  }
-
   view(vnode) {
     return [
       m('div', {class: 'languages'}, [
@@ -353,7 +354,7 @@ class TextUpload {
             }
           },
         }, [
-          this.languages.map((language) => {
+          Monaco.languages.map((language) => {
             const selected = ((this.options.languageId) ? this.options.languageId : 'plaintext') === language.id;
             if (selected) {
               if (this.options.language !== language) {

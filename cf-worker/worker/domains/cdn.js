@@ -31,9 +31,6 @@ export const requestStorage = async(request, options) => {
     }
     response = new ApiError({status});
   }
-  response.headers.set('access-control-allow-origin', '*');
-  response.headers.set('access-control-allow-methods', '*');
-  response.headers.set('access-control-allow-headers', '*');
   return response;
 };
 
@@ -79,9 +76,6 @@ router.route('/files/:fileId...', ['GET', 'HEAD', 'OPTIONS'], async(event) => {
     }
   } else {
     response = new Response(response.body, response);
-    response.headers.set('access-control-allow-origin', '*');
-    response.headers.set('access-control-allow-methods', '*');
-    response.headers.set('access-control-allow-headers', '*');
   }
   return response;
 });

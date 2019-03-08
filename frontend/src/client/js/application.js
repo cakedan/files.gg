@@ -1,6 +1,7 @@
 import m from 'mithril';
 
-import Auth from './auth';
+import { Api } from './api';
+import { Auth, Fingerprint } from './auth';
 import { Head } from './components/head';
 import { Mimetypes } from './utils';
 
@@ -49,19 +50,31 @@ class RouteResolver {
 }
 
 
-class Application {
-  constructor() {
-    this.routes = {};
-  }
+const Routes = Object.freeze({
+  '/': new RouteResolver(HomePage, {class: 'home'}),
+  '/info/terms-of-service': new RouteResolver(TermsOfServicePage),
+  '/info/error': new RouteResolver(ErrorPage),
+  '/info/:path...': new RouteResolver(ErrorPage),
+  '/auth/register': new RouteResolver(AuthLoginPage, {class: 'auth-login'}),
+  '/auth/login': new RouteResolver(AuthLoginPage, {class: 'auth-login'}),
+  '/auth/logout': new RouteResolver(),//pages.AuthLogout),
+  '/auth/callback': new RouteResolver(),//pages.AuthCallback),
+  '/auth/:path...': new RouteResolver(ErrorPage),
+  '/dashboard': new RouteResolver(null, {authRequired: true}),//pages.Panel),
+  '/dashboard/files': new RouteResolver(null, {authRequired: true}),//pages.PanelFiles),
+  '/dashboard/:path...': new RouteResolver(ErrorPage),
+  '/:fileId...': new RouteResolver(FilePage, {class: 'file'}),
+});
 
-  setPrefix(prefix) {
-    m.route.prefix(prefix);
-  }
+const Store = {
+  div: null,
+};
 
-  async run(id) {
-    Head.initialize();
-    //const pages = await new Promise((resolve) => require(['./components/pages'], resolve));
-
+export const Application = Object.freeze({
+  getDiv(id) {
+    if (Store.div) {
+      return Store.div;
+    }
     let div;
     if (id === undefined) {
       div = document.createElement('div');
@@ -70,38 +83,36 @@ class Application {
       div = document.getElementById(id);
     }
     div.classList.add('app');
-
-    m.route(div, '/', {
-      '/': new RouteResolver(HomePage, {class: 'home'}),
-      '/info/terms-of-service': new RouteResolver(TermsOfServicePage),
-      '/info/error': new RouteResolver(ErrorPage),
-      '/info/:path...': new RouteResolver(ErrorPage),
-      '/auth/login': new RouteResolver(AuthLoginPage, {class: 'auth-login'}),
-      '/auth/logout': new RouteResolver(),//pages.AuthLogout),
-      '/auth/callback': new RouteResolver(),//pages.AuthCallback),
-      '/auth/:path...': new RouteResolver(ErrorPage),
-      '/dashboard': new RouteResolver(null, {authRequired: true}),//pages.Panel),
-      '/dashboard/files': new RouteResolver(null, {authRequired: true}),//pages.PanelFiles),
-      '/dashboard/:path...': new RouteResolver(ErrorPage),
-      '/:fileId...': new RouteResolver(FilePage, {class: 'file'}),
-    });
+    return Store.div = div;
+  },
+  setPrefix(prefix) {
+    m.route.prefix(prefix);
+  },
+  async run(id) {
+    //Head.initialize();
+    //const pages = await new Promise((resolve) => require(['./components/pages'], resolve));
+    m.route(this.getDiv(id), '/', Routes);
 
     const promises = [];
-
     promises.push((async () => {
-      Auth.get();
-      if (Auth.hasToken) {
-        try {
-          await Auth.try();
-        } catch(error) {}
+      try {
+        await Auth.try();
+      } catch(error) {
+        await Fingerprint.fetch();
       }
       m.redraw();
-    })());
 
+      if (Auth.hasToken || Fingerprint.has) {
+        try {
+          const response = await Api.fetchFiles();
+          console.log(response);
+        } catch(error) {
+          console.error(error);
+        }
+      }
+    })());
     promises.push(Mimetypes.fetch());
 
     return Promise.all(promises);
-  }
-}
-
-export default new Application();
+  },
+});

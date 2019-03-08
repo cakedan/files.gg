@@ -14,10 +14,6 @@ Object.defineProperty(window, 'currentPath', {
   get: () => m.route.get().split('?').shift(),
 });
 
-Object.defineProperty(window, 'redraw', {
-  get: () => m.redraw,
-});
-
 Object.defineProperty(window, 'savedVolume', {
   get: () => {
     let volume = 100;
@@ -42,14 +38,13 @@ Object.defineProperty(window, 'savedVolume', {
 // for monaco
 window.addEventListener('resize', () => m.redraw());
 
-import Application from './application';
-import Api from './api';
-import { setSiteKey } from './components/recaptcha';
 
+import { Application } from './application';
+import { Recaptcha } from './components/recaptcha';
 
 document.addEventListener('DOMContentLoaded', () => {
-  setSiteKey('6Ld9nFcUAAAAAACsN328JLBsqikCn2wbTQDTVj4J');
-  Api.setBaseUrl('https://api.files.gg');
+  Recaptcha.setKey('6Ld9nFcUAAAAAACsN328JLBsqikCn2wbTQDTVj4J');
+
   Application.setPrefix('');
   Application.run();
 });

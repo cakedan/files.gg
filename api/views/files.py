@@ -5,10 +5,11 @@ import string
 
 from flask import current_app, Blueprint, request
 from flask_restful import inputs, reqparse
+from peewee import fn, JOIN
 
-from models import Files, FileHashes, Mimetypes, MimetypeExtensions
+from models import File, FileHashes, FileViews, Mimetypes, MimetypeExtensions
 from utils.errors import InvalidMimetype, UnknownFile
-from utils.generators import Snowflake
+from utils.generators import Snowflake, Token
 from utils.parameters import snowflake
 from utils.responses import ApiError, ApiResponse
 from utils.wrappers import authenticate
@@ -17,14 +18,34 @@ files = Blueprint('files', __name__, url_prefix='/files')
 
 
 get_files_parser = reqparse.RequestParser()
+get_files_parser.add_argument('authorization', location='headers')
+get_files_parser.add_argument('x-fingerprint', location='headers', dest='fingerprint')
 get_files_parser.add_argument('limit', type=int, default=100, choices=range(1, 101), help='Must be at least or in between 1 and 100')
 
 @files.route('', methods=['GET'])
-@authenticate()
 def fetch_files():
     args = get_files_parser.parse_args()
-    files = Files.select().limit(args.limit)
-    return ApiResponse([x.to_dict() for x in files])
+    if args.authorization is None and args.fingerprint is None:
+        raise ApiError(status=401)
+
+    #parse authorization header, authenticate
+    query = (File
+            .select(File, fn.COUNT(FileViews.ip).alias('view_count'))
+            .join(FileViews, JOIN.LEFT_OUTER)
+            .group_by(File))
+
+    if args.authorization is not None:
+        raise ApiError(status=401)
+    else:
+        try:
+            fingerprint = Token.deconstruct(args.fingerprint)
+        except:
+            raise ApiError(status=401)
+        query = query.where(File.fingerprint == fingerprint)
+
+
+    query = query.limit(args.limit)
+    return ApiResponse([x.to_dict() for x in query])
 
 
 MIN_VANITY_LENGTH = 3
@@ -72,6 +93,18 @@ create_files_parser.add_argument('type', location='values', default='multipart',
 
 @files.route('', methods=['POST'])
 def create_file():
+    user = None
+    if request.headers.get('authorization'):
+        #authorize them
+        pass
+
+    fingerprint = None
+    if request.headers.get('x-fingerprint'):
+        try:
+            fingerprint = Token.deconstruct(request.headers.get('x-fingerprint'))
+        except Exception as error:
+            print(error)
+
     args = create_files_parser.parse_args()
 
     min_vanity = max_vanity = args.vanity.count('/')
@@ -192,35 +225,40 @@ def create_file():
     unique = False
     while not unique:
         fvanity = generate_vanity(args.vanity)
-        unique = bool(Files.get_or_none(vanity=fvanity) is None)
+        unique = bool(File.get_or_none(vanity=fvanity) is None)
 
-    fobj = Files.create(
+    fobj = File.create(
         id=fid,
         vanity=fvanity,
         mimetype=mimetype,
         extension=fextension,
         filename=fname,
         hash=fhash,
-        user=None,
+        user=user,
+        fingerprint=fingerprint,
     )
-    return ApiResponse(fobj.to_dict())
+    fobj.view_count = 0
+    return ApiResponse(fobj.to_dict(views=True))
 
 
-get_file_parser = reqparse.RequestParser()
-get_file_parser.add_argument('vanity', type=inputs.boolean, default=True)
+fetch_file_parser = reqparse.RequestParser()
+fetch_file_parser.add_argument('views', type=inputs.boolean, default=False)
 
-@files.route('/<path:file_id>', methods=['GET'])
-def fetch_file(file_id):
-    args = get_file_parser.parse_args()
-    if args.vanity:
-        file_id = file_id.split('.').pop(0)
-        fobj = Files.get_or_none(vanity=file_id)
-    else:
-        file_id = snowflake(file_id)
-        fobj = Files.get_or_none(id=file_id)
+@files.route('/<path:vanity>', methods=['GET'])
+def fetch_file(vanity):
+    args = fetch_file_parser.parse_args()
+
+    vanity = vanity.split('.').pop(0)
+    fobj = File.get_or_none(vanity=vanity)
     if fobj is None:
         raise UnknownFile()
-    return ApiResponse(fobj.to_dict())
+
+    ip = request.remote_addr
+    view = FileViews.get_or_none(file=fobj, ip=ip)
+    if view is None:
+        view = FileViews.create(file=fobj, ip=ip)
+
+    return ApiResponse(fobj.to_dict(views=args.views))
 
 
 @files.route('/<path:file_id>', methods=['DELETE'])

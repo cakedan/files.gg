@@ -1,27 +1,25 @@
 import m from 'mithril';
 
-
-function encodeQuery(query) {
-  return Object.keys(query).map((k) => {
-    return `${encodeURIComponent(k)}=${encodeURIComponent(query[k])}`;
-  }).join('&');
-}
+import { Auth, Fingerprint } from './auth';
 
 
-class Api {
-  constructor() {
-    this.baseUrl = '';
-    this.token = null;
-  }
+export const ApiRoutes = Object.freeze({
+  BASE_URL: 'https://api.files.gg',
+  BASE_VERSION: '',
+  AUTH_FINGERPRINT: '/auth/fingerprint',
+  AUTH_LOGIN: '/auth/login',
+  AUTH_LOGOUT: '/auth/logout',
+  AUTH_REGISTER: '/auth/register',
+  AUTH_VERIFY: '/auth/verify',
+  FILES: '/files',
+  FILE: '/files/:fileId',
+  MIMETYPES: '/mimetypes',
+  USER: '/users/:userId',
+  USER_ME: '/users/@me',
+});
 
-  setBaseUrl(url) {
-    this.baseUrl = url;
-  }
 
-  setToken(token) {
-    this.token = token;
-  }
-
+export const Api = Object.freeze({
   request(options) {
     options = Object.assign({
       auth: false,
@@ -31,20 +29,27 @@ class Api {
   
     options.headers = Object.assign({}, options.headers);
     if (options.auth) {
-      if (this.token) {
-        options.headers.authorization = this.token;
+      if (Auth.hasToken) {
+        options.headers.authorization = Auth.token;
       } else {
         if (!options.authOptional) {
           throw new Error('Cannot use auth without a token present');
         }
       }
     }
+
+    if (options.fingerprint === undefined || options.fingerprint) {
+      if (Fingerprint.has) {
+        options.headers['x-fingerprint'] = Fingerprint.fingerprint;
+      }
+    }
   
     if (options.path) {
-      if (!options.url && !this.baseUrl) {
+      if (!options.url && !ApiRoutes.BASE_URL) {
         throw new Error('Specify a URL when using a path.');
       }
-      options.url = (options.url || this.baseUrl) + options.path;
+      const baseUrl = (options.url || (ApiRoutes.BASE_URL + ApiRoutes.BASE_VERSION));
+      options.url = baseUrl + options.path;
     } else if (!options.url) {
       throw new Error('Specify a URL.');
     }
@@ -61,34 +66,55 @@ class Api {
     }
   
     return m.request(options);
-  }
-
+  },
   fetchFiles(query) {
     return this.request({
       auth: true,
-      path: '/files',
+      authOptional: true,
+      path: ApiRoutes.FILES,
       data: query,
     });
-  }
-
-  fetchFile(fileId) {
+  },
+  fetchFile(fileId, query) {
     return this.request({
       path: '/files/:fileId',
       params: {fileId},
+      query: query,
     });
-  }
-
+  },
+  fetchFingerprint() {
+    return this.request({path: '/auth/fingerprint'});
+  },
   fetchMe() {
     return this.request({
       auth: true,
       path: '/users/@me',
     });
-  }
-
+  },
   fetchMimetypes() {
     return this.request({path: '/mimetypes'});
-  }
-
+  },
+  login(data) {
+    return this.request({
+      method: 'POST',
+      path: '/auth/login',
+      data: data,
+    });
+  },
+  logout(data) {
+    return this.request({
+      method: 'POST',
+      path: '/auth/logout',
+      data: data,
+    });
+  },
+  register(data) {
+    return this.request({
+      method: 'POST',
+      path: '/auth/register',
+      data: data,
+    });
+  },
   uploadFile(data, options) {
     return this.request(Object.assign({}, options, {
       auth: true,
@@ -97,7 +123,12 @@ class Api {
       path: '/files',
       data: data,
     }));
-  }
-}
+  },
+});
 
-export default new Api();
+
+function encodeQuery(query) {
+  return Object.keys(query).map((k) => {
+    return `${encodeURIComponent(k)}=${encodeURIComponent(query[k])}`;
+  }).join('&');
+}

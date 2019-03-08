@@ -2,10 +2,14 @@ import os
 
 from flask import Flask
 from google.cloud import storage
+
+from werkzeug.contrib.fixers import ProxyFix
 from werkzeug.exceptions import HTTPException
 
-from utils.generators import Snowflake, Token
+from utils.generators import Snowflake, Token, Token1, TimestampToken
 from utils.responses import ApiError, ApiRedirect, ApiResponse
+
+from models import db
 
 from views.auth import auth
 from views.files import files
@@ -17,6 +21,7 @@ from views.mimetypes import mimetypes
 app = Flask(__name__)
 app.config.BUNDLE_ERRORS = True
 app.response_class = ApiResponse
+app.wsgi_app = ProxyFix(app.wsgi_app, num_proxies=1)
 
 app.register_blueprint(auth)
 app.register_blueprint(files)
@@ -44,12 +49,13 @@ Snowflake.set_epoch(1550102400000)
 Snowflake.set_worker_id(app.config.worker_id)
 Snowflake.set_datacenter_id(app.config.datacenter_id)
 
-Token.set_epoch(0)
 Token.set_secret(app.secret_key)
 Token.set_salt(app.secret_salt)
 
+TimestampToken.set_epoch(0)
+TimestampToken.set_secret(app.secret_key)
+TimestampToken.set_salt(app.secret_salt)
 
-from models import db
 
 @app.before_request
 def before_request():

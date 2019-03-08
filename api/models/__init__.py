@@ -2,7 +2,7 @@ import peewee
 import os
 
 from playhouse.db_url import connect
-
+from peewee_extra_fields import IPNetworkField
 
 db_url = os.getenv('DATABASE_URL')
 if db_url is None:
@@ -17,6 +17,12 @@ class BaseModel(peewee.Model):
 
 class User(BaseModel):
     id = peewee.BigIntegerField(primary_key=True)
+    email = peewee.CharField(max_length=128, index=True, unique=True)
+    username = peewee.CharField(max_length=32, index=True)
+    discriminator = peewee.IntegerField()
+    password = peewee.CharField(max_length=128, null=True)
+    flags = peewee.IntegerField()
+    verified = peewee.BooleanField(default=False)
 
     class Meta:
         db_table = 'users'
@@ -70,7 +76,7 @@ class FileHashes(BaseModel):
         )
 
 
-class Files(BaseModel):
+class File(BaseModel):
     id = peewee.BigIntegerField(primary_key=True)
     vanity = peewee.CharField(max_length=128, index=True, unique=True)
     mimetype = peewee.ForeignKeyField(Mimetypes, field='id', backref='files')
@@ -78,9 +84,10 @@ class Files(BaseModel):
     filename = peewee.CharField(max_length=128)
     hash = peewee.ForeignKeyField(FileHashes, backref='files')
     user = peewee.ForeignKeyField(User, null=True, backref='files')
+    fingerprint = peewee.BigIntegerField(null=True, index=True)
 
-    def to_dict(self):
-        return {
+    def to_dict(self, views=False):
+        data = {
             'id': str(self.id),
             'vanity': self.vanity,
             'mimetype': self.mimetype_id,
@@ -92,20 +99,43 @@ class Files(BaseModel):
             'width': self.hash.width,
             'duration': self.hash.duration,
             'user': self.user and self.user.to_dict(),
-            'views': 0,
             'urls': {
                 'main': 'https://files.gg/' + self.vanity + '.' + self.extension,
                 'cdn': 'https://cdn.files.gg/files/' + self.vanity + '.' + self.extension,
             },
         }
+        if views:
+            data['views'] = getattr(self, 'view_count', self.views.count())
+        return data
 
     class Meta:
         db_table = 'files'
 
+
+class FileViews(BaseModel):
+    file = peewee.ForeignKeyField(File, field='id', backref='views')
+    ip = IPNetworkField(index=True)
+    timestamp = peewee.TimestampField()
+
+    class Meta:
+        db_table = 'file_views'
+        indexes = (
+            (('file', 'ip'), False),
+        )
+
+
+class FileAuditLogs(BaseModel):
+    file = peewee.ForeignKeyField(File, field='id', backref='logs')
+
+    class Meta:
+        db_table = 'file_auditlogs'
+
+
 db.create_tables([
     User,
     FileHashes,
-    Files,
+    File,
+    FileViews,
     Mimetypes,
     MimetypeExtensions,
 ])

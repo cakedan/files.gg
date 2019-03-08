@@ -1,6 +1,6 @@
 import m from 'mithril';
 
-import Api from '../../api';
+import { Api } from '../../api';
 import {
   formatBytes,
   Mimetypes,
@@ -13,6 +13,8 @@ import {
   TextMedia,
   VideoMedia,
 } from '../media';
+
+import { Monaco } from '../monaco';
 
 
 class FileItem {
@@ -28,12 +30,12 @@ class FileItem {
     if (this._language) {
       return this._language;
     }
-    if (window.monaco && this._language !== null) {
+    if (Monaco.isLoaded && this._language !== null) {
       const mimetype = this.file.mimetype;
       const alias = mimetype.split('/').pop();
       const extension = `.${this.file.extension}`;
 
-      const languages = window.monaco.languages.getLanguages();
+      const languages = Monaco.monaco.languages.getLanguages();
       for (let language of languages) {
         if (language.aliases && language.aliases.includes(alias)) {
           this._language = language.id;
@@ -144,7 +146,7 @@ export class FilePage {
 
   async oninit(vnode) {
     try {
-      this.file = vnode.attrs.file = await Api.fetchFile(vnode.attrs.fileId);
+      this.file = vnode.attrs.file = await Api.fetchFile(vnode.attrs.fileId, {views: true});
       this.file.name = [this.file.filename, this.file.extension].filter((v) => v).join('.');
       console.log(this.file);
     } catch(error) {

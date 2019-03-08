@@ -1,6 +1,6 @@
 import m from 'mithril';
 
-import Auth from '../auth';
+import { Auth } from '../auth';
 
 
 class MobileDropdown {
@@ -55,6 +55,7 @@ class UserDropdown {
 class NavbarLink {
   oninit(vnode) {
     vnode.attrs.oncreate = m.route.link;
+    vnode.attrs.onupdate = m.route.link;
   }
 
   view(vnode) {

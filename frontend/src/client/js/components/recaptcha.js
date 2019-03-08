@@ -1,132 +1,190 @@
 import m from 'mithril';
 
-import { Head } from './head';
 
-export const config = {key: null};
+function generateUniqueKey() {
+  return Date.now() + Math.random().toString(36).substring(7);
+}
 
-export function recaptchaIsLoaded() {
-  return !!window.grecaptcha;
+const Store = {
+  error: null,
+  key: null,
+  state: null,
 };
+export const Recaptcha = Object.freeze({
+  get grecaptcha() {
+    return window && window.grecaptcha;
+  },
+  get isLoaded() {
+    return !!(window && window.grecaptcha);
+  },
+  get loadState() {
+    return Store.state;
+  },
+  get loadError() {
+    return Store.error;
+  },
+  get url() {
+    return new URL('https://www.google.com/recaptcha/api.js');
+  },
+  async load(language) {
+    if (this.isLoaded) {
+      return this.grecaptcha;
+    }
+    Store.state = 'loading';
 
-export function loadRecaptcha() {
-  if (!recaptchaIsLoaded()) {
-    //add it to head
-    //https://www.google.com/recaptcha/api.js?onload=redraw&render=explicit
-    Head.addScript('https://www.google.com/recaptcha/api.js?onload=redraw&render=explicit', {
-      async: true,
-      defer: true,
+    const onLoadName = 'onGRecaptchaLoad' + generateUniqueKey();
+    const url = this.url;
+    url.searchParams.set('render', 'explicit');
+    url.searchParams.set('onload', onLoadName);
+    if (language) {
+      // https://developers.google.com/recaptcha/docs/language
+      url.searchParams.set('hl', language);
+    }
+
+    await new Promise((resolve, reject) => {
+      window[onLoadName] = () => {
+        delete window[onLoadName];
+        resolve();
+      };
+
+      const node = document.createElement('script');
+      node.src = url.href;
+      node.async = true;
+      node.defer = true;
+      document.head.appendChild(node);
+
+      setTimeout(() => {
+        if (!this.isLoaded) {
+          reject(new Error('Captcha took longer than 5 seconds to import'));
+        }
+      }, 5000);
+    }).then(() => {
+      Store.state = 'loaded';
+    }).catch((error) => {
+      Store.state = 'error';
+      Store.error = error;
     });
-  }
-};
+  },
+  getKey() {
+    return Store.key;
+  },
+  setKey(key) {
+    return Store.key = key;
+  },
+});
 
-export function setSiteKey(key) {
-  config.key = key;
-};
+
+const callbackParameters = ['callback', 'expired-callback', 'error-callback'];
+function filterRenderOptions(options) {
+  options = Object.assign({
+    sitekey: Recaptcha.getKey(),
+  }, options);
+  const callbacks = [];
+
+  for (let key of callbackParameters) {
+    if (typeof(options[key] === 'function')) {
+      const callback = options[key];
+      const name = 'onGRecaptcha' + key.split('-').map((k) => {
+        return k.slice(0, 1).toUpperCase() + k.slice(1);
+      }).join('') + generateUniqueKey();
+
+      callbacks.push(name);
+      options[key] = name;
+      window[name] = callback;
+    }
+  }
+
+  return {callbacks, options};
+}
 
 
 class RecaptchaWrapper {
   constructor(id) {
     this.id = id;
-    this.isRendering = false;
-
-    this.executionRatelimit = 1000;
-    this.lastExecution = 0;
-  }
-
-  get isExecuting() {
-    // 1 second ratelimit?
-    return Date.now() - this.lastExecution < this.executionRatelimit;
+    this.callbacks = [];
   }
 
   get isLoaded() {
-    return recaptchaIsLoaded();
+    return Recaptcha.isLoaded;
   }
 
-  get isRendered() {
-    return this.id !== undefined && this.id !== null;
+  get hasId() {
+    return (this.id !== undefined && this.id !== null);
   }
 
-  setRatelimit(ratelimit) {
-    this.executionRatelimit = ratelimit;
+  render(dom, unfilteredOptions) {
+    if (!Recaptcha.isLoaded) {return;}
+    this.reset();
+
+    const {callbacks, options} = filterRenderOptions(unfilteredOptions);
+    this.callbacks = callbacks;
+    this.id = Recaptcha.grecaptcha.render(dom, options);
+  }
+
+  reset() {
+    while (this.callbacks.length) {
+      const name = this.callbacks.shift();
+      delete window[name];
+    }
+    if (this.hasId && Recaptcha.isLoaded) {
+      Recaptcha.grecaptcha.reset(this.id);
+    }
+    this.id = null;
   }
 
   getResponse() {
-    if (this.isLoaded && this.isRendered) {
-      return window.grecaptcha.getResponse(this.id);
+    if (!Recaptcha.isLoaded || !this.hasId) {
+      return null;
     }
-    return null;
+    return Recaptcha.grecaptcha.getResponse(this.id);
   }
 
   execute() {
-    if (this.isLoaded && this.isRendered && !this.isExecuting) {
-      this.lastExecution = Date.now();
-      window.grecaptcha.execute(this.id);
+    if (!Recaptcha.isLoaded || !this.hasId) {
+      return null;
     }
-  }
-
-  render(dom, callback) {
-    if (this.isRendering) {return;}
-    if (this.isLoaded && !this.isRendered) {
-      this.isRendering = true;
-      this.id = window.grecaptcha.render(dom, {sitekey: config.key});
-      this.isRendering = false;
-      if (typeof(callback) === 'function') {
-        callback(this);
-      }
-    }
-  }
-
-  destroy() {
-    if (this.isLoaded && this.isRendered) {
-      window.grecaptcha.reset(this.id);
-    }
-    this.id = null;
+    return Recaptcha.grecaptcha.execute(this.id);
   }
 }
 
 
-export class Recaptcha {
+export class RecaptchaComponent {
   constructor(vnode) {
-    this.dom = null;
     this.recaptcha = new RecaptchaWrapper();
 
     if (typeof(vnode.attrs.ongrecaptcha) === 'function') {
       vnode.attrs.ongrecaptcha(this.recaptcha);
     }
-    if (typeof(vnode.attrs.ongrecaptchaload === 'function')) {
-      this.ongrecaptchaload = vnode.attrs.ongrecaptchaload;
-    }
   }
 
-  async oninit(vnode) {
-    if (!recaptchaIsLoaded()) {
-      loadRecaptcha();
+  async oncreate(vnode) {
+    this.loading = true;
+    if (!Recaptcha.isLoaded) {
+      await Recaptcha.load();
+      m.redraw();
     }
-  }
+    this.loading = false;
 
-  oncreate(vnode) {
-    this.dom = vnode.dom;
-    this.recaptcha.render(this.dom, this.ongrecaptchaload);
-    // render will be ignored if grecaptcha isn't loaded
+    this.recaptcha.render(vnode.dom, vnode.attrs);
   }
 
   onremove(vnode) {
-    this.dom = null;
-    this.recaptcha.destroy();
+    this.recaptcha.reset();
   }
 
   view(vnode) {
-    if (this.dom) {
-      this.recaptcha.render(this.dom, this.ongrecaptchaload);
-    }
-
-    return m('div', Object.assign({
-      'data-theme': 'dark',
-    }, vnode.attrs, {
-      'data-sitekey': config.key,
-      'class': 'g-recaptcha',
-    }), vnode.children);
+    return m('div', {
+      class: [
+        'g-recaptcha',
+        vnode.attrs.class,
+      ].filter((v) => v).join(' '),
+    }, [
+      (this.loading) ? [
+        'loading recaptcha...',
+      ] : [
+        'recaptcha here',
+      ],
+      vnode.children,
+    ]);
   }
-
-  ongrecaptchaload() {}
 }

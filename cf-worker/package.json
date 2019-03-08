@@ -11,7 +11,7 @@
     "author": "cakedan",
     "license": "MIT",
     "dependencies": {
-        "cf-worker-router": "^0.0.5",
+        "cf-worker-router": "^0.0.8",
         "detritus-rest": "^0.0.6",
         "webpack": "^4.29.0",
         "mithril": "^1.1.6",

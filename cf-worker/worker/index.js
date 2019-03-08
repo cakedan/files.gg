@@ -1,18 +1,29 @@
 require('mithril/test-utils/browserMock')(global);
 
-import { FetchRouter } from 'cf-worker-router';
+import { FetchRouter, HttpMethods } from 'cf-worker-router';
 
 import { 
   apiRouter,
   cdnRouter,
   stableRouter,
 } from './domains';
+import { requestStorage } from './domains/cdn';
 
 const router = new FetchRouter();
 
-router.route('/favicon.ico', '*', async(event) => {
-  return await fetch('https://cdn.files.gg/assets/favicon.ico', event.fetchRequest);
-});
+router.beforeResponse = (response, event) => {
+  if (event.originalRequest.headers.has('origin')) {
+    response = new Response(response.body, response);
+    response.headers.set('access-control-allow-headers', 'Authorization, Content-Type, X-Fingerprint');
+    response.headers.set('access-control-allow-methods', Object.values(HttpMethods).join(', '));
+    response.headers.set('access-control-allow-origin', event.originalRequest.headers.get('origin'));
+    return response;
+  }
+};
+
+router.route('/favicon.ico', '*', (event) => {
+  return requestStorage(event.originalRequest, '/assets/stable/favicon.ico');
+}, {priority: 100});
 
 router.addRouter(apiRouter);
 router.addRouter(cdnRouter);

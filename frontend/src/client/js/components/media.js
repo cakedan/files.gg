@@ -614,25 +614,20 @@ export class VideoMedia extends Media {
 
 
 
-import {
-  Monaco,
-  monacoIsLoaded,
-  requireMonaco,
-} from './monaco';
+import { Monaco, MonacoComponent } from './monaco';
 
 
 export class TextMedia {
-  oninit(vnode) {
+  async oninit(vnode) {
     const useMonaco = (vnode.attrs.useMonaco === undefined) || vnode.attrs.useMonaco;
     if (useMonaco) {
-      if (!monacoIsLoaded()) {
-        requireMonaco().then(m.redraw);
-      }
+      await Monaco.load();
+      m.redraw();
     }
   }
 
   onupdate(vnode) {
-    this.oninit(vnode);
+    return this.oninit(vnode);
   }
 
   view(vnode) {
@@ -641,12 +636,12 @@ export class TextMedia {
       class: [
         'media-container',
         'text',
-        (useMonaco && monacoIsLoaded()) ? 'is-monaco' : null,
+        (useMonaco && Monaco.isLoaded) ? 'is-monaco' : null,
       ].filter((v) => v).join(' '),
     }, [
       (useMonaco) ? [
-        (monacoIsLoaded()) ? [
-          m(Monaco, Object.assign({
+        (Monaco.isLoaded) ? [
+          m(MonacoComponent, Object.assign({
             class: 'monaco',
           }, vnode.attrs)),
         ] : [

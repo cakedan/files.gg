@@ -11,13 +11,13 @@ class ApiResponse(Response):
     default_mimetype = 'application/json'
 
     def __init__(self, data=None, status=None, **kwargs):
-        if data is not None:
+        if data is None:
+            if kwargs.get('response') is None:
+                status = 204
+        else:
             if hasattr(data, 'to_dict'):
                 data = data.to_dict()
             kwargs['response'] = json.dumps(data)
-        else:
-            status = 204
-            kwargs['response'] = None
 
         if status is not None:
             kwargs['status'] = status

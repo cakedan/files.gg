@@ -19,4 +19,4 @@ export async function requestApi(request, options) {
   return await fetch(request, options);
 };
 
-router.route('/*', '*', (event) => fetch(event.request));
+router.route('/*', '*', (event) => event.pass());
