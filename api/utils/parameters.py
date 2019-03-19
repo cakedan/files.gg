@@ -15,10 +15,18 @@ def snowflake(snowflake_id):
 def email(email):
     email = str(email)
     parts = email.split('@')
-    if len(parts) != 2 or not len(parts[0]) or len(parts[1]) < 3 or '.' not in parts[1]:
+    if len(parts) != 2:
+        raise ValueError('Not a well formed email address')
+    alias, domain = parts
+    if not len(alias) or len(domain) < 3 or '.' not in domain:
         raise ValueError('Not a well formed email address')
     if 128 < len(email):
         raise ValueError('Must be 128 characters or fewer in length')
+
+    if 64 < len(alias):
+        raise ValueError('Email alias must be under 64 characters')
+    if 255 < len(domain):
+        raise ValueError('Email domain must be under 255 characters')
     return email
 
 

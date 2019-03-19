@@ -17,18 +17,42 @@ class BaseModel(peewee.Model):
 
 class User(BaseModel):
     id = peewee.BigIntegerField(primary_key=True)
-    email = peewee.CharField(max_length=128, index=True, unique=True)
-    username = peewee.CharField(max_length=32, index=True)
+    email = peewee.CharField(max_length=128)
+    bot = peewee.BooleanField(default=False)
+    username = peewee.CharField(max_length=32)
     discriminator = peewee.IntegerField()
     password = peewee.CharField(max_length=128, null=True)
-    flags = peewee.IntegerField()
+    flags = peewee.IntegerField(default=0)
     verified = peewee.BooleanField(default=False)
+    last_email_reset = peewee.TimestampField()
+    last_password_reset = peewee.TimestampField()
+
+    def to_dict(self, me=False):
+        data = {
+            'id': str(self.id),
+            'username': self.username,
+            'discriminator': '{:04d}'.format(self.discriminator),
+            'flags': self.flags,
+        }
+        if self.bot:
+            data['bot'] = self.bot
+        if me:
+            data.update({
+                'email': self.email,
+                'verified': self.verified,
+            })
+        return data
 
     class Meta:
         db_table = 'users'
+        indexes = (
+            (('email',), True),
+            (('username',), False),
+            (('username', 'discriminator'), True),
+        )
 
 
-class Mimetypes(BaseModel):
+class Mimetype(BaseModel):
     id = peewee.CharField(max_length=100, primary_key=True)
     flags = peewee.IntegerField(default=0)
 
@@ -43,8 +67,8 @@ class Mimetypes(BaseModel):
         db_table = 'mimetypes'
 
 
-class MimetypeExtensions(BaseModel):
-    mimetype = peewee.ForeignKeyField(Mimetypes, field='id', backref='extensions')
+class MimetypeExtension(BaseModel):
+    mimetype = peewee.ForeignKeyField(Mimetype, field='id', backref='extensions')
     extension = peewee.CharField(max_length=12)
     priority = peewee.IntegerField(default=0)
 
@@ -59,7 +83,7 @@ class MimetypeExtensions(BaseModel):
         primary_key = peewee.CompositeKey('mimetype', 'extension')
 
 
-class FileHashes(BaseModel):
+class FileHash(BaseModel):
     id = peewee.BigIntegerField(primary_key=True)
     blake2b = peewee.CharField(max_length=128)
     sha1 = peewee.CharField(max_length=40)
@@ -79,10 +103,10 @@ class FileHashes(BaseModel):
 class File(BaseModel):
     id = peewee.BigIntegerField(primary_key=True)
     vanity = peewee.CharField(max_length=128, index=True, unique=True)
-    mimetype = peewee.ForeignKeyField(Mimetypes, field='id', backref='files')
+    mimetype = peewee.ForeignKeyField(Mimetype, field='id', backref='files')
     extension = peewee.CharField(max_length=12, null=True)
     filename = peewee.CharField(max_length=128)
-    hash = peewee.ForeignKeyField(FileHashes, backref='files')
+    hash = peewee.ForeignKeyField(FileHash, backref='files')
     user = peewee.ForeignKeyField(User, null=True, backref='files')
     fingerprint = peewee.BigIntegerField(null=True, index=True)
 
@@ -112,7 +136,7 @@ class File(BaseModel):
         db_table = 'files'
 
 
-class FileViews(BaseModel):
+class FileView(BaseModel):
     file = peewee.ForeignKeyField(File, field='id', backref='views')
     ip = IPNetworkField(index=True)
     timestamp = peewee.TimestampField()
@@ -124,7 +148,7 @@ class FileViews(BaseModel):
         )
 
 
-class FileAuditLogs(BaseModel):
+class FileAuditLog(BaseModel):
     file = peewee.ForeignKeyField(File, field='id', backref='logs')
 
     class Meta:
@@ -133,9 +157,9 @@ class FileAuditLogs(BaseModel):
 
 db.create_tables([
     User,
-    FileHashes,
+    FileHash,
     File,
-    FileViews,
-    Mimetypes,
-    MimetypeExtensions,
+    FileView,
+    Mimetype,
+    MimetypeExtension,
 ])

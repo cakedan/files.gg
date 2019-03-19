@@ -1,4 +1,5 @@
 from datetime import datetime
+from urllib.parse import quote
 import time
 
 from flask import Blueprint, request
@@ -90,7 +91,6 @@ def auth_register(args):
     if not captcha['success']:
         raise ApiError(metadata={'errors': {'captcha': 'Invalid Captcha'}})
 
-
     response = Mailgun.verify_email(args.email, True)
     if response.status_code != 200:
         raise ApiError(metadata={'errors': {'email': 'Error checking email'}})
@@ -104,6 +104,7 @@ def auth_register(args):
     if args.fingerprint is not None:
         if User.get_or_none(id=args.fingerprint) is not None:
             args.fingerprint = None
+
     uid = None
     if args.fingerprint is not None:
         uid = args.fingerprint
@@ -128,8 +129,8 @@ def auth_register(args):
         'type': 'verify',
     })
     Mailgun.send_mail({
-        'from': 'files.gg <noreply@files.gg>',
-        'to': '{username} <{email}>'.format(username=args.username, email=args.email),
+        'from': '"files.gg" <noreply@files.gg>',
+        'to': '"{username}" <{email}>'.format(username=quote(args.username), email=args.email),
         'subject': 'Verify Email',
         'template': 'auth-verify',
     }, {
@@ -138,7 +139,6 @@ def auth_register(args):
         'discriminator': '{:04d}'.format(discriminator),
         'url': 'https://files.gg/auth/verify/{}'.format(verification_token),
     })
-
     return ApiResponse({'token': TimestampToken.generate(uid)})
 
 
@@ -164,6 +164,28 @@ def auth_verify(args):
     user.last_email_reset = time.time()
     user.verified = True
     user.save()
+    return ApiResponse(status=204)
+
+
+@auth.route('/verify/resend', methods=['POST'])
+@wrappers.authenticate()
+def auth_verify_resend(user):
+    verification_token = TimestampToken.generate({
+        'user_id': user.id,
+        'email': user.email,
+        'type': 'verify',
+    })
+    Mailgun.send_mail({
+        'from': '"files.gg" <noreply@files.gg>',
+        'to': '"{username}" <{email}>'.format(username=quote(user.username), email=user.email),
+        'subject': 'Verify Email',
+        'template': 'auth-verify',
+    }, {
+        'email': user.email,
+        'username': user.username,
+        'discriminator': '{:04d}'.format(user.discriminator),
+        'url': 'https://files.gg/auth/verify/{}'.format(verification_token),
+    })
     return ApiResponse(status=204)
 
 

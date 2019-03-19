@@ -15,11 +15,14 @@ services:
     depends_on:
       - cloud-sql-proxy
     environment:
-      SECRET_KEY: notsosecretxd
-      RPC_KEY: RPC
+      DATABASE_URL: postgres+pool://
       GOOGLE_APPLICATION_CREDENTIALS: /credentials
-      STORAGE_BUCKET: 
-      DATABASE_URL: 
+      MAILGUN_DOMAIN: mailgun.files.gg
+      MAILGUN_TOKEN: 
+      RECAPTCHA_SECRET: 
+      RPC_KEY: 
+      SECRET_KEY: 
+      STORAGE_BUCKET: filesgg
     volumes:
       - ./gconfig.json:/credentials
     expose:
