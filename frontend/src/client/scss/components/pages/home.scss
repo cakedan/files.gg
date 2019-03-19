@@ -18,7 +18,7 @@
             margin-bottom: 25px;
 
             span {
-                @extend .button;
+                @extend .btn;
 
                 background-color: $filesBlue;
                 margin: 0 10px;
@@ -71,7 +71,7 @@
                         display: none;
                     }
                     label {
-                        @extend .button;
+                        @extend .btn;
 
                         background-color: $filesBlue;
                     }
@@ -97,7 +97,7 @@
             margin: 30px 0;
 
             .submit {
-                @extend .button;
+                @extend .btn;
 
                 width: 60%;
             }

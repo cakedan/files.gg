@@ -155,7 +155,8 @@
                 }
 
                 .download {
-                    //@extend .button;
+                    //@extend .btn;
+
                     color: $filesGreen;
                     text-decoration: none;
                     transition: .15s color ease;

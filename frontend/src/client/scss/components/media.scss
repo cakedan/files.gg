@@ -20,7 +20,7 @@
         max-width: 100%;
     }
 
-    .controls {
+    .media-controls {
         @extend .noselect;
 
         height: 32px;
@@ -316,7 +316,7 @@
 }
 
 .media-container.video {
-    .controls {
+    .media-controls {
         width: 100%;
 
         bottom: 0;
@@ -326,7 +326,7 @@
         visibility: hidden;
     }
 
-    .controls.active {
+    .media-controls.active {
         visibility: visible;
     }
 }

@@ -6,7 +6,7 @@ input {
     outline: none;
 }
 
-.button {
+.btn {
     @extend .noselect;
 
     background-color: $filesGreen;
@@ -25,7 +25,13 @@ input {
     white-space: nowrap;
 }
 
-.button.active, .button:hover, .button:focus {
+.btn.active, .btn:hover, .btn:focus {
     background-color: $filesGreenDark;
     transition: background-color .15s ease-in-out, color .15s ease-in-out, border-color .15s ease-in-out, box-shadow .15s ease-in-out;
+}
+
+.monaco-editor {
+    textarea {
+        font-size: initial !important;
+    }
 }

@@ -67,6 +67,8 @@
             justify-content: flex-end;
 
             .button {
+                @extend .btn;
+
                 padding: 10px 30px;
             }
         }

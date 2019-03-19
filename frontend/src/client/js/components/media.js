@@ -468,8 +468,7 @@ export class AudioMedia extends Media {
           m('source', vnode.attrs),
         ]),
       ]),
-      m('div', {
-        class: 'controls'}, [
+      m('div', {class: 'media-controls'}, [
         m(MediaController, {media: this.media}),
         m(MediaTimestamp, {media: this.media}),
         m(MediaBar, {media: this.media}),
@@ -560,7 +559,7 @@ export class VideoMedia extends Media {
         ]),
         m('div', {
           class: [
-            'controls',
+            'media-controls',
             (this.showControls) ? 'active' : null,
           ].filter((v) => v).join(' '),
           onmousedown: () => this.hovering = true,
