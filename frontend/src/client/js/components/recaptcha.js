@@ -186,7 +186,7 @@ export class RecaptchaComponent {
       (this.loading) ? [
         'loading recaptcha...',
       ] : [
-        'recaptcha here',
+        'recaptcha',
       ],
       vnode.children,
     ]);

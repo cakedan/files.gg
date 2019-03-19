@@ -24,10 +24,6 @@ class ApiResponse(Response):
 
         super(Response, self).__init__(**kwargs)
 
-        self.headers.add('access-control-allow-headers', '*')
-        self.headers.add('access-control-allow-methods', '*')
-        self.headers.add('access-control-allow-origin', '*')
-
 
 class ApiRedirect(ApiResponse):
     default_status = 302

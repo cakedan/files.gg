@@ -1,6 +1,6 @@
 import os
 
-from flask import Flask
+from flask import Flask, request
 from google.cloud import storage
 
 from werkzeug.contrib.fixers import ProxyFix
@@ -73,6 +73,11 @@ def before_request():
 @app.after_request
 def after_request(response):
     db.close()
+    if request.headers.get('origin', '').endswith('files.gg'):
+        response.headers.add('access-control-allow-credentials', 'true')
+        response.headers.add('access-control-allow-headers', 'Authorization, Content-Type, X-Fingerprint')
+        response.headers.add('access-control-allow-methods', 'DELETE, GET, HEAD, OPTIONS, PATCH, POST, PUT, TRACE')
+        response.headers.add('access-control-allow-origin', request.headers.get('origin'))
     return response
 
 import traceback

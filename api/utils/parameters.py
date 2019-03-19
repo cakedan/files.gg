@@ -66,6 +66,7 @@ def fingerprint(fingerprint):
 
 
 def token_email_type(token, verify_type=None):
+    # reason we don't return a function is because functions usually need the token from the reqparse
     try:
         # max_age = 3 days
         payload = TimestampToken.deconstruct(token, max_age=259200)
