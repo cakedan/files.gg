@@ -104,11 +104,8 @@ def auth_register(args):
     if args.fingerprint is not None:
         if User.get_or_none(id=args.fingerprint) is not None:
             args.fingerprint = None
-    uid = None
-    if args.fingerprint is not None:
-        uid = args.fingerprint
-    else:
-        uid = Snowflake.generate()
+ 
+    uid = args.fingerprint or Snowflake.generate()
 
     user = User.create(
         id=uid,
