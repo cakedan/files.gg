@@ -206,4 +206,10 @@
             }
         }
     }
+
+    .popup-modal {
+        .error {
+            color: $filesRed;
+        }
+    }
 }

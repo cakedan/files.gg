@@ -17,8 +17,9 @@ const production = ((process.env.NODE_ENV || '').toLowerCase() === 'production')
 
 module.exports = {
   entry: [
-    path.join(DIR.APP, 'js', 'app.js'),
-    path.join(DIR.APP, 'scss', 'app.scss'),
+    '@babel/polyfill',
+    path.join(DIR.APP, 'js', 'main.js'),
+    path.join(DIR.APP, 'scss', 'main.scss'),
   ],
   output: {
     chunkFilename: '[chunkhash].js',
@@ -28,6 +29,17 @@ module.exports = {
   },
   module: {
     rules: [
+      {
+        test: /\.js$/,
+        exclude: /node_modules/,
+        use: {
+          loader: 'babel-loader',
+          options: {
+            presets: ['@babel/preset-env'],
+            plugins: ['@babel/plugin-syntax-dynamic-import'],
+          },
+        },
+      },
       {
         test: /\.s?css$/,
         use: [
@@ -59,7 +71,6 @@ module.exports = {
   },
   mode: (production) ? 'production' : 'development',
   plugins: [
-    new webpack.IgnorePlugin(/^\.\/locale$/, /moment$/),
     new CleanWebpackPlugin(['./*.*'], {root: DIR.BUILD}),
     new MiniCssExtractPlugin({filename: (production) ? '[hash].css' : 'app.css'}),
     new ManifestPlugin({

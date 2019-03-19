@@ -55,7 +55,11 @@ export class HomePage {
         if (upload.response) {
           return m('span', upload.response.urls.main);
         } else {
-          return m('span', `uploading ${upload.type}... ${upload.progress}%`);
+          if (upload.error) {
+            return m('span', `uploading failed: reason '${upload.error}'`);
+          } else {
+            return m('span', `uploading ${upload.type}... ${upload.progress}%`);
+          }
         }
       })),
     ];

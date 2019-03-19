@@ -7,6 +7,8 @@ export const ApiRoutes = Object.freeze({
   BASE_URL: 'https://api.files.gg',
   BASE_VERSION: '',
   AUTH_FINGERPRINT: '/auth/fingerprint',
+  AUTH_FORGOT: '/auth/forgot',
+  AUTH_FORGOT_RESET: '/auth/forgot/reset',
   AUTH_LOGIN: '/auth/login',
   AUTH_LOGOUT: '/auth/logout',
   AUTH_REGISTER: '/auth/register',
@@ -39,7 +41,7 @@ export const Api = Object.freeze({
     }
 
     if (options.fingerprint === undefined || options.fingerprint) {
-      if (Fingerprint.has) {
+      if (Fingerprint.has && !Auth.hasToken) {
         options.headers['x-fingerprint'] = Fingerprint.fingerprint;
       }
     }
@@ -77,42 +79,63 @@ export const Api = Object.freeze({
   },
   fetchFile(fileId, query) {
     return this.request({
-      path: '/files/:fileId',
+      path: ApiRoutes.FILE,
       params: {fileId},
       query: query,
     });
   },
   fetchFingerprint() {
-    return this.request({path: '/auth/fingerprint'});
+    return this.request({path: ApiRoutes.AUTH_FINGERPRINT});
   },
   fetchMe() {
     return this.request({
       auth: true,
-      path: '/users/@me',
+      path: ApiRoutes.USER_ME,
     });
   },
   fetchMimetypes() {
-    return this.request({path: '/mimetypes'});
+    return this.request({path: ApiRoutes.MIMETYPES});
+  },
+  forgot(email) {
+    return this.request({
+      method: 'POST',
+      path: ApiRoutes.AUTH_FORGOT,
+      data: {email},
+    });
+  },
+  forgotReset(token, password) {
+    return this.request({
+      method: 'POST',
+      path: ApiRoutes.AUTH_FORGOT_RESET,
+      data: {token, password},
+    });
   },
   login(data) {
     return this.request({
       method: 'POST',
-      path: '/auth/login',
+      path: ApiRoutes.AUTH_LOGIN,
       data: data,
     });
   },
-  logout(data) {
+  logout() {
     return this.request({
+      auth: true,
       method: 'POST',
-      path: '/auth/logout',
-      data: data,
+      path: ApiRoutes.AUTH_LOGOUT,
     });
   },
   register(data) {
     return this.request({
       method: 'POST',
-      path: '/auth/register',
+      path: ApiRoutes.AUTH_REGISTER,
       data: data,
+    });
+  },
+  verify(token) {
+    return this.request({
+      method: 'POST',
+      path: ApiRoutes.AUTH_VERIFY,
+      data: {token},
     });
   },
   uploadFile(data, options) {
@@ -120,7 +143,7 @@ export const Api = Object.freeze({
       auth: true,
       authOptional: true,
       method: 'POST',
-      path: '/files',
+      path: ApiRoutes.FILES,
       data: data,
     }));
   },

@@ -48,9 +48,9 @@ export const Auth = Object.freeze({
     Store.token = token;
   },
   async try() {
-    if (!this.has) {
+    if (!this.hasToken) {
       this.get();
-      if (!this.has) {
+      if (!this.hasToken) {
         throw new Error('Token is required to try for auth');
       }
     }

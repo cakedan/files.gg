@@ -1,5 +1,8 @@
 import m from 'mithril';
 
+import { Api } from '../../api';
+import { Auth, Fingerprint } from '../../auth';
+import { PopupModal } from '../popup-modal';
 import { RecaptchaComponent } from '../recaptcha';
 
 const Store = {
@@ -7,6 +10,7 @@ const Store = {
   username: {value: null, valid: false, error: new Error('This field is required.'), show: false},
   password: {value: null, valid: false, error: new Error('This field is required.'), show: false},
   captcha: {valid: false, error: null, show: false},
+  forgot: {email: 'example@example.com', error: null, show: false},
 };
 
 
@@ -15,6 +19,14 @@ export class AuthLoginPage {
     this.register = window.currentPath.endsWith('/register');
 
     this.recaptcha = null;
+    this.redirect = vnode.attrs.redirect || '/dashboard';
+    if (this.redirect === window.currentPath) {
+      this.redirect = '/dashboard';
+    }
+
+    if (Auth.isAuthed) {
+      m.route.set(this.redirect);
+    }
   }
 
   flipType() {
@@ -31,18 +43,42 @@ export class AuthLoginPage {
     }
   }
 
-  forgotPassword() {
+  async forgotPassword() {
     if (this.register) {return;}
 
+    for (let key in Store) {
+      Store[key].show = false;
+    }
     Store.email.show = true;
     if (!Store.email.valid) {
       return m.redraw();
     }
-
+    Store.forgot.email = Store.email.value;
     console.log('forgot password for ', Store.email.value);
+    try {
+      const response = await Api.forgot(Store.email.value);
+      Store.forgot.error = null;
+      Store.forgot.show = true;
+      console.log(response);
+    } catch(error) {
+      if ('errors' in error) {
+        for (let key in error.errors) {
+          Store[key].error = new Error(error.errors[key]);
+          Store[key].show = true;
+          Store[key].valid = false;
+        }
+        Store.forgot.error = null;
+        Store.forgot.show = false;
+      } else {
+        Store.forgot.error = error;
+        Store.forgot.show = true;
+      }
+      console.error(error);
+    }
+    m.redraw();
   }
 
-  submit() {
+  async submit() {
     if (!this.recaptcha.isLoaded) {return;}
 
     Store.captcha.show = true;
@@ -72,6 +108,67 @@ export class AuthLoginPage {
     }
     console.log(captcha);
     console.log(Store);
+
+    let token;
+    if (this.register) {
+      try {
+        const response = await Api.register({
+          email: Store.email.value,
+          username: Store.username.value,
+          password: Store.password.value,
+          captcha: captcha,
+        });
+        token = response.token;
+      } catch(error) {
+        for (let key in error.errors) {
+          if (key in Store) {
+            Store[key].error = new Error(error.errors[key]);
+            Store[key].valid = false;
+            Store[key].show = true;
+          }
+        }
+
+        this.recaptcha.reset();
+        return m.redraw();
+      }
+    } else {
+      try {
+        const response = await Api.login({
+          email: Store.email.value,
+          password: Store.password.value,
+          captcha: captcha,
+        });
+        token = response.token;
+      } catch(error) {
+        if ('errors' in error) {
+          for (let key in error.errors) {
+            if (key in Store) {
+              Store[key].error = new Error(error.errors[key]);
+              Store[key].valid = false;
+              Store[key].show = true;
+            }
+          }
+        } else {
+          Store.password.error = new Error(error.message);
+          Store.password.valid = false;
+          Store.password.show = true;
+        }
+
+        this.recaptcha.reset();
+        return m.redraw();
+      }
+    }
+    console.log(token);
+    if (token) {
+      Auth.set(token);
+      try {
+        await Auth.try();
+        Fingerprint.clear();
+        m.route.set(this.redirect);
+      } catch(error) {
+        console.error(error);
+      }
+    }
   }
 
   view(vnode) {
@@ -81,65 +178,81 @@ export class AuthLoginPage {
     } else {
       canSubmit = Store.username.valid && Store.password.valid && Store.captcha.valid;
     }
-    return m('div', {class: 'auth-form'}, [
-      m('div', {class: 'wrapper'}, [
-        m('div', {class: 'title'}, [
-          m('span', {class: 'header'}, (this.register) ? [
-            'Create an account',
-          ] : [
-            'Login',
+    return [
+      m('div', {class: 'auth-form'}, [
+        m('div', {class: 'wrapper'}, [
+          m('div', {class: 'title'}, [
+            m('span', {class: 'header'}, (this.register) ? [
+              'Create an account',
+            ] : [
+              'Login',
+            ]),
           ]),
-        ]),
-        m('div', {class: 'information'}, [
-          m('div', {class: 'fields'}, [
-            m(EmailField, {
-              onsubmit: () => this.submit(),
-            }),
-            (this.register) ? [
-              m(UsernameField, {
+          m('div', {class: 'information'}, [
+            m('div', {class: 'fields'}, [
+              m(EmailField, {
                 onsubmit: () => this.submit(),
               }),
+              (this.register) ? [
+                m(UsernameField, {
+                  onsubmit: () => this.submit(),
+                }),
+              ] : null,
+              m(PasswordField, {
+                onsubmit: () => this.submit(),
+              }),
+            ]),
+            (!this.register) ? [
+              m('div', {class: 'forgot'}, [
+                m('span', {
+                  onclick: () => this.forgotPassword(),
+                }, 'Forgot your password?'),
+              ]),
             ] : null,
-            m(PasswordField, {
-              onsubmit: () => this.submit(),
+            m('div', {class: 'submit'}, [
+              m('span', {
+                class: (canSubmit) ? 'valid' : 'invalid',
+                onclick: () => this.submit(),
+              }, (this.register) ? 'Register' : 'Login'),
+            ]),
+            m(Flipper, {
+              register: this.register,
+              onclick: () => this.flipType(),
+            }),
+            m(CaptchaField, {
+              badge: 'inline',
+              size: 'invisible',
+              theme: 'dark',
+              ongrecaptcha: (recaptcha) => this.recaptcha = recaptcha,
+              callback: (token) => this.submit(),
+              'expired-callback': () => {
+                Store.captcha.show = true;
+                Store.captcha.valid = false;
+              },
+              'error-callback': () => {
+                Store.captcha.error = new Error('Captcha errored, probably due to network');
+                Store.captcha.show = true;
+                Store.captcha.valid = false;
+              },
             }),
           ]),
-          (!this.register) ? [
-            m('div', {class: 'forgot'}, [
-              m('span', {
-                onclick: () => this.forgotPassword(),
-              }, 'Forgot your password?'),
-            ]),
-          ] : null,
-          m('div', {class: 'submit'}, [
-            m('span', {
-              class: (canSubmit) ? 'valid' : 'invalid',
-              onclick: () => this.submit(),
-            }, (this.register) ? 'Register' : 'Login'),
-          ]),
-          m(Flipper, {
-            register: this.register,
-            onclick: () => this.flipType(),
-          }),
-          m(CaptchaField, {
-            badge: 'inline',
-            size: 'invisible',
-            theme: 'dark',
-            ongrecaptcha: (recaptcha) => this.recaptcha = recaptcha,
-            callback: (token) => this.submit(),
-            'expired-callback': () => {
-              Store.captcha.show = true;
-              Store.captcha.valid = false;
-            },
-            'error-callback': () => {
-              Store.captcha.error = new Error('Captcha errored, probably due to network');
-              Store.captcha.show = true;
-              Store.captcha.valid = false;
-            },
-          }),
         ]),
       ]),
-    ]);
+      (Store.forgot.show) ? [
+        m(PopupModal, {
+          onhide: () => Store.forgot.show = false,
+          title: (Store.forgot.error) ? 'Error Sending Email' : 'Email Sent',
+        }, [
+          (Store.forgot.error) ? [
+            m('strong', {class: 'error'}, Store.forgot.error.message),
+          ] : [
+            'Instructions to change your password has been sent to ',
+            m('strong', Store.forgot.email),
+            '. Please check your inbox and spam folder.',
+          ],
+        ]),
+      ] : null,
+    ];
   }
 }
 
@@ -154,7 +267,7 @@ class Flipper {
         m('span', {
           class: 'flipper',
           ...vnode.attrs,
-        }, 'Need to log into an account?'),
+        }, 'Need to sign into an account?'),
       ] : [
         m('span', 'Need to make an account?'),
         m('span', {
@@ -280,14 +393,24 @@ class EmailField extends Field {
       return false;
     }
 
-    const [name, domain] = parts;
-    if (!domain.includes('.')) {
+    const [alias, domain] = parts;
+    if (!alias.length || domain.length < 3 || !domain.includes('.')) {
       this.error = new Error('Not a well formed email address.');
       return false;
     }
 
     if (128 < value.length) {
       this.error = new Error('Must be under 128 characters.');
+      return false;
+    }
+
+    if (64 < alias.length) {
+      this.error = new Error('Email alias must be under 64 characters.');
+      return false;
+    }
+
+    if (255 < domain.length) {
+      this.error = new Error('Email domain must be under 255 characters.');
       return false;
     }
   }

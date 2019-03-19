@@ -7,7 +7,10 @@ import { Mimetypes } from './utils';
 
 import { Navbar } from './components/navbar';
 import {
+  AuthForgotPage,
   AuthLoginPage,
+  AuthLogoutPage,
+  AuthVerifyPage,
   ErrorPage,
   FilePage,
   HomePage,
@@ -28,10 +31,10 @@ class RouteResolver {
     this.class = ['page'].concat(...options.class).filter((v) => v).join(' ');
   }
 
-  onmatch() {
+  onmatch(args, requestedPath) {
     try {
       if (this.authRequired && !Auth.isAuthed) {
-        return m.route.set('/auth/login');
+        return m.route.set('/auth/login', null, {state: {redirect: requestedPath}});
       }
 
       return this.page;
@@ -57,11 +60,13 @@ const Routes = Object.freeze({
   '/info/:path...': new RouteResolver(ErrorPage),
   '/auth/register': new RouteResolver(AuthLoginPage, {class: 'auth-login'}),
   '/auth/login': new RouteResolver(AuthLoginPage, {class: 'auth-login'}),
-  '/auth/logout': new RouteResolver(),//pages.AuthLogout),
-  '/auth/callback': new RouteResolver(),//pages.AuthCallback),
+  '/auth/logout': new RouteResolver(AuthLogoutPage, {class: 'auth-logout'}),
+  //'/auth/callback': new RouteResolver(AuthCallbackPage), // for oauth2 logins
+  '/auth/forgot/:token': new RouteResolver(AuthForgotPage, {class: 'auth-forgot'}),
+  '/auth/verify/:token': new RouteResolver(AuthVerifyPage, {class: 'auth-verify'}),
   '/auth/:path...': new RouteResolver(ErrorPage),
-  '/dashboard': new RouteResolver(null, {authRequired: true}),//pages.Panel),
-  '/dashboard/files': new RouteResolver(null, {authRequired: true}),//pages.PanelFiles),
+  '/dashboard': new RouteResolver(null, {authRequired: true}),
+  '/dashboard/files': new RouteResolver(null, {authRequired: true}),
   '/dashboard/:path...': new RouteResolver(ErrorPage),
   '/:fileId...': new RouteResolver(FilePage, {class: 'file'}),
 });
@@ -89,19 +94,21 @@ export const Application = Object.freeze({
     m.route.prefix(prefix);
   },
   async run(id) {
-    //Head.initialize();
-    //const pages = await new Promise((resolve) => require(['./components/pages'], resolve));
+    // Head.initialize();
+    // make the auth async, but also when they go to /dashboard and aren't authed yet, wait or something
+    try {
+      await Auth.try();
+    } catch(error) {}
     m.route(this.getDiv(id), '/', Routes);
 
     const promises = [];
     promises.push((async () => {
-      try {
-        await Auth.try();
-      } catch(error) {
+      if (!Auth.isAuthed) {
         await Fingerprint.fetch();
+        m.redraw();
       }
-      m.redraw();
 
+      // maybe put it in its own little file viewer
       if (Auth.hasToken || Fingerprint.has) {
         try {
           const response = await Api.fetchFiles();

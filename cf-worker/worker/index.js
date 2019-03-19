@@ -14,6 +14,7 @@ const router = new FetchRouter();
 router.beforeResponse = (response, event) => {
   if (event.originalRequest.headers.has('origin')) {
     response = new Response(response.body, response);
+    response.headers.set('access-control-allow-credentials', 'true');
     response.headers.set('access-control-allow-headers', 'Authorization, Content-Type, X-Fingerprint');
     response.headers.set('access-control-allow-methods', Object.values(HttpMethods).join(', '));
     response.headers.set('access-control-allow-origin', event.originalRequest.headers.get('origin'));

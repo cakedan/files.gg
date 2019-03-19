@@ -4,6 +4,11 @@
     "description": "",
     "main": "webpack.config.js",
     "dependencies": {
+        "@babel/core": "^7.3.4",
+        "@babel/plugin-syntax-dynamic-import": "^7.2.0",
+        "@babel/polyfill": "^7.2.5",
+        "@babel/preset-env": "^7.3.4",
+        "babel-loader": "^8.0.5",
         "bowser": "^2.1.0",
         "clean-webpack-plugin": "^1.0.1",
         "cross-env": "^5.2.0",

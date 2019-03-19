@@ -1,0 +1,74 @@
+.popup-modal {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+
+    height: 100%;
+    width: 100%;
+
+    bottom: 0;
+    left: 0;
+    position: fixed;
+
+    .background {
+        background-color: rgba(0, 0, 0, 0.6);
+
+        height: 100%;
+        width: 100%;
+
+        bottom: 0;
+        left: 0;
+        position: absolute;
+
+        z-index: 1000;
+    }
+    .modal {
+        z-index: 1001;
+
+        max-height: 30vh;
+        max-width: 30vw;
+
+        background-color: $filesGrey;
+        border-radius: 5px;
+
+        color: $filesGreyLightest;
+        font-size: 16px;
+        line-height: 20px;
+        outline: 0;
+
+        .title {
+            border-radius: 0 0 5px 5px;
+            padding: 20px;
+
+            font-weight: 600;
+            letter-spacing: .3px;
+            text-transform: uppercase;
+        }
+
+        .body {
+            padding: 15px;
+
+            display: flex;
+            flex-direction: column;
+
+            strong {
+                text-align: center;
+            }
+        }
+
+        .footer {
+            background-color: $filesGreyDark;
+            border-radius: 0 0 5px 5px;
+            padding: 20px;
+
+            display: flex;
+            flex-direction: row;
+            justify-content: flex-end;
+
+            .button {
+                padding: 10px 30px;
+            }
+        }
+    }
+}

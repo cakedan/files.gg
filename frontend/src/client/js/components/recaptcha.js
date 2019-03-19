@@ -114,7 +114,7 @@ class RecaptchaWrapper {
 
   render(dom, unfilteredOptions) {
     if (!Recaptcha.isLoaded) {return;}
-    this.reset();
+    this.destroy();
 
     const {callbacks, options} = filterRenderOptions(unfilteredOptions);
     this.callbacks = callbacks;
@@ -122,14 +122,9 @@ class RecaptchaWrapper {
   }
 
   reset() {
-    while (this.callbacks.length) {
-      const name = this.callbacks.shift();
-      delete window[name];
-    }
     if (this.hasId && Recaptcha.isLoaded) {
       Recaptcha.grecaptcha.reset(this.id);
     }
-    this.id = null;
   }
 
   getResponse() {
@@ -144,6 +139,15 @@ class RecaptchaWrapper {
       return null;
     }
     return Recaptcha.grecaptcha.execute(this.id);
+  }
+
+  destroy() {
+    while (this.callbacks.length) {
+      const name = this.callbacks.shift();
+      delete window[name];
+    }
+    this.reset();
+    this.id = null;
   }
 }
 
@@ -169,7 +173,7 @@ export class RecaptchaComponent {
   }
 
   onremove(vnode) {
-    this.recaptcha.reset();
+    this.recaptcha.destroy();
   }
 
   view(vnode) {
