@@ -6,7 +6,9 @@ from google.cloud import storage
 from werkzeug.contrib.fixers import ProxyFix
 from werkzeug.exceptions import HTTPException
 
-from utils.generators import Snowflake, Token, Token1, TimestampToken
+from utils.generators import Snowflake, Token, TimestampToken
+from utils.mailgun import Mailgun
+from utils.recaptcha import Recaptcha
 from utils.responses import ApiError, ApiRedirect, ApiResponse
 
 from models import db
@@ -16,10 +18,11 @@ from views.files import files
 from views.google import google
 from views.me import me
 from views.mimetypes import mimetypes
+from views.users import users
 
 
 app = Flask(__name__)
-app.config.BUNDLE_ERRORS = True
+app.config['BUNDLE_ERRORS'] = True
 app.response_class = ApiResponse
 app.wsgi_app = ProxyFix(app.wsgi_app, num_proxies=1)
 
@@ -28,6 +31,7 @@ app.register_blueprint(files)
 app.register_blueprint(google)
 app.register_blueprint(me)
 app.register_blueprint(mimetypes)
+app.register_blueprint(users)
 
 
 app.secret_key = os.getenv('SECRET_KEY', 'extremely-secret')
@@ -44,6 +48,11 @@ app.config.version = '0.0.1'
 
 service_config = os.getenv('GOOGLE_APPLICATION_CREDENTIALS', '../gconfig.json')
 app.gcs = storage.Client.from_service_account_json(service_config)
+
+Mailgun.set_domain(os.getenv('MAILGUN_DOMAIN', 'mailgun.files.gg'))
+Mailgun.set_token(os.getenv('MAILGUN_TOKEN', ''))
+
+Recaptcha.set_secret(os.getenv('RECAPTCHA_SECRET', ''))
 
 Snowflake.set_epoch(1550102400000)
 Snowflake.set_worker_id(app.config.worker_id)
@@ -66,9 +75,13 @@ def after_request(response):
     db.close()
     return response
 
+import traceback
+
 @app.errorhandler(Exception)
 def on_error(error):
     if not isinstance(error, ApiError):
+        print(error)
+        print(traceback.print_exc())
         if isinstance(error, HTTPException):
             if 300 <= error.code and error.code < 400:
                 return ApiRedirect(error.headers['location'], code=error.code)

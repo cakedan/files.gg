@@ -7,41 +7,40 @@ from flask import current_app, Blueprint, request
 from flask_restful import inputs, reqparse
 from peewee import fn, JOIN
 
-from models import File, FileHashes, FileViews, Mimetypes, MimetypeExtensions
+from models import File, FileHash, FileView, Mimetype, MimetypeExtension
 from utils.errors import InvalidMimetype, UnknownFile
 from utils.generators import Snowflake, Token
-from utils.parameters import snowflake
 from utils.responses import ApiError, ApiResponse
-from utils.wrappers import authenticate
+from utils.wrappers import authenticate, parse_args
+
+import utils.helpers as helpers
+import utils.parameters as parameters
 
 files = Blueprint('files', __name__, url_prefix='/files')
 
 
-get_files_parser = reqparse.RequestParser()
-get_files_parser.add_argument('authorization', location='headers')
-get_files_parser.add_argument('x-fingerprint', location='headers', dest='fingerprint')
-get_files_parser.add_argument('limit', type=int, default=100, choices=range(1, 101), help='Must be at least or in between 1 and 100')
+parser_get_files = reqparse.RequestParser(trim=True)
+parser_get_files.add_argument('authorization', location='headers')
+parser_get_files.add_argument('x-fingerprint', location='headers', dest='fingerprint', type=parameters.fingerprint)
+parser_get_files.add_argument('limit', type=int, default=100, choices=range(1, 101), help='Must be at least or in between 1 and 100')
 
 @files.route('', methods=['GET'])
-def fetch_files():
-    args = get_files_parser.parse_args()
+@parse_args(parser_get_files)
+def fetch_files(args):
     if args.authorization is None and args.fingerprint is None:
         raise ApiError(status=401)
 
     #parse authorization header, authenticate
     query = (File
-            .select(File, fn.COUNT(FileViews.ip).alias('view_count'))
-            .join(FileViews, JOIN.LEFT_OUTER)
+            .select(File, fn.COUNT(FileView.ip).alias('view_count'))
+            .join(FileView, JOIN.LEFT_OUTER)
             .group_by(File))
 
     if args.authorization is not None:
-        raise ApiError(status=401)
+        user = helpers.get_user(args.authorization)
+        query = query.where(File.user == user)
     else:
-        try:
-            fingerprint = Token.deconstruct(args.fingerprint)
-        except:
-            raise ApiError(status=401)
-        query = query.where(File.fingerprint == fingerprint)
+        query = query.where(File.fingerprint == args.fingerprint)
 
 
     query = query.limit(args.limit)
@@ -86,26 +85,25 @@ def parse_vanity_part(part):
             vlength = int(parts.pop(0))
             return (vlength, vlength)
 
-create_files_parser = reqparse.RequestParser(trim=True)
-create_files_parser.add_argument('filename', location='values')
-create_files_parser.add_argument('vanity', location='values', default='')
-create_files_parser.add_argument('type', location='values', default='multipart', choices=('multipart', 'raw'), help='Invalid Upload Type')
+parser_create_files = reqparse.RequestParser(trim=True)
+parser_create_files.add_argument('filename', location='values')
+parser_create_files.add_argument('vanity', location='values', default='')
+parser_create_files.add_argument('type', location='values', default='multipart', choices=('multipart', 'raw'), help='Invalid Upload Type')
+parser_create_files.add_argument('authorization', location='headers')
+parser_create_files.add_argument('x-fingerprint', location='headers', dest='fingerprint', type=parameters.fingerprint)
 
 @files.route('', methods=['POST'])
-def create_file():
-    user = None
-    if request.headers.get('authorization'):
-        #authorize them
-        pass
-
-    fingerprint = None
-    if request.headers.get('x-fingerprint'):
+@parse_args(parser_create_files)
+def create_file(args):
+    fingerprint = user = None
+    if args.authorization is not None:
         try:
-            fingerprint = Token.deconstruct(request.headers.get('x-fingerprint'))
-        except Exception as error:
-            print(error)
+            user = helpers.get_user(args.authorization)
+        except:
+            raise ApiError('Invalid Authentication')
 
-    args = create_files_parser.parse_args()
+    if args.fingerprint is not None and user is None:
+        fingerprint = args.fingerprint
 
     min_vanity = max_vanity = args.vanity.count('/')
     for part in args.vanity.split('/'):
@@ -155,11 +153,11 @@ def create_file():
         elif fextension.lower() == fname[-1].lower():
             fextension = fname.pop(-1)
 
-    mime = Mimetypes.get_or_none(id=mimetype)
+    mime = Mimetype.get_or_none(id=mimetype)
     if mime is None:
         if fextension is None:
             raise InvalidMimetype()
-        mextension = MimetypeExtensions.get_or_none(extension=fextension.lower())
+        mextension = MimetypeExtension.get_or_none(extension=fextension.lower())
         if mextension is None:
             raise InvalidMimetype()
         # mime = mextension.mime
@@ -168,13 +166,13 @@ def create_file():
         # use extension to determine filetype
         if mime.id == 'application/octet-stream':
             if fextension is not None:
-                mextension = MimetypeExtensions.get_or_none(extension=fextension.lower())
+                mextension = MimetypeExtension.get_or_none(extension=fextension.lower())
                 if mextension is not None:
                     mimetype = mextension.mimetype_id
     # check flags
 
     if fextension is not None:
-        mextension = MimetypeExtensions.get_or_none(mimetype=mimetype, extension=fextension.lower())
+        mextension = MimetypeExtension.get_or_none(mimetype=mimetype, extension=fextension.lower())
         # keep extension incase its not found
         if mextension is None:
             fname.append(fextension)
@@ -184,10 +182,10 @@ def create_file():
             fextension = mextension.extension
 
     if fextension is None:
-        mextension = (MimetypeExtensions
+        mextension = (MimetypeExtension
             .select()
-            .where(MimetypeExtensions.mimetype == mimetype)
-            .order_by(MimetypeExtensions.priority.desc())
+            .where(MimetypeExtension.mimetype == mimetype)
+            .order_by(MimetypeExtension.priority.desc())
             .limit(1)
             .execute())
         if mextension:
@@ -208,9 +206,9 @@ def create_file():
     hsha1 = hashlib.sha1(fdata).hexdigest()
 
     fid = Snowflake.generate()
-    fhash = FileHashes.get_or_none(blake2b=hblake2b, md5=hmd5, sha1=hsha1)
+    fhash = FileHash.get_or_none(blake2b=hblake2b, md5=hmd5, sha1=hsha1)
     if fhash is None:
-        fhash = FileHashes.create(
+        fhash = FileHash.create(
             id=Snowflake.generate(),
             blake2b=hblake2b,
             md5=hmd5,
@@ -241,27 +239,31 @@ def create_file():
     return ApiResponse(fobj.to_dict(views=True))
 
 
-fetch_file_parser = reqparse.RequestParser()
-fetch_file_parser.add_argument('views', type=inputs.boolean, default=False)
+parser_fetch_file = reqparse.RequestParser(trim=True)
+parser_fetch_file.add_argument('views', type=inputs.boolean, default=False)
+parser_fetch_file.add_argument('vanity', location='view_args')
 
 @files.route('/<path:vanity>', methods=['GET'])
-def fetch_file(vanity):
-    args = fetch_file_parser.parse_args()
-
-    vanity = vanity.split('.').pop(0)
+@parse_args(parser_fetch_file)
+def fetch_file(args):
+    vanity = args.vanity.split('.').pop(0)
     fobj = File.get_or_none(vanity=vanity)
     if fobj is None:
         raise UnknownFile()
 
     ip = request.remote_addr
-    view = FileViews.get_or_none(file=fobj, ip=ip)
+    view = FileView.get_or_none(file=fobj, ip=ip)
     if view is None:
-        view = FileViews.create(file=fobj, ip=ip)
+        view = FileView.create(file=fobj, ip=ip)
 
     return ApiResponse(fobj.to_dict(views=args.views))
 
 
-@files.route('/<path:file_id>', methods=['DELETE'])
+parser_delete_file = reqparse.RequestParser(trim=True)
+parser_delete_file.add_argument('vanity', location='view_args')
+
+@files.route('/<path:vanity>', methods=['DELETE'])
 @authenticate()
-def delete_file(file_id):
-    return file_id
+@parse_args(parser_delete_file)
+def delete_file(user, args):
+    return args.vanity

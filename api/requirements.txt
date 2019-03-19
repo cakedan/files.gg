@@ -1,9 +1,10 @@
 Flask==1.0.2
 flask_restful==0.3.7
-peewee==3.8.1
-peewee_extra_fields==2.5.5
+requests==2.21.0
+google-cloud-storage==1.13.2
 psycopg2-binary==2.7.6.1
 psycopg2==2.7.6.1
-google-cloud-storage==1.13.2
+peewee==3.8.1
+peewee_extra_fields==2.5.5
 gunicorn==19.9.0
 gevent==1.4.0
