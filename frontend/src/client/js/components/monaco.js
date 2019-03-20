@@ -64,14 +64,26 @@ export class MonacoComponent {
 
   onbeforeupdate(vnode, old) {
     for (let key in vnode.attrs) {
-      if (key === 'options') {
+      if (key === 'settings') {
         for (let k in vnode.attrs[key]) {
-          if (vnode.attrs[key][k] !== old.attrs[key][k]) {
-            return true;
+          if (k === 'value') {
+            if (!this.editor || vnode.attrs[key][k] !== this.editor.getValue()) {
+              return true;
+            }
+          } else {
+            if (vnode.attrs[key][k] !== old.attrs[key][k]) {
+              return true;
+            }
           }
         }
-      } else if (vnode.attrs[key] !== old.attrs[key]) {
-        return true;
+      } else if (key === 'onvalue') {
+        if (vnode.attrs[key].toString() !== old.attrs[key].toString()) {
+          return true;
+        }
+      } else {
+        if (vnode.attrs[key] !== old.attrs[key]) {
+          return true;
+        }
       }
     }
     return false;
