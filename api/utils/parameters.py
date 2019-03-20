@@ -1,4 +1,5 @@
-from utils.generators import TimestampToken, Token
+from utils.tokens import FingerprintToken, UserToken
+
 
 MIN_SNOWFLAKE = 0
 MAX_SNOWFLAKE = 9223372036854775807
@@ -39,7 +40,7 @@ def username(username):
     return username
 
 
-MIN_DISCRIMINATOR = 0
+MIN_DISCRIMINATOR = 1
 MAX_DISCRIMINATOR = 9999
 def discriminator(discriminator):
     try:
@@ -60,28 +61,25 @@ def password(password):
 
 def fingerprint(fingerprint):
     try:
-        return int(Token.deconstruct(fingerprint))
+        return int(FingerprintToken.deconstruct(fingerprint))
     except:
         return None
 
 
-def token_email_type(token, verify_type=None):
-    # reason we don't return a function is because functions usually need the token from the reqparse
-    try:
-        # max_age = 3 days
-        payload = TimestampToken.deconstruct(token, max_age=259200)
-    except Exception as error:
-        raise ValueError('Invalid Token')
-    if not isinstance(payload, dict):
-        raise ValueError('Invalid Token')
-    if 'user_id' not in payload or 'email' not in payload or 'type' not in payload:
-        raise ValueError('Invalid Token')
-
-    if verify_type is not None:
-        if payload['type'] != verify_type:
+def token_email(serializer, max_age=259200):
+    # max_age = 3 days
+    def parameter(token):
+        try:
+            # max_age = 3 days
+            payload = serializer.deconstruct(token, max_age=max_age)
+        except Exception as error:
             raise ValueError('Invalid Token')
-
-    return payload
+        if not isinstance(payload, dict):
+            raise ValueError('Invalid Token')
+        if 'user_id' not in payload or 'email' not in payload:
+            raise ValueError('Invalid Token')
+        return payload
+    return parameter
 
 
 def token_authorization(token):
@@ -96,9 +94,9 @@ def token_authorization(token):
     token = parts.pop(0)
     try:
         if auth_type == 'user':
-            user_id = TimestampToken.deconstruct(token)
+            user_id = UserToken.deconstruct(token)
         elif auth_type == 'bot':
-            user_id = TimestampToken.deconstruct(token)
+            user_id = UserToken.deconstruct(token)
     except:
         raise ValueError('Invalid Token')
 

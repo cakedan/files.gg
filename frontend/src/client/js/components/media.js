@@ -620,8 +620,10 @@ export class TextMedia {
   async oninit(vnode) {
     const useMonaco = (vnode.attrs.useMonaco === undefined) || vnode.attrs.useMonaco;
     if (useMonaco) {
-      await Monaco.load();
-      m.redraw();
+      if (!Monaco.isLoaded) {
+        await Monaco.load();
+        m.redraw();
+      }
     }
   }
 

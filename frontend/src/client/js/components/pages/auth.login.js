@@ -442,8 +442,8 @@ class PasswordField extends Field {
   }
 
   validate(value) {
-    if (value.length < 5) {
-      this.error = new Error('Must be at least 5 characters.');
+    if (value.length < 6) {
+      this.error = new Error('Must be at least 6 characters.');
       return false;
     }
   }

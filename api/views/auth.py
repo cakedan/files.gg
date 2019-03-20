@@ -7,10 +7,11 @@ from flask_restful import reqparse
 from werkzeug.security import generate_password_hash, check_password_hash
 
 from models import File, User
-from utils.generators import Snowflake, TimestampToken, Token
+from utils.generators import Snowflake
 from utils.mailgun import Mailgun
 from utils.recaptcha import Recaptcha
 from utils.responses import ApiError, ApiResponse
+from utils.tokens import FingerprintToken, EmailForgotToken, EmailVerifyToken, UserToken
 
 import utils.parameters as parameters
 import utils.wrappers as wrappers
@@ -25,12 +26,16 @@ parser_get_fingerprint.add_argument('x-fingerprint', location='headers', dest='f
 @wrappers.parse_args(parser_get_fingerprint)
 def auth_fingerprint(args):
     fingerprint = args.fingerprint
-    if fingerprint is not None and User.get_or_none(id=fingerprint):
-        fingerprint = None
+    if fingerprint is not None:
+        if User.get_or_none(id=fingerprint) is not None:
+            fingerprint = None
+
     if fingerprint is None:
         fingerprint = Snowflake.generate()
 
-    return ApiResponse({'fingerprint': Token.generate(fingerprint)})
+    return ApiResponse({
+        'fingerprint': FingerprintToken.generate(fingerprint),
+    })
 
 
 parser_login = reqparse.RequestParser(trim=True)
@@ -60,7 +65,9 @@ def auth_login(args):
         query = File.update(user=user, fingerprint=None).where(File.fingerprint == args.fingerprint)
         query.execute()
 
-    return ApiResponse({'token': TimestampToken.generate(user.id)})
+    return ApiResponse({
+        'token': UserToken.generate(user.id),
+    })
 
 
 @auth.route('/logout', methods=['POST'])
@@ -123,11 +130,7 @@ def auth_register(args):
         query = File.update(user=user, fingerprint=None).where(File.fingerprint == args.fingerprint)
         query.execute()
 
-    verification_token = TimestampToken.generate({
-        'user_id': uid,
-        'email': args.email,
-        'type': 'verify',
-    })
+    token = EmailVerifyToken.generate({'user_id': uid, 'email': args.email})
     Mailgun.send_mail({
         'from': '"files.gg" <noreply@files.gg>',
         'to': '"{username}" <{email}>'.format(username=quote(args.username), email=args.email),
@@ -137,30 +140,32 @@ def auth_register(args):
         'email': args.email,
         'username': args.username,
         'discriminator': '{:04d}'.format(discriminator),
-        'url': 'https://files.gg/auth/verify/{}'.format(verification_token),
+        'url': 'https://files.gg/auth/verify/{}'.format(token),
     })
-    return ApiResponse({'token': TimestampToken.generate(uid)})
+
+    return ApiResponse({
+        'token': UserToken.generate(uid)
+    })
 
 
 parser_verify_account = reqparse.RequestParser(trim=True)
 parser_verify_account.add_argument('token', required=True)
+parser_verify_account.add_argument('token', required=True, dest='payload', type=parameters.token_email(EmailVerifyToken))
 
 @auth.route('/verify', methods=['POST'])
 @wrappers.parse_args(parser_verify_account)
 def auth_verify(args):
     try:
-        payload = parameters.token_email_type(args.token, 'verify')
-
-        user = User.get_or_none(id=payload['user_id'])
+        user = User.get_or_none(id=args.payload['user_id'])
         if not user:
             raise ValueError('Invalid Token')
-        min_timestamp = user.last_email_reset.timestamp() - TimestampToken.epoch
-        if not TimestampToken.validate(args.token, min_timestamp=min_timestamp):
+        min_timestamp = user.last_email_reset.timestamp() - EmailVerifyToken.epoch
+        if not EmailVerifyToken.validate(args.token, min_timestamp=min_timestamp):
             raise ValueError('Invalid Token')
     except Exception as error:
         raise ApiError(metadata={'errors': {'token': str(error)}})
 
-    user.email = payload['email']
+    user.email = args.payload['email']
     user.last_email_reset = time.time()
     user.verified = True
     user.save()
@@ -170,11 +175,7 @@ def auth_verify(args):
 @auth.route('/verify/resend', methods=['POST'])
 @wrappers.authenticate()
 def auth_verify_resend(user):
-    verification_token = TimestampToken.generate({
-        'user_id': user.id,
-        'email': user.email,
-        'type': 'verify',
-    })
+    token = EmailVerifyToken.generate({'user_id': user.id, 'email': user.email})
     Mailgun.send_mail({
         'from': '"files.gg" <noreply@files.gg>',
         'to': '"{username}" <{email}>'.format(username=quote(user.username), email=user.email),
@@ -184,7 +185,7 @@ def auth_verify_resend(user):
         'email': user.email,
         'username': user.username,
         'discriminator': '{:04d}'.format(user.discriminator),
-        'url': 'https://files.gg/auth/verify/{}'.format(verification_token),
+        'url': 'https://files.gg/auth/verify/{}'.format(token),
     })
     return ApiResponse(status=204)
 
@@ -199,11 +200,7 @@ def auth_forgot(args):
     if user is None:
         raise ApiError(metadata={'errors': {'email': 'Email not in use'}})
 
-    forgot_token = TimestampToken.generate({
-        'user_id': user.id,
-        'email': user.email,
-        'type': 'forgot',
-    })
+    token = EmailForgotToken.generate({'user_id': user.id, 'email': user.email})
     Mailgun.send_mail({
         'from': 'files.gg <noreply@files.gg>',
         'to': '{username} <{email}>'.format(username=user.username, email=user.email),
@@ -213,26 +210,25 @@ def auth_forgot(args):
         'email': user.email,
         'username': user.username,
         'discriminator': '{:04d}'.format(user.discriminator),
-        'url': 'https://files.gg/auth/forgot/{}'.format(forgot_token),
+        'url': 'https://files.gg/auth/forgot/{}'.format(token),
     })
     return ApiResponse(status=204)
 
 
 parser_forgot_reset = reqparse.RequestParser(trim=True)
 parser_forgot_reset.add_argument('token', required=True)
+parser_forgot_reset.add_argument('token', required=True, dest='payload', type=parameters.token_email(EmailForgotToken))
 parser_forgot_reset.add_argument('password', required=True, type=parameters.password)
 
 @auth.route('/forgot/reset', methods=['POST'])
 @wrappers.parse_args(parser_forgot_reset)
 def auth_forgot_reset(args):
     try:
-        payload = parameters.token_email_type(args.token, 'forgot')
-
-        user = User.get_or_none(id=payload['user_id'])
+        user = User.get_or_none(id=args.payload['user_id'])
         if not user:
             raise ValueError('Invalid Token')
-        min_timestamp = user.last_password_reset.timestamp() - TimestampToken.epoch
-        if not TimestampToken.validate(args.token, min_timestamp=min_timestamp):
+        min_timestamp = user.last_password_reset.timestamp() - EmailForgotToken.epoch
+        if not EmailForgotToken.validate(args.token, min_timestamp=min_timestamp):
             raise ValueError('Invalid Token')
     except Exception as error:
         raise ApiError(metadata={'errors': {'token': str(error)}})

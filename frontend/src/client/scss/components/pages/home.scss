@@ -8,7 +8,9 @@
 
     .upload {
         margin-top: 25px;
-        width: 75vw;
+        max-width: 90vw;
+        width: 600px;
+        min-width: 75vw;
 
         .upload-types {
             display: flex;

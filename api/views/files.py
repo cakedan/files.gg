@@ -9,7 +9,7 @@ from peewee import fn, JOIN
 
 from models import File, FileHash, FileView, Mimetype, MimetypeExtension
 from utils.errors import InvalidMimetype, UnknownFile
-from utils.generators import Snowflake, Token
+from utils.generators import Snowflake
 from utils.responses import ApiError, ApiResponse
 from utils.wrappers import authenticate, parse_args
 
@@ -23,6 +23,8 @@ parser_get_files = reqparse.RequestParser(trim=True)
 parser_get_files.add_argument('authorization', location='headers')
 parser_get_files.add_argument('x-fingerprint', location='headers', dest='fingerprint', type=parameters.fingerprint)
 parser_get_files.add_argument('limit', type=int, default=100, choices=range(1, 101), help='Must be at least or in between 1 and 100')
+parser_get_files.add_argument('after', location='args', type=parameters.snowflake)
+parser_get_files.add_argument('before', location='args', type=parameters.snowflake)
 
 @files.route('', methods=['GET'])
 @parse_args(parser_get_files)
@@ -30,21 +32,34 @@ def fetch_files(args):
     if args.authorization is None and args.fingerprint is None:
         raise ApiError(status=401)
 
-    #parse authorization header, authenticate
+    if args.after is not None and args.before is not None:
+        raise ApiError('Choose between before or after, not both')
+
     query = (File
             .select(File, fn.COUNT(FileView.ip).alias('view_count'))
             .join(FileView, JOIN.LEFT_OUTER)
-            .group_by(File))
+            .group_by(File)
+            .order_by(File.id.desc()))
 
+    total = 0
     if args.authorization is not None:
         user = helpers.get_user(args.authorization)
         query = query.where(File.user == user)
+        total = File.select().where(File.user == user).count()
     else:
         query = query.where(File.fingerprint == args.fingerprint)
+        total = File.select().where(File.fingerprint == args.fingerprint).count()
 
+    if args.after is not None:
+        query = query.where(File.id > args.after)
+    elif args.before is not None:
+        query = query.where(File.id < arg.before)
 
     query = query.limit(args.limit)
-    return ApiResponse([x.to_dict() for x in query])
+    return ApiResponse({
+        'total': total,
+        'files': [x.to_dict() for x in query],
+    })
 
 
 MIN_VANITY_LENGTH = 3

@@ -4,7 +4,6 @@ from flask import request
 from flask_restful import reqparse
 
 from models import User
-from utils.generators import TimestampToken
 
 import utils.helpers as helpers
 
