@@ -64,6 +64,10 @@ export class MonacoComponent {
 
   onbeforeupdate(vnode, old) {
     for (let key in vnode.attrs) {
+      if (key === 'onvalue') {
+        continue;
+      }
+
       if (key === 'settings') {
         for (let k in vnode.attrs[key]) {
           if (k === 'value') {
@@ -75,10 +79,6 @@ export class MonacoComponent {
               return true;
             }
           }
-        }
-      } else if (key === 'onvalue') {
-        if (vnode.attrs[key].toString() !== old.attrs[key].toString()) {
-          return true;
         }
       } else {
         if (vnode.attrs[key] !== old.attrs[key]) {

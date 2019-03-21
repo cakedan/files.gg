@@ -15,6 +15,424 @@ import {
 const defaultMimetype = 'application/octet-stream';
 
 const Store = {
+  upload: {
+    types: {
+      audio: {},
+      file: {
+        files: [],
+      },
+      text: {
+        data: null,
+        hashCurrent: null,
+        hashLast: null,
+        options: {
+          filename: 'random',
+          extension: 'txt',
+          language: null,
+          languageId: null,
+          type: 'text/plain',
+        },
+      },
+    },
+    settings: {
+      type: 'file',
+      vanity: null,
+    },
+  },
+  showUploads: false,
+  uploads: [],
+};
+
+const uploadTypes = ['audio', 'file', 'text'];
+
+
+export class HomePage {
+  constructor(vnode) {
+    if (vnode.attrs.type !== undefined) {
+      vnode.attrs.type = vnode.attrs.type.toLowerCase();
+      if (uploadTypes.includes(vnode.attrs.type)) {
+        Store.upload.settings.type = vnode.attrs.type;
+      }
+    }
+
+    if (vnode.attrs.language !== undefined) {
+      Store.upload.types.text.options.languageId = vnode.attrs.language;
+    }
+  }
+
+  view(vnode) {
+    return m('div', {
+      class: [
+        'modal',
+        (window.isMobile) ? 'mobile' : null,
+      ].filter((v) => v).join(' '),
+    }, [
+      m(UploadModal, vnode.attrs),
+      m('div', {class: 'divider'}),
+      m('div', {class: 'information'}, [
+        (Store.showUpload) ? [
+          m('div', {class: 'uploads'}, [
+            Store.uploads.map((upload) => {
+              if (upload.response) {
+                return m('span', upload.response.urls.main);
+              } else {
+                if (upload.error) {
+                  return m('span', `uploading failed: reason '${upload.error}'`);
+                } else {
+                  return m('span', `uploading ${upload.type}... ${upload.progress}%`);
+                }
+              }
+            }),
+          ]),
+        ] : [
+          m('div', {class: 'introduction'}, [
+            m('div', {class: 'header'}, [
+              m('div', {class: 'text'}, [
+                m('span', {class: 'title'}, 'Some File Uploader'),
+                m('span', {class: 'description'}, 'Just upload some files, more updates coming soon.'),
+              ]),
+            ]),
+            m('div', {class: 'footer'}),
+          ]),
+        ],
+        (Store.uploads.length) ? [
+          m('div', {class: 'flipper'}, [
+            m('span', {
+              onclick: () => Store.showUpload = !Store.showUpload,
+            }, `Show ${(Store.showUploads) ? 'Introduction' : 'Files'}`),
+          ]),
+        ] : null,
+      ]),
+    ]);
+  }
+}
+
+
+class UploadModal {
+  get type() {
+    return Store.upload.settings.type;
+  }
+
+  set type(value) {
+    return Store.upload.settings.type = value;
+  }
+
+  view(vnode) {
+    let UploadComponent = FileUpload;
+    switch (this.type) {
+      case 'audio': UploadComponent = AudioUpload; break;
+      case 'file': UploadComponent = FileUpload; break;
+      case 'text': UploadComponent = TextUpload; break;
+    }
+
+    return m('div', {class: 'upload'}, [
+      m('div', {class: 'types'}, [
+        uploadTypes.map((type) => {
+          return m('span', {
+            class: (this.type === type) ? 'active' : undefined,
+            onmousedown: () => this.type = type,
+          }, type.slice(0, 1).toUpperCase() + type.slice(1));
+        }),
+      ]),
+      m('div', {class: 'component'}, [
+        m(UploadComponent),
+      ]),
+    ]);
+  }
+}
+
+
+class UploadType {
+  constructor(vnode) {
+    this.type = vnode.attrs.type;
+  }
+
+  get upload() {
+    return Store.upload.types[this.type];
+  }
+
+  get canUpload() {
+    return false;
+  }
+}
+
+class AudioUpload extends UploadType {
+  oninit(vnode) {
+    this.type = 'audio';
+  }
+
+  view(vnode) {
+    return m('div', {class: 'upload-modal audio'}, [
+      'audio upload',
+    ]);
+  }
+}
+
+
+class FileComponent {
+  oninit(vnode) {
+    this.file = vnode.attrs.file;
+    this.id = vnode.attrs.id;
+
+    if (vnode.attrs.expand !== undefined) {
+      this.expand = vnode.attrs.expand;
+    }
+  }
+
+  onupdate(vnode) {
+    this.oninit(vnode);
+  }
+
+  get expand() {
+    return this.file.expand;
+  }
+
+  set expand(value) {
+    return this.file.expand = !!value;
+  }
+
+  get mimetype() {
+    return this.file.mimetype;
+  }
+
+  get iconUrl() {
+    return null;
+  }
+
+  revokeUrl() {
+    if (this.file.url) {
+      URL.revokeObjectURL(this.file.url);
+      this.file.url = null;
+    }
+  }
+
+  upload() {
+
+  }
+
+  remove() {
+    this.revokeUrl();
+    console.log(this.id, Store.upload.types.file.files);
+    console.log(Store.upload.types.file.files.splice(this.id, 1));
+    console.log(this.id, Store.upload.types.file.files);
+    m.redraw();
+  }
+
+  view(vnode) {
+    if (!this.file) {
+      return 'error';
+    }
+
+    let media;
+    if (this.expand && this.file.url) {
+      if (this.mimetype === 'audio') {
+        media = m(AudioMedia, {
+          src: this.file.url,
+          onerror: () => this.revokeUrl(),
+        });
+      } else if (this.mimetype === 'image') {
+        media = m(ImageMedia, {
+          src: this.file.url,
+          onerror: () => this.revokeUrl(),
+        });
+      } else if (this.mimetype === 'video') {
+        media = m(VideoMedia, {
+          src: this.file.url,
+          onerror: () => this.revokeUrl(),
+        });
+      }
+    }
+  
+    return m('div', {class: 'file'}, [
+      m('div', {class: 'information'}, [
+        m('div', {class: 'icon'}, [
+          'icon',
+        ]),
+        m('div', {class: 'description'}, [
+          m('div', {class: 'filename'}, [
+            m('span', this.file.name),
+          ]),
+          m('div', {class: 'filesize'}, [
+            m('span', formatBytes(this.file.size, 2)),
+          ]),
+        ]),
+        m('div', {class: 'buttons'}, [
+          m('span', {
+            class: 'action-upload material-icons',
+            title: 'Upload',
+            onclick: () => this.upload(),
+          }, 'cloud_upload'),
+          m('span', {
+            class: 'action-remove material-icons',
+            title: 'Remove',
+            onclick: () => this.remove(),
+          }, 'close'),
+        ]),
+      ]),
+      (this.expand) ? [
+        m('div', {
+          class: 'expander deactive',
+          onmousedown: () => this.expand = false,
+        }, [
+          m('span', {class: 'material-icons'}, 'expand_less'),
+        ]),
+        m('div', {class: 'expanded-content'}, [
+          (media) ? [
+            m('div', {class: 'thumbnail'}, media),
+          ] : [
+            m('span', {class: 'mimetype'}, this.file.type),
+          ],
+        ]),
+      ] : [
+        m('div', {
+          class: 'expander',
+          onmousedown: () => this.expand = true,
+        }, [
+          m('span', {class: 'material-icons'}, 'expand_more'),
+        ]),
+      ],
+    ]);
+  }
+}
+
+
+// use fragments instead, it was glitching out tho
+class FileInput {
+  oninit(vnode) {
+    this.ondom = vnode.attrs.ondom;
+
+    this._dom = null;
+  }
+
+  get dom() {
+    return this._dom;
+  }
+
+  set dom(value) {
+    this._dom = value;
+    if (typeof(this.ondom) === 'function') {
+      this.ondom(value);
+    }
+    return this._dom;
+  }
+
+  oncreate(vnode) {
+    this.dom = vnode.dom;
+  }
+
+  onremove(vnode) {
+    this.dom = null;
+  }
+
+  view(vnode) {
+    return m('input', vnode.attrs);
+  }
+}
+
+
+class FileUpload extends UploadType {
+  oninit(vnode) {
+    this.type = 'file';
+
+    this.input = null;
+  }
+
+  get files() {
+    return this.upload.files;
+  }
+
+  addFiles(files) {
+    if (!this.files.length && files.length === 1) {
+      files[0].expand = true;
+    }
+    for (let i = 0; i < files.length; i++) {
+      this.addFile(files[i]);
+    }
+    m.redraw();
+  }
+
+  addFile(value) {
+    value.mimetype = value.type.split('/').shift();
+    if (value.mimetype === 'image' || value.mimetype === 'video') {
+      value.url = URL.createObjectURL(value);
+    }
+    this.files.push(value);
+  }
+
+  view(vnode) {
+    return m('div', {class: 'upload-modal file'}, [
+      (this.files.length) ? [
+        m('div', {class: 'files'}, [
+          this.files.map((file, id) => {
+            return m(FileComponent, {file, id});
+          }),
+        ]),
+        m('div', {class: 'selector'}, [
+          m('div', {
+            class: 'picker',
+            title: 'Select Files',
+            onmousedown: () => this.input && this.input.click(),
+          }, [
+            m('div', {class: 'text'}, [
+              m('span', {
+                class: 'material-icons',
+                onmousedown: () => this.input && this.input.click(),
+              }, 'add_circle_outline'),
+              m('span', 'Select Files'),
+            ]),
+            m(FileInput, {
+              multiple: 'true',
+              type: 'file',
+              onchange: ({target}) => this.addFiles(target.files),
+              ondom: (dom) => this.input = dom,
+            }),
+          ]),
+        ]),
+        m('div', {class: 'settings'}, [
+
+        ]),
+      ] : [
+        m('div', {
+          class: 'drag-n-drop picker',
+          onmousedown: () => this.input && this.input.click(),
+        }, [
+          m('div', {class: 'content'}, [
+            m('span', 'Select Files'),
+          ]),
+          m(FileInput, {
+            multiple: 'true',
+            type: 'file',
+            onchange: ({target}) => this.addFiles(target.files),
+            ondom: (dom) => this.input = dom,
+          }),
+        ]),
+      ],
+    ]);
+  }
+}
+
+
+class TextUpload extends UploadType {
+  oninit(vnode) {
+    this.type = 'text';
+  }
+
+  get canUpload() {
+    if (this.upload.hashCurrent === this.upload.hashLast) {
+      return false;
+    }
+    return !!this.upload.data;
+  }
+
+  view(vnode) {
+    return m('div', {class: 'upload-modal text'}, [
+      'text upload',
+    ]);
+  }
+}
+
+/*
+const Store = {
   audio: {},
   file: {
     file: null,
@@ -40,14 +458,6 @@ const Store = {
 
 
 export class HomePage {
-  oninit(vnode) {
-    /*
-    Head.setMetas({
-      title: 'File Uploader',
-    });
-    */
-  }
-
   view(vnode) {
     return [
       m(UploadField, vnode.attrs),
@@ -373,20 +783,6 @@ class TextUpload {
             }
 
             return m('option', {
-              /*
-              onmousedown: () => {
-                console.log(language);
-                this.options.language = language;
-                if (language.mimetypes) {
-                  this.options.type = language.mimetypes[0];
-                  //iterate through all of the mimetypes and match vs ours
-                } else {
-                  this.options.extension = 'txt';
-                  this.options.type = 'text/plain';
-                }
-                m.redraw();
-              },
-              */
               selected: selected,
               value: language.id,
             }, language.id);
@@ -405,3 +801,4 @@ class TextUpload {
     ];
   }
 }
+*/

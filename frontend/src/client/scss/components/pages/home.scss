@@ -1,6 +1,398 @@
 .page.home {
     display: flex;
     flex-direction: column;
+    justify-content: center;
+
+    .modal {
+        display: flex;
+        flex-direction: row;
+
+        height: 70vh;
+        width: 75vw;
+
+        background-color: $filesGreyDark;
+        border-radius: 5px;
+        box-shadow: 0 9px 30px rgba(6, 6, 7, .3);
+        box-sizing: border-box;
+        padding: 10px;
+
+        .divider {
+            align-self: center;
+            border-radius: 5px;
+            height: 95%;
+            width: 2px;
+            background-color: $filesGreyLightish;
+            position: relative;
+        }
+
+        .upload {
+            width: 60%;
+
+            display: flex;
+            flex-direction: column;
+
+            .types {
+                display: flex;
+                flex-direction: row;
+                justify-content: center;
+
+                height: 35px;
+                margin: 10px 0;
+
+                span {
+                    @extend .btn;
+    
+                    background-color: $filesBlue;
+                    margin: 0 10px;
+                }
+                span:hover, span:focus, span.active {
+                    background-color: $filesBlueDark;
+                }
+                span.active  {
+                    cursor: not-allowed;
+                }
+            }
+
+            .component {
+                height: calc(100% - 55px);
+
+                .upload-modal {
+                    height: 100%;
+                    width: 100%;
+                }
+                .upload-modal.file {
+                    display: flex;
+                    flex-direction: column;
+                    align-items: center;
+                    justify-content: center;
+
+                    .drag-n-drop {
+                        height: 95%;
+                        width: 95%;
+                        border: 2px dashed rgba($filesGreen, 0.8);
+                        border-radius: 5px;
+                        transition: border .15s ease-in-out;
+
+                        .content {
+                            display: flex;
+                            align-items: center;
+                            justify-content: center;
+
+                            height: 100%;
+                            width: 100%;
+
+                            span {
+                                @extend .btn;
+                            }
+                        }
+                    }
+                    .drag-n-drop:hover, .drag-n-drop:focus {
+                        border: 2px dashed rgba($filesGreenDark, 0.8);
+                        transition: border .15s ease-in-out;
+                    }
+
+                    .files {
+                        display: flex;
+                        flex-direction: column;
+                        align-items: center;
+
+                        height: 80%;
+                        width: 95%;
+                        background-color: $filesBlack;
+                        border-radius: 5px 5px 0 0;
+                        box-shadow: 0 9px 30px rgba(6, 6, 7, .3);
+                        box-sizing: border-box;
+                        overflow: auto;
+                        padding: 10px 0;
+
+                        .file {
+                            flex-shrink: 0;
+
+                            display: flex;
+                            flex-direction: column;
+
+                            width: 95%;
+                            background-color: $filesGrey;
+                            border-radius: 5px;
+                            box-shadow: 0 9px 30px rgba(6, 6, 7, .3);
+                            box-sizing: border-box;
+                            margin: 5px;
+
+                            .information {
+                                display: flex;
+                                flex-direction: row;
+
+                                height: 60px;
+                                width: 100%;
+
+                                .icon {
+                                    display: flex;
+                                    align-items: center;
+                                    justify-content: center;
+
+                                    width: 15%;
+
+                                    color: $filesGreyLight;
+                                }
+
+                                .description {
+                                    display: flex;
+                                    flex-direction: column;
+                                    justify-content: center;
+
+                                    width: 65%;
+
+                                    .filename {
+                                        color: $filesGreyLightest;
+                                        overflow: hidden;
+                                        text-overflow: ellipsis;
+                                        white-space: nowrap;
+                                    }
+                                    .filesize {
+                                        color: $filesGreyLight;
+                                    }
+                                }
+
+                                .buttons {
+                                    display: flex;
+                                    flex-direction: row;
+                                    align-items: center;
+                                    justify-content: space-around;
+                                    width: 20%;
+
+                                    span {
+                                        color: $filesGreen;
+                                        cursor: pointer;
+                                        transition: .15s color ease;
+                                    }
+                                    span:hover, span:focus {
+                                        color: $filesGreenDark;
+                                        transition: .15s color ease;
+                                    }
+                                    .action-remove {
+                                        color: $filesRed;
+                                    }
+                                    .action-remove:hover, .action-remove:focus {
+                                        color: $filesRed;
+                                    }
+                                }
+                            }
+
+                            .expanded-content {
+                                @extend .noselect;
+
+                                display: flex;
+                                flex-direction: column;
+                                align-items: center;
+                                justify-content: center;
+
+                                height: auto;
+                                width: 100%;
+                                background-color: rgba($filesBlack, 0.7);
+                                border: 1px solid rgba($filesRed, 0.8);
+                                border-radius: 0 0 5px 5px;
+                                box-sizing: border-box;
+                                color: $filesGreyLighter;
+
+                                .thumbnail {
+                                    margin: 10px;
+
+                                    .media-container {
+                                        img, video {
+                                            max-height: 250px;
+                                            max-width: 250px;
+                                        }
+                                    }
+                                }
+
+                                .mimetype {
+                                    margin: 10px;
+                                }
+                            }
+
+                            .expander {
+                                display: flex;
+                                align-items: center;
+                                justify-content: center;
+
+                                height: 10px;
+                                width: 100%;
+                                background-color: rgba($filesGreen, 0.8);
+                                border-radius: 0 0 5px 5px;
+                                cursor: pointer;
+                                transition: background-color .15s ease-in-out, border-radius .15s ease-in-out;
+
+                                span {
+                                    font-size: 18px;
+                                }
+                            }
+                            .expander:hover, .expander:focus {
+                                background-color: rgba($filesRed, 0.8);
+                            }
+                            .expander.deactive {
+                                background-color: rgba($filesRed, 0.8);
+                                border-radius: 0;
+                            }
+                            .expander.deactive:hover, .expander.deactive:focus {
+                                background-color: rgba($filesRed, 0.8);
+                            }
+                        }
+                    }
+
+                    .selector {
+                        @extend .noselect;
+
+                        display: flex;
+                        flex-direction: row;
+                        align-items: center;
+                        justify-content: center;
+
+                        height: 8%;
+                        width: 95%;
+                        background-color: $filesBlack;
+                        border-radius: 0 0 5px 5px;
+
+                        .picker {
+                            height: 75%;
+
+                            .text {
+                                display: flex;
+                                flex-direction: row;
+                                align-items: center;
+                                justify-content: center;
+
+                                height: 100%;
+                                span {
+                                    color: $filesGreen;
+                                    font-size: 22px;
+                                    line-height: 1;
+                                    margin: 0 5px;
+                                    text-align: center;
+                                    transition: color .15s ease-in-out;
+                                }
+                                span:hover, span:focus {
+                                    color: $filesGreenDark;
+                                    transition: color .15s ease-in-out;
+                                }
+                            }
+                        }
+                    }
+
+                    .settings {
+                        height: 12%;
+                        width: 100%;
+                    }
+                }
+            }
+        }
+
+        .information {
+            display: flex;
+            flex-direction: column;
+
+            width: 40%;
+
+            .uploads {
+                display: flex;
+                flex-direction: column;
+
+                height: 100%;
+            }
+
+            .introduction {
+                display: flex;
+                flex-direction: column;
+
+                height: 100%;
+
+                .header {
+                    display: flex;
+                    flex-direction: column;
+                    align-items: center;
+                    justify-content: center;
+                    height: 80%;
+
+                    .text {
+                        span {
+                            display: block;
+                        }
+
+                        .title {
+                            font-size: 30px;
+                            font-weight: 600;
+                            text-align: center;
+                            text-transform: uppercase;
+                        }
+
+                        .description {
+                            opacity: 0.4;
+                        }
+                    }
+                }
+                .footer {
+                    display: flex;
+                    flex-direction: row;
+                    align-items: flex-end;
+                    justify-content: flex-end;
+
+                    height: 20%;
+                }
+            }
+
+            .flipper {
+                @extend .noselect;
+
+                display: flex;
+                flex-direction: row;
+                justify-content: flex-end;
+
+                color: $filesGreen;
+                cursor: pointer;
+                margin: 5px;
+                transition: color .15s;
+            }
+            .flipper:hover {
+                color: $filesGreenDark;
+                transition: color .15s;
+            }
+        }
+    }
+
+    .modal.mobile {
+        flex-direction: column;
+
+        height: 90vh;
+        width: 90vw;
+
+        .upload {
+            height: 60%;
+            width: 100%;
+        }
+
+        .uploads {
+            height: 40%;
+            width: 100%;
+        }
+
+        .introduction {
+            height: 40%;
+            width: 100%;
+        }
+    }
+
+    .picker {
+        cursor: pointer;
+
+        input {
+            display: none;
+        }
+    }
+}
+
+/*
+.page.home {
+    display: flex;
+    flex-direction: column;
 
     .title {
 
@@ -119,3 +511,4 @@
         align-items: center;
     }
 }
+*/
