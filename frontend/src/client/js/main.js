@@ -22,7 +22,10 @@ Object.defineProperty(window, 'savedVolume', {
       if (Number.isNaN(savedVolume)) {
         localStorage.removeKey('savedVolume');
       } else {
-        volume = savedVolume;
+        volume = Math.max(Math.min(savedVolume, 100), 0);
+        if (savedVolume !== volume) {
+          localStorage.setItem('savedVolume', volume);
+        }
       }
     }
     return volume;
@@ -31,7 +34,9 @@ Object.defineProperty(window, 'savedVolume', {
     if (typeof(volume) !== 'number') {
       throw new TypeError('Volume has to be a number');
     }
+    volume = Math.max(Math.min(volume, 100), 0);
     localStorage.setItem('savedVolume', volume);
+    return volume;
   },
 });
 

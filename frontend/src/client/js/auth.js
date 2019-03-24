@@ -6,13 +6,27 @@ import { Api } from './api';
 const Store = {
   fingerprint: null,
   isAuthed: false,
+  isAuthing: true,
   me: null,
   token: null,
+  waiting: [],
 };
 
 export const Auth = Object.freeze({
   get isAuthed() {
     return Store.isAuthed;
+  },
+  get isAuthing() {
+    return Store.isAuthing;
+  },
+  set isAuthing(value) {
+    Store.isAuthing = value;
+    if (!value) {
+      while (Store.waiting.length) {
+        (Store.waiting.shift())();
+      }
+    }
+    return Store.isAuthing;
   },
   get token() {
     return Store.token;
@@ -27,7 +41,7 @@ export const Auth = Object.freeze({
 
     Store.token = null;
     Store.isAuthed = false;
-
+    Auth.isAuthing = false;
     if (redraw === undefined || redraw) {
       m.redraw();
     }
@@ -48,9 +62,11 @@ export const Auth = Object.freeze({
     Store.token = token;
   },
   async try() {
+    Auth.isAuthing = true;
     if (!this.hasToken) {
       this.get();
       if (!this.hasToken) {
+        Auth.isAuthing = false;
         throw new Error('Token is required to try for auth');
       }
     }
@@ -58,9 +74,15 @@ export const Auth = Object.freeze({
     try {
       Store.me = await Api.fetchMe();
       Store.isAuthed = true;
+      Auth.isAuthing = false;
     } catch(error) {
       this.clear();
       throw error;
+    }
+  },
+  async waitForAuth() {
+    if (this.isAuthing) {
+      await new Promise((resolve) => Store.waiting.push(resolve));
     }
   },
 });

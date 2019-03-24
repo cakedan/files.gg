@@ -60,16 +60,10 @@ class FileItem {
       // maybe parse xml/json, or add a button for it
       if (Mimetypes.isAudioType(this.file.mimetype)) {
         return m(AudioMedia, {
+          title: this.file.name,
           src: this.file.urls.cdn,
           onerror: () => this.showIcon = true,
         });
-        return m('audio', {controls: true}, [
-          m('source', {
-            src: this.file.urls.cdn,
-            preload: 'metadata',
-            onerror: () => this.showIcon = true,
-          }),
-        ]);
       }
 
       if (Mimetypes.isImageType(this.file.mimetype)) {
@@ -108,6 +102,7 @@ class FileItem {
 
       if (Mimetypes.isVideoType(this.file.mimetype)) {
         return m(VideoMedia, {
+          title: this.file.name,
           src: this.file.urls.cdn,
           onerror: () => this.showIcon = true,
         });

@@ -57,7 +57,7 @@ class MediaWrapper {
   }
 
   get volume() {
-    return (this.isCreated) ? this.media.volume * 100 : 100;
+    return (this.isCreated) ? this.media.volume * 100 : window.savedVolume;
   }
 
   set volume(volume) {
@@ -515,10 +515,43 @@ export class VideoMedia extends Media {
     this.useCustomControls = !window.browser.satisfies({
       safari: '>=0',
     });
+
+    this.listeners = {
+      fullscreenchange: this.onFullscreenChange.bind(this),
+      keydown: this.onKeyDown.bind(this),
+    };
+    for (let listener in this.listeners) {
+      document.addEventListener(listener, this.listeners[listener]);
+    }
   }
 
   get showControls() {
     return this.hovering || this.interacting.media || this.interacting.volume;
+  }
+
+  onFullscreenChange(event) {
+    if (document.fullscreenElement) {
+      return;
+    }
+    // user just unfullscreened the browser
+    if (this.fullscreen) {
+      this.fullscreen = false;
+      m.redraw();
+    }
+  }
+
+  onKeyDown(event) {
+    if (event.key === 'Escape') {
+      this.fullscreen = false;
+    }
+  }
+
+  onremove(vnode) {
+    super.onremove.call(this, vnode);
+
+    for (let listener in this.listeners) {
+      document.removeEventListener(listener, this.listeners[listener]);
+    }
   }
 
   view(vnode) {
@@ -536,7 +569,7 @@ export class VideoMedia extends Media {
             if (this.fullscreen) {
               this.fullscreen = false;
               m.redraw();
-              if (document.fullscreenEnabled) {
+              if (document.fullscreenEnabled && document.fullscreenElement) {
                 document.exitFullscreen();
               }
             }
@@ -583,9 +616,13 @@ export class VideoMedia extends Media {
               m.redraw();
               if (document.fullscreenEnabled) {
                 if (this.fullscreen) {
-                  document.body.requestFullscreen();
+                  if (!document.fullscreenElement) {
+                    document.body.requestFullscreen().catch(() => {});
+                  }
                 } else {
-                  document.exitFullscreen();
+                  if (document.fullscreenElement) {
+                    document.exitFullscreen();
+                  }
                 }
               }
             },

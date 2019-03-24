@@ -319,7 +319,7 @@
     .media-controls {
         width: 100%;
 
-        bottom: 0;
+        bottom: -1px;
         position: absolute;
 
         background-color: rgba($mediaBar, 0.6);
@@ -328,6 +328,11 @@
 
     .media-controls.active {
         visibility: visible;
+    }
+}
+.media-container.video.fullscreen {
+    .media-controls {
+        bottom: 0;
     }
 }
 

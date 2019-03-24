@@ -26,21 +26,28 @@ class RouteResolver {
 
     this.authRequired = !!options.authRequired;
 
-    if (!Array.isArray(options.class)) {
-      options.class = [options.class];
+    if (Array.isArray(options.class)) {
+      options.class = ['page', ...options.class];
+    } else {
+      options.class = ['page', options.class];
     }
-    this.class = ['page'].concat(...options.class).filter((v) => v).join(' ');
+    this.class = options.class.filter((v) => v).join(' ');
   }
 
-  onmatch(args, requestedPath) {
-    try {
-      if (this.authRequired && !Auth.isAuthed) {
-        return m.route.set('/auth/login', null, {state: {redirect: requestedPath}});
-      }
+  async onmatch(args, requestedPath) {
+    // on match can be a promise, it'll wait to resolve it
+    // wait for auth if auth required?
 
+    try {
+      if (this.authRequired) {
+        await Auth.waitForAuth();
+        if (!Auth.isAuthed) {
+          return m.route.set('/auth/login', null, {state: {redirect: requestedPath}});
+        }
+      }
       return this.page;
     } catch(error) {
-      console.log(error);
+      console.error(error);
       return m.route.set('/info/error', null, {state: {error: error.stack}});
     }
   }
@@ -62,14 +69,14 @@ const Routes = Object.freeze({
   '/auth/register': new RouteResolver(AuthLoginPage, {class: 'auth-login'}),
   '/auth/login': new RouteResolver(AuthLoginPage, {class: 'auth-login'}),
   '/auth/logout': new RouteResolver(AuthLogoutPage, {class: 'auth-logout'}),
-  //'/auth/callback': new RouteResolver(AuthCallbackPage), // for oauth2 logins
+  //'/auth/callback/:token': new RouteResolver(AuthCallbackPage), // for oauth2 logins
   '/auth/forgot/:token': new RouteResolver(AuthForgotPage, {class: 'auth-forgot'}),
   '/auth/verify/:token': new RouteResolver(AuthVerifyPage, {class: 'auth-verify'}),
   '/auth/:path...': new RouteResolver(ErrorPage),
   '/dashboard': new RouteResolver(null, {authRequired: true}),
   '/dashboard/configs': new RouteResolver(DashboardConfigsPage, {authRequired: true, class: 'dashboard-configs'}),
   '/dashboard/files': new RouteResolver(null, {authRequired: true}),
-  '/dashboard/:path...': new RouteResolver(ErrorPage),
+  '/dashboard/:path...': new RouteResolver(ErrorPage, {authRequired: true}),
   '/:fileId...': new RouteResolver(FilePage, {class: 'file'}),
 });
 
@@ -98,26 +105,17 @@ export const Application = Object.freeze({
   async run(id) {
     // Head.initialize();
     // make the auth async, but also when they go to /dashboard and aren't authed yet, wait or something
-    try {
-      await Auth.try();
-    } catch(error) {}
     m.route(this.getDiv(id), '/', Routes);
 
     const promises = [];
     promises.push((async () => {
+      try {
+        await Auth.try();
+      } catch(error) {}
+
       if (!Auth.isAuthed) {
         await Fingerprint.fetch();
         m.redraw();
-      }
-
-      // maybe put it in its own little file viewer
-      if (Auth.hasToken || Fingerprint.has) {
-        try {
-          const response = await Api.fetchFiles();
-          console.log(response);
-        } catch(error) {
-          console.error(error);
-        }
       }
     })());
     promises.push(Mimetypes.fetch());

@@ -10,10 +10,13 @@
         height: 70vh;
         width: 75vw;
 
+        min-height: 650px;
+
         background-color: $filesGreyDark;
         border-radius: 5px;
         box-shadow: 0 9px 30px rgba(6, 6, 7, .3);
         box-sizing: border-box;
+        margin-bottom: 25px;
         padding: 10px;
 
         .divider {
@@ -26,7 +29,7 @@
         }
 
         .upload {
-            width: 60%;
+            width: 52%;
 
             display: flex;
             flex-direction: column;
@@ -60,6 +63,20 @@
                     height: 100%;
                     width: 100%;
                 }
+
+                .upload-modal.audio {
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+
+                    span {
+                        font-size: 30px;
+                        font-weight: 600;
+                        text-align: center;
+                        text-transform: uppercase;
+                    }
+                }
+
                 .upload-modal.file {
                     display: flex;
                     flex-direction: column;
@@ -91,196 +108,236 @@
                         transition: border .15s ease-in-out;
                     }
 
-                    .files {
+                    .selected-files {
                         display: flex;
                         flex-direction: column;
                         align-items: center;
+                        justify-content: center;
 
-                        height: 80%;
+                        height: 95%;
                         width: 95%;
+
                         background-color: $filesBlack;
-                        border-radius: 5px 5px 0 0;
+                        border-radius: 5px;
                         box-shadow: 0 9px 30px rgba(6, 6, 7, .3);
                         box-sizing: border-box;
-                        overflow: auto;
-                        padding: 10px 0;
 
-                        .file {
-                            flex-shrink: 0;
-
+                        .files {
                             display: flex;
                             flex-direction: column;
+                            align-items: center;
 
-                            width: 95%;
-                            background-color: $filesGrey;
-                            border-radius: 5px;
-                            box-shadow: 0 9px 30px rgba(6, 6, 7, .3);
-                            box-sizing: border-box;
-                            margin: 5px;
+                            height: 80%;
+                            width: 100%;
+                            overflow: auto;
+                            padding: 10px 0;
 
-                            .information {
-                                display: flex;
-                                flex-direction: row;
-
-                                height: 60px;
-                                width: 100%;
-
-                                .icon {
-                                    display: flex;
-                                    align-items: center;
-                                    justify-content: center;
-
-                                    width: 15%;
-
-                                    color: $filesGreyLight;
-                                }
-
-                                .description {
-                                    display: flex;
-                                    flex-direction: column;
-                                    justify-content: center;
-
-                                    width: 65%;
-
-                                    .filename {
-                                        color: $filesGreyLightest;
-                                        overflow: hidden;
-                                        text-overflow: ellipsis;
-                                        white-space: nowrap;
-                                    }
-                                    .filesize {
-                                        color: $filesGreyLight;
-                                    }
-                                }
-
-                                .buttons {
-                                    display: flex;
-                                    flex-direction: row;
-                                    align-items: center;
-                                    justify-content: space-around;
-                                    width: 20%;
-
-                                    span {
-                                        color: $filesGreen;
-                                        cursor: pointer;
-                                        transition: .15s color ease;
-                                    }
-                                    span:hover, span:focus {
-                                        color: $filesGreenDark;
-                                        transition: .15s color ease;
-                                    }
-                                    .action-remove {
-                                        color: $filesRed;
-                                    }
-                                    .action-remove:hover, .action-remove:focus {
-                                        color: $filesRed;
-                                    }
-                                }
-                            }
-
-                            .expanded-content {
-                                @extend .noselect;
+                            .file {
+                                flex-shrink: 0;
 
                                 display: flex;
                                 flex-direction: column;
-                                align-items: center;
-                                justify-content: center;
 
-                                height: auto;
-                                width: 100%;
-                                background-color: rgba($filesBlack, 0.7);
-                                border: 1px solid rgba($filesRed, 0.8);
-                                border-radius: 0 0 5px 5px;
+                                width: 95%;
+                                background-color: $filesGrey;
+                                border-radius: 5px;
+                                box-shadow: 0 9px 30px rgba(6, 6, 7, .3);
                                 box-sizing: border-box;
-                                color: $filesGreyLighter;
+                                margin: 5px;
 
-                                .thumbnail {
-                                    margin: 10px;
+                                .information {
+                                    display: flex;
+                                    flex-direction: row;
 
-                                    .media-container {
-                                        img, video {
-                                            max-height: 250px;
-                                            max-width: 250px;
+                                    height: 60px;
+                                    width: 100%;
+
+                                    .icon {
+                                        display: flex;
+                                        align-items: center;
+                                        justify-content: center;
+
+                                        width: 15%;
+
+                                        color: $filesGreyLight;
+                                    }
+
+                                    .description {
+                                        display: flex;
+                                        flex-direction: column;
+                                        justify-content: center;
+
+                                        width: 65%;
+
+                                        .filename {
+                                            color: $filesGreyLightest;
+                                            overflow: hidden;
+                                            text-overflow: ellipsis;
+                                            white-space: nowrap;
+                                        }
+                                        .filesize {
+                                            color: $filesGreyLight;
+                                        }
+                                    }
+
+                                    .buttons {
+                                        display: flex;
+                                        flex-direction: row;
+                                        align-items: center;
+                                        justify-content: space-around;
+                                        width: 20%;
+
+                                        span {
+                                            color: $filesGreen;
+                                            cursor: pointer;
+                                            transition: .15s color ease;
+                                        }
+                                        span:hover, span:focus {
+                                            color: $filesGreenDark;
+                                            transition: .15s color ease;
+                                        }
+                                        .action-remove {
+                                            color: $filesRed;
+                                        }
+                                        .action-remove:hover, .action-remove:focus {
+                                            color: $filesRed;
                                         }
                                     }
                                 }
 
-                                .mimetype {
-                                    margin: 10px;
+                                .expanded-content {
+                                    @extend .noselect;
+
+                                    display: flex;
+                                    flex-direction: column;
+                                    align-items: center;
+                                    justify-content: center;
+
+                                    height: auto;
+                                    width: 100%;
+                                    background-color: rgba($filesBlack, 0.7);
+                                    border: 1px solid rgba($filesRed, 0.8);
+                                    border-radius: 0 0 5px 5px;
+                                    box-sizing: border-box;
+                                    color: $filesGreyLighter;
+
+                                    .thumbnail {
+                                        margin: 10px;
+
+                                        .media-container {
+                                            img, video {
+                                                max-height: 250px;
+                                                max-width: 250px;
+                                            }
+                                        }
+                                    }
+
+                                    .mimetype {
+                                        margin: 10px;
+                                    }
                                 }
-                            }
 
-                            .expander {
-                                display: flex;
-                                align-items: center;
-                                justify-content: center;
+                                .expander {
+                                    display: flex;
+                                    align-items: center;
+                                    justify-content: center;
 
-                                height: 10px;
-                                width: 100%;
-                                background-color: rgba($filesGreen, 0.8);
-                                border-radius: 0 0 5px 5px;
-                                cursor: pointer;
-                                transition: background-color .15s ease-in-out, border-radius .15s ease-in-out;
+                                    height: 10px;
+                                    width: 100%;
+                                    background-color: rgba($filesGreen, 0.8);
+                                    border-radius: 0 0 5px 5px;
+                                    cursor: pointer;
+                                    transition: background-color .15s ease-in-out, border-radius .15s ease-in-out;
 
-                                span {
-                                    font-size: 18px;
+                                    span {
+                                        font-size: 18px;
+                                    }
                                 }
-                            }
-                            .expander:hover, .expander:focus {
-                                background-color: rgba($filesRed, 0.8);
-                            }
-                            .expander.deactive {
-                                background-color: rgba($filesRed, 0.8);
-                                border-radius: 0;
-                            }
-                            .expander.deactive:hover, .expander.deactive:focus {
-                                background-color: rgba($filesRed, 0.8);
+                                .expander:hover, .expander:focus {
+                                    background-color: rgba($filesRed, 0.8);
+                                }
+                                .expander.deactive {
+                                    background-color: rgba($filesRed, 0.8);
+                                    border-radius: 0;
+                                }
+                                .expander.deactive:hover, .expander.deactive:focus {
+                                    background-color: rgba($filesRed, 0.8);
+                                }
                             }
                         }
+
+                        .selector {
+                            @extend .noselect;
+
+                            display: flex;
+                            flex-direction: row;
+                            align-items: center;
+                            justify-content: center;
+
+                            height: 20%;
+                            width: 95%;
+
+                            .picker {
+                                height: 75%;
+
+                                .text {
+                                    display: flex;
+                                    flex-direction: row;
+                                    align-items: center;
+                                    justify-content: center;
+
+                                    height: 100%;
+                                    span {
+                                        color: $filesGreen;
+                                        font-size: 22px;
+                                        line-height: 1;
+                                        margin: 0 5px;
+                                        text-align: center;
+                                        transition: color .15s ease-in-out;
+                                    }
+                                    span:hover, span:focus {
+                                        color: $filesGreenDark;
+                                        transition: color .15s ease-in-out;
+                                    }
+                                }
+                            }
+                        }
+
+                        .settings {
+                            //height: 12%;
+                            //width: 100%;
+                        }
+                    }
+                }
+
+                .upload-modal.text {
+                    display: flex;
+                    flex-direction: column;
+                    align-items: center;
+                    justify-content: center;
+
+                    .languages {
+                        margin: 5px 0;
                     }
 
-                    .selector {
-                        @extend .noselect;
-
-                        display: flex;
-                        flex-direction: row;
-                        align-items: center;
-                        justify-content: center;
-
-                        height: 8%;
+                    .media-container {
+                        height: 95%;
                         width: 95%;
-                        background-color: $filesBlack;
-                        border-radius: 0 0 5px 5px;
-
-                        .picker {
-                            height: 75%;
-
-                            .text {
-                                display: flex;
-                                flex-direction: row;
-                                align-items: center;
-                                justify-content: center;
-
-                                height: 100%;
-                                span {
-                                    color: $filesGreen;
-                                    font-size: 22px;
-                                    line-height: 1;
-                                    margin: 0 5px;
-                                    text-align: center;
-                                    transition: color .15s ease-in-out;
-                                }
-                                span:hover, span:focus {
-                                    color: $filesGreenDark;
-                                    transition: color .15s ease-in-out;
-                                }
-                            }
-                        }
                     }
 
-                    .settings {
-                        height: 12%;
-                        width: 100%;
+                    .submit {
+                        margin: 5px 0;
+
+                        span {
+                            @extend .btn;
+                        }
+                        span.disabled {
+                            background-color: $filesRed;
+                            cursor: not-allowed;
+                        }
+                        span.disabled:hover, span.disabled:focus {
+                            background-color: $filesRed;
+                        }
                     }
                 }
             }
@@ -290,13 +347,126 @@
             display: flex;
             flex-direction: column;
 
-            width: 40%;
+            width: 48%;
 
             .uploads {
                 display: flex;
                 flex-direction: column;
+                align-items: center;
 
                 height: 100%;
+                width: 99%;
+                overflow: auto;
+                padding: 10px 0;
+
+                .uploaded-file {
+                    flex-shrink: 0;
+
+                    display: flex;
+                    flex-direction: column;
+
+                    width: 95%;
+                    background-color: $filesGrey;
+                    border-radius: 5px;
+                    box-shadow: 0 9px 30px rgba(6, 6, 7, .3);
+                    box-sizing: border-box;
+                    margin: 5px;
+
+                    .information {
+                        display: flex;
+                        flex-direction: row;
+
+                        height: 60px;
+                        width: 100%;
+
+                        .icon {
+                            display: flex;
+                            align-items: center;
+                            justify-content: center;
+
+                            width: 15%;
+
+                            color: $filesGreyLight;
+                        }
+
+                        .description {
+                            display: flex;
+                            flex-direction: column;
+                            justify-content: center;
+
+                            width: 65%;
+
+                            .filename {
+                                color: $filesGreyLightest;
+                                overflow: hidden;
+                                text-overflow: ellipsis;
+                                white-space: nowrap;
+                            }
+                            .filesize {
+                                color: $filesGreyLight;
+                            }
+                        }
+
+                        .buttons {
+                            display: flex;
+                            flex-direction: row;
+                            align-items: center;
+                            justify-content: space-around;
+                            width: 20%;
+
+                            span {
+                                color: $filesGreen;
+                                cursor: pointer;
+                                transition: .15s color ease;
+                            }
+                            span:hover, span:focus {
+                                color: $filesGreenDark;
+                                transition: .15s color ease;
+                            }
+                            .action-remove {
+                                color: $filesRed;
+                            }
+                            .action-remove:hover, .action-remove:focus {
+                                color: $filesRed;
+                            }
+                        }
+                    }
+
+                    .progress {
+                        align-self: center;
+
+                        background-color: $filesGreyLight;
+                        border-radius: 5px;
+                        height: 5px;
+                        width: 98%;
+
+                        margin: 5px 0;
+
+                        .fill {
+                            background-color: $filesGreen;
+                            border-radius: 5px;
+                            height: 100%;
+                        }
+                        .fill.filling {
+                            background-color: $filesYellow;
+                        }
+                        .fill.error {
+                            background-color: $filesRed;
+                            width: 100%;
+                        }
+                    }
+
+                    .footer {
+                        display: flex;
+                        align-items: center;
+                        justify-content: center;
+                        margin: 5px 0;
+
+                        span {
+                            color: $filesGreyLightest;
+                        }
+                    }
+                }
             }
 
             .introduction {
@@ -326,6 +496,7 @@
 
                         .description {
                             opacity: 0.4;
+                            text-align: center;
                         }
                     }
                 }
@@ -364,19 +535,19 @@
         height: 90vh;
         width: 90vw;
 
+        min-height: 850px;
+
         .upload {
-            height: 60%;
+            height: 52%;
             width: 100%;
         }
-
-        .uploads {
-            height: 40%;
+        .information {
+            height: 48%;
             width: 100%;
         }
-
-        .introduction {
-            height: 40%;
-            width: 100%;
+        .divider {
+            height: 2px;
+            width: 95%;
         }
     }
 
