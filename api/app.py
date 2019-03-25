@@ -6,7 +6,7 @@ from google.cloud import storage
 from werkzeug.contrib.fixers import ProxyFix
 from werkzeug.exceptions import HTTPException
 
-from utils.generators import Snowflake, Token, TimestampToken
+from utils.generators import Snowflake
 from utils.mailgun import Mailgun
 from utils.recaptcha import Recaptcha
 from utils.responses import ApiError, ApiRedirect, ApiResponse
@@ -35,13 +35,12 @@ app.register_blueprint(users)
 
 
 app.secret_key = os.getenv('SECRET_KEY', 'extremely-secret')
-app.secret_salt = os.getenv('SECRET_SALT', 'extremely-salty')
 
 app.config.rpc_key = os.getenv('RPC_KEY', 'very-rpc')
 app.config.storage_bucket = os.getenv('STORAGE_BUCKET', 'filesgg')
 
 app.config.worker_id = os.getpid()
-#get compute engine id
+#get compute engine id?
 app.config.datacenter_id = 0
 
 app.config.version = '0.0.1'
@@ -57,13 +56,6 @@ Recaptcha.set_secret(os.getenv('RECAPTCHA_SECRET', ''))
 Snowflake.set_epoch(1550102400000)
 Snowflake.set_worker_id(app.config.worker_id)
 Snowflake.set_datacenter_id(app.config.datacenter_id)
-
-Token.set_secret(app.secret_key)
-Token.set_salt(app.secret_salt)
-
-TimestampToken.set_epoch(0)
-TimestampToken.set_secret(app.secret_key)
-TimestampToken.set_salt(app.secret_salt)
 
 
 @app.before_request

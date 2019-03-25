@@ -157,17 +157,21 @@
                                         align-items: center;
                                         justify-content: center;
 
-                                        width: 15%;
-
                                         color: $filesGreyLight;
+                                        margin: 0 10px;
+
+                                        .material-icons {
+                                            font-size: 32px;
+                                        }
                                     }
 
                                     .description {
+                                        flex-grow: 1;
                                         display: flex;
                                         flex-direction: column;
                                         justify-content: center;
 
-                                        width: 65%;
+                                        min-width: 0;
 
                                         .filename {
                                             color: $filesGreyLightest;
@@ -185,11 +189,11 @@
                                         flex-direction: row;
                                         align-items: center;
                                         justify-content: space-around;
-                                        width: 20%;
 
                                         span {
                                             color: $filesGreen;
                                             cursor: pointer;
+                                            margin: 0 10px;
                                             transition: .15s color ease;
                                         }
                                         span:hover, span:focus {
@@ -216,7 +220,7 @@
                                     height: auto;
                                     width: 100%;
                                     background-color: rgba($filesBlack, 0.7);
-                                    border: 1px solid rgba($filesRed, 0.8);
+                                    border: 1px solid rgba($filesGreyLight, 0.8);
                                     border-radius: 0 0 5px 5px;
                                     box-sizing: border-box;
                                     color: $filesGreyLighter;
@@ -226,8 +230,14 @@
 
                                         .media-container {
                                             img, video {
-                                                max-height: 250px;
-                                                max-width: 250px;
+                                                max-height: 300px;
+                                                max-width: 300px;
+                                            }
+                                        }
+                                        .media-container.audio {
+                                            width: 300px;
+                                            .media-controls {
+                                                border-radius: 5px;
                                             }
                                         }
                                     }
@@ -244,7 +254,7 @@
 
                                     height: 10px;
                                     width: 100%;
-                                    background-color: rgba($filesGreen, 0.8);
+                                    background-color: $filesGreyLight;
                                     border-radius: 0 0 5px 5px;
                                     cursor: pointer;
                                     transition: background-color .15s ease-in-out, border-radius .15s ease-in-out;
@@ -254,14 +264,14 @@
                                     }
                                 }
                                 .expander:hover, .expander:focus {
-                                    background-color: rgba($filesRed, 0.8);
+                                    background-color: rgba($filesGreyLight, 0.8);
                                 }
-                                .expander.deactive {
-                                    background-color: rgba($filesRed, 0.8);
+                                .expander.deactivate {
+                                    background-color: rgba($filesGreyLight, 0.8);
                                     border-radius: 0;
                                 }
-                                .expander.deactive:hover, .expander.deactive:focus {
-                                    background-color: rgba($filesRed, 0.8);
+                                .expander.deactivate:hover, .expander.deactivate:focus {
+                                    background-color: rgba($filesGreyLight, 0.8);
                                 }
                             }
                         }
@@ -359,6 +369,35 @@
                 overflow: auto;
                 padding: 10px 0;
 
+                .uploads-divider {
+                    margin: 5px 0;
+                    text-align: center;
+                    width: 90%;
+
+                    span {
+                        display: flex;
+                        align-items: center;
+
+                        color: $filesGreyLight;
+                        font-size: 14px;
+                        font-weight: 500;
+                        line-height: 19px;
+                    }
+                    span::before {
+                        border-bottom: 1px solid rgba($filesGreyLight, 0.8);
+                        content: '';
+                        flex-grow: 1;
+                        height: 1px;
+                        margin-right: 8px;
+                    }
+                    span::after {
+                        border-bottom: 1px solid rgba($filesGreyLight, 0.8);
+                        content: '';
+                        flex-grow: 1;
+                        height: 1px;
+                        margin-left: 8px;
+                    }
+                }
                 .uploaded-file {
                     flex-shrink: 0;
 
@@ -384,17 +423,21 @@
                             align-items: center;
                             justify-content: center;
 
-                            width: 15%;
-
                             color: $filesGreyLight;
+                            margin: 0 10px;
+
+                            .material-icons {
+                                font-size: 32px;
+                            }
                         }
 
                         .description {
+                            flex-grow: 1;
                             display: flex;
                             flex-direction: column;
                             justify-content: center;
 
-                            width: 65%;
+                            min-width: 0;
 
                             .filename {
                                 color: $filesGreyLightest;
@@ -412,16 +455,22 @@
                             flex-direction: row;
                             align-items: center;
                             justify-content: space-around;
-                            width: 20%;
 
                             span {
                                 color: $filesGreen;
                                 cursor: pointer;
+                                margin: 0 10px;
                                 transition: .15s color ease;
                             }
                             span:hover, span:focus {
                                 color: $filesGreenDark;
                                 transition: .15s color ease;
+                            }
+                            .action-retry {
+                                color: $filesYellow;
+                            }
+                            .action-retry:hover, .action-retry:focus {
+                                color: $filesYellow;
                             }
                             .action-remove {
                                 color: $filesRed;
@@ -432,7 +481,7 @@
                         }
                     }
 
-                    .progress {
+                    .upload-progress {
                         align-self: center;
 
                         background-color: $filesGreyLight;
@@ -465,6 +514,71 @@
                         span {
                             color: $filesGreyLightest;
                         }
+                    }
+
+                    .expanded-content {
+                        @extend .noselect;
+
+                        display: flex;
+                        flex-direction: column;
+                        align-items: center;
+                        justify-content: center;
+
+                        height: auto;
+                        width: 100%;
+                        background-color: rgba($filesBlack, 0.7);
+                        border: 1px solid rgba($filesGreyLight, 0.8);
+                        border-radius: 0 0 5px 5px;
+                        box-sizing: border-box;
+                        color: $filesGreyLighter;
+
+                        .thumbnail {
+                            margin: 10px;
+
+                            .media-container {
+                                img, video {
+                                    max-height: 300px;
+                                    max-width: 300px;
+                                }
+                            }
+                            .media-container.audio {
+                                width: 300px;
+                                .media-controls {
+                                    border-radius: 5px;
+                                }
+                            }
+                        }
+
+                        .mimetype {
+                            margin: 10px;
+                        }
+                    }
+
+                    .expander {
+                        display: flex;
+                        align-items: center;
+                        justify-content: center;
+
+                        height: 10px;
+                        width: 100%;
+                        background-color: $filesGreyLight;
+                        border-radius: 0 0 5px 5px;
+                        cursor: pointer;
+                        transition: background-color .15s ease-in-out, border-radius .15s ease-in-out;
+
+                        span {
+                            font-size: 18px;
+                        }
+                    }
+                    .expander:hover, .expander:focus {
+                        background-color: rgba($filesGreyLight, 0.8);
+                    }
+                    .expander.deactivate {
+                        background-color: rgba($filesGreyLight, 0.8);
+                        border-radius: 0;
+                    }
+                    .expander.deactivate:hover, .expander.deactivate:focus {
+                        background-color: rgba($filesGreyLight, 0.8);
                     }
                 }
             }
@@ -553,10 +667,9 @@
 
     .picker {
         cursor: pointer;
-
-        input {
-            display: none;
-        }
+    }
+    input[type="file"] {
+        display: none;
     }
 }
 

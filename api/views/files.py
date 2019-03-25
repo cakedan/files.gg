@@ -53,7 +53,7 @@ def fetch_files(args):
     if args.after is not None:
         query = query.where(File.id > args.after)
     elif args.before is not None:
-        query = query.where(File.id < arg.before)
+        query = query.where(File.id < args.before)
 
     query = query.limit(args.limit)
     return ApiResponse({

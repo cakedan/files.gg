@@ -256,7 +256,7 @@ export class FilePage {
               ontouchmove: (event) => this.onMouseMove(event),
               ontouchcancel: (event) => this.onMouseUp(event),
               ontouchend: (event) => this.onMouseUp(event),
-            }, 'rounded_corner'),
+            }, 'texture'),
           ]),
         ] : null,
       ]),

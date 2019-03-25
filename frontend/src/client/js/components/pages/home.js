@@ -55,7 +55,13 @@ const Store = {
     },
   },
   showUploads: false,
-  uploads: [],
+  uploads: {
+    isAtEnd: false,
+    isFetching: false,
+    total: 0,
+    files: [],
+    uploading: [],
+  },
 };
 
 
@@ -79,21 +85,31 @@ export class HomePage {
     if (!Auth.isAuthed && !Fingerprint.has) {
       return;
     }
+
+    Store.uploads.isFetching = true;
     try {
       const response = await Api.fetchFiles();
+      if (response.total === response.files.length) {
+        Store.uploads.isAtEnd = true;
+      }
       if (response.files.length) {
+        Store.uploads.total = response.total;
         for (let upload of response.files) {
           const file = new FileObject({
             response: upload,
             type: 'upload',
           });
-          Store.uploads.push(file);
+          Store.uploads.files.push(file);
+        }
+        if (Store.uploads.files.length === response.total) {
+          Store.uploads.files.isAtEnd = true;
         }
         m.redraw();
       }
     } catch(error) {
       console.error(error);
     }
+    Store.uploads.isFetching = false;
   }
 
   view(vnode) {
@@ -107,8 +123,56 @@ export class HomePage {
       m('div', {class: 'divider'}),
       m('div', {class: 'information'}, [
         (Store.showUploads) ? [
-          m('div', {class: 'uploads'}, [
-            Store.uploads.map((file) => m(UploadedFile, {file})),
+          m('div', {
+            class: 'uploads',
+            onscroll: async ({target}) => {
+              // if like 80% through, fetch more files if not at end
+              // scrollTop and scrollHeight
+              const percentage = (target.scrollTop / target.scrollHeight) * 100;
+              if (percentage < 85) {
+                return;
+              }
+              if (Store.uploads.isAtEnd || Store.uploads.isFetching) {
+                return;
+              }
+              Store.uploads.isFetching = true;
+              try {
+                const lastFile = Store.uploads.files[Store.uploads.files.length - 1];
+                const response = await Api.fetchFiles({
+                  before: lastFile.response.id,
+                });
+                Store.uploads.total = response.total;
+                if (response.files.length) {
+                  for (let upload of response.files) {
+                    const file = new FileObject({
+                      response: upload,
+                      type: 'upload',
+                    });
+                    Store.uploads.files.push(file);
+                  }
+                  if (Store.uploads.files.length === response.total) {
+                    Store.uploads.isAtEnd = true;
+                  }
+                  m.redraw();
+                }
+              } catch(error) {
+                console.error(error);
+              }
+              Store.uploads.isFetching = false;
+            },
+          }, [
+            (Store.uploads.uploading.length) ? [
+              m('div', {class: 'uploads-divider'}, [
+                m('span', `Uploading ${Store.uploads.uploading.length.toLocaleString()} Files`),
+              ]),
+              Store.uploads.uploading.map((file) => m(UploadedFile, {file})),
+            ] : null,
+            (Store.uploads.files.length) ? [
+              m('div', {class: 'uploads-divider'}, [
+                m('span', `Uploaded ${Store.uploads.total.toLocaleString()} Files`),
+              ]),
+              Store.uploads.files.map((file) => m(UploadedFile, {file})),
+            ] : null,
           ]),
         ] : [
           m('div', {class: 'introduction'}, [
@@ -121,7 +185,7 @@ export class HomePage {
             m('div', {class: 'footer'}),
           ]),
         ],
-        (Store.uploads.length) ? [
+        (Store.uploads.files.length) ? [
           m('div', {class: 'flipper'}, [
             m('span', {
               onclick: () => Store.showUploads = !Store.showUploads,
@@ -137,20 +201,116 @@ export class HomePage {
 class UploadedFile {
   oninit(vnode) {
     this.file = vnode.attrs.file;
+
+    if (vnode.attrs.expand !== undefined) {
+      this.expand = vnode.attrs.expand;
+    }
   }
 
   onupdate(vnode) {
     this.oninit(vnode);
   }
 
+  get expand() {
+    return this.file.expand;
+  }
+
+  set expand(value) {
+    return this.file.expand = !!value;
+  }
+
+  setExpand(event, expand) {
+    event.preventDefault();
+    return this.expand = expand;
+  }
+
   remove() {
-    // delete file?
+    if (this.file.error) {
+      for (let key in Store.uploads.uploading) {
+        if (Store.uploads.uploading[key] === this.file) {
+          Store.uploads.uploading.splice(key, 1);
+          m.redraw();
+          break;
+        }
+      }
+      return this.file.destroy();
+    }
+    if (this.file.progress !== 100) {
+      return this.file.abort();
+    }
+    // delete file from api now
+  }
+
+  async retry() {
+    if (!this.file.error) {return;}
+    this.file.error = null;
+
+    // retry upload
+    try {
+      const form = new FormData();
+
+      switch (this.file.type) {
+        case UploadTypes.FILE: {
+          form.append('file', this.file.file);
+        }; break;
+        case UploadTypes.TEXT: {
+          form.append('file', this.file.file.blob);
+          form.append('filename', this.file.name);
+        }; break;
+      }
+
+      const response = await Api.uploadFile(form, {
+        config: (xhr) => this.file.setXhr(xhr),
+        serialize: (v) => v,
+      });
+
+      for (let key in Store.uploads.uploading) {
+        if (Store.uploads.uploading[key] === this.file) {
+          Store.uploads.uploading.splice(key, 1);
+          break;
+        }
+      }
+
+      Store.uploads.files.unshift(this.file);
+      Store.uploads.total++;
+      this.file.setResponse(response);
+    } catch(error) {
+      this.file.setError(error);
+    }
+    m.redraw();
   }
 
   view(vnode) {
     // remember to revoke upload.file.url if exists if delete
     if (!this.file) {
       return 'error';
+    }
+
+    let media;
+    if (this.expand && this.file.url) {
+      switch (this.file.mimetype.split('/').shift()) {
+        case 'audio': {
+          media = m(AudioMedia, {
+            title: this.file.name,
+            src: this.file.url,
+            onerror: () => this.file.revokeUrl(),
+          });
+        }; break;
+        case 'image': {
+          media = m(ImageMedia, {
+            title: this.file.name,
+            src: this.file.url,
+            onerror: () => this.file.revokeUrl(),
+          });
+        }; break;
+        case 'video': {
+          media = m(VideoMedia, {
+            title: this.file.name,
+            src: this.file.url,
+            onerror: () => this.file.revokeUrl(),
+          });
+        }; break;
+      }
     }
 
     return m('div', {class: 'uploaded-file'}, [
@@ -167,6 +327,13 @@ class UploadedFile {
           ]),
         ]),
         m('div', {class: 'buttons'}, [
+          (this.file.error) ? [
+            m('span', {
+              class: 'action-retry material-icons',
+              title: 'Retry',
+              onclick: () => this.retry(),
+            }, 'replay'),
+          ] : null,
           // retry button?
           m('span', {
             class: 'action-remove material-icons',
@@ -175,7 +342,7 @@ class UploadedFile {
           }, 'close'),
         ]),
       ]),
-      m('div', {class: 'progress'}, [
+      m('div', {class: 'upload-progress'}, [
         (this.file.error) ? [
           m('div', {class: 'fill error'}),
         ] : [
@@ -196,6 +363,30 @@ class UploadedFile {
             m('span', this.file.response.urls.main),
           ],
         ]),
+      ] : null,
+      (!this.file.error) ? [
+        (this.expand) ? [
+          m('div', {
+            class: 'expander deactivate',
+            onmousedown: (event) => this.setExpand(event, false),
+          }, [
+            m('span', {class: 'material-icons'}, 'expand_less'),
+          ]),
+          m('div', {class: 'expanded-content'}, [
+            (media) ? [
+              m('div', {class: 'thumbnail'}, media),
+            ] : [
+              m('span', {class: 'mimetype'}, this.file.mimetype),
+            ],
+          ]),
+        ] : [
+          m('div', {
+            class: 'expander',
+            onmousedown: (event) => this.setExpand(event, true),
+          }, [
+            m('span', {class: 'material-icons'}, 'expand_more'),
+          ]),
+        ],
       ] : null,
     ]);
   }
@@ -285,6 +476,7 @@ class UploadType {
   }
 }
 
+
 class AudioUpload extends UploadType {
   constructor(vnode) {
     vnode.attrs.type = UploadTypes.AUDIO;
@@ -323,7 +515,7 @@ class FileUpload extends UploadType {
 
   addFile(value) {
     value.mimetype = value.type.split('/').shift();
-    if (value.mimetype === 'image' || value.mimetype === 'video') {
+    if (value.mimetype === 'audio' || value.mimetype === 'image' || value.mimetype === 'video') {
       value.url = URL.createObjectURL(value);
     }
     this.files.push(value);
@@ -348,12 +540,6 @@ class FileUpload extends UploadType {
                 m('span', {class: 'material-icons'}, 'add_circle_outline'),
                 m('span', 'Select Files'),
               ]),
-              m(FileInput, {
-                multiple: 'true',
-                type: 'file',
-                onchange: ({target}) => this.addFiles(target.files),
-                ondom: (dom) => this.input = dom,
-              }),
             ]),
           ]),
           m('div', {class: 'settings'}, [
@@ -368,14 +554,17 @@ class FileUpload extends UploadType {
           m('div', {class: 'content'}, [
             m('span', 'Select Files'),
           ]),
-          m(FileInput, {
-            multiple: 'true',
-            type: 'file',
-            onchange: ({target}) => this.addFiles(target.files),
-            ondom: (dom) => this.input = dom,
-          }),
         ]),
       ],
+      m(FileInput, {
+        multiple: 'true',
+        type: 'file',
+        onchange: ({target}) => {
+          this.addFiles(target.files);
+          target.value = '';
+        },
+        ondom: (dom) => this.input = dom,
+      }),
     ]);
   }
 }
@@ -416,16 +605,21 @@ class TextUpload extends UploadType {
     }
     this.upload.hashes.last = this.upload.hashes.current;
 
+    let filename = 'random';
+    if (this.upload.options.filename) {
+      filename = [this.upload.options.filename, this.upload.options.extension].filter((v) => v).join('.');
+    }
+
     const blob = new Blob([this.upload.data], {type: this.upload.options.type});
     const file = new FileObject({
       file: {
         blob: blob,
-        name: this.upload.options.filename,
         extension: this.upload.options.extension,
+        name: filename,
       },
       type: UploadTypes.TEXT,
     });
-    Store.uploads.unshift(file);
+    Store.uploads.uploading.unshift(file);
     Store.upload.types.file.files.splice(this.id, 1);
     Store.showUploads = true;
     m.redraw();
@@ -433,22 +627,27 @@ class TextUpload extends UploadType {
     try {
       const form = new FormData();
       form.append('file', blob);
-      if (this.upload.options.filename) {
-        const filename = [this.upload.options.filename, this.upload.options.extension].filter((v) => v).join('.');
-        form.append('filename', filename);
-      } else {
-        form.append('filename', 'random');
-      }
+      form.append('filename', filename);
 
       const response = await Api.uploadFile(form, {
         config: (xhr) => file.setXhr(xhr),
         serialize: (v) => v,
       });
+
+      for (let key in Store.uploads.uploading) {
+        if (Store.uploads.uploading[key] === file) {
+          Store.uploads.uploading.splice(key, 1);
+          break;
+        }
+      }
+
+      Store.uploads.files.unshift(file);
+      Store.uploads.total++;
       file.setResponse(response);
     } catch(error) {
       file.setError(error);
     }
-    console.log(file);
+    m.redraw();
   }
 
   view(vnode) {
@@ -547,6 +746,11 @@ class FileComponent {
     return null;
   }
 
+  setExpand(event, expand) {
+    event.preventDefault();
+    return this.expand = expand;
+  }
+
   revokeUrl() {
     if (this.file.url) {
       URL.revokeObjectURL(this.file.url);
@@ -556,10 +760,11 @@ class FileComponent {
 
   async upload() {
     const file = new FileObject({
+      expand: this.expand,
       file: this.file,
       type: UploadTypes.FILE,
     });
-    Store.uploads.unshift(file);
+    Store.uploads.uploading.unshift(file);
     Store.upload.types.file.files.splice(this.id, 1);
     Store.showUploads = true;
     m.redraw();
@@ -571,10 +776,21 @@ class FileComponent {
         config: (xhr) => file.setXhr(xhr),
         serialize: (v) => v,
       });
+
+      for (let key in Store.uploads.uploading) {
+        if (Store.uploads.uploading[key] === file) {
+          Store.uploads.uploading.splice(key, 1);
+          break;
+        }
+      }
+
+      Store.uploads.files.unshift(file);
+      Store.uploads.total++;
       file.setResponse(response);
     } catch(error) {
       file.setError(error);
     }
+    m.redraw();
   }
 
   remove() {
@@ -590,24 +806,28 @@ class FileComponent {
 
     let media;
     if (this.expand && this.file.url) {
-      if (this.mimetype === 'audio') {
-        media = m(AudioMedia, {
-          title: this.file.name,
-          src: this.file.url,
-          onerror: () => this.revokeUrl(),
-        });
-      } else if (this.mimetype === 'image') {
-        media = m(ImageMedia, {
-          title: this.file.name,
-          src: this.file.url,
-          onerror: () => this.revokeUrl(),
-        });
-      } else if (this.mimetype === 'video') {
-        media = m(VideoMedia, {
-          title: this.file.name,
-          src: this.file.url,
-          onerror: () => this.revokeUrl(),
-        });
+      switch (this.file.mimetype) {
+        case 'audio': {
+          media = m(AudioMedia, {
+            title: this.file.name,
+            src: this.file.url,
+            onerror: () => this.revokeUrl(),
+          });
+        }; break;
+        case 'image': {
+          media = m(ImageMedia, {
+            title: this.file.name,
+            src: this.file.url,
+            onerror: () => this.revokeUrl(),
+          });
+        }; break;
+        case 'video': {
+          media = m(VideoMedia, {
+            title: this.file.name,
+            src: this.file.url,
+            onerror: () => this.revokeUrl(),
+          });
+        }; break;
       }
     }
   
@@ -639,8 +859,8 @@ class FileComponent {
       ]),
       (this.expand) ? [
         m('div', {
-          class: 'expander deactive',
-          onclick: () => this.expand = false,
+          class: 'expander deactivate',
+          onmousedown: (event) => this.setExpand(event, false),
         }, [
           m('span', {class: 'material-icons'}, 'expand_less'),
         ]),
@@ -654,7 +874,7 @@ class FileComponent {
       ] : [
         m('div', {
           class: 'expander',
-          onclick: () => this.expand = true,
+          onmousedown: (event) => this.setExpand(event, true),
         }, [
           m('span', {class: 'material-icons'}, 'expand_more'),
         ]),
@@ -701,6 +921,7 @@ class FileInput {
 class FileObject {
   constructor(options) {
     options = Object.assign({
+      expand: false,
       file: null,
       response: null,
       type: UploadTypes.FILE,
@@ -715,6 +936,11 @@ class FileObject {
     if (this.response) {
       this.progress = 100;
     }
+
+    this.expand = !!options.expand;
+    this.cdnUrlValid = true;
+
+    this.xhr = null;
   }
 
   get name() {
@@ -738,6 +964,42 @@ class FileObject {
       }
     }
     return 'Unknown';
+  }
+
+  get mimetype() {
+    if (this.response) {
+      return this.response.mimetype;
+    }
+    if (this.file) {
+      switch (this.type) {
+        case UploadTypes.FILE: {
+          return this.file.type;
+        };
+        case UploadTypes.TEXT: {
+          return this.file.blob.type;
+        };
+      }
+    }
+    return 'unknown';
+  }
+
+  get url() {
+    if (this.response) {
+      if (this.cdnUrlValid) {
+        return this.response.urls.cdn;
+      } else {
+        return null;
+      }
+    }
+
+    if (this.file) {
+      switch (this.type) {
+        case UploadTypes.FILE: {
+          return this.file.url;
+        };
+      }
+    }
+    return null;
   }
 
   get size() {
@@ -774,6 +1036,7 @@ class FileObject {
   }
 
   setXhr(xhr) {
+    this.xhr = xhr;
     if (xhr.upload) {
       xhr.upload.onprogress = (event) => {
         this.progress = Math.ceil((event.loaded / event.total) * 100);
@@ -782,7 +1045,19 @@ class FileObject {
     }
   }
 
+  abort() {
+    if (!this.xhr) {return;}
+    if (this.progress === 100) {return;}
+    this.xhr.abort();
+    this.xhr = null;
+    this.progress = 0;
+    this.setError(new Error('File Upload Aborted'));
+  }
+
   revokeUrl() {
+    if (this.response) {
+      this.cdnUrlValid = false;
+    }
     switch (this.type) {
       case UploadTypes.FILE: {
         if (this.file.url) {
@@ -791,5 +1066,9 @@ class FileObject {
         }
       }; break;
     }
+  }
+
+  destroy() {
+    this.revokeUrl();
   }
 }
