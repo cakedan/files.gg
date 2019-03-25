@@ -68,7 +68,7 @@ const Store = {
 export class HomePage {
   constructor(vnode) {
     if (vnode.attrs.type !== undefined) {
-      vnode.attrs.type = vnode.attrs.type.toLowerCase();
+      vnode.attrs.type = vnode.attrs.type.toString().toLowerCase();
       if (Object.values(UploadTypes).includes(vnode.attrs.type)) {
         Store.upload.settings.type = vnode.attrs.type;
       }
@@ -76,6 +76,10 @@ export class HomePage {
 
     if (vnode.attrs.language !== undefined) {
       Store.upload.types.text.options.languageId = vnode.attrs.language;
+    }
+
+    if (vnode.attrs.showUploads !== undefined) {
+      Store.showUploads = (vnode.attrs.showUploads).toString().toLowerCase() === 'true';
     }
   }
 
@@ -212,7 +216,7 @@ class UploadedFile {
   }
 
   get expand() {
-    return this.file.expand;
+    return !this.file.error && this.file.expand;
   }
 
   set expand(value) {
@@ -222,6 +226,12 @@ class UploadedFile {
   setExpand(event, expand) {
     event.preventDefault();
     return this.expand = expand;
+  }
+
+  flipExpand(event) {
+    // so text doesn't get highlighted by accident
+    event.preventDefault();
+    return this.expand = !this.expand;
   }
 
   remove() {
@@ -342,7 +352,23 @@ class UploadedFile {
           }, 'close'),
         ]),
       ]),
-      m('div', {class: 'upload-progress'}, [
+      (this.file.error || this.file.response) ? [
+        m('div', {class: 'footer'}, [
+          (this.file.error) ? [
+            m('span', this.file.error.message),
+          ] : [
+            m('span', this.file.response.urls.main),
+          ],
+        ]),
+      ] : null,
+      m('div', {
+        class: [
+          'expander',
+          (this.file.error) ? 'error' : null,
+          (this.expand) ? 'deactivate' : null,
+        ].filter((v) => v).join(' '),
+        onmousedown: (event) => this.file.error || this.flipExpand(event),
+      }, [
         (this.file.error) ? [
           m('div', {class: 'fill error'}),
         ] : [
@@ -354,39 +380,22 @@ class UploadedFile {
             style: `width: ${this.file.progress}%`,
           }),
         ],
-      ]),
-      (this.file.error || this.file.response) ? [
-        m('div', {class: 'footer'}, [
-          (this.file.error) ? [
-            m('span', this.file.error.message),
+        (this.file.error) ? null : [
+          (this.expand) ? [
+            m('span', {class: 'material-icons'}, 'expand_less'),
           ] : [
-            m('span', this.file.response.urls.main),
+            m('span', {class: 'material-icons'}, 'expand_more'),
+          ],
+        ],
+      ]),
+      (this.expand && !this.file.error) ? [
+        m('div', {class: 'expanded-content'}, [
+          (media) ? [
+            m('div', {class: 'thumbnail'}, media),
+          ] : [
+            m('span', {class: 'mimetype'}, this.file.mimetype),
           ],
         ]),
-      ] : null,
-      (!this.file.error) ? [
-        (this.expand) ? [
-          m('div', {
-            class: 'expander deactivate',
-            onmousedown: (event) => this.setExpand(event, false),
-          }, [
-            m('span', {class: 'material-icons'}, 'expand_less'),
-          ]),
-          m('div', {class: 'expanded-content'}, [
-            (media) ? [
-              m('div', {class: 'thumbnail'}, media),
-            ] : [
-              m('span', {class: 'mimetype'}, this.file.mimetype),
-            ],
-          ]),
-        ] : [
-          m('div', {
-            class: 'expander',
-            onmousedown: (event) => this.setExpand(event, true),
-          }, [
-            m('span', {class: 'material-icons'}, 'expand_more'),
-          ]),
-        ],
       ] : null,
     ]);
   }

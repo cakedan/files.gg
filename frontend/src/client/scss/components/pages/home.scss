@@ -226,8 +226,15 @@
                                     color: $filesGreyLighter;
 
                                     .thumbnail {
-                                        margin: 10px;
-
+                                        display: flex;
+                                        flex-direction: column;
+                                        align-items: center;
+            
+                                        max-width: 100%;
+                                        width: 100%;
+            
+                                        margin: 10px 0;
+            
                                         .media-container {
                                             img, video {
                                                 max-height: 300px;
@@ -235,13 +242,13 @@
                                             }
                                         }
                                         .media-container.audio {
-                                            width: 300px;
+                                            width: 95%;
                                             .media-controls {
                                                 border-radius: 5px;
                                             }
                                         }
                                     }
-
+            
                                     .mimetype {
                                         margin: 10px;
                                     }
@@ -481,30 +488,6 @@
                         }
                     }
 
-                    .upload-progress {
-                        align-self: center;
-
-                        background-color: $filesGreyLight;
-                        border-radius: 5px;
-                        height: 5px;
-                        width: 98%;
-
-                        margin: 5px 0;
-
-                        .fill {
-                            background-color: $filesGreen;
-                            border-radius: 5px;
-                            height: 100%;
-                        }
-                        .fill.filling {
-                            background-color: $filesYellow;
-                        }
-                        .fill.error {
-                            background-color: $filesRed;
-                            width: 100%;
-                        }
-                    }
-
                     .footer {
                         display: flex;
                         align-items: center;
@@ -527,13 +510,22 @@
                         height: auto;
                         width: 100%;
                         background-color: rgba($filesBlack, 0.7);
-                        border: 1px solid rgba($filesGreyLight, 0.8);
+                        border-left: 1px solid rgba($filesGreyLight, 0.8);
+                        border-right: 1px solid rgba($filesGreyLight, 0.8);
+                        border-bottom: 1px solid rgba($filesGreyLight, 0.8);
                         border-radius: 0 0 5px 5px;
                         box-sizing: border-box;
                         color: $filesGreyLighter;
 
                         .thumbnail {
-                            margin: 10px;
+                            display: flex;
+                            flex-direction: column;
+                            align-items: center;
+
+                            max-width: 100%;
+                            width: 100%;
+
+                            margin: 10px 0;
 
                             .media-container {
                                 img, video {
@@ -542,7 +534,7 @@
                                 }
                             }
                             .media-container.audio {
-                                width: 300px;
+                                width: 95%;
                                 .media-controls {
                                     border-radius: 5px;
                                 }
@@ -564,21 +556,56 @@
                         background-color: $filesGreyLight;
                         border-radius: 0 0 5px 5px;
                         cursor: pointer;
+                        position: relative;
                         transition: background-color .15s ease-in-out, border-radius .15s ease-in-out;
 
                         span {
                             font-size: 18px;
+                            position: absolute;
+                        }
+
+                        .fill {
+                            background-color: $filesGreen;
+                            border-radius: 0 0 5px 5px;
+                            height: 100%;
+                            left: 0;
+                            position: absolute;
+
+                            transition: color .15s ease-in-out, border-radius .15s ease-in-out;
+                        }
+                        .fill.filling {
+                            background-color: $filesYellow;
+                            border-radius: 0 0 0 5px;
+                        }
+                        .fill.error {
+                            background-color: $filesRed;
+                            width: 100%;
                         }
                     }
-                    .expander:hover, .expander:focus {
-                        background-color: rgba($filesGreyLight, 0.8);
-                    }
-                    .expander.deactivate {
-                        background-color: rgba($filesGreyLight, 0.8);
-                        border-radius: 0;
-                    }
+                    .expander:hover, .expander:focus,
+                    .expander.deactivate,
                     .expander.deactivate:hover, .expander.deactivate:focus {
                         background-color: rgba($filesGreyLight, 0.8);
+
+                        .fill {
+                            background-color: rgba($filesGreen, 0.8);
+                        }
+                        .fill.filling {
+                            background-color: rgba($filesYellow, 0.8);
+                        }
+                        .fill.error {
+                            background-color: rgba($filesRed, 0.8);
+                        }
+                    }
+                    .expander.deactivate {
+                        border-radius: 0;
+
+                        .fill {
+                            border-radius: 0;
+                        }
+                        .fill.filling {
+                            border-radius: 0;
+                        }
                     }
                 }
             }
