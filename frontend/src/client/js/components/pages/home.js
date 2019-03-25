@@ -69,7 +69,7 @@ export class HomePage {
   constructor(vnode) {
     if (vnode.attrs.type !== undefined) {
       vnode.attrs.type = vnode.attrs.type.toLowerCase();
-      if (vnode.attrs.type in Object.values(UploadTypes)) {
+      if (Object.values(UploadTypes).includes(vnode.attrs.type)) {
         Store.upload.settings.type = vnode.attrs.type;
       }
     }
