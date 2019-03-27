@@ -300,25 +300,29 @@ class UploadedFile {
     if (this.expand && this.file.url) {
       switch (this.file.mimetype.split('/').shift()) {
         case 'audio': {
-          media = m(AudioMedia, {
-            title: this.file.name,
-            src: this.file.url,
-            onerror: () => this.file.revokeUrl(),
-          });
+          media = m(AudioMedia, {title: this.file.name}, [
+            m('source', {
+              src: this.file.url,
+              onerror: () => this.file.revokeUrl(),
+            }),
+          ]);
         }; break;
         case 'image': {
-          media = m(ImageMedia, {
-            title: this.file.name,
-            src: this.file.url,
-            onerror: () => this.file.revokeUrl(),
-          });
+          media = m(ImageMedia, {title: this.file.name}, [
+            m('img', {
+              alt: this.file.name,
+              src: this.file.url,
+              onerror: () => this.file.revokeUrl(),
+            }),
+          ]);
         }; break;
         case 'video': {
-          media = m(VideoMedia, {
-            title: this.file.name,
-            src: this.file.url,
-            onerror: () => this.file.revokeUrl(),
-          });
+          media = m(VideoMedia, {title: this.file.name}, [
+            m('source', {
+              src: this.file.url,
+              onerror: () => this.file.revokeUrl(),
+            }),
+          ]);
         }; break;
       }
     }
@@ -542,12 +546,12 @@ class FileUpload extends UploadType {
           m('div', {class: 'selector'}, [
             m('div', {
               class: 'picker',
-              title: 'Select Files',
+              title: 'Select File(s)',
               onmousedown: () => this.input && this.input.click(),
             }, [
               m('div', {class: 'text'}, [
                 m('span', {class: 'material-icons'}, 'add_circle_outline'),
-                m('span', 'Select Files'),
+                m('span', 'Select File(s)'),
               ]),
             ]),
           ]),
@@ -561,7 +565,7 @@ class FileUpload extends UploadType {
           onmousedown: () => this.input && this.input.click(),
         }, [
           m('div', {class: 'content'}, [
-            m('span', 'Select Files'),
+            m('span', 'Select File(s)'),
           ]),
         ]),
       ],
@@ -817,25 +821,29 @@ class FileComponent {
     if (this.expand && this.file.url) {
       switch (this.file.mimetype) {
         case 'audio': {
-          media = m(AudioMedia, {
-            title: this.file.name,
-            src: this.file.url,
-            onerror: () => this.revokeUrl(),
-          });
+          media = m(AudioMedia, {title: this.file.name}, [
+            m('source', {
+              src: this.file.url,
+              onerror: () => this.revokeUrl(),
+            }),
+          ]);
         }; break;
         case 'image': {
-          media = m(ImageMedia, {
-            title: this.file.name,
-            src: this.file.url,
-            onerror: () => this.revokeUrl(),
-          });
+          media = m(ImageMedia, {title: this.file.name}, [
+            m('img', {
+              alt: this.file.name,
+              src: this.file.url,
+              onerror: () => this.revokeUrl(),
+            }),
+          ]);
         }; break;
         case 'video': {
-          media = m(VideoMedia, {
-            title: this.file.name,
-            src: this.file.url,
-            onerror: () => this.revokeUrl(),
-          });
+          media = m(VideoMedia, {title: this.file.name}, [
+            m('source', {
+              src: this.file.url,
+              onerror: () => this.revokeUrl(),
+            }),
+          ]);
         }; break;
       }
     }

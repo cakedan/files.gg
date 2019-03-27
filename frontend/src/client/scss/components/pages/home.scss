@@ -236,7 +236,7 @@
                                         margin: 10px 0;
             
                                         .media-container {
-                                            img, video {
+                                            picture, img, video {
                                                 max-height: 300px;
                                                 max-width: 300px;
                                             }
@@ -528,7 +528,7 @@
                             margin: 10px 0;
 
                             .media-container {
-                                img, video {
+                                picture, img, video {
                                     max-height: 300px;
                                     max-width: 300px;
                                 }

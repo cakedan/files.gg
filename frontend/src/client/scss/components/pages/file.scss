@@ -13,12 +13,13 @@
         justify-content: center;
         position: relative;
 
-        max-height: 90vh;
+
+        //max-height: 90vh;
         //min-height: 25vh;
         max-width: 80vw;
         min-width: 20vw;
 
-        margin-top: 10px;
+        margin: 10px 0;
         background-color: $filesGreyDark;
         border-radius: 5px;
 
@@ -28,30 +29,19 @@
             align-items: center;
             justify-content: center;
 
-            .max-dimensions {
-                max-height: 70vh;
-                max-width: 80vw;
-            }
-
             .media-container {
-                @extend .max-dimensions;
-
                 border-radius: 5px 5px 0 0;
+
+                max-height: 70vh;
                 max-width: 100%;
                 min-width: 100%;
 
-                img {
-                    @extend .max-dimensions;
-
-                    border-radius: 5px 5px 0 0;
+                picture, img, video {
+                    max-height: 70vh;
                     max-width: 100%;
                 }
-
                 video {
-                    @extend .max-dimensions;
-
                     border-radius: 5px 5px 0 0;
-                    max-width: 100%;
                     min-width: 100%;
                 }
 

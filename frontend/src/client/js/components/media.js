@@ -63,7 +63,7 @@ class MediaWrapper {
   set volume(volume) {
     window.savedVolume = volume;
     if (this.isCreated) {
-      this.media.volume = volume / 100;
+      this.media.volume = (volume / 100);
       m.redraw();
     }
   }
@@ -74,7 +74,7 @@ class MediaWrapper {
 
   set(media) {
     this.media = media;
-    this.media.volume = window.savedVolume / 100;
+    this.media.volume = (window.savedVolume / 100);
     m.redraw();
   }
 
@@ -101,12 +101,17 @@ class MediaWrapper {
 class Media {
   constructor(vnode) {
     this.media = new MediaWrapper();
+  }
 
-    if (vnode.attrs.volume === undefined) {
-      vnode.attrs.volume = window.savedVolume;
-    } else {
+  oninit(vnode) {
+    if (vnode.attrs.volume !== undefined) {
       window.savedVolume = vnode.attrs.volume;
+      vnode.attrs.volume = vnode.attrs.volume / 100;
     }
+  }
+
+  onupdate(vnode) {
+    this.oninit(vnode);
   }
 
   onremove(vnode) {
@@ -460,13 +465,11 @@ export class AudioMedia extends Media {
         oncreate: (vnode) => this.media.set(vnode.dom),
         onremove: () => this.media.destroy(),
       }, [
-        m('audio', {
+        m('audio', Object.assign({}, vnode.attrs, {
           onloadedmetadata: m.redraw,
           ontimeupdate: m.redraw,
           preload: 'metadata',
-        }, [
-          m('source', vnode.attrs),
-        ]),
+        }), vnode.children),
       ]),
       m('div', {class: 'media-controls'}, [
         m(MediaController, {media: this.media}),
@@ -491,13 +494,13 @@ export class ImageMedia {
           class: 'zoom',
           onclick: () => this.zoom = false,
         }, [
-          m('img', vnode.attrs),
+          m('picture', vnode.children),
         ]),
       ] : null,
-      m('img', Object.assign({
+      m('picture', {
         class: 'compact',
         onclick: () => this.zoom = true,
-      }, vnode.attrs)),
+      }, vnode.children),
     ]);
   }
 }
@@ -580,15 +583,13 @@ export class VideoMedia extends Media {
           oncreate: (vnode) => this.media.set(vnode.dom),
           onremove: () => this.media.destroy(),
         }, [
-          m('video', {
+          m('video', Object.assign({}, vnode.attrs, {
             onmousedown: () => this.media.playOrPause(),
             onloadedmetadata: m.redraw,
             ontimeupdate: m.redraw,
             preload: 'metadata',
             playsinline: true,
-          }, [
-            m('source', vnode.attrs),
-          ]),
+          }), vnode.children),
         ]),
         m('div', {
           class: [

@@ -10,7 +10,7 @@
         display: none;
     }
 
-    img {
+    picture, img {
         max-height: 100%;
         max-width: 100%;
     }
@@ -338,7 +338,7 @@
 
 
 .media-container.image {
-    img {
+    picture {
         border: 1px solid $filesBlack;
         cursor: zoom-in;
     }
@@ -359,7 +359,7 @@
         cursor: zoom-out;
         z-index: 9999;
 
-        img {
+        picture, img {
             border: none;
             border-radius: 5px;
             max-height: 95vh !important;

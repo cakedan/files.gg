@@ -59,20 +59,22 @@ class FileItem {
     if (!this.showIcon) {
       // maybe parse xml/json, or add a button for it
       if (Mimetypes.isAudioType(this.file.mimetype)) {
-        return m(AudioMedia, {
-          title: this.file.name,
-          src: this.file.urls.cdn,
-          onerror: () => this.showIcon = true,
-        });
+        return m(AudioMedia, {title: this.file.name}, [
+          m('source', {
+            src: this.file.urls.cdn,
+            onerror: () => this.showIcon = true,
+          }),
+        ]);
       }
 
       if (Mimetypes.isImageType(this.file.mimetype)) {
-        return m(ImageMedia, {
-          zoom: vnode.attrs.zoom,
-          alt: this.file.name,
-          src: this.file.urls.cdn,
-          onerror: () => this.showIcon = true,
-        });
+        return m(ImageMedia, {zoom: vnode.attrs.zoom}, [
+          m('img', {
+            alt: this.file.name,
+            src: this.file.urls.cdn,
+            onerror: () => this.showIcon = true,
+          }),
+        ]);
       }
 
       if (Mimetypes.isTextType(this.file.mimetype)) {
@@ -101,11 +103,12 @@ class FileItem {
       }
 
       if (Mimetypes.isVideoType(this.file.mimetype)) {
-        return m(VideoMedia, {
-          title: this.file.name,
-          src: this.file.urls.cdn,
-          onerror: () => this.showIcon = true,
-        });
+        return m(VideoMedia, {title: this.file.name}, [
+          m('source', {
+            src: this.file.urls.cdn,
+            onerror: () => this.showIcon = true,
+          }),
+        ]);
       }
 
       this.showIcon = true;
