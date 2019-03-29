@@ -143,6 +143,7 @@ export class FilePage {
   }
 
   async oninit(vnode) {
+    this.loading = true;
     try {
       this.file = vnode.attrs.file = await Api.fetchFile(vnode.attrs.fileId, {views: true});
       this.file.name = [this.file.filename, this.file.extension].filter((v) => v).join('.');
@@ -220,7 +221,7 @@ export class FilePage {
         ].filter((v) => v).join('; ') || undefined,
       }, [
         m('div', {class: 'thumbnail'}, [
-          m(FileItem, vnode.attrs),
+          m(FileItem, Object.assign(vnode.attrs, {file: this.file})),
           m('span', {class: 'information'}, this.file.name),
           m('span', {class: 'information'}, this.file.mimetype),
         ]),

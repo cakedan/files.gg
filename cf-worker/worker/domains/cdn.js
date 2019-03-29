@@ -8,13 +8,16 @@ export const requestStorage = async(request, options) => {
   if (typeof(options) === 'string') {
     options = {path: options};
   } else {
-    options = Object.assign({method: request.method}, options);
+    options = Object.assign({}, options);
   }
 
   const url = new URL('https://filesgg.storage.googleapis.com');
   url.pathname = options.path;
 
   request = new Request(url, request);
+  if (options.method === 'GET' || options.method === 'HEAD') {
+    options.body = undefined;
+  }
   let response = await fetch(request, options);
   if (response.status < 400) {
     response = new Response(response.body, response);

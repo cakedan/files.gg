@@ -65,6 +65,40 @@ const Store = {
 };
 
 
+window.addEventListener('dragenter', (event) => {
+  event.preventDefault();
+  event.stopPropagation();
+});
+window.addEventListener('dragover', (event) => {
+  event.preventDefault();
+  event.stopPropagation();
+});
+
+// need to prevent dragenter && dragover for drop to work
+window.addEventListener('drop', (event) => {
+  event.preventDefault();
+  event.stopPropagation();
+  if (!event.dataTransfer.files.length) {
+    return;
+  }
+
+  const cache = Store.upload.types[UploadTypes.FILE].files;
+  const files = event.dataTransfer.files;
+  if (!cache.length && files.length === 1) {
+    files[0].expand = true;
+  }
+  for (let i = 0; i < files.length; i++) {
+    const file = files[i];
+    file.mimetype = file.type.split('/').shift();
+    if (file.mimetype === 'audio' || file.mimetype === 'image' || file.mimetype === 'video') {
+      file.url = URL.createObjectURL(file);
+    }
+    cache.push(file);
+  }
+  m.redraw();
+});
+
+
 export class HomePage {
   constructor(vnode) {
     if (vnode.attrs.type !== undefined) {
@@ -180,13 +214,13 @@ export class HomePage {
           ]),
         ] : [
           m('div', {class: 'introduction'}, [
-            m('div', {class: 'header'}, [
-              m('div', {class: 'text'}, [
+            m('div', {class: 'content'}, [
+              m('div', {class: 'header'}, [
                 m('span', {class: 'title'}, 'Some File Uploader'),
                 m('span', {class: 'description'}, 'Just upload some files, more updates coming soon.'),
               ]),
+              m('div', {class: 'footer'}),
             ]),
-            m('div', {class: 'footer'}),
           ]),
         ],
         (Store.uploads.files.length) ? [
@@ -224,14 +258,13 @@ class UploadedFile {
   }
 
   setExpand(event, expand) {
+    // so text doesn't get highlighted by accident
     event.preventDefault();
     return this.expand = expand;
   }
 
   flipExpand(event) {
-    // so text doesn't get highlighted by accident
-    event.preventDefault();
-    return this.expand = !this.expand;
+    return this.setExpand(event, !this.expand);
   }
 
   remove() {
@@ -517,6 +550,9 @@ class FileUpload extends UploadType {
   }
 
   addFiles(files) {
+    if (!files.length) {
+      return;
+    }
     if (!this.files.length && files.length === 1) {
       files[0].expand = true;
     }
@@ -547,7 +583,7 @@ class FileUpload extends UploadType {
             m('div', {
               class: 'picker',
               title: 'Select File(s)',
-              onmousedown: () => this.input && this.input.click(),
+              onclick: () => this.input && this.input.click(),
             }, [
               m('div', {class: 'text'}, [
                 m('span', {class: 'material-icons'}, 'add_circle_outline'),
@@ -562,10 +598,18 @@ class FileUpload extends UploadType {
       ] : [
         m('div', {
           class: 'drag-n-drop picker',
-          onmousedown: () => this.input && this.input.click(),
+          onclick: () => this.input && this.input.click(),
         }, [
           m('div', {class: 'content'}, [
-            m('span', 'Select File(s)'),
+            m('div', {class: 'header'}, [
+              m('span', {class: 'title'}, 'Drag n Drop Files'),
+              m('span', {class: 'description'}, 'or click here'),
+            ]),
+            m('div', {class: 'fields'}, [
+              m('div', {class: 'field'}, [
+                m('span', {class: 'button'}, 'Select File(s)'),
+              ]),
+            ]),
           ]),
         ]),
       ],
@@ -771,7 +815,10 @@ class FileComponent {
     }
   }
 
-  async upload() {
+  async upload(event) {
+    event.preventDefault();
+    event.stopPropagation();
+
     const file = new FileObject({
       expand: this.expand,
       file: this.file,
@@ -806,7 +853,10 @@ class FileComponent {
     m.redraw();
   }
 
-  remove() {
+  remove(event) {
+    event.preventDefault();
+    event.stopPropagation();
+
     this.revokeUrl();
     Store.upload.types.file.files.splice(this.id, 1);
     m.redraw();
@@ -865,12 +915,12 @@ class FileComponent {
           m('span', {
             class: 'action-upload material-icons',
             title: 'Upload',
-            onclick: () => this.upload(),
+            onclick: (event) => this.upload(event),
           }, 'cloud_upload'),
           m('span', {
             class: 'action-remove material-icons',
             title: 'Remove',
-            onclick: () => this.remove(),
+            onclick: (event) => this.remove(event),
           }, 'close'),
         ]),
       ]),

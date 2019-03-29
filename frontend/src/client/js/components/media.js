@@ -106,7 +106,7 @@ class Media {
   oninit(vnode) {
     if (vnode.attrs.volume !== undefined) {
       window.savedVolume = vnode.attrs.volume;
-      vnode.attrs.volume = vnode.attrs.volume / 100;
+      delete vnode.attrs.volume;
     }
   }
 
@@ -567,7 +567,7 @@ export class VideoMedia extends Media {
         ].filter((v) => v).join(' '),
         onmousemove: () => this.hovering = true,
         onmouseleave: () => this.hovering = false,
-        onmousedown: (event) => {
+        onclick: (event) => {
           if (event.target.classList.contains('media-container')) {
             if (this.fullscreen) {
               this.fullscreen = false;
@@ -584,7 +584,7 @@ export class VideoMedia extends Media {
           onremove: () => this.media.destroy(),
         }, [
           m('video', Object.assign({}, vnode.attrs, {
-            onmousedown: () => this.media.playOrPause(),
+            onclick: () => this.media.playOrPause(),
             onloadedmetadata: m.redraw,
             ontimeupdate: m.redraw,
             preload: 'metadata',
@@ -612,7 +612,7 @@ export class VideoMedia extends Media {
           }),
           m('div', {
             class: 'fullscreen',
-            onmousedown: () => {
+            onclick: () => {
               this.fullscreen = !this.fullscreen;
               m.redraw();
               if (document.fullscreenEnabled) {
@@ -666,7 +666,7 @@ export class TextMedia {
   }
 
   onupdate(vnode) {
-    return this.oninit(vnode);
+    this.oninit(vnode);
   }
 
   view(vnode) {

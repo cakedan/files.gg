@@ -22,6 +22,8 @@
         margin: 10px 0;
         background-color: $filesGreyDark;
         border-radius: 5px;
+        box-shadow: 0 9px 30px rgba(6, 6, 7, 0.3);
+        box-sizing: border-box;
 
         .thumbnail {
             display: flex;
@@ -153,7 +155,7 @@
                 }
 
                 .download:hover, .download:focus {
-                    color: $filesGreenDark;
+                    color: rgba($filesGreen, 0.6);
                     transition: .15s color ease;
                 }
             }
@@ -177,6 +179,7 @@
             width: 100%;
 
             i {
+                color: $filesGreyLight;
                 cursor: nwse-resize;
                 //transform: scaleY(-1);
             }

@@ -99,7 +99,13 @@ router.route(['/dashboard', '/dashboard/*'], async(event) => {
   return renderHtml(event, metatags);
 });
 
-router.route('/dashboard/files', async(event) => {
+router.route('/dashboard/configs', async(event) => {
+  const metatags = new Metatags(defaultMetatags);
+  metatags.set('description', 'View your custom uploader configs here.');
+  return renderHtml(event, metatags);
+}, {priority: 1});
+
+router.route(['/dashboard/files', '/dashboard/files/*'], async(event) => {
   const metatags = new Metatags(defaultMetatags);
   metatags.set('description', 'View your files here.');
   return renderHtml(event, metatags);
@@ -111,7 +117,7 @@ router.route(['/auth', '/auth/*'], async(event) => {
   return renderHtml(event, metatags);
 });
 
-router.route('/auth/callback', async(event) => {
+router.route('/auth/callback/:token', async(event) => {
   const metatags = new Metatags(defaultMetatags);
   metatags.set('description', 'secret');
   return renderHtml(event, metatags);
@@ -126,6 +132,18 @@ router.route('/auth/login', async(event) => {
 router.route('/auth/logout', async(event) => {
   const metatags = new Metatags(defaultMetatags);
   metatags.set('description', 'Logout here');
+  return renderHtml(event, metatags);
+}, {priority: 1});
+
+router.route('/auth/forgot/:token', async(event) => {
+  const metatags = new Metatags(defaultMetatags);
+  metatags.set('description', 'Do not share this forgot password url with anyone');
+  return renderHtml(event, metatags);
+}, {priority: 1});
+
+router.route('/auth/verify/:token', async(event) => {
+  const metatags = new Metatags(defaultMetatags);
+  metatags.set('description', 'Do not share this verify url with anyone');
   return renderHtml(event, metatags);
 }, {priority: 1});
 

@@ -1,0 +1,166 @@
+.page.dashboard-files {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+
+    height: calc(100vh - 64px);
+
+    .message {
+
+    }
+
+    .modal {
+        flex-grow: 1;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+
+        max-height: 100%;
+
+        .total {
+            margin: 5px 0;
+            text-align: center;
+            width: 90%;
+
+            span {
+                display: flex;
+                align-items: center;
+
+                color: $filesGreyLight;
+                font-size: 14px;
+                font-weight: 500;
+                line-height: 19px;
+            }
+            span::before {
+                border-bottom: 1px solid rgba($filesGreyLight, 0.8);
+                content: '';
+                flex-grow: 1;
+                height: 1px;
+                margin-right: 8px;
+            }
+            span::after {
+                border-bottom: 1px solid rgba($filesGreyLight, 0.8);
+                content: '';
+                flex-grow: 1;
+                height: 1px;
+                margin-left: 8px;
+            }
+        }
+
+        .files {
+            display: flex;
+            flex-direction: row;
+            flex-wrap: wrap;
+            align-items: center;
+            justify-content: center;
+
+            height: 100%;
+            width: 100%;
+            overflow: auto;
+            padding: 10px 5vw;
+            box-sizing: border-box;
+
+            .file {
+                display: flex;
+                flex-direction: column;
+
+                background-color: $filesGreyDark;
+                border-radius: 5px;
+                box-shadow: 0 9px 30px rgba(6, 6, 7, 0.3);
+                box-sizing: border-box;
+                margin: 5px;
+                padding: 5px;
+
+                height: 100px;
+                width: 275px;
+    
+                .header {
+                    display: flex;
+                    flex-direction: row;
+
+                    .thumbnail {
+                        display: flex;
+                        align-items: center;
+                        justify-content: center;
+    
+                        .icon {
+                            display: flex;
+                            align-items: center;
+                            justify-content: center;
+    
+                            color: $filesGreyLight;
+                            margin: 0 10px;
+    
+                            .material-icons {
+                                font-size: 32px;
+                            }
+                        }
+                    }
+
+                    .information {
+                        display: flex;
+                        flex-direction: column;
+                        justify-content: center;
+
+                        min-width: 0;
+
+                        .filename {
+                            color: $filesGreyLightest;
+                            overflow: hidden;
+                            text-overflow: ellipsis;
+                            white-space: nowrap;
+                        }
+                        .filesize {
+                            color: $filesGreyLight;
+                        }
+                    }
+                }
+                .fields {
+                    display: flex;
+                    flex-direction: row;
+                    justify-content: flex-end;
+
+                    margin: 5px 0;
+
+                    .url {
+                        flex-grow: 1;
+
+                        input {
+                            border: none;
+                            color: rgba(255, 255, 255, 0.4);
+                            text-align: center;
+                            text-overflow: ellipsis;
+                            width: 100%;
+                        }
+                    }
+
+                    .views {
+                        display: flex;
+                        flex-direction: row;
+                        justify-content: center;
+
+                        span {
+                            color: $filesGreyLight;
+                            font-size: 16px;
+                            margin: 0 1px;
+                        }
+                    }
+                }
+                .footer {
+                    .timestamp {
+                        display: flex;
+                        align-items: center;
+                        justify-content: center;
+                        margin: 2px 0;
+
+                        span {
+                            color: $filesGreyLight;
+                            font-size: 12px;
+                        }
+                    }
+                }
+            }
+        }
+    }
+}

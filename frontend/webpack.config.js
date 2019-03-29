@@ -18,6 +18,7 @@ const production = ((process.env.NODE_ENV || '').toLowerCase() === 'production')
 module.exports = {
   entry: [
     '@babel/polyfill',
+    '@url-search-params-pollyfill',
     path.join(DIR.APP, 'js', 'main.js'),
     path.join(DIR.APP, 'scss', 'main.scss'),
   ],

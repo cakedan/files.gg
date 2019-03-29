@@ -14,8 +14,9 @@
 
         background-color: $filesGreyDark;
         border-radius: 5px;
-        box-shadow: 0 9px 30px rgba(6, 6, 7, .3);
+        box-shadow: 0 9px 30px rgba(6, 6, 7, 0.3);
         box-sizing: border-box;
+        margin-top: 10px;
         margin-bottom: 25px;
         padding: 10px;
 
@@ -43,16 +44,20 @@
                 margin: 10px 0;
 
                 span {
-                    @extend .btn;
-    
-                    background-color: $filesBlue;
+                    @extend .noselect;
+
+                    font-size: 24px;
+                    font-weight: 600;
+                    text-align: center;
+                    text-transform: uppercase;
+
+                    color: rgba(255, 255, 255, 0.4);
+                    cursor: pointer;
                     margin: 0 10px;
+                    transition: color .15s ease-in-out;
                 }
                 span:hover, span:focus, span.active {
-                    background-color: $filesBlueDark;
-                }
-                span.active  {
-                    cursor: not-allowed;
+                    color: $filesGreen;
                 }
             }
 
@@ -92,20 +97,59 @@
 
                         .content {
                             display: flex;
+                            flex-direction: column;
                             align-items: center;
                             justify-content: center;
 
                             height: 100%;
                             width: 100%;
 
-                            span {
-                                @extend .btn;
+                            .header {
+                                display: flex;
+                                flex-direction: column;
+                                align-items: center;
+                                justify-content: center;
+
+                                span {
+                                    opacity: 0.4;
+                                    text-align: center;
+                                    transition: opacity .15s ease-in-out;
+                                }
+                                .title {
+                                    font-size: 20px;
+                                }
+                                .description {
+                                    font-size: 16px;
+                                }
+                            }
+                            .fields {
+                                margin-top: 25px;
+
+                                .field {
+                                    .button {
+                                        @extend .btn;
+                                    }
+                                }
                             }
                         }
                     }
                     .drag-n-drop:hover, .drag-n-drop:focus {
-                        border: 2px dashed rgba($filesGreenDark, 0.8);
-                        transition: border .15s ease-in-out;
+                        border: 2px dashed rgba($filesGreen, 0.6);
+
+                        .content {
+                            .header {
+                                span {
+                                    opacity: 0.35;
+                                }
+                            }
+                            .fields {
+                                .field {
+                                    .button {
+                                        background-color: rgba($filesGreen, 0.7);
+                                    }
+                                }
+                            }
+                        }
                     }
 
                     .selected-files {
@@ -119,7 +163,7 @@
 
                         background-color: $filesBlack;
                         border-radius: 5px;
-                        box-shadow: 0 9px 30px rgba(6, 6, 7, .3);
+                        box-shadow: 0 9px 30px rgba(6, 6, 7, 0.3);
                         box-sizing: border-box;
 
                         .files {
@@ -141,7 +185,7 @@
                                 width: 95%;
                                 background-color: $filesGrey;
                                 border-radius: 5px;
-                                box-shadow: 0 9px 30px rgba(6, 6, 7, .3);
+                                box-shadow: 0 9px 30px rgba(6, 6, 7, 0.3);
                                 box-sizing: border-box;
                                 margin: 5px;
 
@@ -197,14 +241,14 @@
                                             transition: .15s color ease;
                                         }
                                         span:hover, span:focus {
-                                            color: $filesGreenDark;
+                                            color: rgba($filesGreen, 0.6);
                                             transition: .15s color ease;
                                         }
                                         .action-remove {
                                             color: $filesRed;
                                         }
                                         .action-remove:hover, .action-remove:focus {
-                                            color: $filesRed;
+                                            color: rgba($filesRed, 0.6);
                                         }
                                     }
                                 }
@@ -313,7 +357,7 @@
                                         transition: color .15s ease-in-out;
                                     }
                                     span:hover, span:focus {
-                                        color: $filesGreenDark;
+                                        color: rgba($filesGreen, 0.6);
                                         transition: color .15s ease-in-out;
                                     }
                                 }
@@ -414,7 +458,7 @@
                     width: 95%;
                     background-color: $filesGrey;
                     border-radius: 5px;
-                    box-shadow: 0 9px 30px rgba(6, 6, 7, .3);
+                    box-shadow: 0 9px 30px rgba(6, 6, 7, 0.3);
                     box-sizing: border-box;
                     margin: 5px;
 
@@ -470,20 +514,20 @@
                                 transition: .15s color ease;
                             }
                             span:hover, span:focus {
-                                color: $filesGreenDark;
+                                color: rgba($filesGreen, 0.6);
                                 transition: .15s color ease;
                             }
                             .action-retry {
                                 color: $filesYellow;
                             }
                             .action-retry:hover, .action-retry:focus {
-                                color: $filesYellow;
+                                color: rgba($filesYellow, 0.6);
                             }
                             .action-remove {
                                 color: $filesRed;
                             }
                             .action-remove:hover, .action-remove:focus {
-                                color: $filesRed;
+                                color: rgba($filesRed, 0.6);
                             }
                         }
                     }
@@ -616,17 +660,15 @@
 
                 height: 100%;
 
-                .header {
-                    display: flex;
-                    flex-direction: column;
-                    align-items: center;
-                    justify-content: center;
-                    height: 80%;
+                .content {
+                    height: 100%;
 
-                    .text {
-                        span {
-                            display: block;
-                        }
+                    .header {
+                        display: flex;
+                        flex-direction: column;
+                        align-items: center;
+                        justify-content: center;
+                        height: 80%;
 
                         .title {
                             font-size: 30px;
@@ -640,14 +682,14 @@
                             text-align: center;
                         }
                     }
-                }
-                .footer {
-                    display: flex;
-                    flex-direction: row;
-                    align-items: flex-end;
-                    justify-content: flex-end;
+                    .footer {
+                        display: flex;
+                        flex-direction: row;
+                        align-items: flex-end;
+                        justify-content: flex-end;
 
-                    height: 20%;
+                        height: 20%;
+                    }
                 }
             }
 
@@ -664,7 +706,7 @@
                 transition: color .15s;
             }
             .flipper:hover {
-                color: $filesGreenDark;
+                color: rgba($filesGreen, 0.6);
                 transition: color .15s;
             }
         }

@@ -340,6 +340,7 @@
 .media-container.image {
     picture {
         border: 1px solid $filesBlack;
+        box-sizing: border-box;
         cursor: zoom-in;
     }
 

@@ -12,6 +12,7 @@ import {
   AuthLogoutPage,
   AuthVerifyPage,
   DashboardConfigsPage,
+  DashboardFilesPage,
   ErrorPage,
   FilePage,
   HomePage,
@@ -35,9 +36,6 @@ class RouteResolver {
   }
 
   async onmatch(args, requestedPath) {
-    // on match can be a promise, it'll wait to resolve it
-    // wait for auth if auth required?
-
     try {
       if (this.authRequired) {
         await Auth.waitForAuth();
@@ -73,9 +71,10 @@ const Routes = Object.freeze({
   '/auth/forgot/:token': new RouteResolver(AuthForgotPage, {class: 'auth-forgot'}),
   '/auth/verify/:token': new RouteResolver(AuthVerifyPage, {class: 'auth-verify'}),
   '/auth/:path...': new RouteResolver(ErrorPage),
-  '/dashboard': new RouteResolver(null, {authRequired: true}),
+  '/dashboard': new RouteResolver(DashboardFilesPage, {authRequired: true, class: 'dashboard-files'}),
   '/dashboard/configs': new RouteResolver(DashboardConfigsPage, {authRequired: true, class: 'dashboard-configs'}),
-  '/dashboard/files': new RouteResolver(null, {authRequired: true}),
+  '/dashboard/files': new RouteResolver(DashboardFilesPage, {authRequired: true, class: 'dashboard-files'}),
+  '/dashboard/files/:fileId...': new RouteResolver(DashboardFilesPage, {authRequired: true, class: 'dashboard-files'}),
   '/dashboard/:path...': new RouteResolver(ErrorPage, {authRequired: true}),
   '/:fileId...': new RouteResolver(FilePage, {class: 'file'}),
 });

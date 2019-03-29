@@ -16,6 +16,10 @@ export async function requestApi(request, options) {
   }
 
   request = new Request(url, request);
+  if (options.method === 'GET' || options.method === 'HEAD') {
+    // Safari sends a body with OPTIONS requests lol
+    options.body = undefined;
+  }
   return await fetch(request, options);
 };
 
