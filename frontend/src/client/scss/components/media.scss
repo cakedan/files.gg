@@ -339,9 +339,17 @@
 
 .media-container.image {
     picture {
-        border: 1px solid $filesBlack;
-        box-sizing: border-box;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+
         cursor: zoom-in;
+        image-orientation: from-image;
+
+        img {
+            border: 1px solid $filesBlack;
+            box-sizing: border-box;
+        }
     }
 
     .zoom {

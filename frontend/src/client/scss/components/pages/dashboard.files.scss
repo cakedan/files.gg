@@ -50,6 +50,466 @@
 
         .files {
             display: flex;
+
+            height: 100%;
+            width: 80vw;
+            overflow: auto;
+            padding: 10px 0;
+            box-sizing: border-box;
+        }
+
+        .files.view-content {
+            flex-direction: column;
+
+            .file {
+                flex-shrink: 0;
+                display: flex;
+                flex-direction: row;
+
+                border-bottom: 1px solid black;
+                padding: 5px 0;
+
+                max-height: 40px;
+                width: 100%;
+
+                .header {
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+
+                    max-height: 100%;
+
+                    .media-container {
+                        height: 32px;
+                        width: 32px;
+                        margin: 0 10px;
+
+                        .compact {
+                            border-radius: 5px;
+                            height: 32px;
+                            width: 32px;
+                        }
+                    }
+                    .icon {
+                        display: flex;
+                        align-items: center;
+                        justify-content: center;
+
+                        color: $filesGreyLight;
+                        margin: 0 10px;
+
+                        .material-icons {
+                            font-size: 32px;
+                        }
+                    }
+                }
+
+                .fields, .footer {
+                    flex-shrink: 0;
+                    display: flex;
+                    flex-flow: row;
+
+                    width: 50%;
+
+                    .field {
+                        display: flex;
+                        flex-flow: column;
+                        justify-content: center;
+
+                        width: 50%;
+
+                        .info {
+                            display: flex;
+                            flex-flow: row;
+
+                            span {
+                                font-size: 12px;
+                                font-weight: 100;
+                                opacity: 0.5;
+                                overflow: hidden;
+                                text-overflow: ellipsis;
+                                white-space: nowrap;
+
+                                margin: 0 1px;
+                            }
+                            span.category {
+                                opacity: 0.4;
+                            }
+                            span.title {
+                                opacity: 0.9;
+                            }
+                        }
+                    }
+                }
+                .footer {
+                    flex-shrink: 1;
+
+                    .field {
+                        flex-grow: 1;
+                        width: auto;
+                    }
+                }
+            }
+            .file:hover, .file:focus {
+                background-color: rgba($filesGreyLightish, 0.9);
+            }
+        }
+
+        .files.view-tiles {
+            flex-direction: row;
+            flex-wrap: wrap;
+
+            .file {
+                @extend .noselect;
+
+                flex-shrink: 0;
+                display: flex;
+                flex-direction: row;
+
+                border-radius: 5px;
+                box-sizing: border-box;
+                cursor: pointer;
+                margin: 5px;
+                padding: 0 5px;
+
+                height: 64px;
+                width: 225px;
+
+                .header {
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+
+                    max-height: 100%;
+
+                    .media-container {
+                        height: 48px;
+                        width: 48px;
+                        margin: 0 10px;
+
+                        .compact {
+                            border-radius: 5px;
+                            height: 48px;
+                            width: 48px;
+                        }
+                    }
+                    .icon {
+                        display: flex;
+                        align-items: center;
+                        justify-content: center;
+
+                        color: $filesGreyLight;
+                        margin: 0 10px;
+
+                        .material-icons {
+                            font-size: 48px;
+                        }
+                    }
+                }
+
+                .fields {
+                    flex-grow: 1;
+                    display: flex;
+                    flex-flow: column;
+                    justify-content: center;
+
+                    min-width: 0;
+
+                    .field {
+                        display: flex;
+                        flex-flow: column;
+                        justify-content: center;
+
+                        span {
+                            font-size: 12px;
+                            font-weight: 100;
+                            opacity: 0.4;
+                            overflow: hidden;
+                            text-overflow: ellipsis;
+                            white-space: nowrap;
+                        }
+                        span.title {
+                            opacity: 0.9;
+                        }
+                    }
+                }
+            }
+            .file:hover, .file:focus {
+                background-color: rgba($filesGreyLightish, 0.9);
+            }
+        }
+
+        .files.view-details {
+            flex-direction: column;
+
+            .file {
+                @extend .noselect;
+
+                flex-shrink: 0;
+                display: flex;
+                flex-direction: row;
+
+                box-sizing: border-box;
+                cursor: pointer;
+                margin: 1px 0;
+
+                height: 24px;
+                width: 100%;
+
+                .header {
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+
+                    max-height: 100%;
+
+                    .icon {
+                        display: flex;
+                        align-items: center;
+                        justify-content: center;
+
+                        color: $filesGreyLight;
+                        margin: 0 2px;
+
+                        .material-icons {
+                            font-size: 20px;
+                        }
+                    }
+                }
+
+                .fields {
+                    flex-grow: 1;
+                    display: flex;
+                    flex-flow: row;
+                    align-items: center;
+
+                    min-width: 0;
+
+                    .field {
+                        display: flex;
+                        flex-flow: column;
+                        justify-content: center;
+
+                        margin: 0 2px;
+                        width: 18%;
+
+                        span {
+                            font-size: 12px;
+                            font-weight: 100;
+                            opacity: 0.4;
+                            overflow: hidden;
+                            text-overflow: ellipsis;
+                            white-space: nowrap;
+                        }
+                    }
+                    .field.filename {
+                        width: 40%;
+
+                        span {
+                            opacity: 0.9;
+                        }
+                    }
+                }
+            }
+            .file:hover, .file:focus {
+                background-color: rgba($filesGreyLightish, 0.9);
+            }
+        }
+
+        .files.view-list {
+            flex-direction: column;
+            flex-wrap: wrap;
+
+            .file {
+                @extend .noselect;
+
+                flex-shrink: 0;
+                display: flex;
+                flex-direction: row;
+
+                box-sizing: border-box;
+                cursor: pointer;
+                margin: 1px 0;
+
+                max-width: 100%;
+                height: 25px;
+                width: 400px;
+
+                .header {
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+
+                    max-height: 100%;
+
+                    .icon {
+                        display: flex;
+                        align-items: center;
+                        justify-content: center;
+
+                        color: $filesGreyLight;
+                        margin: 0 2px;
+
+                        .material-icons {
+                            font-size: 20px;
+                        }
+                    }
+                }
+
+                .fields {
+                    flex-grow: 1;
+                    display: flex;
+                    flex-flow: row;
+                    align-items: center;
+
+                    min-width: 0;
+
+                    .field {
+                        display: flex;
+                        flex-flow: column;
+                        justify-content: center;
+
+                        box-sizing: border-box;
+                        max-width: 100%;
+                        padding: 0 2px;
+
+                        span {
+                            font-size: 12px;
+                            font-weight: 100;
+                            opacity: 0.9;
+                            overflow: hidden;
+                            text-overflow: ellipsis;
+                            white-space: nowrap;
+                        }
+                    }
+                }
+            }
+            .file:hover, .file:focus {
+                background-color: rgba($filesGreyLightish, 0.9);
+            }
+        }
+
+        .files.view-icons, .files.view-large-icons {
+            flex-direction: row;
+            flex-wrap: wrap;
+
+            .file {
+                @extend .noselect;
+
+                flex-shrink: 0;
+                display: flex;
+                flex-direction: column;
+
+                margin: 5px;
+
+                height: 125px;
+                width: 75px;
+
+                .content {
+                    border-radius: 5px;
+                    cursor: pointer;
+                    max-height: 100%;
+                    max-width: 100%;
+
+                    .header {
+                        display: flex;
+                        align-items: center;
+                        justify-content: center;
+
+                        .media-container {
+                            height: 48px;
+                            width: 48px;
+
+                            .compact {
+                                border-radius: 5px;
+                                height: 48px;
+                                width: 48px;
+                            }
+                        }
+                        .icon {
+                            display: flex;
+                            align-items: center;
+                            justify-content: center;
+
+                            color: $filesGreyLight;
+
+                            .material-icons {
+                                font-size: 48px;
+                            }
+                        }
+                    }
+
+                    .fields {
+                        flex-shrink: 0;
+                        display: flex;
+
+                        box-sizing: border-box;
+                        padding: 5px 0;
+
+                        .field {
+                            display: flex;
+                            flex-flow: column;
+                            align-items: center;
+                            justify-content: center;
+
+                            height: 100%;
+                            width: 100%;
+
+                            span {
+                                max-width: 100%;
+
+                                font-size: 12px;
+                                font-weight: 100;
+                                opacity: 0.9;
+                                overflow: hidden;
+                                text-overflow: ellipsis;
+                                text-align: center;
+                                word-wrap: break-word;
+                            }
+                        }
+                    }
+                }
+                .content:hover, .content:focus {
+                    background-color: rgba($filesGreyLightish, 0.9);
+                }
+            }
+        }
+        .files.view-large-icons {
+            .file {
+                height: 250px;
+                width: 150px;
+
+                .content {
+                    .header {
+                        .media-container {
+                            height: 96px;
+                            width: 96px;
+
+                            .compact {
+                                height: 96px;
+                                width: 96px;
+                            }
+                        }
+                        .icon {
+                            .material-icons {
+                                font-size: 96px;
+                            }
+                        }
+                    }
+                    .fields {
+                        .field {
+                            span {
+                                font-size: 18px;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        /*
+        .files {
+            display: flex;
             flex-direction: row;
             flex-wrap: wrap;
             align-items: center;
@@ -83,7 +543,17 @@
                         display: flex;
                         align-items: center;
                         justify-content: center;
-    
+
+                        .media-container {
+                            height: 32px;
+                            width: 32px;
+                            margin: 0 10px;
+
+                            .compact {
+                                height: 32px;
+                                width: 32px;
+                            }
+                        }
                         .icon {
                             display: flex;
                             align-items: center;
@@ -161,6 +631,13 @@
                     }
                 }
             }
+        }
+        */
+    }
+
+    .modal.mobile {
+        .files {
+            width: 95vw;
         }
     }
 }

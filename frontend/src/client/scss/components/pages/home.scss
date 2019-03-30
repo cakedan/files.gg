@@ -572,9 +572,11 @@
                             margin: 10px 0;
 
                             .media-container {
-                                picture, img, video {
+                                max-width: 100%;
+                                width: 300px;
+
+                                picture.compact > img, video {
                                     max-height: 300px;
-                                    max-width: 300px;
                                 }
                             }
                             .media-container.audio {
@@ -582,6 +584,9 @@
                                 .media-controls {
                                     border-radius: 5px;
                                 }
+                            }
+                            .media-container.fullscreen {
+                                width: 100vw;
                             }
                         }
 

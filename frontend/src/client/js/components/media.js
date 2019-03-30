@@ -638,12 +638,10 @@ export class VideoMedia extends Media {
       ]);
     } else {
       return m('div', {class: 'media-container video'}, [
-        m('video', {
+        m('video', Object.assign(vnode.attrs, {
           controls: true,
           playsinline: true,
-        }, [
-          m('source', vnode.attrs),
-        ]),
+        }), vnode.children),
       ]);
     }
   }

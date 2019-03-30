@@ -54,6 +54,7 @@ const Store = {
       vanity: null,
     },
   },
+  isLoading: true,
   showUploads: false,
   uploads: {
     isAtEnd: false,
@@ -114,6 +115,7 @@ export class HomePage {
 
     if (vnode.attrs.showUploads !== undefined) {
       Store.showUploads = (vnode.attrs.showUploads).toString().toLowerCase() === 'true';
+
     }
   }
 
@@ -123,7 +125,11 @@ export class HomePage {
     if (!Auth.isAuthed && !Fingerprint.has) {
       return;
     }
+    if (Store.uploads.isFetching || !Store.isLoading) {
+      return;
+    }
 
+    Store.isLoading = true;
     Store.uploads.isFetching = true;
     try {
       const response = await Api.fetchFiles();
@@ -142,12 +148,13 @@ export class HomePage {
         if (Store.uploads.files.length === response.total) {
           Store.uploads.files.isAtEnd = true;
         }
-        m.redraw();
       }
     } catch(error) {
       console.error(error);
     }
     Store.uploads.isFetching = false;
+    Store.isLoading = false;
+    m.redraw();
   }
 
   view(vnode) {
@@ -209,7 +216,7 @@ export class HomePage {
               m('div', {class: 'uploads-divider'}, [
                 m('span', `Uploaded ${Store.uploads.total.toLocaleString()} Files`),
               ]),
-              Store.uploads.files.map((file) => m(UploadedFile, {file})),
+              Store.uploads.files.map((file) => m(UploadedFile, {key: file.response.id, file})),
             ] : null,
           ]),
         ] : [
