@@ -20,6 +20,9 @@ html, body {
 ::-webkit-scrollbar {
     width: 12px;
 }
+::-webkit-scrollbar-button {
+    display: none;
+}
 ::-webkit-scrollbar-track {
     background-clip: padding-box;
     background-color: rgb(47, 49, 54);
@@ -34,6 +37,9 @@ html, body {
 }
 ::-webkit-scrollbar-thumb:hover {
     background-color: rgb(33, 36, 39);
+}
+::-webkit-scrollbar-corner {
+    display: none;
 }
 
 .noselect {

@@ -7,11 +7,26 @@ import {
 } from '../../utils';
 
 import {
+  Store as FileStore,
+  UploadTypes,
+  Tools as FileTools,
+  FileObject,
+} from '../files';
+
+import {
   AudioMedia,
   ImageMedia,
   TextMedia,
   VideoMedia,
 } from '../media';
+
+
+const SortTypes = Object.freeze({
+  ALPHABETICAL: 'alphabetical',
+  SIZE: 'size',
+  UPLOADED: 'uploaded',
+  VIEWS: 'views',
+});
 
 const ViewTypes = Object.freeze({
   CONTENT: 'content',
@@ -24,43 +39,27 @@ const ViewTypes = Object.freeze({
 });
 
 const Store = {
+  sortType: SortTypes.UPLOADED,
   viewType: ViewTypes.CONTENT,
-  isAtEnd: false,
-  isFetching: false,
-  isLoading: true,
-  total: 0,
-  files: [],
 };
 
-
-async function fetchMoreFiles() {
-  Store.isFetching = true;
-  try {
-    const lastFile = Store.files[Store.files.length - 1];
-    let response;
-    if (lastFile) {
-      response = await Api.fetchFiles({
-        before: lastFile.id,
-      });
-    } else {
-      response = await Api.fetchFiles();
+const Tools = Object.freeze({
+  onScroll: async (dom) => {
+    if (FileStore.isAtEnd || FileStore.isFetching) {return;}
+    let percentage = 0;
+    switch (Store.viewType) {
+      case ViewTypes.LIST: {
+        percentage = (dom.scrollLeft / (dom.scrollWidth -dom.offsetWidth)) * 100;
+      }; break;
+      default: {
+        percentage = (dom.scrollTop / (dom.scrollHeight - dom.offsetHeight)) * 100;
+      };
     }
-
-    Store.total = response.total;
-    if (response.files.length) {
-      for (let file of response.files) {
-        file.name = [file.filename, file.extension].filter((v) => v).join('.');
-        Store.files.push(file);
-      }
-      if (Store.files.length === response.total) {
-        Store.isAtEnd = true;
-      }
+    if (85 < percentage) {
+      await FileTools.fetchFiles();
     }
-  } catch(error) {
-    console.error(error);
-  }
-  Store.isFetching = false;
-}
+  },
+});
 
 
 export class DashboardFilesPage {
@@ -73,81 +72,30 @@ export class DashboardFilesPage {
     }
   }
 
-  async oninit(vnode) {
-    if (Store.isFetching || !Store.isLoading) {
-      return;
-    }
-    Store.isLoading = true;
-    Store.error = null;
-    await fetchMoreFiles();
-    Store.isLoading = false;
-    m.redraw();
-  }
-
   view(vnode) {
-    if (Store.isLoading) {
+    if (FileStore.isLoading) {
       return m('div', {class: 'message'}, [
         m('span', 'loading...'),
       ]);
     }
-    if (Store.error) {
-      return m('div', {class: 'message'}, [
-        m('span', `error fetching ur data lol: ${Store.error.message}`),
-      ]);
-    }
 
-    return m('div', {
-      class: [
-        'modal',
-        (window.isMobile) ? 'mobile' : null,
-      ].filter((v) => v).join(' '),
-    }, [
+    return m('div', {class: 'main-modal'}, [
       m('div', {class: 'total'}, [
-        m('span', `You have uploaded ${Store.total.toLocaleString()} files.`),
+        m('span', `You have uploaded ${FileStore.total.toLocaleString()} files.`),
       ]),
       m.fragment({
-        oncreate: async ({dom}) => {
-          let percentage = 0;
-          switch (Store.viewType) {
-            case ViewTypes.LIST: {
-              percentage = (dom.scrollLeft / (dom.scrollWidth -dom.offsetWidth)) * 100;
-            }; break;
-            default: {
-              percentage = (dom.scrollTop / (dom.scrollHeight - dom.offsetHeight)) * 100;
-            };
-          }
-          if (percentage < 85 || Store.isAtEnd || Store.isFetching) {
-            return;
-          }
-          await fetchMoreFiles();
-          m.redraw();
-        },
+        oncreate: ({dom}) => Tools.onScroll(dom),
       }, [
         m('div', {
           class: [
             'files',
             `view-${Store.viewType}`,
           ].join(' '),
-          onscroll: async ({target}) => {
-            let percentage = 0;
-            switch (Store.viewType) {
-              case ViewTypes.LIST: {
-                percentage = (target.scrollLeft / (target.scrollWidth - target.offsetWidth)) * 100;
-              }; break;
-              default: {
-                percentage = (target.scrollTop / (target.scrollHeight - target.offsetHeight)) * 100;
-              };
-            }
-            if (percentage < 85 || Store.isAtEnd || Store.isFetching) {
-              return;
-            }
-            await fetchMoreFiles();
-            m.redraw();
-          },
+          onscroll: ({target}) => Tools.onScroll(target),
         }, [
-          Store.files.map((file) => m(FileComponent, {key: file.id, file})),
-          (Store.isFetching) ? [
-            m('div', {class: 'loading'}, [
+          FileStore.files.uploaded.map((file) => m(FileComponent, {file, key: file.id})),
+          (FileStore.isFetching) ? [
+            m('div', {class: 'modal'}, [
               m('i', {class: 'material-icons'}, ''),
               m('span', 'Fetching more...'),
             ]),
@@ -192,7 +140,7 @@ class FileComponent {
           media = m(ImageMedia, {title: this.file.name}, [
             m('img', {
               alt: this.file.name,
-              src: this.file.urls.cdn,
+              src: this.file.url,
               onerror: () => this.file.showIcon = true,
             }),
           ]);
@@ -202,7 +150,7 @@ class FileComponent {
 
     switch (Store.viewType) {
       case ViewTypes.CONTENT: {
-        const date = new Date(snowflakeToTimestamp(this.file.id));
+        const date = new Date(snowflakeToTimestamp(this.file.response.id));
 
         return m('div', {class: 'file'}, [
           m('div', {class: 'header'}, [
@@ -225,11 +173,11 @@ class FileComponent {
             m('div', {class: 'field'}, [
               m('div', {class: 'info'}, [
                 m('span', {class: 'category'}, 'URL:'),
-                m('span', this.file.urls.main),
+                m('span', this.file.response.urls.main),
               ]),
               m('div', {class: 'info'}, [
                 m('span', {class: 'category'}, 'Views:'),
-                m('span', this.file.views || 0),
+                m('span', this.file.response.views || 0),
               ]),
             ]),
           ]),

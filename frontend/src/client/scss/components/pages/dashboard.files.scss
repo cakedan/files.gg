@@ -6,10 +6,19 @@
     height: calc(100vh - 64px);
 
     .message {
+        display: flex;
+        align-items: center;
+        justify-content: center;
 
+        span {
+            font-size:  14px;
+            opacity: 0.4;
+            text-align: center;
+            text-transform: uppercase;
+        }
     }
 
-    .modal {
+    .main-modal {
         flex-grow: 1;
         display: flex;
         flex-direction: column;
@@ -66,7 +75,8 @@
                 display: flex;
                 flex-direction: row;
 
-                border-bottom: 1px solid black;
+                border-bottom: 1px solid rgba($filesBlack, 0.9);
+                cursor: pointer;
                 padding: 5px 0;
 
                 max-height: 40px;
@@ -134,6 +144,8 @@
                             }
                             span.category {
                                 opacity: 0.4;
+                                overflow: visibile;
+                                text-overflow: clip;
                             }
                             span.title {
                                 opacity: 0.9;
@@ -158,6 +170,7 @@
         .files.view-tiles {
             flex-direction: row;
             flex-wrap: wrap;
+            justify-content: center;
 
             .file {
                 @extend .noselect;
@@ -392,6 +405,7 @@
         .files.view-icons, .files.view-large-icons {
             flex-direction: row;
             flex-wrap: wrap;
+            align-content: flex-start;
 
             .file {
                 @extend .noselect;
@@ -402,8 +416,8 @@
 
                 margin: 5px;
 
-                height: 125px;
-                width: 75px;
+                height: 135px;
+                width: 80px;
 
                 .content {
                     border-radius: 5px;
@@ -415,6 +429,8 @@
                         display: flex;
                         align-items: center;
                         justify-content: center;
+
+                        padding-top: 5px;
 
                         .media-container {
                             height: 48px;
@@ -444,7 +460,9 @@
                         display: flex;
 
                         box-sizing: border-box;
-                        padding: 5px 0;
+                        padding-top: 5px;
+
+                        max-height: calc(100% - 48px - 5px);
 
                         .field {
                             display: flex;
@@ -452,7 +470,7 @@
                             align-items: center;
                             justify-content: center;
 
-                            height: 100%;
+                            max-height: 100%;
                             width: 100%;
 
                             span {
@@ -461,10 +479,13 @@
                                 font-size: 12px;
                                 font-weight: 100;
                                 opacity: 0.9;
-                                overflow: hidden;
+                                overflow: auto;
                                 text-overflow: ellipsis;
                                 text-align: center;
                                 word-wrap: break-word;
+                            }
+                            span::-webkit-scrollbar {
+                                display: none;
                             }
                         }
                     }
@@ -497,6 +518,8 @@
                         }
                     }
                     .fields {
+                        max-height: calc(100% - 96px - 5px);
+
                         .field {
                             span {
                                 font-size: 18px;
@@ -634,10 +657,23 @@
         }
         */
     }
+}
 
-    .modal.mobile {
+.app.mobile {
+    .main-modal {
         .files {
             width: 95vw;
+        }
+
+        .files.view-content {
+            .file {
+                .fields, .footer {
+                    width: 500px;
+                }
+            }
+        }
+        .files.view-icons, .files.view-large-icons {
+            justify-content: center;
         }
     }
 }

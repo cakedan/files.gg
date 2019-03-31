@@ -158,7 +158,7 @@ export class AuthLoginPage {
         return m.redraw();
       }
     }
-    console.log(token);
+
     if (token) {
       Auth.set(token);
       try {
@@ -290,24 +290,28 @@ class Field {
     }
   }
 
+  get store() {
+    return Store[this.type];
+  }
+
   get error() {
-    return Store[this.type].error;
+    return this.store.error;
   }
 
   set error(value) {
-    return Store[this.type].error = value;
+    return this.store.error = value;
   }
 
   get valid() {
-    return Store[this.type].valid;
+    return this.store.valid;
   }
 
   set valid(value) {
-    return Store[this.type].valid = value;
+    return this.store.valid = value;
   }
 
   get value() {
-    return Store[this.type].value;
+    return this.store.value;
   }
 
   set value(value) {
@@ -322,11 +326,11 @@ class Field {
       this.error = new Error('This field is required.');
       this.valid = false;
     }
-    return Store[this.type].value = value;
+    return this.store.value = value;
   }
 
   get show() {
-    return Store[this.type].show;
+    return this.store.show;
   }
 
   validate(value) {
@@ -358,22 +362,37 @@ class Field {
           ] : null,
         ] : null,
       ]),
-      m('input', {
-        type: this.type,
-        onfocusin: () => this.active = true,
-        onfocusout: () => this.active = false,
-        oninput: ({target}) => this.value = target.value,
-        onkeydown: (event) => {
-          if (event.key === 'Enter') {
-            if (this.onsubmit) {
-              this.onsubmit();
+      m.fragment({
+        oncreate: ({dom}) => {
+          // this is for password autofills since no event fires...
+          this.store.interval = setInterval(() => {
+            if (dom.value !== this.value) {
+              this.value = dom.value;
             }
-          }
+          }, 100);
         },
-        placeholder: this.placeholder,
-        spellcheck: false,
-        value: this.value,
-      }),
+        onremove: ({dom}) => {
+          clearInterval(this.store.interval);
+          this.store.interval = null;
+        },
+      }, [
+        m('input', {
+          type: this.type,
+          onfocusin: () => this.active = true,
+          onfocusout: () => this.active = false,
+          oninput: ({target}) => this.value = target.value,
+          onkeydown: (event) => {
+            if (event.key === 'Enter') {
+              if (this.onsubmit) {
+                this.onsubmit();
+              }
+            }
+          },
+          placeholder: this.placeholder,
+          spellcheck: false,
+          value: this.value,
+        }),
+      ]),
     ]);
   }
 }

@@ -35,3 +35,52 @@ input {
         font-size: initial !important;
     }
 }
+
+.divider {
+    cursor: default;
+    text-align: center;
+
+    width: 95%;
+
+    .divider-line {
+        display: block;
+        border-bottom: 1px solid rgba($filesGreyLight, 0.8);
+        width: 100%;
+    }
+
+    .divider-text {
+        display: flex;
+        align-items: center;
+    
+        color: $filesGreyLight;
+        font-size: 14px;
+        font-weight: 500;
+        line-height: 19px;
+        width: 100%;
+    }
+    .divider-text::before {
+        border-bottom: 1px solid rgba($filesGreyLight, 0.8);
+        content: '';
+        flex-grow: 1;
+        height: 1px;
+        margin-right: 8px;
+    }
+    .divider-text::after {
+        border-bottom: 1px solid rgba($filesGreyLight, 0.8);
+        content: '';
+        flex-grow: 1;
+        height: 1px;
+        margin-left: 8px;
+    }
+}
+.divider.vertical {
+    height: 95%;
+    width: auto;
+
+    .divider-line {
+        border-bottom: none;
+        border-right: 1px solid rgba($filesGreyLight, 0.8);
+        height: 100%;
+        width: auto;
+    }
+}

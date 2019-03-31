@@ -5,6 +5,7 @@ import { Auth, Fingerprint } from './auth';
 import { Head } from './components/head';
 import { Mimetypes } from './utils';
 
+import { FilesModal } from './components/files';
 import { Navbar } from './components/navbar';
 import {
   AuthForgotPage,
@@ -51,10 +52,16 @@ class RouteResolver {
   }
 
   render(vnode) {
-    return [
+    return m('div', {
+      class: [
+        'app',
+        (window.isMobile) ? 'mobile' : null,
+      ].filter((v) => v).join(' '),
+    }, [
       m(Navbar, {title: 'files.gg'}),
       m('div', {class: this.class}, vnode),
-    ];
+      m(FilesModal, vnode.attrs),
+    ]);
   }
 }
 
@@ -95,7 +102,6 @@ export const Application = Object.freeze({
     } else {
       div = document.getElementById(id);
     }
-    div.classList.add('app');
     return Store.div = div;
   },
   setPrefix(prefix) {

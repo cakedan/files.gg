@@ -211,7 +211,12 @@ def create_file(args):
             elif mimetype.endswith('+xml'):
                 fextension = 'xml'
 
-    fname = '.'.join(fname)[:128]
+    old_fname = '.'.join(fname)
+    fname = ''
+    for idx, x in enumerate(old_fname.split('{random}')):
+        if idx or x:
+            fname += generate_vanity() + x
+    fname = fname[:128]
 
     # we read the filedata now to get the hashes of it
     fdata = stream.read(fsize)

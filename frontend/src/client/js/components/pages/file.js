@@ -37,19 +37,32 @@ class FileItem {
 
       const languages = Monaco.monaco.languages.getLanguages();
       for (let language of languages) {
-        if (language.aliases && language.aliases.includes(alias)) {
-          this._language = language.id;
-          break;
-        } else if (language.mimetypes && language.mimetypes.includes(mimetype)) {
-          this._language = language.id;
-          break;
-        } else if (language.extension && language.extensions.includes(extension)) {
-          this._language = language.id;
-          break;
+        if (languages.aliases) {
+          if (language.alaises.includes(alias) || language.aliases.includes(this.file.extension)) {
+            this._language = language.id;
+            break;
+          }
+        }
+        if (language.mimetypes && mimetype !== 'text/plain') {
+          if (language.mimetypes.includes(mimetype)) {
+            this._language = language.id;
+            break;
+          }
+        }
+        if (language.extensions) {
+          if (language.extensions.includes(extension)) {
+            this._language = language.id;
+            break;
+          }
         }
       }
       if (this._language === undefined) {
-        this._language = null;
+        if (mimetype === 'text/plain') {
+          // didn't find any custom extensions from languages
+          this._language = 'plaintext';
+        } else {
+          this._language = null;
+        }
       }
     }
     return this._language;
