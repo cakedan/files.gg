@@ -169,7 +169,15 @@ export class FilesModal {
         m('i', {class: 'material-icons'}, (Store.expand) ? 'expand_more' : 'expand_less'),
       ]),
       (Store.expand) ? [
-        m('div', {class: 'main-expanded-content'}, [
+        m('div', {
+          class: 'main-expanded-content',
+          onscroll: async ({target}) => {
+            const percentage = (target.scrollTop / target.scrollHeight) * 100;
+            if (percentage < 85) {return;}
+            if (Store.isAtEnd || Store.isFetching) {return;}
+            await Tools.fetchFiles();
+          },
+        }, [
           m('div', {class: 'picker'}, [
             m('div', {
               class: 'text',
@@ -211,9 +219,9 @@ export class FilesModal {
               return m(FileComponent, {file, key: file.key});
             })),
           ] : null,
-          (Store.isFetching || Store.isLoading) ? [
+          (Store.isLoading) ? [
             m('div', {class: 'modal'}, [
-              m('span', 'fetching...'),
+              m('span', 'loading...'),
             ]),
           ] : [
             (Store.files.uploaded.length) ? [
@@ -228,6 +236,11 @@ export class FilesModal {
                 m('span', 'upload some files man'),
               ]),
             ],
+            (Store.isFetching) ? [
+              m('div', {class: 'modal'}, [
+                m('span', 'fetching...'),
+              ]),
+            ] : null,
           ],
         ]),
       ] : null,

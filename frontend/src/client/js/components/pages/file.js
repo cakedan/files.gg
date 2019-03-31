@@ -37,6 +37,10 @@ class FileItem {
 
       const languages = Monaco.monaco.languages.getLanguages();
       for (let language of languages) {
+        if (language.id === this.file.extension) {
+          this._language = language.id;
+          break;
+        }
         if (languages.aliases) {
           if (language.alaises.includes(alias) || language.aliases.includes(this.file.extension)) {
             this._language = language.id;
