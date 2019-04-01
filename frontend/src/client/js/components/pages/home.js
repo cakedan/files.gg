@@ -393,10 +393,10 @@ class TextUpload extends UploadType {
                   } else {
                     this.options.type = 'text/plain';
                   }
-                  if (language.extensions) {
-                    this.options.extension = (language.extensions[0] || 'txt').split('.').pop();
+                  if (language.extensions && language.extensions.length) {
+                    this.options.extension = language.extensions[0].split('.').pop();
                   } else {
-                    this.options.extension = 'txt';
+                    this.options.extension = language.id;
                   }
                 }
               }
