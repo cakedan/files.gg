@@ -1,6 +1,9 @@
 import m from 'mithril';
 
-import { formatTime } from '../utils';
+import {
+  formatTime,
+  InputTypes,
+} from '../utils';
 
 
 class MediaWrapper {
@@ -488,20 +491,22 @@ export class ImageMedia {
   }
 
   view(vnode) {
-    return m('div', {class: 'media-container image'}, [
+    return [
       (this.zoom) ? [
         m('div', {
-          class: 'zoom',
+          class: 'media-container image zoom',
           onclick: () => this.zoom = false,
         }, [
           m('picture', vnode.children),
         ]),
       ] : null,
-      m('picture', {
-        class: 'compact',
-        onclick: () => this.zoom = true,
-      }, vnode.children),
-    ]);
+      m('div', {class: 'media-container image'}, [
+        m('picture', {
+          class: 'compact',
+          onclick: () => this.zoom = true,
+        }, vnode.children),
+      ]),
+    ];
   }
 }
 
@@ -654,7 +659,7 @@ import { Monaco, MonacoComponent } from './monaco';
 
 export class TextMedia {
   async oninit(vnode) {
-    const useMonaco = (vnode.attrs.useMonaco === undefined) || vnode.attrs.useMonaco;
+    const useMonaco = InputTypes.boolean(vnode.attrs.useMonaco, true);
     if (useMonaco) {
       if (!Monaco.isLoaded) {
         await Monaco.load();
@@ -668,7 +673,7 @@ export class TextMedia {
   }
 
   view(vnode) {
-    const useMonaco = (vnode.attrs.useMonaco === undefined) || vnode.attrs.useMonaco;
+    const useMonaco = InputTypes.boolean(vnode.attrs.useMonaco, true);
     return m('div', {
       class: [
         'media-container',

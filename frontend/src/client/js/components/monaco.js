@@ -1,5 +1,7 @@
 import m from 'mithril';
 
+import { InputTypes } from '../utils';
+
 
 let monaco;
 export const Monaco = Object.freeze({
@@ -27,11 +29,9 @@ export class MonacoComponent {
       throw new Error('Monaco isn\'t loaded!');
     }
 
-    if (typeof(vnode.attrs.onvalue) === 'function') {
-      this.onvalue = vnode.attrs.onvalue;
-    } else {
-      this.onvalue = null;
-    }
+    this.oneditor = InputTypes.func(vnode.attrs.oneditor, null);
+    this.onselection = InputTypes.func(vnode.attrs.onselection, null);
+    this.onvalue = InputTypes.func(vnode.attrs.onvalue, null);
 
     vnode.attrs.settings = Object.assign({
       language: 'javascript',
@@ -44,6 +44,10 @@ export class MonacoComponent {
 
   oncreate(vnode) {
     this.editor = monaco.editor.create(vnode.dom, vnode.attrs.settings);
+    if (this.oneditor) {
+      this.oneditor(this.editor);
+    }
+
     this.editor.onDidChangeModelContent((event) => {
       if (!this.onvalue) {return;}
 
@@ -57,6 +61,12 @@ export class MonacoComponent {
       }
     });
 
+    this.editor.onDidChangeCursorSelection((event) => {
+      if (this.onselection) {
+        this.onselection(event);
+      }
+    });
+
     this.editor.onDidChangeModelLanguage((language, old) => {
       this.language = language;
     });
@@ -64,7 +74,7 @@ export class MonacoComponent {
 
   onbeforeupdate(vnode, old) {
     for (let key in vnode.attrs) {
-      if (key === 'onvalue') {
+      if (key.startsWith('on')) {
         continue;
       }
 

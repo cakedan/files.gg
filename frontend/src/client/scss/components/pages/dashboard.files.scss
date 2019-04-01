@@ -660,20 +660,22 @@
 }
 
 .app.mobile {
-    .main-modal {
-        .files {
-            width: 95vw;
-        }
+    .page.dashboard-files {
+        .main-modal {
+            .files {
+                width: 95vw;
+            }
 
-        .files.view-content {
-            .file {
-                .fields, .footer {
-                    width: 500px;
+            .files.view-content {
+                .file {
+                    .fields, .footer {
+                        width: 500px;
+                    }
                 }
             }
-        }
-        .files.view-icons, .files.view-large-icons {
-            justify-content: center;
+            .files.view-icons, .files.view-large-icons {
+                justify-content: center;
+            }
         }
     }
 }

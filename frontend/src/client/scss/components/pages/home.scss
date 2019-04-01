@@ -355,7 +355,7 @@
                 box-sizing: border-box;
                 margin: 5px 0;
 
-                .information {
+                .header {
                     display: flex;
                     flex-direction: row;
 
@@ -468,7 +468,7 @@
                             max-width: 100%;
                             width: 250px;
 
-                            picture.compact > img, video {
+                            .compact > img, video {
                                 max-height: 250px;
                             }
                         }
@@ -595,21 +595,23 @@
 }
 
 .app.mobile {
-    .main-modal {
-        flex-direction: column;
+    .page.home {
+        .main-modal {
+            flex-direction: column;
 
-        height: 90vh;
-        width: 90vw;
+            height: 90vh;
+            width: 90vw;
 
-        min-height: 850px;
+            min-height: 850px;
 
-        .upload {
-            height: 52%;
-            width: 100%;
-        }
-        .information {
-            height: 48%;
-            width: 100%;
+            .upload {
+                height: 52%;
+                width: 100%;
+            }
+            .information {
+                height: 48%;
+                width: 100%;
+            }
         }
     }
 }

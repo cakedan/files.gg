@@ -156,7 +156,7 @@ def create_file(args):
     #check filesize
 
     fname = None
-    if args.filename is None or args.filename == 'random':
+    if args.filename is None:
         fname = [generate_vanity()]
     else:
         fname = args.filename.split('.')
@@ -211,11 +211,15 @@ def create_file(args):
             elif mimetype.endswith('+xml'):
                 fextension = 'xml'
 
-    old_fname = '.'.join(fname)
-    fname = ''
-    for idx, x in enumerate(old_fname.split('{random}')):
-        if idx or x:
-            fname += generate_vanity() + x
+    fname = '.'.join(fname).split('{random}')
+    if len(fname) == 1:
+        fname = fname.pop()
+    else:
+        xfname = ''
+        for idx, x in enumerate(fname):
+            if idx or x:
+                xfname += generate_vanity() + x
+        fname = xfname
     fname = fname[:128]
 
     # we read the filedata now to get the hashes of it

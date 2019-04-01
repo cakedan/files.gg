@@ -313,7 +313,7 @@ export class FileComponent {
     }
 
     return m('div', {class: 'file'}, [
-      m('div', {class: 'information'}, [
+      m('div', {class: 'header'}, [
         m('div', {class: 'icon'}, [
           m('span', {class: 'material-icons'}, 'insert_drive_file'),
         ]),
