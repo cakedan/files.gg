@@ -172,10 +172,11 @@ export class FilesModal {
         m('div', {
           class: 'main-expanded-content',
           onscroll: async ({target}) => {
-            const percentage = (target.scrollTop / target.scrollHeight) * 100;
-            if (percentage < 85) {return;}
             if (Store.isAtEnd || Store.isFetching) {return;}
-            await Tools.fetchFiles();
+            const percentage = (target.scrollTop / target.scrollHeight) * 100;
+            if (75 < percentage) {
+              await Tools.fetchFiles();
+            }
           },
         }, [
           m('div', {class: 'picker'}, [
@@ -469,11 +470,7 @@ export class FileObject {
 
   get url() {
     if (this.response) {
-      if (this.cdnUrlValid) {
-        return this.response.urls.cdn;
-      } else {
-        return null;
-      }
+      return (this.cdnUrlValid) ? this.response.urls.cdn : null;
     }
 
     if (this.file) {

@@ -178,10 +178,19 @@
                     display: flex;
                     align-items: center;
                     justify-content: center;
+
+                    max-width: 100%;
+
+                    box-sizing: border-box;
                     margin: 5px 0;
+                    padding: 0 2px;
 
                     span {
                         color: $filesGreyLightest;
+                        overflow: hidden;
+                        text-align: center;
+                        text-overflow: ellipsis;
+                        white-space: nowrap;
                     }
                 }
 

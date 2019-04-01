@@ -2,6 +2,10 @@ import { DomainRouter } from 'cf-worker-router';
 
 export const router = new DomainRouter('api.files.gg');
 
+
+router.route('/*', '*', {pass: true});
+
+
 export async function requestApi(request, options) {
   if (typeof(options) === 'string') {
     options = {path: options};
@@ -22,5 +26,3 @@ export async function requestApi(request, options) {
   }
   return await fetch(request, options);
 };
-
-router.route('/*', '*', {pass: true});

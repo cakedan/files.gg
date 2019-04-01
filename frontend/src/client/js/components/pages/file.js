@@ -264,7 +264,7 @@ class FileItem {
       }
 
       if (Mimetypes.isImageType(this.file.mimetype)) {
-        return m(ImageMedia, {zoom: vnode.attrs.zoom}, [
+        return m(ImageMedia, {zoom: Store.zoom}, [
           m('img', {
             alt: this.file.name,
             src: this.file.urls.cdn,

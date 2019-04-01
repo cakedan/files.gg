@@ -11,7 +11,7 @@ import { Monaco } from '../monaco';
 import {
   Store as FileStore,
   UploadTypes,
-  Tools,
+  Tools as FileTools,
   FileComponent,
   FileObject,
 } from '../files';
@@ -89,10 +89,11 @@ export class HomePage {
             onscroll: async ({target}) => {
               // if like 80% through, fetch more files if not at end
               // scrollTop and scrollHeight
-              const percentage = (target.scrollTop / target.scrollHeight) * 100;
-              if (percentage < 85) {return;}
               if (FileStore.isAtEnd || FileStore.isFetching) {return;}
-              await Tools.fetchFiles();
+              const percentage = (target.scrollTop / target.scrollHeight) * 100;
+              if (75 < percentage) {
+                await FileTools.fetchFiles();
+              }
             },
           }, [
             (FileStore.files.uploading.length) ? [
@@ -297,7 +298,7 @@ class FileUpload extends UploadType {
           multiple: true,
           type: 'file',
           onchange: ({target}) => {
-            Tools.addFiles(target.files);
+            FileTools.addFiles(target.files);
             target.value = '';
           },
         }),

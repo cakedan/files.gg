@@ -55,7 +55,7 @@ const Tools = Object.freeze({
         percentage = (dom.scrollTop / (dom.scrollHeight - dom.offsetHeight)) * 100;
       };
     }
-    if (85 < percentage) {
+    if (75 < percentage) {
       await FileTools.fetchFiles();
     }
   },

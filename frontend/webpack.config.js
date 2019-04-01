@@ -18,7 +18,7 @@ const production = ((process.env.NODE_ENV || '').toLowerCase() === 'production')
 module.exports = {
   entry: [
     '@babel/polyfill',
-    '@url-search-params-pollyfill',
+    'url-search-params-polyfill',
     path.join(DIR.APP, 'js', 'main.js'),
     path.join(DIR.APP, 'scss', 'main.scss'),
   ],
@@ -62,9 +62,18 @@ module.exports = {
       {
         test: /\.(ttf|eot|woff|woff2)$/,
         use: {
-          loader: "file-loader",
+          loader: 'file-loader',
           options: {
-            name: "[hash].[ext]",
+            name: '[hash].[ext]',
+          },
+        },
+      },
+      {
+        test: /^favicon\.ico$/,
+        use: {
+          loader: 'file-loader',
+          options: {
+            name: '[name].[ext]',
           },
         },
       },

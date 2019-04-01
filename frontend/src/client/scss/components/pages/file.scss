@@ -62,14 +62,23 @@
             }
 
             .information {
-                color: $filesGreyLight;
-                max-width: 100%;
-                padding-top: 5px;
-                text-align: center;
+                display: flex;
+                flex-direction: column;
 
-                white-space: nowrap;
-                overflow: hidden;
-                text-overflow: ellipsis;
+                max-width: 100%;
+
+                box-sizing: border-box;
+                padding: 0 2px;
+
+                span {
+                    color: $filesGreyLight;
+                    padding-top: 5px;
+                    text-align: center;
+
+                    white-space: nowrap;
+                    overflow: hidden;
+                    text-overflow: ellipsis;
+                }
             }
         }
 
@@ -182,6 +191,20 @@
                 color: $filesGreyLight;
                 cursor: nwse-resize;
                 //transform: scaleY(-1);
+            }
+        }
+    }
+}
+
+.app.mobile {
+    .page.file {
+        .context {
+            max-width: 90vw;
+
+            .media-container {
+                .monaco {
+                    width: 90vw;
+                }
             }
         }
     }

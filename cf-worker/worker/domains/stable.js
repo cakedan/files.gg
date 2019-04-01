@@ -189,12 +189,12 @@ router.route('/:fileId...', ['GET', 'HEAD'], async(event) => {
         }
       } else {
         if (!event.request.headers.get('accept-language')) {
-          // not a browser, might as well redirect
+          // might be a forum embed, browsers usually have this when initially requesting
           return new ApiRedirect(file.urls.cdn);
         }
 
         const acceptedHeader = (event.request.headers.get('accept') || '').split(',').map((x) => x.split(';').shift().trim()).filter((v) => v);
-        // Browsers always have this header, redirect since it's probably a bot
+        // Browsers always have this header, redirect if not here
         if (!acceptedHeader.length) {
           return new ApiRedirect(file.urls.cdn);
         }
