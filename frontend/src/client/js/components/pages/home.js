@@ -419,6 +419,7 @@ class TextUpload extends UploadType {
     const file = new FileObject({
       file: {
         blob: blob,
+        data: this.upload.data,
         extension: this.upload.options.extension,
         name: filename,
       },

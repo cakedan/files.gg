@@ -6,6 +6,7 @@ import { Auth, Fingerprint } from '../auth';
 import {
   formatBytes,
   InputTypes,
+  Mimetypes,
 } from '../utils';
 
 import {
@@ -13,7 +14,11 @@ import {
   ImageMedia,
   TextMedia,
   VideoMedia,
+  TextTypes,
 } from './media';
+
+import { CodeMirror } from './codemirror';
+import { Monaco } from './monaco';
 
 
 export const Store = {
@@ -45,6 +50,9 @@ export const FileTypes = Object.freeze({
 
 
 export const Tools = Object.freeze({
+  get defaultTextType() {
+    return (window.isMobile) ? TextTypes.CODEMIRROR : TextTypes.MONACO;
+  },
   async fetchFiles(options) {
     Store.isFetching = true;
     try {
@@ -255,11 +263,32 @@ export class FilesModal {
 
 
 export class FileComponent {
-  oninit(vnode) {
+  async oninit(vnode) {
     this.file = vnode.attrs.file;
 
     if (vnode.attrs.onupload !== undefined) {
       this.onupload = vnode.attrs.onupload;
+    }
+
+    if (!this.isFetching && this.expand) {
+      // check if this is a fresh upload, if so ignore
+      if (this.file.uploadType !== UploadTypes.TEXT) {
+        if (this.file.response && Mimetypes.isTextType(this.file.mimetype)) {
+          if (!this.file.data) {
+            this.isFetching = true;
+            try {
+              this.file.data = await Api.request({
+                url: this.file.response.urls.cdn,
+                deserialize: (x) => x,
+              });
+            } catch(error) {
+              this.file.data = error;
+            }
+            this.isFetching = false;
+            m.redraw();
+          }
+        }
+      }
     }
   }
 
@@ -287,33 +316,77 @@ export class FileComponent {
 
   view(vnode) {
     let media;
-    if (this.file.expand && this.file.url) {
-      switch (this.file.mimetype.split('/').shift()) {
-        case 'audio': {
-          media = m(AudioMedia, {title: this.file.name}, [
-            m('source', {
-              src: this.file.url,
-              onerror: () => this.file.revokeUrl(),
-            }),
-          ]);
-        }; break;
-        case 'image': {
-          media = m(ImageMedia, {title: this.file.name}, [
-            m('img', {
-              alt: this.file.name,
-              src: this.file.url,
-              onerror: () => this.file.revokeUrl(),
-            }),
-          ]);
-        }; break;
-        case 'video': {
-          media = m(VideoMedia, {title: this.file.name}, [
-            m('source', {
-              src: this.file.url,
-              onerror: () => this.file.revokeUrl(),
-            }),
-          ]);
-        }; break;
+    if (this.file.expand) {
+      if (Mimetypes.isTextType(this.file.mimetype)) {
+        if (this.file.data === undefined) {
+          media = m(TextMedia, {value: 'loading file data...'});
+        } else if (this.file.data instanceof Error) {
+          media = m(TextMedia, {
+            value: [
+              'couldn\'t fetch text data, sorry',
+              String(this.file.data),
+            ].join('\n'),
+          });
+        } else {
+          const settings = {
+            readOnly: true,
+            value: this.file.data,
+          };
+          switch (Tools.defaultTextType) {
+            case TextTypes.CODEMIRROR: {
+              Object.assign(settings, {
+                mode: (CodeMirror.getLanguage({
+                  extension: this.file.extension,
+                  mimetype: this.file.mimetype,
+                }) || {}).mode,
+              });
+            }; break;
+            case TextTypes.MONACO: {
+              Object.assign(settings, {
+                automaticLayout: true,
+                language: (Monaco.getLanguage({
+                  extension: this.file.extension,
+                  mimetype: this.file.mimetype,
+                }) || {}).id,
+                theme: 'vs-dark',
+              });
+            }; break;
+          }
+          media = m(TextMedia, {
+            type: Tools.defaultTextType,
+            settings: settings,
+          });
+        }
+      } else {
+        if (this.file.url) {
+          switch (this.file.mimetype.split('/').shift()) {
+            case 'audio': {
+              media = m(AudioMedia, {title: this.file.name}, [
+                m('source', {
+                  src: this.file.url,
+                  onerror: () => this.file.revokeUrl(),
+                }),
+              ]);
+            }; break;
+            case 'image': {
+              media = m(ImageMedia, {title: this.file.name}, [
+                m('img', {
+                  alt: this.file.name,
+                  src: this.file.url,
+                  onerror: () => this.file.revokeUrl(),
+                }),
+              ]);
+            }; break;
+            case 'video': {
+              media = m(VideoMedia, {title: this.file.name}, [
+                m('source', {
+                  src: this.file.url,
+                  onerror: () => this.file.revokeUrl(),
+                }),
+              ]);
+            }; break;
+          }
+        }
       }
     }
 
@@ -428,10 +501,32 @@ export class FileObject {
     this.cdnUrlValid = true;
 
     this.xhr = null;
+
+    this._data = undefined;
   }
 
   get key() {
     return (this.response) ? this.response.id : this._key;
+  }
+
+  get data() {
+    if (this.response) {
+      return this._data;
+    }
+
+    if (this.file) {
+      switch (this.uploadType) {
+        case UploadTypes.TEXT: {
+          return this.file.data;
+        };
+      }
+    }
+  }
+
+  set data(value) {
+    if (this.response) {
+      return this._data = value;
+    }
   }
 
   get name() {
@@ -455,6 +550,20 @@ export class FileObject {
       }
     }
     return 'Unknown';
+  }
+
+  get extension() {
+    if (this.response) {
+      return this.response.extension;
+    }
+
+    if (this.file) {
+      switch (this.uploadType) {
+        case UploadTypes.FILE: return this.file.extension;
+        case UploadTypes.TEXT: return this.file.extension;
+      }
+    }
+    return 'unknown';
   }
 
   get mimetype() {
