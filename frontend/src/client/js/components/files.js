@@ -510,16 +510,15 @@ export class FileObject {
   }
 
   get data() {
-    if (this.response) {
-      return this._data;
-    }
-
     if (this.file) {
       switch (this.uploadType) {
         case UploadTypes.TEXT: {
           return this.file.data;
         };
       }
+    }
+    if (this.response) {
+      return this._data;
     }
   }
 
