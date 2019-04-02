@@ -47,7 +47,7 @@
                     min-width: 100%;
                 }
 
-                .monaco {
+                .codemirror, .monaco {
                     height: 70vh;
                     width: 80vw;
                 }
@@ -202,7 +202,7 @@
             max-width: 90vw;
 
             .media-container {
-                .monaco {
+                .codemirror, .monaco {
                     width: 90vw;
                 }
             }

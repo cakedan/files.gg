@@ -2,10 +2,14 @@ import m from 'mithril';
 import md5 from 'crypto-js/md5';
 
 import { Head } from '../head';
-
 import { InputTypes } from '../../utils';
 
-import { TextMedia } from '../media';
+import {
+  TextMedia,
+  TextTypes,
+} from '../media';
+
+import { CodeMirror } from '../codemirror';
 import { Monaco } from '../monaco';
 
 import {
@@ -16,11 +20,6 @@ import {
   FileObject,
 } from '../files';
 
-
-const defaultLanguageId = 'plaintext';
-const defaultMimetype = 'application/octet-stream';
-const defaultUploadType = UploadTypes.FILE;
-
 const Store = {
   upload: {
     types: {
@@ -29,40 +28,81 @@ const Store = {
         files: [],
       },
       [UploadTypes.TEXT]: {
-        data: null,
+        data: '',
         hashes: {
           current: null,
           last: null,
         },
+        lastLanguageId: null,
         options: {
           filename: null,
           extension: 'txt',
           language: null,
-          languageId: defaultLanguageId,
+          languageId: null,
           type: 'text/plain',
         },
       },
     },
     settings: {
-      type: 'file',
+      type: null,
       vanity: null,
     },
   },
   isLoading: true,
   showUploads: false,
+  textType: null,
 };
+
+
+const Tools = Object.freeze({
+  get defaultTextType() {
+    return (window.isMobile) ? TextTypes.CODEMIRROR : TextTypes.MONACO;
+  },
+  get defaultLanguageId() {
+    switch (Store.textType) {
+      case TextTypes.CODEMIRROR: return CodeMirror.defaultLanguageId;
+      case TextTypes.MONACO: return Monaco.defaultLanguageId;
+    }
+  },
+  defaultUploadType: UploadTypes.FILE,
+  setRoute() {
+    const params = new URLSearchParams();
+    if (Store.upload.settings.type === UploadTypes.TEXT) {
+      const languageId = Store.upload.types[UploadTypes.TEXT].options.languageId;
+      if (languageId !== this.defaultLanguageId) {
+        params.append('language', languageId);
+      }
+    }
+    if (Store.upload.settings.type !== this.defaultUploadType) {
+      params.append('type', Store.upload.settings.type);
+    }
+    if (Store.textType && Store.textType !== this.defaultTextType) {
+      params.append('textType', Store.textType);
+    }
+    const route = [window.currentPath, params.toString()].filter((v) => v).join('?');
+    if (route !== m.route.get()) {
+      m.route.set(route, null, {replace: true});
+    }
+  }
+});
 
 
 export class HomePage {
   constructor(vnode) {
-    if (vnode.attrs.type !== undefined) {
-      vnode.attrs.type = vnode.attrs.type.toString().toLowerCase();
-      if (Object.values(UploadTypes).includes(vnode.attrs.type)) {
-        Store.upload.settings.type = vnode.attrs.type;
-      }
-    }
+    Store.upload.settings.type = InputTypes.choices(
+      Object.values(UploadTypes),
+      String(vnode.attrs.type).toLowerCase(),
+      Tools.defaultUploadType,
+    );
+    Store.textType = InputTypes.choices(
+      Object.values(TextTypes),
+      String(vnode.attrs.textType).toLowerCase(),
+      Tools.defaultTextType,
+    );
 
-    if (vnode.attrs.language !== undefined) {
+    if (vnode.attrs.language === undefined) {
+      Store.upload.types.text.options.languageId = Tools.defaultLanguageId;
+    } else {
       Store.upload.types.text.options.languageId = vnode.attrs.language;
     }
 
@@ -193,22 +233,7 @@ class UploadType {
   }
 
   oninit(vnode) {
-    this.setRoute();
-  }
-
-  setRoute() {
-    const params = new URLSearchParams();
-    if (this.type === UploadTypes.TEXT) {
-      if (this.upload.options.languageId !== defaultLanguageId) {
-        params.append('language', this.upload.options.languageId);
-      }
-    }
-    if (this.type !== defaultUploadType) {
-      params.append('type', this.type);
-    }
-
-    const route = ['/', params.toString()].join('?');
-    m.route.set(route, null, {replace: true});
+    Tools.setRoute();
   }
 
   get upload() {
@@ -316,7 +341,9 @@ class TextUpload extends UploadType {
 
   get canUpload() {
     if (this.upload.hashes.current === this.upload.hashes.last) {
-      return false;
+      if (this.upload.lastLanguageId === this.options.languageId) {
+        return false;
+      }
     }
     return !!this.upload.data;
   }
@@ -337,11 +364,55 @@ class TextUpload extends UploadType {
     return this.upload.options;
   }
 
-  async tryUpload() {
-    if (!this.canUpload) {
-      return;
+  setLanguage(language) {
+    if (this.options.language !== language) {
+      this.options.language = language;
+      switch (Store.textType) {
+        case TextTypes.CODEMIRROR: {
+          const languageId = language.id;
+          if (this.options.languageId !== languageId) {
+            this.options.languageId = languageId;
+            Tools.setRoute();
+          }
+
+          if (language.mime) {
+            this.options.type = language.mime;
+          } else if (language.mimes && language.mimes.length) {
+            this.options.type = language.mimes[0];
+          } else {
+            this.options.type = 'text/plain';
+          }
+          if (language.ext && language.ext) {
+            this.options.extension = language.ext[0];
+          } else {
+            this.options.extension = languageId;
+          }
+        }; break;
+        case TextTypes.MONACO: {
+          const languageId = language.id;
+          if (this.options.languageId !== languageId) {
+            this.options.languageId = languageId;
+            Tools.setRoute();
+          }
+          if (language.mimetypes && language.mimetypes.length) {
+            this.options.type = language.mimetypes[0];
+          } else {
+            this.options.type = 'text/plain';
+          }
+          if (language.extensions && language.extensions.length) {
+            this.options.extension = language.extensions[0].split('.').pop();
+          } else {
+            this.options.extension = languageId;
+          }
+        }; break;
+      }
     }
+  }
+
+  async tryUpload() {
+    if (!this.canUpload) {return;}
     this.upload.hashes.last = this.upload.hashes.current;
+    this.upload.lastLanguageId = this.options.languageId;
 
     const filename = this.upload.options.filename || '{random}-{random}';
     const blob = new Blob([this.upload.data], {type: this.upload.options.type});
@@ -360,63 +431,78 @@ class TextUpload extends UploadType {
   }
 
   view(vnode) {
+    const settings = {};
+    switch (Store.textType) {
+      case TextTypes.CODEMIRROR: {
+        console.log(this.options.language);
+        Object.assign(settings, {
+          mode: (this.options.language) ? this.options.language.mode : CodeMirror.defaultLanguageId,
+          value: this.data,
+        });
+      }; break;
+      case TextTypes.MONACO: {
+        Object.assign(settings, {
+          automaticLayout: true,
+          language: (this.options.language) ? this.options.language.id : Monaco.defaultLanguageId,
+          theme: 'vs-dark',
+          value: this.data,
+        });
+      }; break;
+    }
     return m('div', {class: 'upload-modal text'}, [
         m('div', {class: 'languages'}, [
           m('select', {
             onchange: ({target}) => {
               if (target.selectedOptions.length) {
-                let languageId = target.selectedOptions[0].value;
-                if (!Monaco.languages.some((language) => language.id === languageId)) {
-                  languageId = 'plaintext';
-                }
-                if (this.options.languageId !== languageId) {
-                  this.options.languageId = languageId;
-                  this.setRoute();
+                switch (Store.textType) {
+                  case TextTypes.CODEMIRROR: {
+                    const language = CodeMirror.getLanguage({
+                      languageId: target.selectedOptions[0].value,
+                    });
+                    this.setLanguage(language);
+                  }; break;
+                  case TextTypes.MONACO: {
+                    const language = Monaco.getLanguage({
+                      languageId: target.selectedOptions[0].value,
+                    });
+                    this.setLanguage(language);
+                  }; break;
                 }
               }
             },
           }, [
-            Monaco.languages.map((language) => {
-              const selected = (
-                (this.options.languageId === language.id) ||
-                (language.extensions || []).includes(`.${this.options.languageId}`) ||
-                (language.aliases || []).some((alias) => alias.toLowerCase() === this.options.languageId)
-              );
-              if (selected) {
-                if (this.options.language !== language) {
-                  this.options.language = language;
-                  if (this.options.languageId !== language.id) {
-                    this.options.languageId = language.id;
-                    this.setRoute();
-                  }
-                  if (language.mimetypes) {
-                    this.options.type = language.mimetypes[0];
-                  } else {
-                    this.options.type = 'text/plain';
-                  }
-                  if (language.extensions && language.extensions.length) {
-                    this.options.extension = language.extensions[0].split('.').pop();
-                  } else {
-                    this.options.extension = language.id;
-                  }
-                }
-              }
-
-              return m('option', {
-                selected: selected,
-                value: language.id,
-              }, language.id);
-            }),
+            (Store.textType === TextTypes.CODEMIRROR) ? [
+              CodeMirror.languages.map((language) => {
+                return m('option', {
+                  selected: (this.options.languageId === language.id),
+                  value: language.id,
+                }, language.name);
+              }),
+            ] : [
+              (Store.textType === TextTypes.MONACO) ? [
+                Monaco.languages.map((language) => {
+                  return m('option', {
+                    selected: (this.options.languageId === language.id),
+                    value: language.id,
+                  }, language.id);
+                }),
+              ] : null,
+            ],
           ]),
         ]),
         m(TextMedia, {
-          onvalue: ({value}) => this.data = value,
-          settings: {
-            automaticLayout: true,
-            language: (this.options.language) ? this.options.language.id : 'plaintext',
-            theme: 'vs-dark',
-            value: this.data,
+          type: Store.textType,
+          settings: settings,
+          onload: (event) => {
+            const language = event.module.getLanguage({
+              mimetype: this.options.languageId,
+              languageId: this.options.languageId,
+              extension: this.options.languageId,
+              alias: this.options.languageId,
+            });
+            this.setLanguage(language);
           },
+          onvalue: ({value}) => this.data = value,
         }),
         m('div', {class: 'submit'}, [
           (this.canUpload) ? [

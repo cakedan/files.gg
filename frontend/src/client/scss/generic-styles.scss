@@ -30,9 +30,14 @@ input {
     transition: background-color .15s ease-in-out, color .15s ease-in-out, border-color .15s ease-in-out, box-shadow .15s ease-in-out;
 }
 
+.CodeMirror {
+    textarea, textarea:focus {
+        font-size: 24px !important;
+    }
+}
 .monaco-editor {
-    textarea {
-        font-size: initial !important;
+    textarea, textarea:focus {
+        font-size: 24px !important;
     }
 }
 

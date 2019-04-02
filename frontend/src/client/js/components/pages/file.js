@@ -13,32 +13,36 @@ import {
   ImageMedia,
   TextMedia,
   VideoMedia,
+  TextTypes,
 } from '../media';
 
+import { CodeMirror } from '../codemirror';
 import { Monaco } from '../monaco';
 
 
-const defaultStore = Object.freeze({
+const Store = {
   line: null,
-  monaco: true,
+  textType: null,
   zoom: false,
-});
-
-const Store = Object.assign({}, defaultStore);
+};
 
 
 const Tools = Object.freeze({
-  setRoute: () => {
+  get defaultTextType() {
+    return (window.isMobile) ? TextTypes.CODEMIRROR: TextTypes.MONACO;
+  },
+  setRoute() {
     const params = new URLSearchParams();
-    for (let key in defaultStore) {
-      if (Store[key] !== defaultStore[key]) {
-        params.append(key, Store[key]);
-      }
+    if (Store.textType !== this.defaultTextType) {
+      params.append('textType', Store.textType);
     }
-    const route = [
-      window.currentPath,
-      params.toString(),
-    ].filter((v) => v).join('?');
+    if (Store.line !== null) {
+      params.append('line', Store.line);
+    }
+    if (Store.zoom) {
+      params.append('zoom', Store.zoom);
+    }
+    const route = [window.currentPath, params.toString()].filter((v) => v).join('?');
     if (route !== m.route.get()) {
       m.route.set(route, null, {replace: true});
     }
@@ -49,7 +53,7 @@ const Tools = Object.freeze({
 export class FilePage {
   constructor(vnode) {
     Store.line = InputTypes.number(vnode.attrs.line, null);
-    Store.monaco = InputTypes.boolean(vnode.attrs.monaco, true);
+    Store.textType = InputTypes.choices(Object.values(TextTypes), vnode.attrs.textType, Tools.defaultTextType);
     Store.zoom = InputTypes.boolean(vnode.attrs.zoom, false);
 
     this.loading = true;
@@ -201,54 +205,33 @@ class FileItem {
     this.file = vnode.attrs.file;
     this.dimensions = {};
     this.showIcon = false;
-
-    this._language = undefined;
   }
 
   get language() {
-    if (this._language) {
-      return this._language;
+    switch (Store.textType) {
+      case TextTypes.CODEMIRROR: {
+        const options = {
+          languageId: this.file.extension,
+          extension: this.file.extension,
+          alias: this.file.extension,
+        };
+        if (this.file.mimetype !== 'text/plain') {
+          options.mimetype = this.file.mimetype;
+        }
+        return (CodeMirror.getLanguage(options) || {}).mode;
+      };
+      case TextTypes.MONACO: {
+        const options = {
+          languageId: this.file.extension,
+          extension: this.file.extension,
+          alias: this.file.extension,
+        };
+        if (this.file.mimetype !== 'text/plain') {
+          options.mimetype = this.file.mimetype;
+        }
+        return (Monaco.getLanguage(options) || {}).id;
+      };
     }
-    if (Monaco.isLoaded && this._language !== null) {
-      const mimetype = this.file.mimetype;
-      const alias = mimetype.split('/').pop();
-      const extension = `.${this.file.extension}`;
-
-      const languages = Monaco.monaco.languages.getLanguages();
-      for (let language of languages) {
-        if (language.id === this.file.extension) {
-          this._language = language.id;
-          break;
-        }
-        if (languages.aliases) {
-          if (language.alaises.includes(alias) || language.aliases.includes(this.file.extension)) {
-            this._language = language.id;
-            break;
-          }
-        }
-        if (language.mimetypes && mimetype !== 'text/plain') {
-          if (language.mimetypes.includes(mimetype)) {
-            this._language = language.id;
-            break;
-          }
-        }
-        if (language.extensions) {
-          if (language.extensions.includes(extension)) {
-            this._language = language.id;
-            break;
-          }
-        }
-      }
-      if (this._language === undefined) {
-        if (mimetype === 'text/plain') {
-          // didn't find any custom extensions from languages
-          this._language = 'plaintext';
-        } else {
-          this._language = null;
-        }
-      }
-    }
-    return this._language;
   }
 
   view(vnode) {
@@ -275,45 +258,84 @@ class FileItem {
 
       if (Mimetypes.isTextType(this.file.mimetype)) {
         if (this.file.data === undefined) {
-          return m(TextMedia, {
-            useMonaco: false,
-            value: 'loading file data...',
-          });
+          return m(TextMedia, {value: 'loading file data...'});
         } else if (this.file.data instanceof Error) {
           return m(TextMedia, {
-            useMonaco: false,
             value: [
               'couldn\'t fetch text data, sorry',
-              this.file.data.message,
+              String(this.file.data),
             ].join('\n'),
           });
         } else {
+          const settings = {};
+          switch (Store.textType) {
+            case TextTypes.CODEMIRROR: {
+              Object.assign(settings, {
+                mode: this.language,
+                readOnly: true,
+                value: this.file.data,
+              });
+            }; break;
+            case TextTypes.MONACO: {
+              Object.assign(settings, {
+                automaticLayout: true,
+                language: this.language,
+                readOnly: true,
+                theme: 'vs-dark',
+                value: this.file.data,
+              });
+            }; break;
+          }
+  
           return m(TextMedia, {
-            oneditor: (editor) => {
-              if (Store.line !== null) {
-                editor.revealLineInCenter(Store.line);
-                editor.setSelection(new Monaco.monaco.Range(Store.line, 1, Store.line + 1, 1));
+            type: Store.textType,
+            settings: settings,
+            oneditor: ({type, editor}) => {
+              switch (type) {
+                case TextTypes.CODEMIRROR: {
+                  if (Store.line !== null) {
+                    editor.setCursor(Store.line + 20);
+                    editor.setSelection({
+                      line: Store.line - 1,
+                      ch: 0,
+                    }, {
+                      line: Store.line,
+                      ch: 0,
+                    });
+                  }
+                }; break;
+                case TextTypes.MONACO: {
+                  if (Store.line !== null) {
+                    editor.revealLineInCenter(Store.line);
+                    editor.setSelection(new Monaco.module.Range(Store.line, 1, Store.line + 1, 1));
+                  }
+                }; break;
               }
             },
-            onselection: ({selection}) => {
-              if (
-                (selection.endColumn === 1) &&
-                (selection.startColumn === 1) &&
-                (selection.endLineNumber - selection.startLineNumber === 1)
-              ) {
-                Store.line = selection.startLineNumber;
-              } else {
-                Store.line = null;
+            onselection: (event) => {
+              switch (Store.textType) {
+                case TextTypes.CODEMIRROR: {
+                  if (event.line) {
+                    Store.line = event.line + 1;
+                  } else {
+                    Store.line = null;
+                  }
+                  Tools.setRoute();
+                }; break;
+                case TextTypes.MONACO: {
+                  const selection = event.selection;
+                  if (
+                    (selection.endColumn === 1) &&
+                    (selection.startColumn === 1) &&
+                    (selection.endLineNumber - selection.startLineNumber === 1)
+                  ) {
+                    Store.line = selection.startLineNumber;
+                  } else {
+                    Store.line = null;
+                  }
+                  Tools.setRoute();
+                }; break;
               }
-              Tools.setRoute();
-            },
-            useMonaco: Store.monaco,
-            settings: {
-              automaticLayout: true,
-              language: this.language,
-              readOnly: true,
-              theme: 'vs-dark',
-              value: this.file.data,
             },
           });
         }

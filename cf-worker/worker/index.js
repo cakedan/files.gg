@@ -17,7 +17,7 @@ router.beforeResponse = (response, event) => {
     response.headers.set('access-control-allow-credentials', 'true');
     response.headers.set('access-control-allow-headers', 'Authorization, Content-Type, X-Fingerprint');
     response.headers.set('access-control-allow-methods', Object.values(HttpMethods).join(', '));
-    response.headers.set('access-control-allow-origin', event.originalRequest.headers.get('origin'));
+    response.headers.set('access-control-allow-origin', '*');
     return response;
   }
 };

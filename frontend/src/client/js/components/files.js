@@ -83,8 +83,12 @@ export const Tools = Object.freeze({
   },
   async refresh() {
     Store.isAtEnd = false;
-    Store.total = 0;
-    await Tools.fetchFiles();
+    Store.total = -1;
+    for (let file of Store.files.uploading) {
+      file.abort();
+    }
+    Store.files.uploaded.length = 0;
+    m.redraw();
   },
   addFiles(files) {
     if (files.length) {
@@ -327,21 +331,23 @@ export class FileComponent {
           ]),
         ]),
         m('div', {class: 'buttons'}, [
-          (!this.file.response) ? [
-            (this.file.error) ? [
-              m('i', {
-                class: 'action-retry material-icons',
-                title: 'Retry',
-                onclick: (event) => this.upload(event),
-              }, 'replay'),
-            ] : [
-              m('i', {
-                class: 'action-upload material-icons',
-                title: 'Upload',
-                onclick: (event) => this.upload(event),
-              }, 'cloud_upload'),
-            ],
-          ] : null,
+          (this.file.type === FileTypes.PREVIEW) ? [
+            m('i', {
+              class: 'action-upload material-icons',
+              title: 'Upload',
+              onclick: (event) => this.upload(event),
+            }, 'cloud_upload'),
+          ] : [
+            (this.file.type === FileTypes.UPLOADING) ? [
+              (this.file.error) ? [
+                m('i', {
+                  class: 'action-retry material-icons',
+                  title: 'Retry',
+                  onclick: (event) => this.upload(event),
+                }, 'replay'),
+              ] : null,
+            ] : null,
+          ],
           m('i', {
             class: 'action-remove material-icons',
             title: 'Remove',

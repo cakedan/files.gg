@@ -654,48 +654,103 @@ export class VideoMedia extends Media {
 
 
 
-import { Monaco, MonacoComponent } from './monaco';
+import {
+  CodeMirror,
+  CodeMirrorComponent,
+} from './codemirror';
+
+import {
+  Monaco,
+  MonacoComponent,
+} from './monaco';
+
+
+export const TextTypes = Object.freeze({
+  CODEMIRROR: 'codemirror',
+  MONACO: 'monaco',
+  NATIVE: 'native',
+});
 
 
 export class TextMedia {
   async oninit(vnode) {
-    const useMonaco = InputTypes.boolean(vnode.attrs.useMonaco, true);
-    if (useMonaco) {
-      if (!Monaco.isLoaded) {
-        await Monaco.load();
-        m.redraw();
-      }
+    this.type = InputTypes.choices(Object.values(TextTypes), vnode.attrs.type, TextTypes.NATIVE);
+    switch(this.type) {
+      case TextTypes.CODEMIRROR: {
+        if (!CodeMirror.isLoaded) {
+          await CodeMirror.load();
+          m.redraw();
+        }
+        if (typeof(vnode.attrs.onload) === 'function') {
+          vnode.attrs.onload({type: this.type, module: CodeMirror});
+        }
+      }; break;
+      case TextTypes.MONACO: {
+        if (!Monaco.isLoaded) {
+          await Monaco.load();
+          m.redraw();
+        }
+        if (typeof(vnode.attrs.onload) === 'function') {
+          vnode.attrs.onload({type: this.type, module: Monaco});
+        }
+      }; break;
     }
   }
 
   onupdate(vnode) {
-    this.oninit(vnode);
+    const type = InputTypes.choices(Object.values(TextTypes), vnode.attrs.type, TextTypes.NATIVE);
+    if (type !== this.type) {
+      this.oninit(vnode);
+    }
   }
 
   view(vnode) {
-    const useMonaco = InputTypes.boolean(vnode.attrs.useMonaco, true);
+    let type = TextTypes.NATIVE;
+    switch(this.type) {
+      case TextTypes.CODEMIRROR: {
+        if (CodeMirror.isLoaded) {
+          type = this.type;
+        }
+      }; break;
+      case TextTypes.MONACO: {
+        if (Monaco.isLoaded) {
+          type = this.type;
+        }
+      }; break;
+    }
+
     return m('div', {
-      class: [
-        'media-container',
-        'text',
-        (useMonaco && Monaco.isLoaded) ? 'is-monaco' : null,
-      ].filter((v) => v).join(' '),
+      class: ['media-container', 'text', `type-${type}`].join(' '),
     }, [
-      (useMonaco) ? [
-        (Monaco.isLoaded) ? [
-          m(MonacoComponent, Object.assign({
-            class: 'monaco',
-          }, vnode.attrs)),
-        ] : [
-          m('pre', [
-            m('code', {class: 'text'}, 'loading monaco...'),
-          ]),
-        ],
-      ] : [
-        m('pre', [
-          m('code', {class: 'text'}, vnode.attrs.value || (vnode.attrs.settings || {}).value),
-        ]),
-      ],
+      m(TextComponent, Object.assign({}, vnode.attrs, {
+        type: this.type,
+      })),
+    ]);
+  }
+}
+
+
+class TextComponent {
+  view(vnode) {
+    switch (vnode.attrs.type) {
+      case TextTypes.CODEMIRROR: {
+        if (CodeMirror.isLoaded) {
+          return m(CodeMirrorComponent, vnode.attrs);
+        } else {
+          return m(TextComponent, 'Loading CodeMirror...');
+        }
+      };
+      case TextTypes.MONACO: {
+        if (Monaco.isLoaded) {
+          return m(MonacoComponent, vnode.attrs);
+        } else {
+          return m(TextComponent, 'Loading Monaco...');
+        }
+      };
+    }
+
+    return m('pre', [
+      m('code', {class: 'text'}, vnode.attrs.value || (vnode.attrs.settings || {}).value),
     ]);
   }
 }

@@ -1,31 +1,62 @@
 import m from 'mithril';
 
 import { InputTypes } from '../utils';
+import { TextTypes } from './media';
 
 
-let monaco;
+let importedModule;
 export const Monaco = Object.freeze({
-  get monaco() {
-    return monaco;
+  get module() {
+    return importedModule;
   },
   get languages() {
-    return (monaco) ? monaco.languages.getLanguages() : [];
+    return (this.module) ? this.module.languages.getLanguages() : [];
   },
   get isLoaded() {
-    return !!monaco;
+    return !!this.module;
   },
   async load() {
     if (!this.isLoaded) {
-      monaco = await import('monaco-editor');
+      importedModule = await import('monaco-editor');
     }
-    return monaco;
+    return this.module;
+  },
+  defaultLanguageId: 'plaintext',
+  getLanguage(options) {
+    if (options.extension && !options.extension.startsWith('.')) {
+      options.extension = '.' + options.extension;
+    }
+    const languages = this.languages;
+    if (options.languageId || options.alias || options.extension || options.mimetype) {
+      for (let language of languages) {
+        if (language.id === options.languageId) {
+          return language;
+        }
+        if (options.alias && language.aliases && language.aliases.length) {
+          if (language.aliases.includes(options.alias)) {
+            return language;
+          }
+        }
+        if (options.extension && language.extensions && language.extensions.length) {
+          if (language.extensions.includes(options.extension)) {
+            return language;
+          }
+        }
+        if (options.mimetype && language.mimetypes && language.mimetypes.length) {
+          if (language.mimetypes.includes(options.mimetype)) {
+            return language;
+          }
+        }
+      }
+    }
+    return languages.find((language) => language.id === this.defaultLanguageId);
   },
 });
 
 
 export class MonacoComponent {
   oninit(vnode) {
-    if (!monaco) {
+    if (!Monaco.isLoaded) {
       throw new Error('Monaco isn\'t loaded!');
     }
 
@@ -34,18 +65,20 @@ export class MonacoComponent {
     this.onvalue = InputTypes.func(vnode.attrs.onvalue, null);
 
     vnode.attrs.settings = Object.assign({
-      language: 'javascript',
+      language: Monaco.defaultLanguageId,
       value: vnode.attrs.value,
     }, vnode.attrs.settings);
 
-    this.class = vnode.attrs.settings.class || 'monaco';
     this.language = vnode.attrs.settings.language;
   }
 
   oncreate(vnode) {
-    this.editor = monaco.editor.create(vnode.dom, vnode.attrs.settings);
+    this.editor = Monaco.module.editor.create(vnode.dom, vnode.attrs.settings);
     if (this.oneditor) {
-      this.oneditor(this.editor);
+      this.oneditor({
+        type: TextTypes.MONACO,
+        editor: this.editor,
+      });
     }
 
     this.editor.onDidChangeModelContent((event) => {
@@ -106,10 +139,10 @@ export class MonacoComponent {
 
     this.editor.updateOptions(options);
     if (options.language && options.language !== this.language) {
-      monaco.editor.setModelLanguage(this.editor.getModel(), options.language);
+      Monaco.module.editor.setModelLanguage(this.editor.getModel(), options.language);
     }
     if (options.theme) {
-      monaco.editor.setTheme(options.theme);
+      Monaco.module.editor.setTheme(options.theme);
     }
     if (options.value !== undefined && options.value !== this.editor.getValue()) {
       this.editor.setValue(options.value);
@@ -124,6 +157,6 @@ export class MonacoComponent {
   }
 
   view(vnode) {
-    return m('div', {class: this.class}, vnode.children);
+    return m('div', {class: 'monaco'}, vnode.children);
   }
 }

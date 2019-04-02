@@ -11,9 +11,22 @@ export function boolean(value, defaultValue) {
 
 export function number(value, defaultValue) {
   value = parseInt(value);
-  return (Number.isNaN(value)) ? defaultValue: value;
+  if (!Number.isNaN(value)) {
+    return value;
+  }
+  return defaultValue;
 }
 
 export function func(value, defaultValue) {
-  return (typeof(value) === 'function') ? value : defaultValue;
+  if (typeof(value) === 'function') {
+    return value;
+  }
+  return defaultValue;
+}
+
+export function choices(choices, value, defaultValue) {
+  if (choices.includes(value)) {
+    return value;
+  }
+  return defaultValue;
 }
