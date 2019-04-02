@@ -25,7 +25,7 @@ export const CodeMirror = Object.freeze({
     }
     return this.module;
   },
-  defaultLanguageId: 'null',
+  defaultLanguageId: 'plain-text',
   defaultTheme: 'tomorrow-night-bright',
   getLanguage(options) {
     if (options.extension && options.extension.startsWith('.')) {

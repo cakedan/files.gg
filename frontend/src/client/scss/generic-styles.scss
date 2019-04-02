@@ -30,14 +30,16 @@ input {
     transition: background-color .15s ease-in-out, color .15s ease-in-out, border-color .15s ease-in-out, box-shadow .15s ease-in-out;
 }
 
-.CodeMirror {
-    textarea, textarea:focus {
-        font-size: 24px !important;
-    }
+
+.CodeMirror-gutter-wrapper {
+    // fix for iPhone select all button not working
+    -webkit-user-select: none;
+    -moz-user-select: none;
+    user-select: none;
 }
 .monaco-editor {
     textarea, textarea:focus {
-        font-size: 24px !important;
+        font-size: 16px !important;
     }
 }
 

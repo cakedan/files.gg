@@ -4,7 +4,7 @@ from peewee import prefetch
 
 from models import Mimetype, MimetypeExtension
 from utils.responses import ApiError, ApiResponse
-from utils.wrappers import parse_args
+from utils.wrappers import authenticate, parse_args
 
 mimetypes = Blueprint('mimetypes', __name__, url_prefix='/mimetypes')
 
@@ -25,7 +25,8 @@ parser_create_mimetype.add_argument('priority', type=int, default=0)
 
 @mimetypes.route('', methods=['POST'])
 @parse_args(parser_create_mimetype)
-def mimetype_create(args):
+@authenticate()
+def mimetype_create(args, user):
     raise ApiError(status=403)
     args.mimetype = args.mimetype.lower()
     args.extension = args.extension and args.extension.lower()

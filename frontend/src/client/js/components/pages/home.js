@@ -435,9 +435,8 @@ class TextUpload extends UploadType {
     const settings = {};
     switch (Store.textType) {
       case TextTypes.CODEMIRROR: {
-        console.log(this.options.language);
         Object.assign(settings, {
-          mode: (this.options.language) ? this.options.language.mode : CodeMirror.defaultLanguageId,
+          mode: (this.options.language) ? this.options.language.mode : null,
           value: this.data,
         });
       }; break;
