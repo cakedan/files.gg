@@ -80,6 +80,7 @@ export class CodeMirrorComponent {
 
   oncreate(vnode) {
     this.editor = CodeMirror.module(vnode.dom, vnode.attrs.settings);
+    CodeMirror.module.loadMode(this.editor, vnode.attrs.settings.mode);
     if (this.oneditor) {
       this.oneditor({
         type: TextTypes.CODEMIRROR,
@@ -113,7 +114,7 @@ export class CodeMirrorComponent {
     }, vnode.attrs.settings);
 
     if (options.mode !== undefined && options.mode !== this.editor.options.mode) {
-      this.editor.setOption('mode', options.mode);
+      CodeMirror.module.loadMode(this.editor, options.mode);
     }
 
     if (options.value !== undefined && options.value !== this.editor.getValue()) {

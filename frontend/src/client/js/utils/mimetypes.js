@@ -4,8 +4,24 @@ import { Api } from '../api';
 
 
 const defaultMimetypes = {
-  audio: ['audio/mp4', 'audio/mp3', 'audio/mpeg', 'audio/ogg', 'audio/wav', 'audio/wave', 'audio/x-m4a', 'audio/x-wav'],
-  image: ['image/apng', 'image/gif', 'image/jpeg', 'image/png', 'image/webp'],
+  audio: [
+    'audio/3gpp',
+    'audio/mp4',
+    'audio/mp3',
+    'audio/mpeg',
+    'audio/ogg',
+    'audio/wav',
+    'audio/wave',
+    'audio/x-m4a',
+    'audio/x-wav',
+  ],
+  image: [
+    'image/apng',
+    'image/gif',
+    'image/jpeg',
+    'image/png',
+    'image/webp',
+  ],
   json: ['application/json'],
   text: [
     'application/dart',
@@ -31,7 +47,14 @@ const defaultMimetypes = {
     'application/x-sh',
     'application/xquery',
   ],
-  video: ['video/mp4', 'video/ogg', 'video/quicktime', 'video/webm'],
+  video: [
+    'video/3gpp',
+    'video/mp4',
+    'video/ogg',
+    'video/quicktime',
+    'video/webm',
+    'video/x-m4v',
+  ],
   xml: ['application/xml', 'text/xml'],
 };
 
@@ -75,19 +98,26 @@ class MimetypeStore extends Map {
       return false;
     }
 
-    if (mimetype === 'audio/ogg') {
-      const isValidBrowser = !window.browser.satisfies({
-        'internet explorer': '>=0',
-        safari: '>=0',
-      });
-      if (!isValidBrowser) {
-        return false;
-      }
-    } else if (mimetype === 'audio/wav' || mimetype === 'audio/wave' || mimetype === 'audio/x-wav') {
-      const isValidBrowser = !window.browser.satisfies({'internet explorer': '>=0'});
-      if (!isValidBrowser) {
-        return false;
-      }
+    switch (mimetype) {
+      case 'audio/ogg': {
+        // IE and Safari do not support these types
+        const isValidBrowser = !window.browser.satisfies({
+          'internet explorer': '>=0',
+          safari: '>=0',
+        });
+        if (!isValidBrowser) {
+          return false;
+        }
+      }; break;
+      case 'audio/wav':
+      case 'audio/wave':
+      case 'audio/x-wav': {
+        // IE does not support these types
+        const isValidBrowser = !window.browser.satisfies({'internet explorer': '>=0'});
+        if (!isValidBrowser) {
+          return false;
+        }
+      }; break;
     }
 
     return true;
@@ -115,10 +145,7 @@ class MimetypeStore extends Map {
     if (mimetype.split('/').shift() === 'text') {
       return true;
     }
-    if (this.isJsonType(mimetype)) {
-      return true;
-    }
-    if (this.isXmlType(mimetype)) {
+    if (this.isJsonType(mimetype) || this.isXmlType(mimetype)) {
       return true;
     }
     return defaultMimetypes.text.includes(mimetype);
@@ -128,28 +155,40 @@ class MimetypeStore extends Map {
     if (mimetype.split('/').shift() !== 'video') {
       return false;
     }
-
     if (!defaultMimetypes.video.includes(mimetype)) {
       return false;
     }
 
-    if (mimetype === 'video/mp4') {
-      const isValidBrowser = window.browser.satisfies({
-        firefox: '>=21',
-        opera: '>=25',
-      });
-      // returns undefined if browser isnt listed here
-      if (isValidBrowser === false) {
-        return false;
-      }
-    } else if (mimetype === 'video/ogg' || mimetype === 'video/webm') {
-      const isValidBrowser = !window.browser.satisfies({
-        'internet explorer': '>=0',
-        safari: '>=0',
-      });
-      if (!isValidBrowser) {
-        return false;
-      }
+    switch (mimetype) {
+      case 'video/mp4': {
+        const isValidBrowser = window.browser.satisfies({
+          firefox: '>=21',
+          opera: '>=25',
+        });
+        // these past versions do not support this mimetype
+        // returns undefined if browser isnt listed here
+        if (isValidBrowser === false) {
+          return false;
+        }
+      }; break;
+      case 'video/ogg':
+      case 'video/webm': {
+        // IE and Safari do not support these types
+        const isValidBrowser = !window.browser.satisfies({
+          'internet explorer': '>=0',
+          safari: '>=0',
+        });
+        if (!isValidBrowser) {
+          return false;
+        }
+      }; break;
+      case 'video/x-m4v': {
+        // Only Apple supports this type, something about itunes videos
+        const isValidBrowser = window.browser.satisfies({safari: '>=0'});
+        if (!isValidBrowser) {
+          return false;
+        }
+      }; break;
     }
     return true;
   }

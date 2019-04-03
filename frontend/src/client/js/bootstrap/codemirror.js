@@ -1,123 +1,145 @@
 import CodeMirror from 'codemirror';
+import * as modeInfo from 'codemirror/mode/meta';
 
-require('codemirror/mode/meta.js');
-require('codemirror/mode/apl/apl');
-require('codemirror/mode/asciiarmor/asciiarmor');
-require('codemirror/mode/asn.1/asn.1');
-require('codemirror/mode/asterisk/asterisk');
-require('codemirror/mode/brainfuck/brainfuck');
-require('codemirror/mode/clike/clike');
-require('codemirror/mode/cobol/cobol');
-require('codemirror/mode/clojure/clojure');
-require('codemirror/mode/css/css');
-require('codemirror/mode/cmake/cmake');
-require('codemirror/mode/coffeescript/coffeescript');
-require('codemirror/mode/commonlisp/commonlisp');
-require('codemirror/mode/cypher/cypher');
-require('codemirror/mode/python/python');
-require('codemirror/mode/crystal/crystal');
-require('codemirror/mode/sql/sql');
-require('codemirror/mode/d/d');
-require('codemirror/mode/dart/dart');
-require('codemirror/mode/diff/diff');
-require('codemirror/mode/django/django');
-require('codemirror/mode/dockerfile/dockerfile');
-require('codemirror/mode/dtd/dtd');
-require('codemirror/mode/dylan/dylan');
-require('codemirror/mode/ebnf/ebnf');
-require('codemirror/mode/ecl/ecl');
-require('codemirror/mode/eiffel/eiffel');
-require('codemirror/mode/elm/elm');
-require('codemirror/mode/htmlembedded/htmlembedded');
-require('codemirror/mode/erlang/erlang');
-require('codemirror/mode/factor/factor');
-require('codemirror/mode/fcl/fcl');
-require('codemirror/mode/forth/forth');
-require('codemirror/mode/fortran/fortran');
-require('codemirror/mode/mllike/mllike');
-require('codemirror/mode/gas/gas');
-require('codemirror/mode/gherkin/gherkin');
-require('codemirror/mode/gfm/gfm');
-require('codemirror/mode/go/go');
-require('codemirror/mode/groovy/groovy');
-require('codemirror/mode/haml/haml');
-require('codemirror/mode/haskell/haskell');
-require('codemirror/mode/haskell-literate/haskell-literate');
-require('codemirror/mode/haxe/haxe');
-require('codemirror/mode/htmlmixed/htmlmixed');
-require('codemirror/mode/http/http');
-require('codemirror/mode/idl/idl');
-require('codemirror/mode/pug/pug');
-require('codemirror/mode/javascript/javascript');
-require('codemirror/mode/jsx/jsx');
-require('codemirror/mode/jinja2/jinja2');
-require('codemirror/mode/julia/julia');
-require('codemirror/mode/livescript/livescript');
-require('codemirror/mode/lua/lua');
-require('codemirror/mode/markdown/markdown');
-require('codemirror/mode/mirc/mirc');
-require('codemirror/mode/mathematica/mathematica');
-require('codemirror/mode/modelica/modelica');
-require('codemirror/mode/mumps/mumps');
-require('codemirror/mode/mbox/mbox');
-require('codemirror/mode/nginx/nginx');
-require('codemirror/mode/nsis/nsis');
-require('codemirror/mode/ntriples/ntriples');
-require('codemirror/mode/octave/octave');
-require('codemirror/mode/oz/oz');
-require('codemirror/mode/pascal/pascal');
-require('codemirror/mode/pegjs/pegjs');
-require('codemirror/mode/perl/perl');
-require('codemirror/mode/php/php');
-require('codemirror/mode/pig/pig');
-require('codemirror/mode/powershell/powershell');
-require('codemirror/mode/properties/properties');
-require('codemirror/mode/protobuf/protobuf');
-require('codemirror/mode/puppet/puppet');
-require('codemirror/mode/q/q');
-require('codemirror/mode/r/r');
-require('codemirror/mode/rst/rst');
-require('codemirror/mode/rpm/rpm');
-require('codemirror/mode/ruby/ruby');
-require('codemirror/mode/rust/rust');
-require('codemirror/mode/sas/sas');
-require('codemirror/mode/sass/sass');
-require('codemirror/mode/scheme/scheme');
-require('codemirror/mode/shell/shell');
-require('codemirror/mode/sieve/sieve');
-require('codemirror/mode/slim/slim');
-require('codemirror/mode/smalltalk/smalltalk');
-require('codemirror/mode/smarty/smarty');
-require('codemirror/mode/solr/solr');
-require('codemirror/mode/soy/soy');
-require('codemirror/mode/sparql/sparql');
-require('codemirror/mode/spreadsheet/spreadsheet');
-require('codemirror/mode/stylus/stylus');
-require('codemirror/mode/swift/swift');
-require('codemirror/mode/stex/stex');
-require('codemirror/mode/verilog/verilog');
-require('codemirror/mode/tcl/tcl');
-require('codemirror/mode/textile/textile');
-require('codemirror/mode/tiddlywiki/tiddlywiki');
-require('codemirror/mode/tiki/tiki');
-require('codemirror/mode/toml/toml');
-require('codemirror/mode/tornado/tornado');
-require('codemirror/mode/troff/troff');
-require('codemirror/mode/ttcn/ttcn');
-require('codemirror/mode/ttcn-cfg/ttcn-cfg');
-require('codemirror/mode/turtle/turtle');
-require('codemirror/mode/twig/twig');
-require('codemirror/mode/webidl/webidl');
-require('codemirror/mode/vb/vb');
-require('codemirror/mode/vbscript/vbscript');
-require('codemirror/mode/velocity/velocity');
-require('codemirror/mode/vhdl/vhdl');
-require('codemirror/mode/vue/vue');
-require('codemirror/mode/xml/xml');
-require('codemirror/mode/xquery/xquery');
-require('codemirror/mode/yacas/yacas');
-require('codemirror/mode/yaml/yaml');
-require('codemirror/mode/z80/z80');
-require('codemirror/mode/mscgen/mscgen');
+
+CodeMirror.hasMode = (mode) => {
+  return CodeMirror.modes.hasOwnProperty(mode);
+};
+
+CodeMirror.loadMode = async (editor, mode) => {
+  editor.setOption('mode', mode);
+  if (!CodeMirror.hasMode(mode)) {
+    await CodeMirrorLoader.load(mode);
+    editor.setOption('mode', editor.getOption('mode'));
+  }
+};
+
+const CodeMirrorLoader = Object.freeze({
+  async load(mode) {
+    if (this.modes.hasOwnProperty(mode)) {
+      await this.modes[mode]();
+    }
+  },
+  modes: {
+    'apl': async () => await import('codemirror/mode/apl/apl'),
+    'asciiarmor': async () => await import('codemirror/mode/asciiarmor/asciiarmor'),
+    'asn.1': async () => await import('codemirror/mode/asn.1/asn.1'),
+    'asterisk': async () => await import('codemirror/mode/asterisk/asterisk'),
+    'brainfuck': async () => await import('codemirror/mode/brainfuck/brainfuck'),
+    'clike': async () => await import('codemirror/mode/clike/clike'),
+    'clojure': async () => await import('codemirror/mode/clojure/clojure'),
+    'cmake': async () => await import('codemirror/mode/cmake/cmake'),
+    'cobol': async () => await import('codemirror/mode/cobol/cobol'),
+    'coffeescript': async () => await import('codemirror/mode/coffeescript/coffeescript'),
+    'commonlisp': async () => await import('codemirror/mode/commonlisp/commonlisp'),
+    'crystal': async () => await import('codemirror/mode/crystal/crystal'),
+    'css': async () => await import('codemirror/mode/css/css'),
+    'cypher': async () => await import('codemirror/mode/cypher/cypher'),
+    'd': async () => await import('codemirror/mode/d/d'),
+    'dart': async () => await import('codemirror/mode/dart/dart'),
+    'diff': async () => await import('codemirror/mode/diff/diff'),
+    'django': async () => await import('codemirror/mode/django/django'),
+    'dockerfile': async () => await import('codemirror/mode/dockerfile/dockerfile'),
+    'dtd': async () => await import('codemirror/mode/dtd/dtd'),
+    'dylan': async () => await import('codemirror/mode/dylan/dylan'),
+    'ebnf': async () => await import('codemirror/mode/ebnf/ebnf'),
+    'ecl': async () => await import('codemirror/mode/ecl/ecl'),
+    'eiffel': async () => await import('codemirror/mode/eiffel/eiffel'),
+    'elm': async () => await import('codemirror/mode/elm/elm'),
+    'erlang': async () => await import('codemirror/mode/erlang/erlang'),
+    'factor': async () => await import('codemirror/mode/factor/factor'),
+    'fcl': async () => await import('codemirror/mode/fcl/fcl'),
+    'forth': async () => await import('codemirror/mode/forth/forth'),
+    'fortran': async () => await import('codemirror/mode/fortran/fortran'),
+    'gas': async () => await import('codemirror/mode/gas/gas'),
+    'gfm': async () => await import('codemirror/mode/gfm/gfm'),
+    'gherkin': async () => await import('codemirror/mode/gherkin/gherkin'),
+    'go': async () => await import('codemirror/mode/go/go'),
+    'groovy': async () => await import('codemirror/mode/groovy/groovy'),
+    'haml': async () => await import('codemirror/mode/haml/haml'),
+    'haskell': async () => await import('codemirror/mode/haskell/haskell'),
+    'haskell-literate': async () => await import('codemirror/mode/haskell-literate/haskell-literate'),
+    'haxe': async () => await import('codemirror/mode/haxe/haxe'),
+    'htmlembedded': async () => await import('codemirror/mode/htmlembedded/htmlembedded'),
+    'htmlmixed': async () => await import('codemirror/mode/htmlmixed/htmlmixed'),
+    'http': async () => await import('codemirror/mode/http/http'),
+    'idl': async () => await import('codemirror/mode/idl/idl'),
+    'javascript': async () => await import('codemirror/mode/javascript/javascript'),
+    'jinja2': async () => await import('codemirror/mode/jinja2/jinja2'),
+    'jsx': async () => await import('codemirror/mode/jsx/jsx'),
+    'julia': async () => await import('codemirror/mode/julia/julia'),
+    'livescript': async () => await import('codemirror/mode/livescript/livescript'),
+    'lua': async () => await import('codemirror/mode/lua/lua'),
+    'markdown': async () => await import('codemirror/mode/markdown/markdown'),
+    'mathematica': async () => await import('codemirror/mode/mathematica/mathematica'),
+    'mbox': async () => await import('codemirror/mode/mbox/mbox'),
+    'mirc': async () => await import('codemirror/mode/mirc/mirc'),
+    'mllike': async () => await import('codemirror/mode/mllike/mllike'),
+    'modelica': async () => await import('codemirror/mode/modelica/modelica'),
+    'mscgen': async () => await import('codemirror/mode/mscgen/mscgen'),
+    'mumps': async () => await import('codemirror/mode/mumps/mumps'),
+    'nginx': async () => await import('codemirror/mode/nginx/nginx'),
+    'nsis': async () => await import('codemirror/mode/nsis/nsis'),
+    'ntriples': async () => await import('codemirror/mode/ntriples/ntriples'),
+    'octave': async () => await import('codemirror/mode/octave/octave'),
+    'oz': async () => await import('codemirror/mode/oz/oz'),
+    'pascal': async () => await import('codemirror/mode/pascal/pascal'),
+    'pegjs': async () => await import('codemirror/mode/pegjs/pegjs'),
+    'perl': async () => await import('codemirror/mode/perl/perl'),
+    'php': async () => await import('codemirror/mode/php/php'),
+    'pig': async () => await import('codemirror/mode/pig/pig'),
+    'powershell': async () => await import('codemirror/mode/powershell/powershell'),
+    'properties': async () => await import('codemirror/mode/properties/properties'),
+    'protobuf': async () => await import('codemirror/mode/protobuf/protobuf'),
+    'pug': async () => await import('codemirror/mode/pug/pug'),
+    'puppet': async () => await import('codemirror/mode/puppet/puppet'),
+    'python': async () => await import('codemirror/mode/python/python'),
+    'q': async () => await import('codemirror/mode/q/q'),
+    'r': async () => await import('codemirror/mode/r/r'),
+    'rpm': async () => await import('codemirror/mode/rpm/rpm'),
+    'rst': async () => await import('codemirror/mode/rst/rst'),
+    'ruby': async () => await import('codemirror/mode/ruby/ruby'),
+    'rust': async () => await import('codemirror/mode/rust/rust'),
+    'sas': async () => await import('codemirror/mode/sas/sas'),
+    'sass': async () => await import('codemirror/mode/sass/sass'),
+    'scheme': async () => await import('codemirror/mode/scheme/scheme'),
+    'shell': async () => await import('codemirror/mode/shell/shell'),
+    'sieve': async () => await import('codemirror/mode/sieve/sieve'),
+    'slim': async () => await import('codemirror/mode/slim/slim'),
+    'smalltalk': async () => await import('codemirror/mode/smalltalk/smalltalk'),
+    'smarty': async () => await import('codemirror/mode/smarty/smarty'),
+    'solr': async () => await import('codemirror/mode/solr/solr'),
+    'soy': async () => await import('codemirror/mode/soy/soy'),
+    'sparql': async () => await import('codemirror/mode/sparql/sparql'),
+    'spreadsheet': async () => await import('codemirror/mode/spreadsheet/spreadsheet'),
+    'sql': async () => await import('codemirror/mode/sql/sql'),
+    'stex': async () => await import('codemirror/mode/stex/stex'),
+    'stylus': async () => await import('codemirror/mode/stylus/stylus'),
+    'swift': async () => await import('codemirror/mode/swift/swift'),
+    'tcl': async () => await import('codemirror/mode/tcl/tcl'),
+    'textile': async () => await import('codemirror/mode/textile/textile'),
+    'tiddlywiki': async () => await import('codemirror/mode/tiddlywiki/tiddlywiki'),
+    'tiki': async () => await import('codemirror/mode/tiki/tiki'),
+    'toml': async () => await import('codemirror/mode/toml/toml'),
+    'tornado': async () => await import('codemirror/mode/tornado/tornado'),
+    'troff': async () => await import('codemirror/mode/troff/troff'),
+    'ttcn': async () => await import('codemirror/mode/ttcn/ttcn'),
+    'ttcn-cfg': async () => await import('codemirror/mode/ttcn-cfg/ttcn-cfg'),
+    'turtle': async () => await import('codemirror/mode/turtle/turtle'),
+    'twig': async () => await import('codemirror/mode/twig/twig'),
+    'vb': async () => await import('codemirror/mode/vb/vb'),
+    'vbscript': async () => await import('codemirror/mode/vbscript/vbscript'),
+    'velocity': async () => await import('codemirror/mode/velocity/velocity'),
+    'verilog': async () => await import('codemirror/mode/verilog/verilog'),
+    'vhdl': async () => await import('codemirror/mode/vhdl/vhdl'),
+    'vue': async () => await import('codemirror/mode/vue/vue'),
+    'webidl': async () => await import('codemirror/mode/webidl/webidl'),
+    'xml': async () => await import('codemirror/mode/xml/xml'),
+    'xquery': async () => await import('codemirror/mode/xquery/xquery'),
+    'yacas': async () => await import('codemirror/mode/yacas/yacas'),
+    'yaml': async () => await import('codemirror/mode/yaml/yaml'),
+    'z80': async () => await import('codemirror/mode/z80/z80'),
+  },
+});
 
 export default CodeMirror;
