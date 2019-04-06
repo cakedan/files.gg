@@ -46,8 +46,10 @@ window.addEventListener('resize', () => m.redraw());
 
 import { Application } from './application';
 import { Recaptcha } from './components/recaptcha';
+import { Tools as OptionTools } from './utils/options';
 
 document.addEventListener('DOMContentLoaded', () => {
+  OptionTools.refresh();
   Recaptcha.setKey('6Ld9nFcUAAAAAACsN328JLBsqikCn2wbTQDTVj4J');
 
   Application.setPrefix('');

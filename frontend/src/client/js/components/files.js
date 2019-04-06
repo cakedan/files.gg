@@ -9,6 +9,8 @@ import {
   Mimetypes,
 } from '../utils';
 
+import { Store as Options } from '../utils/options';
+
 import {
   AudioMedia,
   ImageMedia,
@@ -125,8 +127,6 @@ export const Tools = Object.freeze({
   },
 });
 
-Store.textType = Tools.defaultTextType;
-
 window.addEventListener('dragenter', (event) => {
   event.preventDefault();
   event.stopPropagation();
@@ -157,7 +157,6 @@ export class FilesModal {
     if (vnode.attrs.expandFiles !== undefined) {
       Store.expand = InputTypes.boolean(vnode.attrs.expandFiles, false);
     }
-    Store.textType = Tools.defaultTextType;
   }
 
   async oninit(vnode) {
@@ -339,7 +338,7 @@ export class FileComponent {
             readOnly: true,
             value: this.file.data,
           };
-          switch (Store.textType) {
+          switch (Options.textType) {
             case TextTypes.CODEMIRROR: {
               Object.assign(settings, {
                 mode: (CodeMirror.getLanguage({
@@ -360,7 +359,7 @@ export class FileComponent {
             }; break;
           }
           media = m(TextMedia, {
-            type: Store.textType,
+            type: Options.textType,
             settings: settings,
           });
         }

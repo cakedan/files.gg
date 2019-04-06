@@ -679,6 +679,7 @@ export class TextMedia {
       case TextTypes.CODEMIRROR: {
         if (!CodeMirror.isLoaded) {
           await CodeMirror.load();
+          m.redraw();
         }
         if (typeof(vnode.attrs.onload) === 'function') {
           vnode.attrs.onload({type: this.type, module: CodeMirror});
@@ -687,13 +688,13 @@ export class TextMedia {
       case TextTypes.MONACO: {
         if (!Monaco.isLoaded) {
           await Monaco.load();
+          m.redraw();
         }
         if (typeof(vnode.attrs.onload) === 'function') {
           vnode.attrs.onload({type: this.type, module: Monaco});
         }
       }; break;
     }
-    m.redraw();
   }
 
   onupdate(vnode) {
@@ -705,7 +706,7 @@ export class TextMedia {
 
   view(vnode) {
     let type = TextTypes.NATIVE;
-    switch(this.type) {
+    switch (this.type) {
       case TextTypes.CODEMIRROR: {
         if (CodeMirror.isLoaded) {
           type = this.type;

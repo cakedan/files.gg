@@ -17,6 +17,7 @@ import {
   ErrorPage,
   FilePage,
   HomePage,
+  OptionsPage,
   TermsOfServicePage,
 } from './components/pages';
 
@@ -68,9 +69,6 @@ class RouteResolver {
 
 const Routes = Object.freeze({
   '/': new RouteResolver(HomePage, {class: 'home'}),
-  '/info/terms-of-service': new RouteResolver(TermsOfServicePage),
-  '/info/error': new RouteResolver(ErrorPage),
-  '/info/:path...': new RouteResolver(ErrorPage),
   '/auth/register': new RouteResolver(AuthLoginPage, {class: 'auth-login'}),
   '/auth/login': new RouteResolver(AuthLoginPage, {class: 'auth-login'}),
   '/auth/logout': new RouteResolver(AuthLogoutPage, {class: 'auth-logout'}),
@@ -83,6 +81,10 @@ const Routes = Object.freeze({
   '/dashboard/files': new RouteResolver(DashboardFilesPage, {authRequired: true, class: 'dashboard-files'}),
   '/dashboard/files/:fileId...': new RouteResolver(DashboardFilesPage, {authRequired: true, class: 'dashboard-files'}),
   '/dashboard/:path...': new RouteResolver(ErrorPage, {authRequired: true}),
+  '/info/terms-of-service': new RouteResolver(TermsOfServicePage),
+  '/info/options': new RouteResolver(OptionsPage, {class: 'info-options'}),
+  '/info/error': new RouteResolver(ErrorPage),
+  '/info/:path...': new RouteResolver(ErrorPage),
   '/:fileId...': new RouteResolver(FilePage, {class: 'file'}),
 });
 

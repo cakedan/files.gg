@@ -78,6 +78,9 @@ export class Navbar {
             m('li', [
               m(NavbarLink, {href: '/info/terms-of-service'}, 'Terms'),
             ]),
+            m('li', [
+              m(NavbarLink, {href: '/info/options'}, 'Options'),
+            ]),
             m('div', {class: 'divider'}),
             (Auth.isAuthed) ? [
               m('li', [
@@ -104,6 +107,9 @@ export class Navbar {
           m('ul', {class: 'left'}, [
             m('li', [
               m(NavbarLink, {href: '/info/terms-of-service'}, 'Terms'),
+            ]),
+            m('li', [
+              m(NavbarLink, {href: '/info/options'}, 'Options'),
             ]),
           ]),
           m('ul', {class: 'right'}, [

@@ -3,6 +3,7 @@ import md5 from 'crypto-js/md5';
 
 import { Head } from '../head';
 import { InputTypes } from '../../utils';
+import { Store as Options } from '../../utils/options';
 
 import {
   TextMedia,
@@ -55,7 +56,7 @@ const Store = {
 
 const Tools = Object.freeze({
   get defaultLanguageId() {
-    switch (FileStore.textType) {
+    switch (Options.textType) {
       case TextTypes.CODEMIRROR: return CodeMirror.defaultLanguageId;
       case TextTypes.MONACO: return Monaco.defaultLanguageId;
     }
@@ -357,7 +358,7 @@ class TextUpload extends UploadType {
   setLanguage(language) {
     if (language && this.options.language !== language) {
       this.options.language = language;
-      switch (FileStore.textType) {
+      switch (Options.textType) {
         case TextTypes.CODEMIRROR: {
           const languageId = language.id;
           if (this.options.languageId !== languageId) {
@@ -423,7 +424,7 @@ class TextUpload extends UploadType {
 
   view(vnode) {
     const settings = {};
-    switch (FileStore.textType) {
+    switch (Options.textType) {
       case TextTypes.CODEMIRROR: {
         Object.assign(settings, {
           mode: (this.options.language) ? this.options.language.mode : null,
@@ -445,7 +446,7 @@ class TextUpload extends UploadType {
             m('select', {
               onchange: ({target}) => {
                 if (target.selectedOptions.length) {
-                  switch (FileStore.textType) {
+                  switch (Options.textType) {
                     case TextTypes.CODEMIRROR: {
                       const language = CodeMirror.getLanguage({
                         languageId: target.selectedOptions[0].value,
@@ -462,7 +463,7 @@ class TextUpload extends UploadType {
                 }
               },
             }, [
-              (FileStore.textType === TextTypes.CODEMIRROR) ? [
+              (Options.textType === TextTypes.CODEMIRROR) ? [
                 CodeMirror.languages.map((language) => {
                   return m('option', {
                     selected: (this.options.languageId === language.id),
@@ -470,7 +471,7 @@ class TextUpload extends UploadType {
                   }, language.name);
                 }),
               ] : [
-                (FileStore.textType === TextTypes.MONACO) ? [
+                (Options.textType === TextTypes.MONACO) ? [
                   Monaco.languages.map((language) => {
                     return m('option', {
                       selected: (this.options.languageId === language.id),
@@ -494,7 +495,7 @@ class TextUpload extends UploadType {
           ]),
         ]),
         m(TextMedia, {
-          type: FileStore.textType,
+          type: Options.textType,
           settings: settings,
           onload: (event) => {
             const language = event.module.getLanguage({

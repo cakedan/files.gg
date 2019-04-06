@@ -64,16 +64,16 @@ export class MonacoComponent {
     this.onselection = InputTypes.func(vnode.attrs.onselection, null);
     this.onvalue = InputTypes.func(vnode.attrs.onvalue, null);
 
-    vnode.attrs.settings = Object.assign({
+    this.settings = Object.assign({
+      automaticLayout: true,
       language: Monaco.defaultLanguageId,
-      value: vnode.attrs.value,
+      theme: 'vs-dark',
+      value: vnode.attrs.value || '',
     }, vnode.attrs.settings);
-
-    this.language = vnode.attrs.settings.language;
   }
 
   oncreate(vnode) {
-    this.editor = Monaco.module.editor.create(vnode.dom, vnode.attrs.settings);
+    this.editor = Monaco.module.editor.create(vnode.dom, this.settings);
     if (this.oneditor) {
       this.oneditor({
         type: TextTypes.MONACO,
@@ -101,7 +101,7 @@ export class MonacoComponent {
     });
 
     this.editor.onDidChangeModelLanguage((language, old) => {
-      this.language = language;
+      this.settings.language = language;
     });
   }
 
@@ -138,14 +138,17 @@ export class MonacoComponent {
     }, vnode.attrs.settings);
 
     this.editor.updateOptions(options);
-    if (options.language && options.language !== this.language) {
+    if (options.language && options.language !== this.settings.language) {
       Monaco.module.editor.setModelLanguage(this.editor.getModel(), options.language);
+      this.settings.language = options.value;
     }
     if (options.theme) {
       Monaco.module.editor.setTheme(options.theme);
+      this.settings.theme = options.theme;
     }
     if (options.value !== undefined && options.value !== this.editor.getValue()) {
       this.editor.setValue(options.value);
+      this.settings.value = options.value;
     }
   }
 

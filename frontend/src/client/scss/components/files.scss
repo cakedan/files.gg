@@ -3,18 +3,21 @@
     flex-shrink: 0;
 
     display: flex;
-    flex-direction: column;
+    flex-direction: row;
 
     background-color: rgba($filesBlack, 0.9);
-    border-radius: 5px 0 0 0;
+    border: 1px solid rgba($filesBlack, 0.95);
+    border-radius: 5px 0 0 5px;
 
+    top: 0;
     bottom: 0;
     right: 0;
+    margin: auto;
     position: fixed;
 
-    max-height: 30vh;
-    width: 30vw;
-    min-width: 300px;
+    min-height: 500px;
+    height: 40vh;
+    max-width: 30vw;
 
     .main-expander {
         flex-shrink: 0;
@@ -23,10 +26,15 @@
         justify-content: center;
 
         background-color: rgba($filesBlack, 0.95);
-        border-bottom: 1px solid $filesBlack;
-        border-radius: 5px 0 0 0;
+        border-right: 1px solid $filesBlack;
+        border-radius: 5px 0 0 5px;
         cursor: pointer;
-        width: 100%;
+
+        height: 100%;
+
+        i {
+            transform: rotate(-90deg);
+        }
     }
 
     .main-expanded-content {
@@ -34,7 +42,7 @@
         flex-direction: column;
         align-items: center;
 
-        min-height: 10vh;
+        min-width: 20vw;
         padding-bottom: 10px;
 
         overflow: auto;
@@ -100,8 +108,6 @@
 
                 background-color: $filesGrey;
                 border-radius: 5px;
-                box-shadow: 0 9px 30px rgba(6, 6, 7, 0.3);
-                box-sizing: border-box;
                 margin: 5px 0;
 
                 .header {
@@ -202,8 +208,8 @@
                     align-items: center;
                     justify-content: center;
 
-                    height: auto;
-                    width: 100%;
+                    height: 100%;
+                    width: auto;
                     background-color: rgba($filesBlack, 0.7);
                     border-left: 1px solid rgba($filesGreyLight, 0.8);
                     border-right: 1px solid rgba($filesGreyLight, 0.8);

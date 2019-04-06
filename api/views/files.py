@@ -95,6 +95,7 @@ def fetch_files(args):
     })
 
 
+FILENAME_REGEX = r'([\\\/?%*:|"<>])'
 MIN_VANITY_LENGTH = 3
 MAX_VANITY_LENGTH = 128
 MIN_RANDOM_LENGTH = 3
@@ -247,7 +248,7 @@ def create_file(args):
     fname = '.'.join(fname)[:256] # just incase they send a huge text lol
     while '{random}' in fname:
         fname = fname.replace('{random}', generate_vanity(), 1)
-    fname = fname[:128]
+    fname = re.sub(FILENAME_REGEX, '_', fname[:128])
 
     # we read the filedata now to get the hashes of it
     fdata = stream.read(fsize)

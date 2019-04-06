@@ -278,10 +278,8 @@ class FileItem {
             }; break;
             case TextTypes.MONACO: {
               Object.assign(settings, {
-                automaticLayout: true,
                 language: this.language,
                 readOnly: true,
-                theme: 'vs-dark',
                 value: this.file.data,
               });
             }; break;

@@ -3,7 +3,7 @@
     box-shadow: none;
 }
 
-input {
+input[type="text"] {
     background-color: transparent;
     border: none;
     border-bottom: 1px solid white;
@@ -12,7 +12,7 @@ input {
     outline: none;
     transition: border-bottom .15s ease-in-out;
 }
-input:invalid {
+input[type="text"]:invalid {
     border-bottom: 1px solid $filesRed;
 }
 

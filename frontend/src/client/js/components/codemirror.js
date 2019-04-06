@@ -70,17 +70,17 @@ export class CodeMirrorComponent {
     this.onselection = InputTypes.func(vnode.attrs.onselection, null);
     this.onvalue = InputTypes.func(vnode.attrs.onvalue, null);
 
-    vnode.attrs.settings = Object.assign({
+    this.settings = Object.assign({
       mode: CodeMirror.defaultLanguageId,
       lineNumbers: true,
       theme: CodeMirror.defaultTheme,
-      value: vnode.attrs.value,
+      value: vnode.attrs.value || '',
     }, vnode.attrs.settings);
   }
 
   oncreate(vnode) {
-    this.editor = CodeMirror.module(vnode.dom, vnode.attrs.settings);
-    CodeMirror.module.loadMode(this.editor, vnode.attrs.settings.mode);
+    this.editor = CodeMirror.module(vnode.dom, this.settings);
+    CodeMirror.module.loadMode(this.editor, this.settings.mode);
     if (this.oneditor) {
       this.oneditor({
         type: TextTypes.CODEMIRROR,
@@ -115,10 +115,12 @@ export class CodeMirrorComponent {
 
     if (options.mode !== undefined && options.mode !== this.editor.options.mode) {
       CodeMirror.module.loadMode(this.editor, options.mode);
+      this.settings.mode = options.mode;
     }
 
     if (options.value !== undefined && options.value !== this.editor.getValue()) {
       this.editor.setValue(options.value);
+      this.settings.value = options.value;
     }
   }
 
