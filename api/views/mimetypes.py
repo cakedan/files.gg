@@ -52,8 +52,9 @@ parser_create_mimetype.add_argument('flags', type=int)
 parser_create_mimetype.add_argument('priority', type=int)
 
 @mimetypes.route('/<mtype>/<subtype>', methods=['PUT'])
+@parse_args(parser_create_mimetype)
 @authenticate()
-def put_mimetype(mtype, subtype, user):
+def put_mimetype(args, mtype, subtype, user):
     raise ApiError(status=403)
 
     mtype = mtype.lower()

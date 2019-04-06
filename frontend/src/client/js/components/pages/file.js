@@ -9,6 +9,10 @@ import {
 } from '../../utils';
 
 import {
+  Store as Options,
+} from '../../utils/options';
+
+import {
   AudioMedia,
   ImageMedia,
   TextMedia,
@@ -22,7 +26,6 @@ import { Monaco } from '../monaco';
 
 const Store = {
   line: null,
-  textType: null,
   zoom: false,
 };
 
@@ -33,9 +36,6 @@ const Tools = Object.freeze({
   },
   setRoute() {
     const params = new URLSearchParams();
-    if (Store.textType !== this.defaultTextType) {
-      params.append('textType', Store.textType);
-    }
     if (Store.line !== null) {
       params.append('line', Store.line);
     }
@@ -53,8 +53,11 @@ const Tools = Object.freeze({
 export class FilePage {
   constructor(vnode) {
     Store.line = InputTypes.number(vnode.attrs.line, null);
-    Store.textType = InputTypes.choices(Object.values(TextTypes), vnode.attrs.textType, Tools.defaultTextType);
     Store.zoom = InputTypes.boolean(vnode.attrs.zoom, false);
+
+    if (vnode.attrs.textType !== undefined) {
+      Options.textType = vnode.attrs.textType;
+    }
 
     this.loading = true;
     this.file = null;
@@ -208,7 +211,7 @@ class FileItem {
   }
 
   get language() {
-    switch (Store.textType) {
+    switch (Options.textType) {
       case TextTypes.CODEMIRROR: {
         const options = {
           languageId: this.file.extension,
@@ -268,7 +271,7 @@ class FileItem {
           });
         } else {
           const settings = {};
-          switch (Store.textType) {
+          switch (Options.textType) {
             case TextTypes.CODEMIRROR: {
               Object.assign(settings, {
                 mode: this.language,
@@ -286,7 +289,7 @@ class FileItem {
           }
   
           return m(TextMedia, {
-            type: Store.textType,
+            type: Options.textType,
             settings: settings,
             oneditor: ({type, editor}) => {
               switch (type) {
@@ -311,7 +314,7 @@ class FileItem {
               }
             },
             onselection: (event) => {
-              switch (Store.textType) {
+              switch (Options.textType) {
                 case TextTypes.CODEMIRROR: {
                   if (event.line) {
                     Store.line = event.line + 1;

@@ -31,6 +31,7 @@ const defaultMimetypes = {
     'application/json',
     'application/mbox',
     'application/n-triples',
+    'application/pgp',
     'application/pgp-encrypted',
     'application/pgp-keys',
     'application/pgp-signature',
@@ -45,6 +46,7 @@ const defaultMimetypes = {
     'application/x-php',
     'application/x-powershell',
     'application/x-sh',
+    'application/x-sql',
     'application/xquery',
   ],
   video: [
@@ -63,10 +65,25 @@ class MimetypeStore extends Map {
   constructor() {
     super();
     this.loading = true;
+    this.waiting = [];
+  }
+
+  get isLoading() {
+    return !!this.loading;
+  }
+
+  set isLoading(value) {
+    this.loading = !!value;
+    if (!this.loading) {
+      while (this.waiting.length) {
+        (this.waiting.shift())();
+      }
+    }
+    return this.loading;
   }
 
   async fetch() {
-    this.loading = true;
+    this.isLoading = true;
     this.clear();
 
     try {
@@ -77,14 +94,32 @@ class MimetypeStore extends Map {
     } catch(error) {
       console.error(error);
     }
-    this.loading = false;
+    this.isLoading = false;
     m.redraw();
+
+
+  }
+
+  async wait() {
+    if (this.isLoading) {
+      await new Promise((resolve) => this.waiting.push(resolve));
+    }
   }
 
   getFromExtension(extension) {
+    const tempIgnore = ['application/octet-stream', 'text/plain'];
+
     extension = extension.toLowerCase();
     for (let mimetype of this.values()) {
-      if (mimetype.extensions.includes(extension)) {
+      if (tempIgnore.includes(mimetype.mimetype)) {continue;}
+      if (mimetype.extensions.some((ext) => ext.extension === extension)) {
+        return mimetype;
+      }
+    }
+    for (let mime in tempIgnore) {
+      const mimetype = this.get(mime);
+      console.log(mimetype);
+      if (mimetype && mimetype.extensions.some((ext) => ext.extension === extension)) {
         return mimetype;
       }
     }

@@ -2,7 +2,10 @@ import m from 'mithril';
 import md5 from 'crypto-js/md5';
 
 import { Head } from '../head';
-import { InputTypes } from '../../utils';
+import {
+  Mimetypes,
+  InputTypes,
+} from '../../utils';
 import { Store as Options } from '../../utils/options';
 
 import {
@@ -20,6 +23,9 @@ import {
   FileComponent,
   FileObject,
 } from '../files';
+
+
+const defaultFilename = '{random}-{random}';
 
 const Store = {
   upload: {
@@ -83,11 +89,13 @@ const Tools = Object.freeze({
 
 export class HomePage {
   constructor(vnode) {
-    Store.upload.settings.type = InputTypes.choices(
-      Object.values(UploadTypes),
-      String(vnode.attrs.type).toLowerCase(),
-      Tools.defaultUploadType,
-    );
+    if (vnode.attrs.type !== undefined) {
+      Store.upload.settings.type = InputTypes.choices(
+        Object.values(UploadTypes),
+        String(vnode.attrs.type).toLowerCase(),
+        Tools.defaultUploadType,
+      );
+    }
 
     if (vnode.attrs.language === undefined) {
       Store.upload.types.text.options.languageId = Tools.defaultLanguageId;
@@ -330,6 +338,17 @@ class TextUpload extends UploadType {
     super(vnode);
   }
 
+  async oninit(vnode) {
+    super.oninit.call(this, vnode);
+
+    if (Mimetypes.isLoading) {
+      await Mimetypes.wait();
+      const language = this.options.language;
+      this.options.language = null;
+      this.setLanguage(language);
+    }
+  }
+
   get canUpload() {
     if (this.upload.hashes.current === this.upload.hashes.last) {
       if (this.upload.lastLanguageId === this.options.languageId) {
@@ -373,10 +392,20 @@ class TextUpload extends UploadType {
           } else {
             this.options.type = 'text/plain';
           }
-          if (language.ext && language.ext) {
-            this.options.extension = language.ext[0];
+          const mimetype = Mimetypes.get(this.options.type);
+          if (mimetype) {
+            const ext = mimetype.extensions.sort((x, y) => y.priority - x.priority)[0];
+            if (ext) {
+              this.options.extension = ext.extension;
+            } else {
+              this.options.extension = 'txt';
+            }
           } else {
-            this.options.extension = languageId;
+            if (language.ext && language.ext) {
+              this.options.extension = language.ext.sort((x, y) => x.length - y.length)[0];
+            } else {
+              this.options.extension = languageId;
+            }
           }
         }; break;
         case TextTypes.MONACO: {
@@ -390,6 +419,20 @@ class TextUpload extends UploadType {
           } else {
             this.options.type = 'text/plain';
           }
+
+          if (this.options.type === 'text/plain') {
+            let extension;
+            if (language.extensions && language.extensions.length) {
+              extension = language.extensions[0].split('.').pop();
+            } else {
+              extension = languageId;
+            }
+            const mimetype = Mimetypes.getFromExtension(extension);
+            if (mimetype) {
+              this.options.type = mimetype.mimetype;;
+            }
+          }
+
           if (language.extensions && language.extensions.length) {
             this.options.extension = language.extensions[0].split('.').pop();
           } else {
@@ -405,7 +448,7 @@ class TextUpload extends UploadType {
     this.upload.hashes.last = this.upload.hashes.current;
     this.upload.lastLanguageId = this.options.languageId;
 
-    const filename = this.upload.options.filename || '{random}-{random}';
+    const filename = this.upload.options.filename || defaultFilename;
     const blob = new Blob([this.upload.data], {type: this.upload.options.type});
     const file = new FileObject({
       file: {
@@ -507,7 +550,39 @@ class TextUpload extends UploadType {
             this.setLanguage(language);
           },
           onvalue: ({value}) => this.data = value,
-        })
+        }),
+        m('div', {class: 'footer'}, [
+          m(FilenameInput),
+        ]),
+    ]);
+  }
+}
+
+
+class FilenameInput {
+  get options() {
+    return Store.upload.types[UploadTypes.TEXT].options;
+  }
+
+  get filename() {
+    return this.options.filename || defaultFilename;
+  }
+
+  set filename(value) {
+    return this.options.filename = value;
+  }
+
+  get extension() {
+    return this.options.extension;
+  }
+
+  set extension(value) {
+    return this.options.extension = value;
+  }
+
+  view(vnode) {
+    return m('div', {class: 'filename'}, [
+      m('span', `${this.filename}.${this.extension}`),
     ]);
   }
 }

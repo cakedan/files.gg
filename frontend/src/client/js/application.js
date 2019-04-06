@@ -125,7 +125,10 @@ export const Application = Object.freeze({
         m.redraw();
       }
     })());
-    promises.push(Mimetypes.fetch());
+    promises.push((async () => {
+      await Mimetypes.fetch();
+      m.redraw();
+    })());
 
     return Promise.all(promises);
   },

@@ -675,7 +675,7 @@ export const TextTypes = Object.freeze({
 export class TextMedia {
   async oninit(vnode) {
     this.type = InputTypes.choices(Object.values(TextTypes), vnode.attrs.type, TextTypes.NATIVE);
-    switch(this.type) {
+    switch (this.type) {
       case TextTypes.CODEMIRROR: {
         if (!CodeMirror.isLoaded) {
           await CodeMirror.load();
@@ -699,8 +699,9 @@ export class TextMedia {
 
   onupdate(vnode) {
     const type = InputTypes.choices(Object.values(TextTypes), vnode.attrs.type, TextTypes.NATIVE);
-    if (type !== this.type) {
+    if (this.type !== type) {
       this.oninit(vnode);
+      m.redraw();
     }
   }
 
@@ -750,7 +751,9 @@ class TextComponent {
     }
 
     return m('pre', [
-      m('code', {class: 'text'}, vnode.attrs.value || (vnode.attrs.settings || {}).value),
+      m('code', {class: 'text'}, [
+        vnode.attrs.value || (vnode.attrs.settings || {}).value,
+      ]),
     ]);
   }
 }

@@ -15,9 +15,10 @@
     margin: auto;
     position: fixed;
 
-    min-height: 500px;
-    height: 40vh;
-    max-width: 30vw;
+    min-height: 40vh;
+    height: 500px;
+    max-height: 90vh;
+    max-width: 95vw;
 
     .main-expander {
         flex-shrink: 0;
@@ -25,8 +26,8 @@
         align-items: center;
         justify-content: center;
 
-        background-color: rgba($filesBlack, 0.95);
-        border-right: 1px solid $filesBlack;
+        background-color: rgba($filesBlack, 0.91);
+        border-right: 1px solid rgba($filesBlack, 0.95);
         border-radius: 5px 0 0 5px;
         cursor: pointer;
 
@@ -97,6 +98,7 @@
             align-items: center;
 
             width: 100%;
+            min-width: 250px;
 
             .file {
                 flex-shrink: 0;
