@@ -1,3 +1,5 @@
+import favicon from '../assets/favicon.ico';
+
 import Bowser from 'bowser';
 
 Object.defineProperty(window, 'browser', {

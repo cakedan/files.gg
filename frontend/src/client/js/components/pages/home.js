@@ -25,7 +25,32 @@ import {
 } from '../files';
 
 
-const defaultFilename = '{random}-{random}';
+const Tools = Object.freeze({
+  defaultFilename: '{random}-{random}',
+  get defaultLanguageId() {
+    switch (Options.textType) {
+      case TextTypes.CODEMIRROR: return CodeMirror.defaultLanguageId;
+      case TextTypes.MONACO: return Monaco.defaultLanguageId;
+    }
+  },
+  defaultUploadType: UploadTypes.FILE,
+  setRoute() {
+    const params = new URLSearchParams();
+    if (Store.upload.settings.type === UploadTypes.TEXT) {
+      const languageId = Store.upload.types[UploadTypes.TEXT].options.languageId;
+      if (languageId !== this.defaultLanguageId) {
+        params.append('language', languageId);
+      }
+    }
+    if (Store.upload.settings.type !== this.defaultUploadType) {
+      params.append('type', Store.upload.settings.type);
+    }
+    const route = [window.currentPath, params.toString()].filter((v) => v).join('?');
+    if (route !== m.route.get()) {
+      m.route.set(route, null, {replace: true});
+    }
+  }
+});
 
 const Store = {
   upload: {
@@ -51,40 +76,13 @@ const Store = {
       },
     },
     settings: {
-      type: null,
+      type: Tools.defaultUploadType,
       vanity: null,
     },
   },
   isLoading: true,
   showUploads: false,
 };
-
-
-const Tools = Object.freeze({
-  get defaultLanguageId() {
-    switch (Options.textType) {
-      case TextTypes.CODEMIRROR: return CodeMirror.defaultLanguageId;
-      case TextTypes.MONACO: return Monaco.defaultLanguageId;
-    }
-  },
-  defaultUploadType: UploadTypes.FILE,
-  setRoute() {
-    const params = new URLSearchParams();
-    if (Store.upload.settings.type === UploadTypes.TEXT) {
-      const languageId = Store.upload.types[UploadTypes.TEXT].options.languageId;
-      if (languageId !== this.defaultLanguageId) {
-        params.append('language', languageId);
-      }
-    }
-    if (Store.upload.settings.type !== this.defaultUploadType) {
-      params.append('type', Store.upload.settings.type);
-    }
-    const route = [window.currentPath, params.toString()].filter((v) => v).join('?');
-    if (route !== m.route.get()) {
-      m.route.set(route, null, {replace: true});
-    }
-  }
-});
 
 
 export class HomePage {
@@ -448,7 +446,7 @@ class TextUpload extends UploadType {
     this.upload.hashes.last = this.upload.hashes.current;
     this.upload.lastLanguageId = this.options.languageId;
 
-    const filename = this.upload.options.filename || defaultFilename;
+    const filename = this.upload.options.filename || Tools.defaultFilename;
     const blob = new Blob([this.upload.data], {type: this.upload.options.type});
     const file = new FileObject({
       file: {
@@ -565,7 +563,7 @@ class FilenameInput {
   }
 
   get filename() {
-    return this.options.filename || defaultFilename;
+    return this.options.filename || Tools.defaultFilename;
   }
 
   set filename(value) {
