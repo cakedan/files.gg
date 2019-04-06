@@ -50,16 +50,12 @@ const Store = {
   },
   isLoading: true,
   showUploads: false,
-  textType: null,
 };
 
 
 const Tools = Object.freeze({
-  get defaultTextType() {
-    return (window.isMobile) ? TextTypes.CODEMIRROR : TextTypes.MONACO;
-  },
   get defaultLanguageId() {
-    switch (Store.textType) {
+    switch (FileStore.textType) {
       case TextTypes.CODEMIRROR: return CodeMirror.defaultLanguageId;
       case TextTypes.MONACO: return Monaco.defaultLanguageId;
     }
@@ -76,9 +72,6 @@ const Tools = Object.freeze({
     if (Store.upload.settings.type !== this.defaultUploadType) {
       params.append('type', Store.upload.settings.type);
     }
-    if (Store.textType && Store.textType !== this.defaultTextType) {
-      params.append('textType', Store.textType);
-    }
     const route = [window.currentPath, params.toString()].filter((v) => v).join('?');
     if (route !== m.route.get()) {
       m.route.set(route, null, {replace: true});
@@ -93,11 +86,6 @@ export class HomePage {
       Object.values(UploadTypes),
       String(vnode.attrs.type).toLowerCase(),
       Tools.defaultUploadType,
-    );
-    Store.textType = InputTypes.choices(
-      Object.values(TextTypes),
-      String(vnode.attrs.textType).toLowerCase(),
-      Tools.defaultTextType,
     );
 
     if (vnode.attrs.language === undefined) {
@@ -146,7 +134,9 @@ export class HomePage {
             ] : null,
             (FileStore.files.uploaded.length) ? [
               m('div', {class: 'divider'}, [
-                m('span', {class: 'divider-text'}, `Uploaded ${FileStore.total.toLocaleString()} Files`),
+                m('span', {class: 'divider-text'}, [
+                  `${FileStore.total.toLocaleString()} File${(FileStore.total !== 1) ? 's' : ''}`,
+                ]),
               ]),
               m('div', {class: 'files'}, FileStore.files.uploaded.map((file) => {
                 return m(FileComponent, {file, key: file.key});
@@ -365,9 +355,9 @@ class TextUpload extends UploadType {
   }
 
   setLanguage(language) {
-    if (this.options.language !== language) {
+    if (language && this.options.language !== language) {
       this.options.language = language;
-      switch (Store.textType) {
+      switch (FileStore.textType) {
         case TextTypes.CODEMIRROR: {
           const languageId = language.id;
           if (this.options.languageId !== languageId) {
@@ -433,7 +423,7 @@ class TextUpload extends UploadType {
 
   view(vnode) {
     const settings = {};
-    switch (Store.textType) {
+    switch (FileStore.textType) {
       case TextTypes.CODEMIRROR: {
         Object.assign(settings, {
           mode: (this.options.language) ? this.options.language.mode : null,
@@ -450,48 +440,61 @@ class TextUpload extends UploadType {
       }; break;
     }
     return m('div', {class: 'upload-modal text'}, [
-        m('div', {class: 'languages'}, [
-          m('select', {
-            onchange: ({target}) => {
-              if (target.selectedOptions.length) {
-                switch (Store.textType) {
-                  case TextTypes.CODEMIRROR: {
-                    const language = CodeMirror.getLanguage({
-                      languageId: target.selectedOptions[0].value,
-                    });
-                    this.setLanguage(language);
-                  }; break;
-                  case TextTypes.MONACO: {
-                    const language = Monaco.getLanguage({
-                      languageId: target.selectedOptions[0].value,
-                    });
-                    this.setLanguage(language);
-                  }; break;
+        m('div', {class: 'header'}, [
+          m('div', {class: 'languages'}, [
+            m('select', {
+              onchange: ({target}) => {
+                if (target.selectedOptions.length) {
+                  switch (FileStore.textType) {
+                    case TextTypes.CODEMIRROR: {
+                      const language = CodeMirror.getLanguage({
+                        languageId: target.selectedOptions[0].value,
+                      });
+                      this.setLanguage(language);
+                    }; break;
+                    case TextTypes.MONACO: {
+                      const language = Monaco.getLanguage({
+                        languageId: target.selectedOptions[0].value,
+                      });
+                      this.setLanguage(language);
+                    }; break;
+                  }
                 }
-              }
-            },
-          }, [
-            (Store.textType === TextTypes.CODEMIRROR) ? [
-              CodeMirror.languages.map((language) => {
-                return m('option', {
-                  selected: (this.options.languageId === language.id),
-                  value: language.id,
-                }, language.name);
-              }),
-            ] : [
-              (Store.textType === TextTypes.MONACO) ? [
-                Monaco.languages.map((language) => {
+              },
+            }, [
+              (FileStore.textType === TextTypes.CODEMIRROR) ? [
+                CodeMirror.languages.map((language) => {
                   return m('option', {
                     selected: (this.options.languageId === language.id),
                     value: language.id,
-                  }, language.id);
+                  }, language.name);
                 }),
-              ] : null,
-            ],
+              ] : [
+                (FileStore.textType === TextTypes.MONACO) ? [
+                  Monaco.languages.map((language) => {
+                    return m('option', {
+                      selected: (this.options.languageId === language.id),
+                      value: language.id,
+                    }, language.id);
+                  }),
+                ] : null,
+              ],
+            ]),
+          ]),
+          m('div', {
+            class: [
+              'submit',
+              (!this.canUpload) ? 'disabled' : null,
+            ].filter((v) => v).join(' '),
+            title: (this.canUpload) ? 'Upload' : ((!this.upload.data) ? 'Text Required' : 'Already Uploaded'),
+            onclick: () => this.canUpload && this.tryUpload(),
+          }, [
+            m('i', {class: 'material-icons'}, 'cloud_upload'),
+            m('span', 'Upload'),
           ]),
         ]),
         m(TextMedia, {
-          type: Store.textType,
+          type: FileStore.textType,
           settings: settings,
           onload: (event) => {
             const language = event.module.getLanguage({
@@ -503,20 +506,7 @@ class TextUpload extends UploadType {
             this.setLanguage(language);
           },
           onvalue: ({value}) => this.data = value,
-        }),
-        m('div', {class: 'submit'}, [
-          (this.canUpload) ? [
-            m('span', {
-              title: 'Upload',
-              onclick: () => this.tryUpload(),
-            }, 'Upload'),
-          ] : [
-            m('span', {
-              class: 'disabled',
-              title: (!this.upload.data) ? 'Text Required' : 'Already Uploaded',
-            }, 'Upload'),
-          ],
-        ]),
+        })
     ]);
   }
 }

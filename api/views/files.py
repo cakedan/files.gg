@@ -7,7 +7,7 @@ from flask import current_app, Blueprint, request
 from flask_restful import inputs, reqparse
 from peewee import fn, JOIN
 
-from models import File, FileHash, FileView, Mimetype, MimetypeExtension
+from models import File, FileHash, FileView, Mimetype, MimetypeExtension, MimetypeType
 from utils.errors import InvalidMimetype, UnknownFile
 from utils.generators import Snowflake
 from utils.responses import ApiError, ApiResponse
@@ -25,6 +25,8 @@ parser_get_files.add_argument('x-fingerprint', location='headers', dest='fingerp
 parser_get_files.add_argument('limit', type=int, default=100, choices=range(1, 101), help='Must be at least or in between 1 and 100')
 parser_get_files.add_argument('after', location='args', type=parameters.snowflake)
 parser_get_files.add_argument('before', location='args', type=parameters.snowflake)
+parser_get_files.add_argument('mimetype', location='args')
+parser_get_files.add_argument('type', location='args')
 
 @files.route('', methods=['GET'])
 @parse_args(parser_get_files)
@@ -35,30 +37,61 @@ def fetch_files(args):
     if args.after is not None and args.before is not None:
         raise ApiError('Choose between before or after, not both')
 
-    query = (File
-            .select(File, fn.COUNT(FileView.ip).alias('view_count'))
-            .join(FileView, JOIN.LEFT_OUTER)
-            .group_by(File)
-            .order_by(File.id.desc()))
+    if args.mimetype is not None and args.type is not None:
+        raise ApiError('Choose Mimetype or Type, not both')
 
-    total = 0
+    mtype = None
+    if args.type is not None:
+        mtype = MimetypeType.get_or_none(id=args.type)
+        if mtype is None:
+            raise ApiError(metadata={'errors': {'type': 'Invalid Type'}})
+
+    mimetype = None
+    if args.mimetype is not None:
+        mimetype = Mimetype.get_or_none(id=args.mimetype)
+        if mimetype is None:
+            raise ApiError(metadata={'errors': {'mimetype': 'Invalid Mimetype'}})
+
+    files = (File
+            .select(File, FileHash)
+            .join(FileHash)
+            .switch(File)
+            .order_by(File.id.desc())
+            .limit(args.limit))
+    total = File.select(fn.COUNT(File.id).alias('count'))
+
     if args.authorization is not None:
         user = helpers.get_user(args.authorization)
-        query = query.where(File.user == user)
-        total = File.select().where(File.user == user).count()
+        files = files.where(File.user == user)
+        total = total.where(File.user == user)
     else:
-        query = query.where(File.fingerprint == args.fingerprint)
-        total = File.select().where(File.fingerprint == args.fingerprint).count()
+        files = files.where(File.fingerprint == args.fingerprint)
+        total = total.where(File.fingerprint == args.fingerprint)
+
+    if mtype is not None:
+        files = (files
+                .join(Mimetype, JOIN.RIGHT_OUTER, on=(Mimetype.id == File.mimetype))
+                .join(MimetypeType, JOIN.RIGHT_OUTER, on=(MimetypeType.id == Mimetype.type))
+                .where(MimetypeType.id == mtype)
+                .switch(File))
+        total = (total
+                .join(Mimetype, JOIN.RIGHT_OUTER, on=(Mimetype.id == File.mimetype))
+                .join(MimetypeType, JOIN.RIGHT_OUTER, on=(MimetypeType.id == Mimetype.type))
+                .where(MimetypeType.id == mtype)
+                .switch(File))
+
+    if mimetype is not None:
+        files = files.where(File.mimetype == mimetype)
+        total = total.where(File.mimetype == mimetype)
 
     if args.after is not None:
-        query = query.where(File.id > args.after)
+        files = files.where(File.id > args.after)
     elif args.before is not None:
-        query = query.where(File.id < args.before)
+        files = files.where(File.id < args.before)
 
-    query = query.limit(args.limit)
     return ApiResponse({
-        'total': total,
-        'files': [x.to_dict() for x in query],
+        'total': total.scalar(),
+        'files': [x.to_dict() for x in files],
     })
 
 
@@ -198,11 +231,11 @@ def create_file(args):
 
     if fextension is None:
         mextension = (MimetypeExtension
-            .select()
-            .where(MimetypeExtension.mimetype == mimetype)
-            .order_by(MimetypeExtension.priority.desc())
-            .limit(1)
-            .execute())
+                    .select()
+                    .where(MimetypeExtension.mimetype == mimetype)
+                    .order_by(MimetypeExtension.priority.desc())
+                    .limit(1)
+                    .execute())
         if mextension:
             fextension = mextension[0].extension
         else:
@@ -211,15 +244,9 @@ def create_file(args):
             elif mimetype.endswith('+xml'):
                 fextension = 'xml'
 
-    fname = '.'.join(fname).split('{random}')
-    if len(fname) == 1:
-        fname = fname.pop()
-    else:
-        xfname = ''
-        for idx, x in enumerate(fname):
-            if idx or x:
-                xfname += generate_vanity() + x
-        fname = xfname
+    fname = '.'.join(fname)[:256] # just incase they send a huge text lol
+    while '{random}' in fname:
+        fname = fname.replace('{random}', generate_vanity(), 1)
     fname = fname[:128]
 
     # we read the filedata now to get the hashes of it
@@ -259,12 +286,10 @@ def create_file(args):
         user=user,
         fingerprint=fingerprint,
     )
-    fobj.view_count = 0
-    return ApiResponse(fobj.to_dict(views=True))
+    return ApiResponse(fobj.to_dict())
 
 
 parser_fetch_file = reqparse.RequestParser(trim=True)
-parser_fetch_file.add_argument('views', type=inputs.boolean, default=False)
 parser_fetch_file.add_argument('vanity', location='view_args')
 
 @files.route('/<path:vanity>', methods=['GET'])
@@ -276,18 +301,19 @@ def fetch_file(args):
         raise UnknownFile()
 
     ip = request.remote_addr
-    view = FileView.get_or_none(file=fobj, ip=ip)
-    if view is None:
-        view = FileView.create(file=fobj, ip=ip)
+    if FileView.get_or_none(file=fobj, ip=ip) is None:
+        FileView.create(file=fobj, ip=ip)
+        fobj.view_count += 1
+        fobj.save()
 
-    return ApiResponse(fobj.to_dict(views=args.views))
+    return ApiResponse(fobj.to_dict())
 
 
 parser_delete_file = reqparse.RequestParser(trim=True)
 parser_delete_file.add_argument('vanity', location='view_args')
 
 @files.route('/<path:vanity>', methods=['DELETE'])
-@authenticate()
 @parse_args(parser_delete_file)
-def delete_file(user, args):
+@authenticate()
+def delete_file(args, user):
     return args.vanity

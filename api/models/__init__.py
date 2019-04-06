@@ -52,13 +52,22 @@ class User(BaseModel):
         )
 
 
+class MimetypeType(BaseModel):
+    id = peewee.CharField(max_length=11, primary_key=True)
+
+    class Meta:
+        db_table = 'mimetype_types'
+
+
 class Mimetype(BaseModel):
     id = peewee.CharField(max_length=100, primary_key=True)
     flags = peewee.IntegerField(default=0)
+    type = peewee.ForeignKeyField(MimetypeType, field='id', backref='mimetypes', null=True)
 
     def to_dict(self):
         return {
             'mimetype': self.id,
+            'type': self.type_id,
             'flags': self.flags,
             'extensions': [x.to_dict() for x in self.extensions],
         }
@@ -109,9 +118,10 @@ class File(BaseModel):
     hash = peewee.ForeignKeyField(FileHash, backref='files')
     user = peewee.ForeignKeyField(User, null=True, backref='files')
     fingerprint = peewee.BigIntegerField(null=True, index=True)
+    view_count = peewee.BigIntegerField(default=0)
 
-    def to_dict(self, views=False):
-        data = {
+    def to_dict(self):
+        return {
             'id': str(self.id),
             'vanity': self.vanity,
             'mimetype': self.mimetype_id,
@@ -127,10 +137,8 @@ class File(BaseModel):
                 'main': 'https://files.gg/' + self.vanity + '.' + self.extension,
                 'cdn': 'https://cdn.files.gg/files/' + self.vanity + '.' + self.extension,
             },
+            'views': self.view_count,
         }
-        if views:
-            data['views'] = getattr(self, 'view_count', self.views.count())
-        return data
 
     class Meta:
         db_table = 'files'
@@ -160,6 +168,7 @@ db.create_tables([
     FileHash,
     File,
     FileView,
+    MimetypeType,
     Mimetype,
     MimetypeExtension,
 ])

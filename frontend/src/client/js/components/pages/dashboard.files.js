@@ -81,7 +81,7 @@ export class DashboardFilesPage {
 
     return m('div', {class: 'main-modal'}, [
       m('div', {class: 'total'}, [
-        m('span', `You have uploaded ${FileStore.total.toLocaleString()} files.`),
+        m('span', `${FileStore.total.toLocaleString()} File${(FileStore.total !== 1) ? 's' : ''}`),
       ]),
       m.fragment({
         oncreate: ({dom}) => Tools.onScroll(dom),

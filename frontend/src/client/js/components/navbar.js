@@ -2,6 +2,8 @@ import m from 'mithril';
 
 import { Auth } from '../auth';
 
+import branding from '../../assets/branding.png';
+
 
 class MobileDropdown {
   oninit(vnode) {
@@ -59,16 +61,15 @@ class NavbarLink {
   }
 
   view(vnode) {
+    if (vnode.attrs.href === window.currentPath) {
+      vnode.attrs.class = [vnode.attrs.class, 'active'].filter((v) => v).join(' ');
+    }
     return m('a', vnode.attrs, vnode.children);
   }
 }
 
 
 export class Navbar {
-  oninit(vnode) {
-    this.title = vnode.attrs.title || 'some file hoster';
-  }
-
   view(vnode) {
     return m('nav', [
       (window.isMobile) ? [
@@ -92,15 +93,13 @@ export class Navbar {
             ],
           ]),
           m(NavbarLink, {href: '/', class: 'brand'}, [
-            m('i', {class: 'material-icons'}, 'cloud'),
-            this.title,
+            m('img', {src: branding}),
           ]),
         ]),
       ] : [
         m('div', {class: 'desktop'}, [
           m(NavbarLink, {href: '/', class: 'brand'}, [
-            m('i', {class: 'material-icons'}, 'cloud'),
-            this.title,
+            m('img', {src: branding}),
           ]),
           m('ul', {class: 'left'}, [
             m('li', [

@@ -56,7 +56,7 @@ const defaultMetatags = {
 };
 
 const renderHtml = async(event, metatags) => {
-  const manifestResponse = await requestStorage(event.request, {
+  const manifestResponse = await requestStorage(event, {
     method: 'GET',
     path: `/assets/${version}/manifest.json`,
   });
@@ -171,7 +171,7 @@ router.route('/:fileId...', ['GET', 'HEAD'], async(event) => {
   const metatags = new Metatags(defaultMetatags);
   if (event.url.pathname !== '/') {
     const fileId = event.parameters.fileId.split('.').shift();
-    const apiResponse = await requestApi(event.request, {
+    const apiResponse = await requestApi(event, {
       method: 'GET',
       path: `/files/${fileId}`,
     });
@@ -281,15 +281,15 @@ router.route('/:fileId...', ['GET', 'HEAD'], async(event) => {
 });
 
 router.route('/assets/:fileName...', '*', async(event) => {
-  return await requestStorage(event.request, `/assets/${version}/${event.parameters.fileName}`);
+  return await requestStorage(event, `/assets/${version}/${event.parameters.fileName}`);
 });
 
 router.route('/favicon.ico', '*', async(event) => {
-  return await requestStorage(event.request, `/assets/${version}/favicon.ico`);
+  return await requestStorage(event, `/assets/${version}/favicon.ico`);
 });
 
 router.route('/api/:apiRoute...', '*', async(event) => {
-  return await requestApi(event.request, {
+  return await requestApi(event, {
     path: event.parameters.apiRoute,
   });
 });

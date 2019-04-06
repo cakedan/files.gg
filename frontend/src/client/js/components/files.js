@@ -32,6 +32,7 @@ export const Store = {
     uploading: [],
     uploaded: [],
   },
+  textType: null,
 };
 
 
@@ -89,7 +90,7 @@ export const Tools = Object.freeze({
     Store.isFetching = false;
     m.redraw();
   },
-  async refresh() {
+  refresh() {
     Store.isAtEnd = false;
     Store.total = -1;
     for (let file of Store.files.uploading) {
@@ -124,6 +125,7 @@ export const Tools = Object.freeze({
   },
 });
 
+Store.textType = Tools.defaultTextType;
 
 window.addEventListener('dragenter', (event) => {
   event.preventDefault();
@@ -151,10 +153,11 @@ window.addEventListener('drop', (event) => {
 
 export class FilesModal {
   constructor(vnode) {
+    this.input = null;
     if (vnode.attrs.expandFiles !== undefined) {
       Store.expand = InputTypes.boolean(vnode.attrs.expandFiles, false);
     }
-    this.input = null;
+    Store.textType = Tools.defaultTextType;
   }
 
   async oninit(vnode) {
@@ -239,15 +242,19 @@ export class FilesModal {
           ] : [
             (Store.files.uploaded.length) ? [
               m('div', {class: 'divider'}, [
-                m('span', {class: 'divider-text'}, `Uploaded ${Store.total.toLocaleString()} Files`),
+                m('span', {class: 'divider-text'}, [
+                  `${Store.total.toLocaleString()} File${(Store.total !== 1) ? 's' : ''}`,
+                ]),
               ]),
               m('div', {class: 'files uploaded'}, Store.files.uploaded.map((file) => {
                 return m(FileComponent, {file, key: file.key});
               })),
             ] : [
-              m('div', {class: 'modal'}, [
-                m('span', 'upload some files man'),
-              ]),
+              (!Store.isFetching) ? [
+                m('div', {class: 'modal'}, [
+                  m('span', 'upload some files man'),
+                ]),
+              ] : null,
             ],
             (Store.isFetching) ? [
               m('div', {class: 'modal'}, [
@@ -332,7 +339,7 @@ export class FileComponent {
             readOnly: true,
             value: this.file.data,
           };
-          switch (Tools.defaultTextType) {
+          switch (Store.textType) {
             case TextTypes.CODEMIRROR: {
               Object.assign(settings, {
                 mode: (CodeMirror.getLanguage({
@@ -353,7 +360,7 @@ export class FileComponent {
             }; break;
           }
           media = m(TextMedia, {
-            type: Tools.defaultTextType,
+            type: Store.textType,
             settings: settings,
           });
         }

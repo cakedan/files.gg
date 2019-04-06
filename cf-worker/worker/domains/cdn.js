@@ -6,7 +6,7 @@ export const router = new DomainRouter('cdn.files.gg');
 
 
 router.route('/*', ['GET', 'HEAD', 'OPTIONS'], async(event) => {
-  return await requestStorage(event.request, event.url.pathname);
+  return await requestStorage(event, event.url.pathname);
 });
 
 
@@ -19,14 +19,14 @@ const displayAsText = [
 router.route('/files/:fileId...', ['GET', 'HEAD', 'OPTIONS'], async(event) => {
   const fileId = event.parameters.fileId.split('.').shift();
 
-  let response = await requestApi(event.request, {
+  let response = await requestApi(event, {
     method: 'GET',
     path: `/files/${fileId}`,
   });
 
   if (response.ok) {
     const file = await response.json();
-    response = await requestStorage(event.request, '/files/' + file.hash);
+    response = await requestStorage(event, '/files/' + file.hash);
     if (response.ok) {
       const filename = encodeURIComponent([file.filename, file.extension].join('.'));
 
@@ -51,7 +51,7 @@ router.route('/files/:fileId...', ['GET', 'HEAD', 'OPTIONS'], async(event) => {
 });
 
 
-export async function requestStorage(request, options) {
+export async function requestStorage(event, options) {
   if (typeof(options) === 'string') {
     options = {path: options};
   } else {
@@ -61,10 +61,11 @@ export async function requestStorage(request, options) {
   const url = new URL('https://filesgg.storage.googleapis.com');
   url.pathname = options.path;
 
-  request = new Request(url, request);
+  const request = new Request(url, event.request);
   if (options.method === 'GET' || options.method === 'HEAD') {
     options.body = undefined;
   }
+
   let response = await fetch(request, options);
   if (response.status < 400) {
     response = new Response(response.body, response);

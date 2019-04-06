@@ -2,6 +2,8 @@ import m from 'mithril';
 
 import { Api } from '../../api';
 import { Auth, Fingerprint } from '../../auth';
+
+import { Tools as FileTools } from '../files';
 import { PopupModal } from '../popup-modal';
 import { RecaptchaComponent } from '../recaptcha';
 
@@ -164,6 +166,8 @@ export class AuthLoginPage {
       try {
         await Auth.try();
         Fingerprint.clear();
+        FileTools.refresh();
+        FileTools.fetchFiles();
         m.route.set(this.redirect);
       } catch(error) {
         console.error(error);
@@ -282,7 +286,7 @@ class Flipper {
 
 class Field {
   constructor(vnode) {
-    this.type = vnode.attrs.type || 'field';
+    this.type = vnode.attrs.type || 'text';
     this.active = false;
 
     if (typeof(vnode.attrs.onsubmit) === 'function') {
@@ -378,6 +382,7 @@ class Field {
       }, [
         m('input', {
           type: this.type,
+          name: this.type,
           onfocusin: () => this.active = true,
           onfocusout: () => this.active = false,
           oninput: ({target}) => this.value = target.value,

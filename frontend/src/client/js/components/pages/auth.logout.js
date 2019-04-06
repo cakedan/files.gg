@@ -2,6 +2,7 @@ import m from 'mithril';
 
 import { Api } from '../../api';
 import { Auth, Fingerprint } from '../../auth';
+import { Tools as FileTools } from '../files';
 
 
 export class AuthLogoutPage {
@@ -25,6 +26,7 @@ export class AuthLogoutPage {
         console.error(error);
       }
     }
+    FileTools.refresh();
   }
 
   view(vnode) {

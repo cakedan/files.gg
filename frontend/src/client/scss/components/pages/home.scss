@@ -222,28 +222,44 @@
                     align-items: center;
                     justify-content: center;
 
-                    .languages {
+                    .header {
+                        display: flex;
+                        flex-direction: row;
+                        align-items: center;
+                        justify-content: space-between;
+
                         margin: 5px 0;
+                        width: 95%;
+
+                        .languages {
+                            justify-self: center;
+                        }
+
+                        .submit {
+                            display: flex;
+                            flex-direction: row;
+                            align-items: center;
+
+                            color: $filesGreen;
+                            cursor: pointer;
+                            transition: color .15s ease-in-out;
+
+                            span {
+                                margin-left: 4px;
+                            }
+                        }
+                        .submit:hover, .submit:focus {
+                            color: rgba($filesGreen, 0.7);
+                        }
+                        .submit.disabled, .submit.disabled:hover, .submit.disabled:focus {
+                            color: $filesRed;
+                            cursor: not-allowed;
+                        }
                     }
 
                     .media-container {
                         height: 95%;
                         width: 95%;
-                    }
-
-                    .submit {
-                        margin: 5px 0;
-
-                        span {
-                            @extend .btn;
-                        }
-                        span.disabled {
-                            background-color: $filesRed;
-                            cursor: not-allowed;
-                        }
-                        span.disabled:hover, span.disabled:focus {
-                            background-color: $filesRed;
-                        }
                     }
                 }
             }
@@ -252,6 +268,8 @@
         .information {
             display: flex;
             flex-direction: column;
+            align-items: center;
+
             width: 48%;
 
             .files-wrapper {
@@ -308,6 +326,7 @@
             .flipper {
                 @extend .noselect;
 
+                align-self: flex-end;
                 display: flex;
                 flex-direction: row;
                 justify-content: flex-end;

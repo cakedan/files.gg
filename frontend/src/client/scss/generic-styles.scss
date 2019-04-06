@@ -1,9 +1,19 @@
+:invalid, :-moz-submit-invalid, :-moz-ui-invalid, :-moz-focus-inner {
+    border: none;
+    box-shadow: none;
+}
+
 input {
     background-color: transparent;
     border: none;
     border-bottom: 1px solid white;
+    box-shadow: none;
     color: white;
     outline: none;
+    transition: border-bottom .15s ease-in-out;
+}
+input:invalid {
+    border-bottom: 1px solid $filesRed;
 }
 
 .btn {
@@ -37,7 +47,7 @@ input {
     -moz-user-select: none;
     user-select: none;
 }
-.monaco-editor {
+.monaco-editor, .codemirror {
     textarea, textarea:focus {
         font-size: 16px !important;
     }

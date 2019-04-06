@@ -23,7 +23,7 @@ router.beforeResponse = (response, event) => {
 };
 
 router.route('/favicon.ico', '*', (event) => {
-  return requestStorage(event.originalRequest, '/assets/stable/favicon.ico');
+  return requestStorage(event, '/assets/stable/favicon.ico');
 }, {priority: 100});
 
 router.addRouter(apiRouter);
