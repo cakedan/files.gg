@@ -41,11 +41,17 @@ input[type="text"]:invalid {
 }
 
 
-.CodeMirror-gutter-wrapper {
-    // fix for iPhone select all button not working
-    -webkit-user-select: none;
-    -moz-user-select: none;
-    user-select: none;
+.codemirror {
+    .CodeMirror-gutter-wrapper {
+        // fix for iPhone select all button not working
+        -webkit-user-select: none;
+        -moz-user-select: none;
+        user-select: none;
+    }
+
+    .CodeMirror-vscrollbar {
+        right: 1px;
+    }
 }
 .monaco-editor, .codemirror {
     textarea, textarea:focus {

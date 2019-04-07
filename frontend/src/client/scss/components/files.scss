@@ -20,6 +20,8 @@
     max-height: 90vh;
     max-width: 95vw;
 
+    z-index: 9998;
+
     .main-expander {
         flex-shrink: 0;
         display: flex;
@@ -106,6 +108,7 @@
                 flex-direction: column;
 
                 min-height: 64px;
+                max-width: 450px;
                 width: 95%;
 
                 background-color: $filesGrey;

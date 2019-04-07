@@ -34,6 +34,9 @@ export const Auth = Object.freeze({
   get hasToken() {
     return !!Store.token;
   },
+  get me() {
+    return Store.me;
+  },
   clear(redraw) {
     if (localStorage.getItem('token')) {
       localStorage.removeItem('token');
@@ -41,6 +44,7 @@ export const Auth = Object.freeze({
 
     Store.token = null;
     Store.isAuthed = false;
+    Store.me = null;
     Auth.isAuthing = false;
     if (redraw === undefined || redraw) {
       m.redraw();

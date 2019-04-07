@@ -69,7 +69,7 @@ module.exports = {
         },
       },
       {
-        test: /^favicon\.ico$/,
+        test: /favicon\.ico$/,
         use: {
           loader: 'file-loader',
           options: {

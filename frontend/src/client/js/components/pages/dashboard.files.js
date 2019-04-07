@@ -1,6 +1,8 @@
 import m from 'mithril';
 
 import { Api } from '../../api';
+import { Auth } from '../../auth';
+
 import {
   formatBytes,
   snowflakeToTimestamp,
@@ -39,12 +41,53 @@ const ViewTypes = Object.freeze({
 });
 
 const Store = {
+  file: {
+    id: null,
+    vanity: null,
+    response: null,
+  },
   sortType: SortTypes.UPLOADED,
   viewType: ViewTypes.CONTENT,
 };
 
 const Tools = Object.freeze({
-  onScroll: async (dom) => {
+  async setFileId(vanity) {
+    vanity = String(vanity);
+    const fileId = vanity.split('.').shift();
+    if (Store.file.id !== fileId) {
+      Store.file.id = fileId;
+      Store.file.vanity = vanity;
+      Store.file.response = null;
+      this.setRoute();
+
+      if (fileId) {
+        await this.fetchFile(fileId);
+      }
+    }
+  },
+  async fetchFile(fileId) {
+    const file = FileStore.files.uploaded.find(({response}) => response.vanity === fileId);
+
+    let response;
+    if (file) {
+      response = file.response;
+    } else {
+      try {
+        response = await Api.fetchFile(fileId);
+        if (!response.user || !response.user.id !== Auth.me.id) {
+          response = new Error('You do not own this file.');
+        }
+      } catch(error) {
+        console.error(error);
+        response = error;
+      }
+    }
+    if (Store.file.id === fileId) {
+      Store.file.response = response;
+      console.log(Store.file.response);
+    }
+  },
+  async onScroll(dom) {
     if (FileStore.isAtEnd || FileStore.isFetching) {return;}
     let percentage = 0;
     switch (Store.viewType) {
@@ -59,6 +102,16 @@ const Tools = Object.freeze({
       await FileTools.fetchFiles();
     }
   },
+  setRoute() {
+    let route = '/dashboard/files';
+    if (Store.file.id) {
+      // Incase they do something like /dashboard/files/.aaa
+      route += `/${Store.file.vanity}`;
+    }
+    if (route !== m.route.get()) {
+      m.route.set(route);
+    }
+  },
 });
 
 
@@ -68,6 +121,14 @@ export class DashboardFilesPage {
       vnode.attrs.viewType = vnode.attrs.viewType.toLowerCase();
       if (Object.values(ViewTypes).includes(vnode.attrs.viewType)) {
         Store.viewType = vnode.attrs.viewType;
+      }
+    }
+  }
+
+  async oninit(vnode) {
+    if (vnode.attrs.fileId !== undefined) {
+      if (Store.file.vanity !== vnode.attrs.fileId) {
+        await Tools.setFileId(vnode.attrs.fileId);
       }
     }
   }
@@ -102,6 +163,7 @@ export class DashboardFilesPage {
           ] : null,
         ]),
       ]),
+      (Store.file.id) ? m(DashboardFile) : null,
     ]);
   }
 }
@@ -130,6 +192,12 @@ class FileComponent {
     }
   }
 
+  async showFile(event) {
+    event.preventDefault();
+    const {vanity, extension} = this.file.response;
+    await Tools.setFileId([vanity, extension].filter((v) => v).join('.'));
+  }
+
   view(vnode) {
     const type = this.file.mimetype.split('/').shift();
 
@@ -152,7 +220,10 @@ class FileComponent {
       case ViewTypes.CONTENT: {
         const date = new Date(snowflakeToTimestamp(this.file.response.id));
 
-        return m('div', {class: 'file'}, [
+        return m('div', {
+          class: 'file',
+          onclick: (event) => this.showFile(event),
+        }, [
           m('div', {class: 'header'}, [
             (media) ? media : [
               m('div', {class: 'icon'}, [
@@ -305,6 +376,64 @@ class FileComponent {
       m('div', {class: 'footer'}, [
         m('div', {class: 'timestamp'}, [
           m('span', `Uploaded on ${date.toLocaleDateString()} at ${date.toLocaleTimeString()}`),
+        ]),
+      ]),
+    ]);
+  }
+}
+
+
+class DashboardFile {
+  get file() {
+    return Store.file.response;
+  }
+
+  view(vnode) {
+    return m('div', {
+      class: 'dashboard-file-modal',
+      onclick: async ({target}) => {
+        if (target.classList.contains('dashboard-file-modal')) {
+          await Tools.setFileId('');
+        }
+      },
+    }, [
+      m('div', {class: 'file'}, [
+        m('div', {class: 'context'}, [
+          (this.file) ? [
+            (this.file instanceof Error) ? [
+              m('div', {class: 'message error'}, [
+                m('span', [
+                  'Error: ',
+                  this.file.message || 'lol',
+                ]),
+              ]),
+            ] : [
+              m('div', {class: 'thumbnail'}, [
+                m('div', {class: 'media-container'}, [
+                  m('span', this.file.urls.main),
+                ]),
+                m('div', {class: 'information'}, [
+                  m('span', this.file.filename + '.' + this.file.extension),
+                  m('span', this.file.mimetype),
+                ]),
+              ]),
+              m('div', {class: 'footer'}, [
+                m('span', {class: 'sections'}, [
+
+                ]),
+                m('span', {class: 'buttons'}, [
+
+                ]),
+              ]),
+              m('div', {class: 'resizer'}, [
+                m('i', {class: 'material-icons'}, 'texture'),
+              ]),
+            ],
+          ] : [
+            m('div', {class: 'message'}, [
+              m('span', 'Loading...'),
+            ]),
+          ],
         ]),
       ]),
     ]);
