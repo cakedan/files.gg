@@ -1,0 +1,11 @@
+export { Route as AuthForgotRoute } from './auth.forgot';
+export { Route as AuthLoginRoute } from './auth.login';
+export { Route as AuthLogoutRoute } from './auth.logout';
+export { Route as AuthVerifyRoute } from './auth.verify';
+export { Route as DashboardConfigsRoute } from './dashboard.configs';
+export { Route as DashboardFilesRoute } from './dashboard.files';
+export { Route as ErrorRoute } from './error';
+export { Route as FileRoute } from './file';
+export { Route as HomeRoute } from './home';
+export { Route as LegalTermsRoute } from './legal.terms';
+export { Route as OptionsRoute } from './options';

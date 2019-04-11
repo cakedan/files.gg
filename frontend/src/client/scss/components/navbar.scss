@@ -1,15 +1,14 @@
 nav {
+    @include vp-flexbox;
+    @include vp-justify-content(center);
+
     @extend .noselect;
 
     background-color: transparent;
-    display: flex;
-    justify-content: center;
     height: auto;
     width: 100%;
 
     .material-icons {
-        @extend .noselect;
-
         line-height: 64px;
     }
 
@@ -20,11 +19,13 @@ nav {
     }
 
     ul {
-        display: flex;
-        flex-flow: row nowrap;
+        @include vp-flexbox;
+        @include vp-flex-flow(row nowrap);
     }
 
     a {
+        @include vp-transition(opacity .3s ease-in-out);
+
         color: white;
         cursor: pointer;
         display: block;
@@ -35,23 +36,20 @@ nav {
         opacity: 0.7;
         padding: 0 15px;
         text-decoration: none;
-        transition: .3s opacity ease-in-out;
     }
     a.active, a:hover, a:focus {
         opacity: 1;
     }
 
     .trigger {
-        @extend .noselect;
-
         cursor: pointer;
         float: left;
     }
 
     .brand {
-        display: flex;
-        align-items: center;
-        justify-content: center;
+        @include vp-flexbox;
+        @include vp-align-items(center);
+        @include vp-justify-content(center);
 
         float: left;
         opacity: 0.8;
@@ -82,9 +80,9 @@ nav {
 
     ul {
         li {
-            display: flex;
-            align-items: center;
-            flex-flow: row nowrap;
+            @include vp-flexbox;
+            @include vp-flex-flow(row nowrap);
+            @include vp-align-items(center);
         }
     }
 }
@@ -111,6 +109,9 @@ nav {
 }
 
 .sidenav {
+    @include vp-flexbox;
+    @include vp-flex-flow(column wrap);
+
     height: 100%;
     width: 300px;
 
@@ -119,8 +120,6 @@ nav {
     position: fixed;
 
     background-color: $filesGrey;
-    flex-flow: column wrap;
-    display: flex;
     z-index: 9999;
 
 	li {
@@ -132,7 +131,7 @@ nav {
     }
 
     .divider {
-        align-self: center;
+        @include vp-align-self(center);
 
         height: 2px;
         width: 90%;

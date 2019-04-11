@@ -1,7 +1,7 @@
 import { Head } from '../head';
 
 
-export class ErrorPage {
+export class Route {
   oninit(vnode) {
     this._error = vnode.attrs.error;
 
@@ -14,7 +14,7 @@ export class ErrorPage {
   }
 
   get error() {
-    if (window.currentPath === '/info/error' && this.error !== undefined) {
+    if (window.currentPath === '/details/error' && this.error !== undefined) {
       return this.error.toString();
     }
     return '404 man lmao';
@@ -24,3 +24,4 @@ export class ErrorPage {
     return this.error;
   }
 }
+Route.className = 'error';

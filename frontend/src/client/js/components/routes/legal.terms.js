@@ -1,4 +1,4 @@
-export class TermsOfServicePage {
+export class Route {
   oninit(vnode) {
     console.log(vnode, vnode.attrs);
   }
@@ -7,3 +7,4 @@ export class TermsOfServicePage {
     return 'dont upload illegal stuff bro (template)';
   }
 }
+Route.className = 'legal-terms';

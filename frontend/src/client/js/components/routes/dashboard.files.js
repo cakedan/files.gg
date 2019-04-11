@@ -115,7 +115,7 @@ const Tools = Object.freeze({
 });
 
 
-export class DashboardFilesPage {
+export class Route {
   constructor(vnode) {
     if (vnode.attrs.viewType !== undefined) {
       vnode.attrs.viewType = vnode.attrs.viewType.toLowerCase();
@@ -141,8 +141,10 @@ export class DashboardFilesPage {
     }
 
     return m('div', {class: 'main-modal'}, [
-      m('div', {class: 'total'}, [
-        m('span', `${FileStore.total.toLocaleString()} File${(FileStore.total !== 1) ? 's' : ''}`),
+      m('div', {class: 'divider'}, [
+        m('span', {class: 'divider-text'}, [
+          `${FileStore.total.toLocaleString()} File${(FileStore.total !== 1) ? 's' : ''}`,
+        ]),
       ]),
       m.fragment({
         oncreate: ({dom}) => Tools.onScroll(dom),
@@ -167,6 +169,7 @@ export class DashboardFilesPage {
     ]);
   }
 }
+Route.className = 'dashboard-files';
 
 
 class FileComponent {
@@ -194,6 +197,8 @@ class FileComponent {
 
   async showFile(event) {
     event.preventDefault();
+    // zoom event
+    if (event.target.tagName === 'PICTURE' || event.target.tagName === 'IMG') {return;}
     const {vanity, extension} = this.file.response;
     await Tools.setFileId([vanity, extension].filter((v) => v).join('.'));
   }

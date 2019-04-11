@@ -4,7 +4,7 @@ import { Api } from '../../api';
 import { Auth } from '../../auth';
 
 
-export class AuthVerifyPage {
+export class Route {
   async oninit(vnode) {
     this.loading = true;
     this.error = null;
@@ -37,3 +37,4 @@ export class AuthVerifyPage {
     ]);
   }
 }
+Route.className = 'auth-verify';

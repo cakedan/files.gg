@@ -5,7 +5,7 @@ import { requestApi } from './api';
 export const router = new DomainRouter('cdn.files.gg');
 
 
-router.route('/*', ['GET', 'HEAD', 'OPTIONS'], async(event) => {
+router.route('/*', ['GET', 'HEAD', 'OPTIONS'], async (event) => {
   return await requestStorage(event, event.url.pathname);
 });
 
@@ -16,7 +16,7 @@ const displayAsText = [
   'text/html',
 ];
 
-router.route('/files/:fileId...', ['GET', 'HEAD', 'OPTIONS'], async(event) => {
+router.route('/files/:fileId...', ['GET', 'HEAD', 'OPTIONS'], async (event) => {
   const fileId = event.parameters.fileId.split('.').shift();
 
   let response = await requestApi(event, {

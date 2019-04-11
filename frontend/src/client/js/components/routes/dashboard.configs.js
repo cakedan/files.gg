@@ -4,7 +4,8 @@ import { Api } from '../../api';
 import { Auth } from '../../auth';
 import { TextMedia } from '../media';
 
-export class DashboardConfigsPage {
+
+export class Route {
   async oninit(vnode) {
     this.loading = true;
     this.error = null;
@@ -61,3 +62,4 @@ export class DashboardConfigsPage {
     ]);
   }
 }
+Route.className = 'dashboard-configs';

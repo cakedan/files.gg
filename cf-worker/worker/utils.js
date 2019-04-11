@@ -1,4 +1,4 @@
-export function formatBytes (bytes, decimals) {
+export function formatBytes(bytes, decimals) {
   decimals = decimals || 0;
   const divideBy = 1024;
   const amount = Math.floor(Math.log(bytes) / Math.log(divideBy));

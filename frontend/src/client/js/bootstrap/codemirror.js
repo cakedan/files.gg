@@ -1,20 +1,35 @@
 import CodeMirror from 'codemirror';
+
 import * as modeInfo from 'codemirror/mode/meta';
+import * as codeMirrorStyle from 'codemirror/lib/codemirror.css';
 
 
 CodeMirror.hasMode = (mode) => {
   return CodeMirror.modes.hasOwnProperty(mode);
 };
-
 CodeMirror.loadMode = async (editor, mode) => {
   editor.setOption('mode', mode);
   if (!CodeMirror.hasMode(mode)) {
-    await CodeMirrorLoader.load(mode);
+    await CodeMirrorModeLoader.load(mode);
     editor.setOption('mode', editor.getOption('mode'));
   }
 };
 
-const CodeMirrorLoader = Object.freeze({
+
+CodeMirror.themes = new Set();
+CodeMirror.hasTheme = (theme) => {
+  return CodeMirror.themes.has(theme);
+};
+CodeMirror.loadTheme = async (editor, theme) => {
+  editor.setOption('theme', theme);
+  if (!CodeMirror.hasTheme(theme)) {
+    await CodeMirrorThemeLoader.load(theme);
+    editor.setOption('theme', editor.getOption('theme'));
+  }
+};
+
+
+const CodeMirrorModeLoader = Object.freeze({
   async load(mode) {
     if (this.modes.hasOwnProperty(mode)) {
       await this.modes[mode]();
@@ -141,5 +156,73 @@ const CodeMirrorLoader = Object.freeze({
     'z80': async () => await import('codemirror/mode/z80/z80'),
   },
 });
+
+
+const CodeMirrorThemeLoader = Object.freeze({
+  async load(theme) {
+    if (this.themes.hasOwnProperty(theme)) {
+      await this.themes[theme]();
+    }
+  },
+  themes: {
+    '3024-day': async () => await import('codemirror/theme/3024-day.css'),
+    '3024-night': async () => await import('codemirror/theme/3024-night.css'),
+    'abcdef': async () => await import('codemirror/theme/abcdef.css'),
+    'ambiance': async () => await import('codemirror/theme/ambiance.css'),
+    'base16-dark': async () => await import('codemirror/theme/base16-dark.css'),
+    'bespin': async () => await import('codemirror/theme/bespin.css'),
+    'base16-light': async () => await import('codemirror/theme/base16-light.css'),
+    'blackboard': async () => await import('codemirror/theme/blackboard.css'),
+    'cobalt': async () => await import('codemirror/theme/cobalt.css'),
+    'colorforth': async () => await import('codemirror/theme/colorforth.css'),
+    'dracula': async () => await import('codemirror/theme/dracula.css'),
+    'duotone-dark': async () => await import('codemirror/theme/duotone-dark.css'),
+    'duotone-light': async () => await import('codemirror/theme/duotone-light.css'),
+    'eclipse': async () => await import('codemirror/theme/eclipse.css'),
+    'elegant': async () => await import('codemirror/theme/elegant.css'),
+    'erlang-dark': async () => await import('codemirror/theme/erlang-dark.css'),
+    'gruvbox-dark': async () => await import('codemirror/theme/gruvbox-dark.css'),
+    'hopscotch': async () => await import('codemirror/theme/hopscotch.css'),
+    'icecoder': async () => await import('codemirror/theme/icecoder.css'),
+    'isotope': async () => await import('codemirror/theme/isotope.css'),
+    'lesser-dark': async () => await import('codemirror/theme/lesser-dark.css'),
+    'liquibyte': async () => await import('codemirror/theme/liquibyte.css'),
+    'lucario': async () => await import('codemirror/theme/lucario.css'),
+    'material': async () => await import('codemirror/theme/material.css'),
+    'mbo': async () => await import('codemirror/theme/mbo.css'),
+    'mdn-like': async () => await import('codemirror/theme/mdn-like.css'),
+    'midnight': async () => await import('codemirror/theme/midnight.css'),
+    'monokai': async () => await import('codemirror/theme/monokai.css'),
+    'neat': async () => await import('codemirror/theme/neat.css'),
+    'neo': async () => await import('codemirror/theme/neo.css'),
+    'night': async () => await import('codemirror/theme/night.css'),
+    'nord': async () => await import('codemirror/theme/nord.css'),
+    'oceanic-next': async () => await import('codemirror/theme/oceanic-next.css'),
+    'panda-syntax': async () => await import('codemirror/theme/panda-syntax.css'),
+    'paraiso-dark': async () => await import('codemirror/theme/paraiso-dark.css'),
+    'paraiso-light': async () => await import('codemirror/theme/paraiso-light.css'),
+    'pastel-on-dark': async () => await import('codemirror/theme/pastel-on-dark.css'),
+    'railscasts': async () => await import('codemirror/theme/railscasts.css'),
+    'rubyblue': async () => await import('codemirror/theme/rubyblue.css'),
+    'seti': async () => await import('codemirror/theme/seti.css'),
+    'shadowfox': async () => await import('codemirror/theme/shadowfox.css'),
+    'solarized': async () => await import('codemirror/theme/solarized.css'),
+    'the-matrix': async () => await import('codemirror/theme/the-matrix.css'),
+    'tomorrow-night-bright': async () => await import('codemirror/theme/tomorrow-night-bright.css'),
+    'tomorrow-night-eighties': async () => await import('codemirror/theme/tomorrow-night-eighties.css'),
+    'ttcn': async () => await import('codemirror/theme/ttcn.css'),
+    'twilight': async () => await import('codemirror/theme/twilight.css'),
+    'vibrant-ink': async () => await import('codemirror/theme/vibrant-ink.css'),
+    'xq-dark': async () => await import('codemirror/theme/xq-dark.css'),
+    'xq-light': async () => await import('codemirror/theme/xq-light.css'),
+    'yeti': async () => await import('codemirror/theme/yeti.css'),
+    'idea': async () => await import('codemirror/theme/idea.css'),
+    'darcula': async () => await import('codemirror/theme/darcula.css'),
+    'yonce': async () => await import('codemirror/theme/yonce.css'),
+    'zenburn': async () => await import('codemirror/theme/zenburn.css'),
+  },
+});
+
+CodeMirror.themeInfo = Object.keys(CodeMirrorThemeLoader.themes);
 
 export default CodeMirror;

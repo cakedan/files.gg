@@ -12,6 +12,9 @@ export const Monaco = Object.freeze({
   get languages() {
     return (this.module) ? this.module.languages.getLanguages() : [];
   },
+  get themes() {
+    return ['vs', 'vs-dark', 'hc-black'];
+  },
   get isLoaded() {
     return !!this.module;
   },
@@ -22,6 +25,7 @@ export const Monaco = Object.freeze({
     return this.module;
   },
   defaultLanguageId: 'plaintext',
+  defaultTheme: 'vs-dark',
   getLanguage(options) {
     if (options.extension && !options.extension.startsWith('.')) {
       options.extension = '.' + options.extension;
@@ -67,7 +71,7 @@ export class MonacoComponent {
     this.settings = Object.assign({
       automaticLayout: true,
       language: Monaco.defaultLanguageId,
-      theme: 'vs-dark',
+      theme: Monaco.defaultTheme,
       value: vnode.attrs.value || '',
     }, vnode.attrs.settings);
   }

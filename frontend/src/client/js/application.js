@@ -8,33 +8,30 @@ import { Mimetypes } from './utils';
 import { FilesModal } from './components/files';
 import { Navbar } from './components/navbar';
 import {
-  AuthForgotPage,
-  AuthLoginPage,
-  AuthLogoutPage,
-  AuthVerifyPage,
-  DashboardConfigsPage,
-  DashboardFilesPage,
-  ErrorPage,
-  FilePage,
-  HomePage,
-  OptionsPage,
-  TermsOfServicePage,
-} from './components/pages';
+  AuthForgotRoute,
+  AuthLoginRoute,
+  AuthLogoutRoute,
+  AuthVerifyRoute,
+  DashboardConfigsRoute,
+  DashboardFilesRoute,
+  ErrorRoute,
+  FileRoute,
+  HomeRoute,
+  LegalTermsRoute,
+  OptionsRoute,
+} from './components/routes';
 
 
 class RouteResolver {
-  constructor(page, options) {
-    this.page = page;
+  constructor(component, options) {
+    this.component = component;
     options = Object.assign({}, options);
 
     this.authRequired = !!options.authRequired;
-
-    if (Array.isArray(options.class)) {
-      options.class = ['page', ...options.class];
-    } else {
-      options.class = ['page', options.class];
-    }
-    this.class = options.class.filter((v) => v).join(' ');
+    this.className = [
+      'route',
+      this.component && this.component.className,
+    ].filter((v) => v).join(' ');
   }
 
   async onmatch(args, requestedPath) {
@@ -45,7 +42,7 @@ class RouteResolver {
           return m.route.set('/auth/login', null, {state: {redirect: requestedPath}});
         }
       }
-      return this.page;
+      return this.component;
     } catch(error) {
       console.error(error);
       return m.route.set('/info/error', null, {state: {error: error.stack}});
@@ -53,39 +50,38 @@ class RouteResolver {
   }
 
   render(vnode) {
-    return m('div', {
-      class: [
-        'app',
-        (window.isMobile) ? 'mobile' : null,
-      ].filter((v) => v).join(' '),
-    }, [
-      m(Navbar, {title: 'files.gg'}),
-      m('div', {class: this.class}, vnode),
+    return [
+      m(Navbar),
+      m('div', {class: this.className}, vnode),
       m(FilesModal, vnode.attrs),
-    ]);
+    ];
   }
 }
 
 
 const Routes = Object.freeze({
-  '/': new RouteResolver(HomePage, {class: 'home'}),
-  '/auth/register': new RouteResolver(AuthLoginPage, {class: 'auth-login'}),
-  '/auth/login': new RouteResolver(AuthLoginPage, {class: 'auth-login'}),
-  '/auth/logout': new RouteResolver(AuthLogoutPage, {class: 'auth-logout'}),
-  //'/auth/callback/:token': new RouteResolver(AuthCallbackPage), // for oauth2 logins
-  '/auth/forgot/:token': new RouteResolver(AuthForgotPage, {class: 'auth-forgot'}),
-  '/auth/verify/:token': new RouteResolver(AuthVerifyPage, {class: 'auth-verify'}),
-  '/auth/:path...': new RouteResolver(ErrorPage),
-  '/dashboard': new RouteResolver(DashboardFilesPage, {authRequired: true, class: 'dashboard-files'}),
-  '/dashboard/configs': new RouteResolver(DashboardConfigsPage, {authRequired: true, class: 'dashboard-configs'}),
-  '/dashboard/files': new RouteResolver(DashboardFilesPage, {authRequired: true, class: 'dashboard-files'}),
-  '/dashboard/files/:fileId...': new RouteResolver(DashboardFilesPage, {authRequired: true, class: 'dashboard-files'}),
-  '/dashboard/:path...': new RouteResolver(ErrorPage, {authRequired: true}),
-  '/info/terms-of-service': new RouteResolver(TermsOfServicePage),
-  '/info/options': new RouteResolver(OptionsPage, {class: 'info-options'}),
-  '/info/error': new RouteResolver(ErrorPage),
-  '/info/:path...': new RouteResolver(ErrorPage),
-  '/:fileId...': new RouteResolver(FilePage, {class: 'file'}),
+  '/': new RouteResolver(HomeRoute, {class: 'home'}),
+  '/auth/register': new RouteResolver(AuthLoginRoute, {class: 'auth-login'}),
+  '/auth/login': new RouteResolver(AuthLoginRoute, {class: 'auth-login'}),
+  '/auth/logout': new RouteResolver(AuthLogoutRoute, {class: 'auth-logout'}),
+  //'/auth/callback/:token': new RouteResolver(AuthCallbackRoute), // for oauth2 logins
+  '/auth/forgot/:token': new RouteResolver(AuthForgotRoute, {class: 'auth-forgot'}),
+  '/auth/verify/:token': new RouteResolver(AuthVerifyRoute, {class: 'auth-verify'}),
+  '/auth/:path...': new RouteResolver(ErrorRoute),
+  '/dashboard': new RouteResolver(DashboardFilesRoute, {authRequired: true, class: 'dashboard-files'}),
+  '/dashboard/configs': new RouteResolver(DashboardConfigsRoute, {authRequired: true, class: 'dashboard-configs'}),
+  '/dashboard/files': new RouteResolver(DashboardFilesRoute, {authRequired: true, class: 'dashboard-files'}),
+  '/dashboard/files/:fileId...': new RouteResolver(DashboardFilesRoute, {authRequired: true, class: 'dashboard-files'}),
+  '/dashboard/:path...': new RouteResolver(ErrorRoute, {authRequired: true}),
+  '/details/error': new RouteResolver(ErrorRoute),
+  '/details/:path...': new RouteResolver(ErrorRoute),
+  '/legal/report': new RouteResolver(),
+  '/legal/terms': new RouteResolver(LegalTermsRoute),
+  '/legal/:path...': new RouteResolver(ErrorRoute),
+  '/options': new RouteResolver(OptionsRoute),
+  '/options/:optionType': new RouteResolver(OptionsRoute),
+  '/options/:optionType/:path...': new RouteResolver(ErrorRoute),
+  '/:fileId...': new RouteResolver(FileRoute, {class: 'file'}),
 });
 
 const Store = {
@@ -104,6 +100,7 @@ export const Application = Object.freeze({
     } else {
       div = document.getElementById(id);
     }
+    div.classList.add('app');
     return Store.div = div;
   },
   setPrefix(prefix) {

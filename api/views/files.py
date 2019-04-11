@@ -103,7 +103,15 @@ MAX_RANDOM_LENGTH = 16
 VANITY_CHOICES_ASCII = string.ascii_lowercase + string.digits
 VANITY_PART = r'^(?:\(?((\d+)|\d+\-?\d+)\)?)$'
 
-blacklisted_ids = ['assets', 'auth', 'dashboard', 'info']
+blacklisted_ids = (
+    'assets',
+    'auth',
+    'dashboard',
+    'details',
+    'legal',
+    'options',
+)
+
 def generate_id(length):
     fid = ''.join(random.choice(VANITY_CHOICES_ASCII) for _ in range(length))
     if fid in blacklisted_ids:

@@ -1,4 +1,4 @@
-export class AuthForgotPage {
+export class Route {
   oninit(vnode) {
     this.loading = true;
     this.token = vnode.attrs.token;
@@ -14,3 +14,4 @@ export class AuthForgotPage {
     ];
   }
 }
+Route.className = 'auth-forgot';

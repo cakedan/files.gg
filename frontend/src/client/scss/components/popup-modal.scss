@@ -1,8 +1,8 @@
 .popup-modal {
-    display: flex;
-    flex-direction: column;
-    justify-content: center;
-    align-items: center;
+    @include vp-flexbox;
+    @include vp-flex-direction(column);
+    @include vp-align-items(center);
+    @include vp-justify-content(center);
 
     height: 100%;
     width: 100%;
@@ -47,10 +47,10 @@
         }
 
         .body {
-            padding: 15px;
+            @include vp-flexbox;
+            @include vp-flex-direction(column);
 
-            display: flex;
-            flex-direction: column;
+            padding: 15px;
 
             strong {
                 text-align: center;
@@ -58,13 +58,13 @@
         }
 
         .footer {
+            @include vp-flexbox;
+            @include vp-flex-direction(row);
+            @include vp-justify-content(flex-end);
+
             background-color: $filesGreyDark;
             border-radius: 0 0 5px 5px;
             padding: 20px;
-
-            display: flex;
-            flex-direction: row;
-            justify-content: flex-end;
 
             .button {
                 @extend .btn;

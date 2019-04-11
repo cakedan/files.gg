@@ -16,7 +16,7 @@ const Store = {
 };
 
 
-export class AuthLoginPage {
+export class Route {
   constructor(vnode) {
     this.register = window.currentPath.endsWith('/register');
 
@@ -259,6 +259,7 @@ export class AuthLoginPage {
     ];
   }
 }
+Route.className = 'auth-login';
 
 
 class Flipper {

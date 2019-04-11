@@ -5,7 +5,7 @@ import { Auth, Fingerprint } from '../../auth';
 import { Tools as FileTools } from '../files';
 
 
-export class AuthLogoutPage {
+export class Route {
   async oninit(vnode) {
     this.redirect = vnode.attrs.redirect || '/';
     if (!Auth.isAuthed) {
@@ -29,7 +29,6 @@ export class AuthLogoutPage {
     FileTools.refresh();
   }
 
-  view(vnode) {
-    return null;
-  }
+  view(vnode) {}
 }
+Route = 'auth-logout';

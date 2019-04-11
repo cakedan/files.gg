@@ -1,6 +1,7 @@
 import m from 'mithril';
 
 import { Auth } from '../../auth';
+import { InputTypes } from '../../utils';
 import { Store as Options } from '../../utils/options';
 
 import {
@@ -15,15 +16,40 @@ const OptionTypes = Object.freeze({
 });
 
 
+const Tools = Object.freeze({
+  defaultOption: OptionTypes.CUSTOMIZATION,
+  setOption(option) {
+    if (Store.option !== option) {
+      Store.option = option;
+      this.setRoute();
+    }
+  },
+  setRoute() {
+    let route = '/options';
+    if (Store.option !== null) {
+      route += `/${Store.option}`;
+    }
+    if (m.route.get() !== route) {
+      m.route.set(route, null, {replace: true});
+    }
+  },
+});
+
+
 const Store = {
-  option: OptionTypes.CUSTOMIZATION,
+  option: Tools.defaultOption,
 };
 
 
-export class OptionsPage {
+export class Route {
   oninit(vnode) {
-    if (vnode.attrs.textType !== undefined) {
-      Options.textType = vnode.attrs.textType;
+    if (vnode.attrs.optionType !== undefined) {
+      const option = InputTypes.choices(
+        Object.values(OptionTypes),
+        vnode.attrs.optionType,
+        Store.option,
+      );
+      Tools.setOption(option);
     }
   }
 
@@ -50,16 +76,17 @@ export class OptionsPage {
           ] : null,
         ]),
       ]),
-      m(OptionContent),
+      m(OptionContent, vnode.attrs),
     ]);
   }
 }
+Route.className = 'options';
 
 
 class OptionComponent {
   setType(event, option) {
     event.preventDefault();
-    Store.option = option;
+    Tools.setOption(option);
   }
 
   view(vnode) {
@@ -84,7 +111,9 @@ class OptionContent {
       case OptionTypes.DASHBOARD: OptionComponent = DashboardOption; break;
     }
 
-    return m('div', {class: `content ${Store.option}`}, m(OptionComponent));
+    return m('div', {class: `content ${Store.option}`}, [
+      m(OptionComponent, vnode.attrs),
+    ]);
   }
 }
 
@@ -131,6 +160,12 @@ class CustomizationOption {
       'Look at this cool text',
       'So cool!',
     ].join('\n');
+  }
+
+  oninit(vnode) {
+    if (vnode.attrs.textType !== undefined) {
+      Options.textType = vnode.attrs.textType;
+    }
   }
 
   view(vnode) {

@@ -50,7 +50,7 @@ const Tools = Object.freeze({
 });
 
 
-export class FilePage {
+export class Route {
   constructor(vnode) {
     Store.line = InputTypes.number(vnode.attrs.line, null);
     Store.zoom = InputTypes.boolean(vnode.attrs.zoom, false);
@@ -201,6 +201,7 @@ export class FilePage {
     ];
   }
 }
+Route.className = 'file-route';
 
 
 class FileItem {

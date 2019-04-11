@@ -1,9 +1,8 @@
 .files-modal {
-    flex-grow: 0;
-    flex-shrink: 0;
-
-    display: flex;
-    flex-direction: row;
+    @include vp-flex-grow(0);
+    @include vp-flex-shrink(0);
+    @include vp-flexbox;
+    @include vp-flex-direction(row);
 
     background-color: rgba($filesBlack, 0.9);
     border: 1px solid rgba($filesBlack, 0.95);
@@ -23,10 +22,10 @@
     z-index: 9998;
 
     .main-expander {
-        flex-shrink: 0;
-        display: flex;
-        align-items: center;
-        justify-content: center;
+        @include vp-flex-shrink(0);
+        @include vp-flexbox;
+        @include vp-align-items(center);
+        @include vp-justify-content(center);
 
         background-color: rgba($filesBlack, 0.91);
         border-right: 1px solid rgba($filesBlack, 0.95);
@@ -41,9 +40,9 @@
     }
 
     .main-expanded-content {
-        display: flex;
-        flex-direction: column;
-        align-items: center;
+        @include vp-flexbox;
+        @include vp-flex-direction(column);
+        @include vp-align-items(center);
 
         min-width: 20vw;
         padding-bottom: 10px;
@@ -51,21 +50,22 @@
         overflow: auto;
 
         .picker {
-            flex-shrink: 0;
-            display: flex;
-            align-items: center;
-            justify-content: center;
+            @include vp-flex-shrink(0);
+            @include vp-flexbox;
+            @include vp-align-items(center);
+            @include vp-justify-content(center);
 
             input {
                 display: none;
             }
 
             .text {
-                flex-grow: 0;
-                display: flex;
-                flex-direction: row;
-                align-items: center;
-                justify-content: center;
+                @include vp-flex-grow(0);
+                @include vp-flexbox;
+                @include vp-flex-direction(row);
+                @include vp-align-items(center);
+                @include vp-justify-content(center);
+                @include vp-transition(color .15s ease-in-out);
 
                 color: $filesGreen;
                 cursor: pointer;
@@ -74,7 +74,6 @@
                 line-height: 1;
                 padding: 5px;
                 text-align: center;
-                transition: color .15s ease-in-out;
 
                 .material-icons {
                     font-size: 12px;
@@ -83,7 +82,6 @@
             }
             .text:hover, .text:focus {
                 color: rgba($filesGreen, 0.6);
-                transition: color .15s ease-in-out;
             }
         }
 
@@ -93,19 +91,18 @@
         }
 
         .files {
-            flex-shrink: 0;
-
-            display: flex;
-            flex-direction: column;
-            align-items: center;
+            @include vp-flex-shrink(0);
+            @include vp-flexbox;
+            @include vp-flex-direction(column);
+            @include vp-align-items(center);
 
             width: 100%;
             min-width: 250px;
 
             .file {
-                flex-shrink: 0;
-                display: flex;
-                flex-direction: column;
+                @include vp-flex-shrink(0);
+                @include vp-flexbox;
+                @include vp-flex-direction(column);
 
                 min-height: 64px;
                 max-width: 450px;
@@ -116,17 +113,17 @@
                 margin: 5px 0;
 
                 .header {
-                    flex-shrink: 0;
-                    display: flex;
-                    flex-direction: row;
+                    @include vp-flex-shrink(0);
+                    @include vp-flexbox;
+                    @include vp-flex-direction(row);
 
                     height: 60px;
                     width: 100%;
 
                     .icon {
-                        display: flex;
-                        align-items: center;
-                        justify-content: center;
+                        @include vp-flexbox;
+                        @include vp-align-items(center);
+                        @include vp-justify-content(center);
 
                         color: $filesGreyLight;
                         margin: 0 10px;
@@ -137,10 +134,10 @@
                     }
 
                     .description {
-                        flex-grow: 1;
-                        display: flex;
-                        flex-direction: column;
-                        justify-content: center;
+                        @include vp-flex-grow(1);
+                        @include vp-flexbox;
+                        @include vp-flex-direction(column);
+                        @include vp-justify-content(center);
 
                         min-width: 0;
 
@@ -156,20 +153,20 @@
                     }
 
                     .buttons {
-                        display: flex;
-                        flex-direction: row;
-                        align-items: center;
-                        justify-content: space-around;
+                        @include vp-flexbox;
+                        @include vp-flex-direction(row);
+                        @include vp-align-items(center);
+                        @include vp-justify-content(space-around);
 
                         i {
+                            @include vp-transition(color .15s ease-in-out);
+
                             color: $filesGreen;
                             cursor: pointer;
                             margin: 0 10px;
-                            transition: .15s color ease;
                         }
                         i:hover, i:focus {
                             color: rgba($filesGreen, 0.6);
-                            transition: .15s color ease;
                         }
                         .action-retry {
                             color: $filesYellow;
@@ -187,14 +184,15 @@
                 }
 
                 .footer {
-                    flex-shrink: 0;
-                    display: flex;
-                    align-items: center;
-                    justify-content: center;
+                    @include vp-flex-shrink(0);
+                    @include vp-flexbox;
+                    @include vp-align-items(center);
+                    @include vp-justify-content(center);
+
+                    @include vp-box-sizing(border-box);
 
                     max-width: 100%;
 
-                    box-sizing: border-box;
                     margin: 5px 0;
                     padding: 0 2px;
 
@@ -208,12 +206,14 @@
                 }
 
                 .expanded-content {
-                    @extend .noselect;
+                    @include vp-flexbox;
+                    @include vp-flex-direction(column);
+                    @include vp-align-items(center);
+                    @include vp-justify-content(center);
 
-                    display: flex;
-                    flex-direction: column;
-                    align-items: center;
-                    justify-content: center;
+                    @include vp-box-sizing(border-box);
+
+                    @extend .noselect;
 
                     height: 100%;
                     width: auto;
@@ -222,13 +222,12 @@
                     border-right: 1px solid rgba($filesGreyLight, 0.8);
                     border-bottom: 1px solid rgba($filesGreyLight, 0.8);
                     border-radius: 0 0 5px 5px;
-                    box-sizing: border-box;
                     color: $filesGreyLighter;
 
                     .thumbnail {
-                        display: flex;
-                        flex-direction: column;
-                        align-items: center;
+                        @include vp-flexbox;
+                        @include vp-flex-direction(column);
+                        @include vp-align-items(center);
 
                         max-width: 100%;
                         width: 100%;
@@ -264,10 +263,14 @@
                 }
 
                 .expander {
-                    flex-shrink: 0;
-                    display: flex;
-                    align-items: center;
-                    justify-content: center;
+                    @include vp-flex-shrink(0);
+                    @include vp-flexbox;
+                    @include vp-align-items(center);
+                    @include vp-justify-content(center);
+
+                    @include vp-transition(
+                        background-color .15s ease-in-out,
+                        border-radius .15s ease-in-out);
 
                     height: 10px;
                     width: 100%;
@@ -275,7 +278,6 @@
                     border-radius: 0 0 5px 5px;
                     cursor: pointer;
                     position: relative;
-                    transition: background-color .15s ease-in-out, border-radius .15s ease-in-out;
 
                     i {
                         font-size: 18px;
@@ -283,13 +285,15 @@
                     }
 
                     .fill {
+                        @include vp-transition(
+                            border-radius .15s ease-in-out,
+                            color .15s ease-in-out);
+
                         background-color: $filesGreen;
                         border-radius: 0 0 5px 5px;
                         height: 100%;
                         left: 0;
                         position: absolute;
-
-                        transition: color .15s ease-in-out, border-radius .15s ease-in-out;
                     }
                     .fill.filling {
                         background-color: $filesYellow;
@@ -330,10 +334,10 @@
         }
 
         .modal {
-            flex-shrink: 0;
-            display: flex;
-            align-items: center;
-            justify-content: center;
+            @include vp-flex-shrink(0);
+            @include vp-flexbox;
+            @include vp-align-items(center);
+            @include vp-justify-content(center);
 
             span {
                 font-size:  14px;

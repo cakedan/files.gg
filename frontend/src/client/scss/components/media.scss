@@ -17,14 +17,14 @@
     }
 
     .media-controls {
+        @include vp-flexbox;
+        @include vp-flex-direction(row);
+        @include vp-align-items(center);
+
         @extend .noselect;
 
         height: 32px;
         width: 100%;
-
-        display: flex;
-        flex-direction: row;
-        align-items: center;
 
         background-color: $mediaBar;
         color: white;
@@ -43,26 +43,23 @@
             cursor: pointer;
 
             .control-icon {
+                @include vp-box-sizing(border-box);
+                @include vp-transition(all .15s ease);
+
                 display: block;
                 height: 18px;
                 width: 18px;
             }
-
             .control-icon.play {
-                box-sizing: border-box;
                 border-style: solid;
                 border-width: 9px 0px 9px 14px;
                 border-color: transparent transparent transparent $mediaBarButtons;
-                transition: .15s all ease;
                 will-change: border-with;
             }
-
             .control-icon.pause {
-                box-sizing: border-box;
                 border-style: double;
                 border-width: 0px 0px 0px 14px;
                 border-color: $mediaBarButtons;
-                transition: .15s all ease;
                 will-change: border-with;
             }
         }
@@ -72,21 +69,23 @@
         }
 
         .media-bar {
-            align-self: stretch;
+            @include vp-align-self(stretch);
+            @include vp-flexbox;
+            @include vp-flex-direction(column);
+            @include vp-justify-content(center);
+
             cursor: pointer;
-            display: flex;
-            flex-direction: column;
-            justify-content: center;
             margin: 0 5px;
             width: 100%;
 
             .media-interactive-bar {
-                align-items: center;
-                align-self: stretch;
+                @include vp-align-self(stretch);
+                @include vp-flexbox;
+                @include vp-align-items(center);
+
                 background-color: $mediaBarSlider;
                 border-radius: 3px;
                 cursor: pointer;
-                display: flex;
                 position: relative;
                 height: 8px;
                 width: 100%;
@@ -99,13 +98,14 @@
                 }
 
                 .seek-timestamp {
+                    @include vp-transform(translateX(-50%));
+
                     background-color: $mediaBar;
                     border-radius: 5px;
                     padding: 2px 5px;
                     margin-bottom: 16px;
                     position: absolute;
                     top: -28px;
-                    transform: translateX(-50%);
                 }
                 .seek-timestamp.hidden {
                     display: none;
@@ -118,6 +118,13 @@
                     position: relative;
 
                     .bubble {
+                        @include vp-transition(
+                            background-color .15s ease-in-out,
+                            margin-right .15s ease-in-out,
+                            margin-top .15s ease-in-out,
+                            height .15s ease-in-out,
+                            width .15s ease-in-out);
+
                         background-color: $mediaBarBubble;
                         border-radius: 50%;
                         cursor: grab;
@@ -130,13 +137,6 @@
                         margin-top: -4px;
                         right: 0;
                         top: 50%;
-
-                        transition: 
-                            background-color .15s ease-in-out,
-                            margin-right .15s ease-in-out,
-                            margin-top .15s ease-in-out,
-                            height .15s ease-in-out,
-                            width .15s ease-in-out;
                     }
                     .bubble.active {
                         background-color: $mediaBarBubbleHover;
@@ -145,22 +145,16 @@
 
                         margin-right: -6px;
                         margin-top: -6px;
-
-                        transition: 
-                            background-color .15s ease-in-out,
-                            margin-right .15s ease-in-out,
-                            margin-top .15s ease-in-out,
-                            height .15s ease-in-out,
-                            width .15s ease-in-out;
                     }
                 }
             }
         }
 
         .icon {
-            align-items: center;
+            @include vp-flexbox;
+            @include vp-align-items(center);
+
             cursor: pointer;
-            display: flex;
             height: 100%;
             padding-left: 5px;
             padding-right: 10px;
@@ -171,27 +165,28 @@
             @extend .icon;
 
             .volume-area {
+                @include vp-flexbox;
+                @include vp-flex-direction(row);
+                @include vp-justify-content(flex-end);
+
                 height: 200px;
                 width: 200px;
 
-                display: flex;
-                flex-direction: row;
-                justify-content: flex-end;
-                position: absolute;
-
                 bottom: 50%;
                 right: 0;
+                position: absolute;
             }
 
             .interactive-slider {
-                align-self: stretch;
+                @include vp-align-self(stretch);
+                @include vp-flexbox;
+                @include vp-justify-content(center);
+
                 background-color: $mediaBarVolume;
                 border-top: 8px solid $mediaBarVolume;
                 border-bottom: 8px solid $mediaBarVolume;
                 border-radius: 10px;
                 cursor: pointer;
-                display: flex;
-                justify-content: center;
                 position: absolute;
                 right: 35%;
                 bottom: 100%;
@@ -217,6 +212,13 @@
                     position: absolute;
 
                     .bubble {
+                        @include vp-transition(
+                            background-color .15s ease-in-out,
+                            margin-right .15s ease-in-out,
+                            margin-top .15s ease-in-out,
+                            height .15s ease-in-out,
+                            width .15s ease-in-out);
+
                         background-color: $mediaBarVolumeProgressBubble;
                         border-radius: 50%;
                         cursor: grab;
@@ -229,13 +231,6 @@
                         margin-top: -4px;
                         top: 0;
                         right: 50%;
-
-                        transition: 
-                            background-color .15s ease-in-out,
-                            margin-right .15s ease-in-out,
-                            margin-top .15s ease-in-out,
-                            height .15s ease-in-out,
-                            width .15s ease-in-out;
                     }
                     .bubble.active {
                         background-color: $mediaBarVolumeProgressBubbleHover;
@@ -244,30 +239,23 @@
 
                         margin-right: -5px;
                         margin-top: -5px;
-
-                        transition: 
-                            background-color .15s ease-in-out,
-                            margin-right .15s ease-in-out,
-                            margin-top .15s ease-in-out,
-                            height .15s ease-in-out,
-                            width .15s ease-in-out;
                     }
                 }
                 .volume-slider:hover, .volume-slider:focus {
                     .bubble {
+                        @include vp-transition(
+                            background-color .15s ease-in-out,
+                            margin-right .15s ease-in-out,
+                            margin-top .15s ease-in-out,
+                            height .15s ease-in-out,
+                            width .15s ease-in-out);
+
                         background-color: $mediaBarVolumeProgressBubbleHover;
                         height: 10px;
                         width: 10px;
 
                         margin-right: -5px;
                         margin-top: -5px;
-
-                        transition: 
-                            background-color .15s ease-in-out,
-                            margin-right .15s ease-in-out,
-                            margin-top .15s ease-in-out,
-                            height .15s ease-in-out,
-                            width .15s ease-in-out;
                     }
                 }
             }
@@ -280,10 +268,10 @@
 }
 
 .media-container.audio, .media-container.image, .media-container.video {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
+    @include vp-flexbox;
+    @include vp-flex-direction(column);
+    @include vp-align-items(center);
+    @include vp-justify-content(center);
 }
 
 .media-container.video {
@@ -310,24 +298,26 @@
 
 .media-container.image {
     picture {
-        display: flex;
-        align-items: center;
-        justify-content: center;
+        @include vp-flexbox;
+        @include vp-align-items(center);
+        @include vp-justify-content(center);
 
         cursor: zoom-in;
         image-orientation: from-image;
 
         img {
+            @include vp-box-sizing(border-box);
+
             border: 1px solid $filesBlack;
-            box-sizing: border-box;
         }
     }
 }
 .media-container.image.zoom {
-    flex-shrink: 0;
-    display: flex;
-    align-items: center;
-    justify-content: center;
+    @include vp-flex-shrink(0);
+    @include vp-flexbox;
+    @include vp-align-items(center);
+    @include vp-justify-content(center);
+    @include vp-transform(translate3d(0, 0, 0));
 
     top: 0;
     left: 0;
@@ -343,7 +333,6 @@
     background-color: rgba(0, 0, 0, 0.5);
     cursor: zoom-out;
     z-index: 9999 !important;
-    -webkit-transform: translate3d(0, 0, 0);
 
     picture {
         cursor: zoom-out;
@@ -390,19 +379,19 @@
             width: 100%;
         }
         .CodeMirror.cm-s-tomorrow-night-bright {
-            background: rgb(30, 30, 30);
+            background: rgb(30, 30, 30) !important;
 
             .CodeMirror-gutters {
-                background: rgb(30, 30, 30);
+                background: rgb(30, 30, 30) !important;
             }
         }
     }
 }
 .media-container.text.type-native {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: flex-start;
+    @include vp-flexbox;
+    @include vp-flex-direction(column);
+    @include vp-align-items(center);
+    @include vp-justify-content(flex-start);
 
     pre {
         background-color: rgb(21, 24, 22);
@@ -440,10 +429,10 @@
 }
 
 .media-container.fullscreen {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
+    @include vp-flexbox;
+    @include vp-flex-direction(column);
+    @include vp-align-items(center);
+    @include vp-justify-content(center);
 
     left: 0;
     bottom: 0;

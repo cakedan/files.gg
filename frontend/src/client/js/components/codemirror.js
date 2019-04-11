@@ -12,6 +12,9 @@ export const CodeMirror = Object.freeze({
   get languages() {
     return (this.module && this.module.modeInfo) ? this.module.modeInfo : [];
   },
+  get themes() {
+    return (this.module) ? this.module.themeInfo : [];
+  },
   get isLoaded() {
     return !!this.module;
   },
@@ -81,6 +84,8 @@ export class CodeMirrorComponent {
   oncreate(vnode) {
     this.editor = CodeMirror.module(vnode.dom, this.settings);
     CodeMirror.module.loadMode(this.editor, this.settings.mode);
+    CodeMirror.module.loadTheme(this.editor, this.settings.theme);
+
     if (this.oneditor) {
       this.oneditor({
         type: TextTypes.CODEMIRROR,
@@ -116,6 +121,11 @@ export class CodeMirrorComponent {
     if (options.mode !== undefined && options.mode !== this.editor.options.mode) {
       CodeMirror.module.loadMode(this.editor, options.mode);
       this.settings.mode = options.mode;
+    }
+
+    if (options.theme !== undefined && options.theme !== this.editor.options.theme) {
+      CodeMirror.module.loadTheme(this.editor, options.theme);
+      this.settings.theme = options.theme;
     }
 
     if (options.value !== undefined && options.value !== this.editor.getValue()) {

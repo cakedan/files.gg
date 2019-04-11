@@ -76,10 +76,10 @@ export class Navbar {
         m('div', {class: 'mobile'}, [
           m(MobileDropdown, [
             m('li', [
-              m(NavbarLink, {href: '/info/terms-of-service'}, 'Terms'),
+              m(NavbarLink, {href: '/legal/terms'}, 'Terms'),
             ]),
             m('li', [
-              m(NavbarLink, {href: '/info/options'}, 'Options'),
+              m(NavbarLink, {href: '/options'}, 'Options'),
             ]),
             m('div', {class: 'divider'}),
             (Auth.isAuthed) ? [
@@ -106,10 +106,10 @@ export class Navbar {
           ]),
           m('ul', {class: 'left'}, [
             m('li', [
-              m(NavbarLink, {href: '/info/terms-of-service'}, 'Terms'),
+              m(NavbarLink, {href: '/legal/terms'}, 'Terms'),
             ]),
             m('li', [
-              m(NavbarLink, {href: '/info/options'}, 'Options'),
+              m(NavbarLink, {href: '/options'}, 'Options'),
             ]),
           ]),
           m('ul', {class: 'right'}, [

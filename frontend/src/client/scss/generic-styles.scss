@@ -1,22 +1,66 @@
-:invalid, :-moz-submit-invalid, :-moz-ui-invalid, :-moz-focus-inner {
+.noselect {
+    -webkit-touch-callout: none; /* iOS Safari */
+    -webkit-user-select: none; /* Safari */
+    -khtml-user-select: none; /* Konqueror HTML */
+    -moz-user-select: none; /* Firefox */
+    -ms-user-select: none; /* Internet Explorer/Edge */
+    user-select: none; /* Non-prefixed version, currently supported by Chrome and Opera */
+}
+
+.left {float: left;}
+.right {float: right;}
+
+ul {
+    list-style-type: none;
+    margin: 0;
+    padding-left: 0;
+}
+
+select {
+    background-color: $filesBlack;
     border: none;
-    box-shadow: none;
+    border-radius: 5px;
+    color: white;
+    font: 400 13.3333px Whitney, Helvetica Neue, Helvetica, Arial, sans-serif;
+    text-align: center;
+    text-align-last: center;
+    padding: 5px;
+
+    option:focus, option:hover {
+        @include vp-box-shadow(0 0 10px 100px $filesGreyDark inset);
+    }
+}
+
+
+textarea:focus, input:focus, select:focus,
+:invalid, :-moz-submit-invalid, :-moz-ui-invalid, :-moz-focus-inner {
+    @include vp-box-shadow(none);
+
+    border: none;
 }
 
 input[type="text"] {
+    @include vp-transition(border-bottom .15s ease-in-out);
+
     background-color: transparent;
     border: none;
     border-bottom: 1px solid white;
     box-shadow: none;
     color: white;
     outline: none;
-    transition: border-bottom .15s ease-in-out;
 }
 input[type="text"]:invalid {
     border-bottom: 1px solid $filesRed;
 }
 
+
 .btn {
+    @include vp-transition(
+        background-color .15s ease-in-out,
+        color .15s ease-in-out,
+        border-color .15s ease-in-out,
+        box-shadow .15s ease-in-out);
+
     @extend .noselect;
 
     background-color: $filesGreen;
@@ -30,25 +74,19 @@ input[type="text"]:invalid {
     padding: .375rem .75rem;
     text-align: center;
     text-decoration: none;
-    transition: background-color .15s ease-in-out, color .15s ease-in-out, border-color .15s ease-in-out, box-shadow .15s ease-in-out;
     vertical-align: middle;
     white-space: nowrap;
 }
-
 .btn.active, .btn:hover, .btn:focus {
     background-color: rgba($filesGreen, 0.6);
-    transition: background-color .15s ease-in-out, color .15s ease-in-out, border-color .15s ease-in-out, box-shadow .15s ease-in-out;
 }
 
 
 .codemirror {
     .CodeMirror-gutter-wrapper {
         // fix for iPhone select all button not working
-        -webkit-user-select: none;
-        -moz-user-select: none;
-        user-select: none;
+        @extend .noselect;
     }
-
     .CodeMirror-vscrollbar {
         right: 1px;
     }
@@ -58,6 +96,7 @@ input[type="text"]:invalid {
         font-size: 16px !important;
     }
 }
+
 
 .divider {
     cursor: default;

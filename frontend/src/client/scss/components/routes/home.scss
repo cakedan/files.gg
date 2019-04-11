@@ -1,13 +1,15 @@
-.page.home {
-    display: flex;
-    flex-direction: column;
-    justify-content: center;
+.route.home {
+    @include vp-flexbox;
+    @include vp-flex-direction(column);
+    @include vp-justify-content(center);
 
     .main-modal {
-        display: flex;
-        flex-direction: row;
-        align-items: center;
-        justify-content: center;
+        @include vp-flexbox;
+        @include vp-flex-direction(row);
+        @include vp-align-items(center);
+        @include vp-justify-content(center);
+        @include vp-box-sizing(border-box);
+        @include vp-box-shadow(0 9px 30px rgba(6, 6, 7, 0.3));
 
         height: 70vh;
         width: 75vw;
@@ -16,31 +18,32 @@
 
         background-color: $filesGreyDark;
         border-radius: 5px;
-        box-shadow: 0 9px 30px rgba(6, 6, 7, 0.3);
-        box-sizing: border-box;
         margin-top: 10px;
         margin-bottom: 25px;
         padding: 10px;
 
         .embed {
-            flex-shrink: 0;
+            @include vp-flex-shrink(0);
+
             height: 100%;
         }
         .upload {
+            @include vp-flexbox;
+            @include vp-flex-direction(column);
+
             width: 52%;
 
-            display: flex;
-            flex-direction: column;
-
             .types {
-                display: flex;
-                flex-direction: row;
-                justify-content: center;
+                @include vp-flexbox;
+                @include vp-flex-direction(row);
+                @include vp-justify-content(center);
 
                 height: 35px;
                 margin: 10px 0;
 
                 span {
+                    @include vp-transition(color .15s ease-in-out);
+
                     @extend .noselect;
 
                     font-size: 24px;
@@ -51,7 +54,6 @@
                     color: rgba(255, 255, 255, 0.4);
                     cursor: pointer;
                     margin: 0 10px;
-                    transition: color .15s ease-in-out;
                 }
                 span:hover, span:focus, span.active {
                     color: $filesGreen;
@@ -67,9 +69,9 @@
                 }
 
                 .upload-modal.audio {
-                    display: flex;
-                    align-items: center;
-                    justify-content: center;
+                    @include vp-flexbox;
+                    @include vp-align-items(center);
+                    @include vp-justify-content(center);
 
                     span {
                         font-size: 30px;
@@ -80,37 +82,39 @@
                 }
 
                 .upload-modal.file {
-                    display: flex;
-                    flex-direction: column;
-                    align-items: center;
-                    justify-content: center;
+                    @include vp-flexbox;
+                    @include vp-flex-direction(column);
+                    @include vp-align-items(center);
+                    @include vp-justify-content(center);
 
                     .drag-n-drop {
+                        @include vp-transition(border .15s ease-in-out);
+
                         height: 95%;
                         width: 95%;
                         border: 2px dashed rgba($filesGreen, 0.8);
                         border-radius: 5px;
-                        transition: border .15s ease-in-out;
 
                         .content {
-                            display: flex;
-                            flex-direction: column;
-                            align-items: center;
-                            justify-content: center;
+                            @include vp-flexbox;
+                            @include vp-flex-direction(column);
+                            @include vp-align-items(center);
+                            @include vp-justify-content(center);
 
                             height: 100%;
                             width: 100%;
 
                             .header {
-                                display: flex;
-                                flex-direction: column;
-                                align-items: center;
-                                justify-content: center;
+                                @include vp-flexbox;
+                                @include vp-flex-direction(column);
+                                @include vp-align-items(center);
+                                @include vp-justify-content(center);
 
                                 span {
+                                    @include vp-transition(opacity .15s ease-in-out);
+
                                     opacity: 0.4;
                                     text-align: center;
-                                    transition: opacity .15s ease-in-out;
                                 }
                                 .title {
                                     font-size: 20px;
@@ -150,35 +154,36 @@
                     }
 
                     .selected-files {
-                        display: flex;
-                        flex-direction: column;
-                        align-items: center;
-                        justify-content: center;
+                        @include vp-flexbox;
+                        @include vp-flex-direction(column);
+                        @include vp-align-items(center);
+                        @include vp-justify-content(center);
+
+                        @include vp-box-shadow(0 9px 30px rgba(6, 6, 7, 0.3));
+                        @include vp-box-sizing(border-box);
 
                         height: 95%;
                         width: 95%;
 
                         background-color: $filesBlack;
                         border-radius: 5px;
-                        box-shadow: 0 9px 30px rgba(6, 6, 7, 0.3);
-                        box-sizing: border-box;
 
                         .files-wrapper {
-                            display: flex;
-                            flex-direction: column;
-                            align-items: center;
+                            @include vp-flexbox;
+                            @include vp-flex-direction(column);
+                            @include vp-align-items(center);
 
                             height: 80%;
                             width: 100%;
                         }
 
                         .selector {
-                            @extend .noselect;
+                            @include vp-flexbox;
+                            @include vp-flex-direction(row);
+                            @include vp-align-items(center);
+                            @include vp-justify-content(center);
 
-                            display: flex;
-                            flex-direction: row;
-                            align-items: center;
-                            justify-content: center;
+                            @extend .noselect;
 
                             height: 20%;
                             width: 95%;
@@ -187,23 +192,23 @@
                                 height: 75%;
 
                                 .text {
-                                    display: flex;
-                                    flex-direction: row;
-                                    align-items: center;
-                                    justify-content: center;
+                                    @include vp-flexbox;
+                                    @include vp-flex-direction(row);
+                                    @include vp-align-items(center);
+                                    @include vp-justify-content(center);
 
                                     height: 100%;
                                     span {
+                                        @include vp-transition(color .15s ease-in-out);
+
                                         color: $filesGreen;
                                         font-size: 22px;
                                         line-height: 1;
                                         margin: 0 5px;
                                         text-align: center;
-                                        transition: color .15s ease-in-out;
                                     }
                                     span:hover, span:focus {
                                         color: rgba($filesGreen, 0.6);
-                                        transition: color .15s ease-in-out;
                                     }
                                 }
                             }
@@ -217,16 +222,16 @@
                 }
 
                 .upload-modal.text {
-                    display: flex;
-                    flex-direction: column;
-                    align-items: center;
-                    justify-content: center;
+                    @include vp-flexbox;
+                    @include vp-flex-direction(column);
+                    @include vp-align-items(center);
+                    @include vp-justify-content(center);
 
                     .header {
-                        display: flex;
-                        flex-direction: row;
-                        align-items: center;
-                        justify-content: space-between;
+                        @include vp-flexbox;
+                        @include vp-flex-direction(row);
+                        @include vp-align-items(center);
+                        @include vp-justify-content(space-between);
 
                         margin: 5px 0;
                         width: 95%;
@@ -236,15 +241,16 @@
                         }
 
                         .submit {
-                            @extend .noselect;
+                            @include vp-flexbox;
+                            @include vp-flex-direction(row);
+                            @include vp-align-items(center);
 
-                            display: flex;
-                            flex-direction: row;
-                            align-items: center;
+                            @include vp-transition(color .15s ease-in-out);
+
+                            @extend .noselect;
 
                             color: $filesGreen;
                             cursor: pointer;
-                            transition: color .15s ease-in-out;
 
                             span {
                                 margin-left: 4px;
@@ -268,16 +274,16 @@
         }
 
         .information {
-            display: flex;
-            flex-direction: column;
-            align-items: center;
+            @include vp-flexbox;
+            @include vp-flex-direction(column);
+            @include vp-justify-content(center);
 
             width: 48%;
 
             .files-wrapper {
-                display: flex;
-                flex-direction: column;
-                align-items: center;
+                @include vp-flexbox;
+                @include vp-flex-direction(column);
+                @include vp-align-items(center);
 
                 height: 100%;
                 width: 99%;
@@ -287,8 +293,8 @@
             }
 
             .introduction {
-                display: flex;
-                flex-direction: column;
+                @include vp-flexbox;
+                @include vp-flex-direction(column);
 
                 height: 100%;
 
@@ -296,10 +302,11 @@
                     height: 100%;
 
                     .header {
-                        display: flex;
-                        flex-direction: column;
-                        align-items: center;
-                        justify-content: center;
+                        @include vp-flexbox;
+                        @include vp-flex-direction(column);
+                        @include vp-align-items(center);
+                        @include vp-justify-content(center);
+
                         height: 80%;
 
                         .title {
@@ -315,10 +322,10 @@
                         }
                     }
                     .footer {
-                        display: flex;
-                        flex-direction: row;
-                        align-items: flex-end;
-                        justify-content: flex-end;
+                        @include vp-flexbox;
+                        @include vp-flex-direction(row);
+                        @include vp-align-items(flex-end);
+                        @include vp-justify-content(flex-end);
 
                         height: 20%;
                     }
@@ -326,22 +333,22 @@
             }
 
             .flipper {
+                @include vp-align-self(flex-end);
+                @include vp-flexbox;
+                @include vp-flex-direction(row);
+                @include vp-justify-content(flex-end);
+
                 @extend .noselect;
 
-                align-self: flex-end;
-                display: flex;
-                flex-direction: row;
-                justify-content: flex-end;
-
                 span {
+                    @include vp-transition(color .15s ease-in-out);
+
                     color: $filesGreen;
                     cursor: pointer;
                     padding: 5px;
-                    transition: color .15s;
                 }
                 span:hover {
                     color: rgba($filesGreen, 0.6);
-                    transition: color .15s;
                 }
             }
         }
@@ -354,39 +361,39 @@
         }
 
         .files {
-            flex-shrink: 0;
-
-            display: flex;
-            flex-direction: column;
-            align-items: center;
+            @include vp-flex-shrink(0);
+            @include vp-flexbox;
+            @include vp-flex-direction(column);
+            @include vp-align-items(center);
 
             width: 100%;
 
             .file {
-                flex-shrink: 0;
-                display: flex;
-                flex-direction: column;
+                @include vp-flex-shrink(0);
+                @include vp-flexbox;
+                @include vp-flex-direction(column);
+
+                @include vp-box-shadow(0 9px 30px rgba(6, 6, 7, 0.3));
+                @include vp-box-sizing(border-box);
 
                 min-height: 64px;
                 width: 95%;
 
                 background-color: $filesGrey;
                 border-radius: 5px;
-                box-shadow: 0 9px 30px rgba(6, 6, 7, 0.3);
-                box-sizing: border-box;
                 margin: 5px 0;
 
                 .header {
-                    display: flex;
-                    flex-direction: row;
+                    @include vp-flexbox;
+                    @include vp-flex-direction(row);
 
                     height: 60px;
                     width: 100%;
 
                     .icon {
-                        display: flex;
-                        align-items: center;
-                        justify-content: center;
+                        @include vp-flexbox;
+                        @include vp-align-items(center);
+                        @include vp-justify-content(center);
 
                         color: $filesGreyLight;
                         margin: 0 10px;
@@ -397,10 +404,10 @@
                     }
 
                     .description {
-                        flex-grow: 1;
-                        display: flex;
-                        flex-direction: column;
-                        justify-content: center;
+                        @include vp-flex-grow(1);
+                        @include vp-flexbox;
+                        @include vp-flex-direction(column);
+                        @include vp-justify-content(center);
 
                         min-width: 0;
 
@@ -416,20 +423,20 @@
                     }
 
                     .buttons {
-                        display: flex;
-                        flex-direction: row;
-                        align-items: center;
-                        justify-content: space-around;
+                        @include vp-flexbox;
+                        @include vp-flex-direction(row);
+                        @include vp-align-items(center);
+                        @include vp-justify-content(space-around);
 
                         i {
+                            @include vp-transition(color .15s ease-in-out);
+
                             color: $filesGreen;
                             cursor: pointer;
                             margin: 0 10px;
-                            transition: .15s color ease;
                         }
                         i:hover, i:focus {
                             color: rgba($filesGreen, 0.6);
-                            transition: .15s color ease;
                         }
                         .action-retry {
                             color: $filesYellow;
@@ -447,9 +454,10 @@
                 }
 
                 .footer {
-                    display: flex;
-                    align-items: center;
-                    justify-content: center;
+                    @include vp-flexbox;
+                    @include vp-align-items(center);
+                    @include vp-justify-content(center);
+
                     margin: 5px 0;
 
                     span {
@@ -458,12 +466,14 @@
                 }
 
                 .expanded-content {
-                    @extend .noselect;
+                    @include vp-flexbox;
+                    @include vp-flex-direction(column);
+                    @include vp-align-items(center);
+                    @include vp-justify-content(center);
 
-                    display: flex;
-                    flex-direction: column;
-                    align-items: center;
-                    justify-content: center;
+                    @include vp-box-sizing(border-box);
+
+                    @extend .noselect;
 
                     height: auto;
                     width: 100%;
@@ -472,13 +482,12 @@
                     border-right: 1px solid rgba($filesGreyLight, 0.8);
                     border-bottom: 1px solid rgba($filesGreyLight, 0.8);
                     border-radius: 0 0 5px 5px;
-                    box-sizing: border-box;
                     color: $filesGreyLighter;
 
                     .thumbnail {
-                        display: flex;
-                        flex-direction: column;
-                        align-items: center;
+                        @include vp-flexbox;
+                        @include vp-flex-direction(column);
+                        @include vp-align-items(center);
 
                         max-width: 100%;
                         width: 100%;
@@ -514,9 +523,13 @@
                 }
 
                 .expander {
-                    display: flex;
-                    align-items: center;
-                    justify-content: center;
+                    @include vp-flexbox;
+                    @include vp-align-items(center);
+                    @include vp-justify-content(center);
+
+                    @include vp-transition(
+                        background-color .15s ease-in-out,
+                        border-radius .15s ease-in-out);
 
                     height: 10px;
                     width: 100%;
@@ -524,7 +537,6 @@
                     border-radius: 0 0 5px 5px;
                     cursor: pointer;
                     position: relative;
-                    transition: background-color .15s ease-in-out, border-radius .15s ease-in-out;
 
                     i {
                         font-size: 18px;
@@ -532,13 +544,15 @@
                     }
 
                     .fill {
+                        @include vp-transition(
+                            background-color .15s ease-in-out,
+                            border-radius .15s ease-in-out);
+
                         background-color: $filesGreen;
                         border-radius: 0 0 5px 5px;
                         height: 100%;
                         left: 0;
                         position: absolute;
-
-                        transition: color .15s ease-in-out, border-radius .15s ease-in-out;
                     }
                     .fill.filling {
                         background-color: $filesYellow;
@@ -579,10 +593,10 @@
         }
 
         .modal {
-            flex-shrink: 0;
-            display: flex;
-            align-items: center;
-            justify-content: center;
+            @include vp-flex-shrink(0);
+            @include vp-flexbox;
+            @include vp-align-items(center);
+            @include vp-justify-content(center);
 
             span {
                 font-size:  14px;
@@ -593,24 +607,17 @@
         }
     }
 
-    @media only screen and (max-width: 1300px) {
-        .main-modal {
-            width: 90vw;
-        }
-    }
-
     .picker {
         cursor: pointer;
     }
+
     input[type="file"] {
         display: none;
     }
-}
 
-.app.mobile {
-    .page.home {
+    @media only screen and (max-width: $mobileWidth) {
         .main-modal {
-            flex-direction: column;
+            @include vp-flex-direction(column);
 
             height: 120vh;
             width: 90vw;
@@ -627,128 +634,10 @@
             }
         }
     }
-}
 
-/*
-.page.home {
-    display: flex;
-    flex-direction: column;
-
-    .title {
-
-    }
-
-    .upload {
-        margin-top: 25px;
-        max-width: 90vw;
-        width: 600px;
-        min-width: 75vw;
-
-        .upload-types {
-            display: flex;
-            flex-direction: row;
-            justify-content: center;
-
-            margin-bottom: 25px;
-
-            span {
-                @extend .btn;
-
-                background-color: $filesBlue;
-                margin: 0 10px;
-            }
-            span:hover, span:focus, span.active {
-                background-color: $filesBlueDark;
-            }
-            span.active  {
-                cursor: not-allowed;
-            }
+    @media only screen and (max-width: $verticalScreenWidth) {
+        .main-modal {
+            width: 90vw;
         }
-
-        .upload-type {
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-
-            width: 100%;
-
-            .languages {
-                align-self: center;
-                margin: 10px 0;
-
-                max-width: 100%;
-                min-width: 10vw;
-
-                select {
-                    color: $filesGreyLighter;
-                    height: 100%;
-                    width: 100%;
-                }
-            }
-
-            .media-container {
-                width: 100%;
-            }
-            .media-container.text {
-                height: 50vh;
-            }
-
-            .file {
-                display: flex;
-                flex-direction: column;
-                align-items: center;
-
-                .picker {
-                    margin-bottom: 10px;
-
-                    input {
-                        display: none;
-                    }
-                    label {
-                        @extend .btn;
-
-                        background-color: $filesBlue;
-                    }
-                    label:focus, label:hover {
-                        background-color: $filesBlueDark;
-                    }
-                }
-            }
-
-            .thumbnail {
-                display: flex;
-                flex-direction: column;
-                align-items: center;
-            }
-        }
-
-        .options {
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
-
-            margin: 30px 0;
-
-            .submit {
-                @extend .btn;
-
-                width: 60%;
-            }
-
-            .submit.disabled {
-                background-color: $filesRed;
-                cursor: not-allowed;
-
-                transition: background-color .15s ease-in-out;
-            }
-        }
-    }
-
-    .uploads {
-        display: flex;
-        flex-direction: column;
-        align-items: center;
     }
 }
-*/

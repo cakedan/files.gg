@@ -1,13 +1,16 @@
-.page.info-options {
-    display: flex;
-    flex-direction: column;
-    justify-content: center;
+.route.options {
+    @include vp-flexbox;
+    @include vp-flex-direction(column);
+    @include vp-justify-content(center);
 
     .option-modal {
-        display: flex;
-        flex-direction: row;
-        align-items: center;
-        justify-content: center;
+        @include vp-flexbox;
+        @include vp-flex-direction(row);
+        @include vp-align-items(center);
+        @include vp-justify-content(center);
+
+        @include vp-box-shadow(0 9px 30px rgba(6, 6, 7, 0.3));
+        @include vp-box-sizing(border-box);
 
         height: 70vh;
         width: 75vw;
@@ -16,25 +19,23 @@
 
         background-color: $filesGreyDark;
         border-radius: 5px;
-        box-shadow: 0 9px 30px rgba(6, 6, 7, 0.3);
-        box-sizing: border-box;
         margin-top: 10px;
         margin-bottom: 25px;
         padding: 10px;
 
         .navigation {
-            display: flex;
-            flex-direction: column;
+            @include vp-flexbox;
+            @include vp-flex-direction(column);
 
             height: 100%;
             padding: 0 5px;
 
             .section {
-                @extend .noselect;
+                @include vp-flex-shrink(0);
+                @include vp-flexbox;
+                @include vp-flex-direction(column);
 
-                flex-shrink: 0;
-                display: flex;
-                flex-direction: column;
+                @extend .noselect;
 
                 .divider {
                     margin: 10px 0;
@@ -47,7 +48,8 @@
                     white-space: nowrap;
                 }
                 .title {
-                    box-sizing: border-box;
+                    @include vp-box-sizing(border-box);
+
                     color: $filesGreyLight;
                     padding: 5px 10px;
                     width: 100%;
@@ -60,14 +62,18 @@
                     }
                 }
                 .option {
+                    @include vp-box-sizing(border-box);
+
+                    @include vp-transition(
+                        color .15s ease-in-out,
+                        background-color .15s ease-in-out);
+
                     border-radius: 5px;
-                    box-sizing: border-box;
                     color: $filesGreyLighter;
                     cursor: pointer;
                     margin-bottom: 10px;
                     padding: 10px;
                     width: 100%;
-                    transition: color .15s ease-in-out, background-color .15s ease-in-out;
 
                     span {
                         font-size: 16px;
@@ -86,14 +92,15 @@
             }
         }
         .content {
-            display: flex;
-            flex-direction: column;
+            @include vp-flexbox;
+            @include vp-flex-direction(column);
 
             height: 100%;
             width: 100%;
 
             .modal {
-                align-self: flex-end;
+                @include vp-align-self(flex-end);
+
                 height: 100%;
                 width: 95%;
 
@@ -103,8 +110,8 @@
                     width: 95%;
 
                     .header {
-                        display: flex;
-                        flex-direction: column;
+                        @include vp-flexbox;
+                        @include vp-flex-direction(column);
 
                         margin-bottom: 10px;
 
@@ -123,31 +130,33 @@
                     }
 
                     .fields {
-                        display: flex;
-                        flex-direction: column;
-                        align-items: center;
+                        @include vp-flexbox;
+                        @include vp-flex-direction(column);
+                        @include vp-align-items(center);
 
                         .field {
                             margin-bottom: 10px;
                             width: 100%;
 
                             .text-editor {
-                                display: flex;
-                                flex-direction: column;
-                                align-items: center;
+                                @include vp-flexbox;
+                                @include vp-flex-direction(column);
+                                @include vp-align-items(center);
 
                                 height: 300px;
                                 width: 100%;
                             }
 
                             .items {
-                                display: flex;
-                                flex-direction: column;
+                                @include vp-flexbox;
+                                @include vp-flex-direction(column);
+
+                                @extend .noselect;
 
                                 .item {
-                                    flex-grow: 1;
-                                    display: flex;
-                                    flex-direction: row;
+                                    @include vp-flex-grow(1);
+                                    @include vp-flexbox;
+                                    @include vp-flex-direction(row);
 
                                     background-color: $filesBlack;
                                     border-radius: 5px;
@@ -163,12 +172,15 @@
                                     }
 
                                     .checkbox {
+                                        @include vp-transition(
+                                            background-color .15s ease-in-out,
+                                            border .15s ease-in-out);
+
                                         border: 1px solid $filesGreyLight;
                                         border-radius: 3px;
                                         height: 24px;
                                         width: 24px;
                                         position: relative;
-                                        transition: background-color .15s ease-in-out, border .15s ease-in-out;
                                     }
                                     .checkbox:after {
                                         content: '';
@@ -180,6 +192,8 @@
                                         border: 1px solid $filesGreen;
                                     }
                                     input:checked ~ .checkbox:after {
+                                        @include vp-transform(rotate(45deg));
+
                                         display: block;
                                         left: 9px;
                                         top: 5px;
@@ -187,14 +201,11 @@
                                         height: 10px;
                                         border: solid white;
                                         border-width: 0 3px 3px 0;
-                                        -webkit-transform: rotate(45deg);
-                                        -ms-transform: rotate(45deg);
-                                        transform: rotate(45deg);
                                     }
 
                                     .label {
-                                        display: flex;
-                                        align-items: center;
+                                        @include vp-flexbox;
+                                        @include vp-align-items(center);
 
                                         margin: 0 9px;
 
@@ -218,10 +229,8 @@
             }
         }
     }
-}
 
-.app.mobile {
-    .page.info-options {
+    @media only screen and (max-width: $mobileWidth) {
         .option-modal {
             width: 95vw;
         }

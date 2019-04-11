@@ -55,7 +55,7 @@ const defaultMetatags = {
   viewport: 'width=device-width, initial-scale=1.0',
 };
 
-const renderHtml = async(event, metatags) => {
+const renderHtml = async (event, metatags) => {
   const manifestResponse = await requestStorage(event, {
     method: 'GET',
     path: `/assets/${version}/manifest.json`,
@@ -93,69 +93,98 @@ const renderHtml = async(event, metatags) => {
   return new Response(html, {headers: {'content-type': 'text/html'}});
 };
 
-router.route(['/dashboard', '/dashboard/*'], async(event) => {
-  const metatags = new Metatags(defaultMetatags);
-  metatags.set('title', 'File Uploader Dashboard');
-  return renderHtml(event, metatags);
-});
 
-router.route('/dashboard/configs', async(event) => {
-  const metatags = new Metatags(defaultMetatags);
-  metatags.set('description', 'View your custom uploader configs here.');
-  return renderHtml(event, metatags);
-}, {priority: 1});
-
-router.route(['/dashboard/files', '/dashboard/files/*'], async(event) => {
-  const metatags = new Metatags(defaultMetatags);
-  metatags.set('description', 'View your files here.');
-  return renderHtml(event, metatags);
-}, {priority: 1});
-
-router.route(['/auth', '/auth/*'], async(event) => {
+router.route(['/auth', '/auth/*'], async (event) => {
   const metatags = new Metatags(defaultMetatags);
   metatags.set('description', '??');
   return renderHtml(event, metatags);
 });
 
-router.route('/auth/callback/:token', async(event) => {
+router.route('/auth/callback/:token', async (event) => {
   const metatags = new Metatags(defaultMetatags);
   metatags.set('description', 'secret');
   return renderHtml(event, metatags);
 }, {priority: 1});
 
-router.route('/auth/login', async(event) => {
+router.route('/auth/login', async (event) => {
   const metatags = new Metatags(defaultMetatags);
   metatags.set('description', 'Login here to view your files');
   return renderHtml(event, metatags);
 }, {priority: 1});
 
-router.route('/auth/logout', async(event) => {
+router.route('/auth/logout', async (event) => {
   const metatags = new Metatags(defaultMetatags);
   metatags.set('description', 'Logout here');
   return renderHtml(event, metatags);
 }, {priority: 1});
 
-router.route('/auth/forgot/:token', async(event) => {
+router.route('/auth/forgot/:token', async (event) => {
   const metatags = new Metatags(defaultMetatags);
   metatags.set('description', 'Do not share this forgot password url with anyone');
   return renderHtml(event, metatags);
 }, {priority: 1});
 
-router.route('/auth/verify/:token', async(event) => {
+router.route('/auth/verify/:token', async (event) => {
   const metatags = new Metatags(defaultMetatags);
   metatags.set('description', 'Do not share this verify url with anyone');
   return renderHtml(event, metatags);
 }, {priority: 1});
 
-router.route(['/info', '/info/*'], async(event) => {
+
+router.route(['/dashboard', '/dashboard/*'], async (event) => {
+  const metatags = new Metatags(defaultMetatags);
+  metatags.set('title', 'File Uploader Dashboard');
+  return renderHtml(event, metatags);
+});
+
+router.route('/dashboard/configs', async (event) => {
+  const metatags = new Metatags(defaultMetatags);
+  metatags.set('description', 'View your custom uploader configs here.');
+  return renderHtml(event, metatags);
+}, {priority: 1});
+
+router.route(['/dashboard/files', '/dashboard/files/*'], async (event) => {
+  const metatags = new Metatags(defaultMetatags);
+  metatags.set('description', 'View your files here.');
+  return renderHtml(event, metatags);
+}, {priority: 1});
+
+
+router.route(['/details', '/details/*'], async (event) => {
   const metatags = new Metatags(defaultMetatags);
   metatags.set('description', '??');
   return renderHtml(event, metatags);
 });
 
-router.route('/info/terms-of-service', async(event) => {
+
+router.route(['/legal', '/legal/*'], async (event) => {
+  const metatags = new Metatags(defaultMetatags);
+  metatags.set('description', '??');
+  return renderHtml(event, metatags);
+});
+
+router.route('/legal/report', async (event) => {
+  const metatags = new Metatags(defaultMetatags);
+  metatags.set('description', 'Report content');
+  return renderHtml(event, metatags);
+}, {priority: 1});
+
+router.route('/legal/terms', async (event) => {
   const metatags = new Metatags(defaultMetatags);
   metatags.set('description', 'Our Terms of Service');
+  return renderHtml(event, metatags);
+}, {priority: 1});
+
+
+router.route('/options/*', async (event) => {
+  const metatags = new Metatags(defaultMetatags);
+  metatags.set('description', '??');
+  return renderHtml(event, metatags);
+});
+
+router.route(['/options', '/options/:optionType'], async (event) => {
+  const metatags = new Metatags(defaultMetatags);
+  metatags.set('description', 'Customizable Options');
   return renderHtml(event, metatags);
 }, {priority: 1});
 
@@ -165,7 +194,7 @@ const mimetypes = {
   image: ['image/png', 'image/x-citrix-png', 'image/x-png', 'image/jpg', 'image/jpeg', 'image/pjpeg', 'image/x-citrix-jpeg', 'image/webp', 'image/gif'],
   video: ['video/mp4', 'video/webm', 'video/quicktime', 'video/mpeg', 'video/ogg', 'video/avi', 'video/msvideo'],
 };
-router.route('/:fileId...', ['GET', 'HEAD'], async(event) => {
+router.route('/:fileId...', ['GET', 'HEAD'], async (event) => {
   const userAgent = event.request.headers.get('user-agent') || '';
 
   const metatags = new Metatags(defaultMetatags);
@@ -280,15 +309,15 @@ router.route('/:fileId...', ['GET', 'HEAD'], async(event) => {
   return renderHtml(event, metatags);
 });
 
-router.route('/assets/:fileName...', '*', async(event) => {
+router.route('/assets/:fileName...', '*', async (event) => {
   return await requestStorage(event, `/assets/${version}/${event.parameters.fileName}`);
 });
 
-router.route('/favicon.ico', '*', async(event) => {
+router.route('/favicon.ico', '*', async (event) => {
   return await requestStorage(event, `/assets/${version}/favicon.ico`);
 });
 
-router.route('/api/:apiRoute...', '*', async(event) => {
+router.route('/api/:apiRoute...', '*', async (event) => {
   return await requestApi(event, {
     path: event.parameters.apiRoute,
   });

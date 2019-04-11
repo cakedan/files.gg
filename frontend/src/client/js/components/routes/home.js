@@ -85,7 +85,7 @@ const Store = {
 };
 
 
-export class HomePage {
+export class Route {
   constructor(vnode) {
     if (vnode.attrs.type !== undefined) {
       Store.upload.settings.type = InputTypes.choices(
@@ -172,6 +172,7 @@ export class HomePage {
     ]);
   }
 }
+Route.className = 'home';
 
 
 class UploadTypeButton {

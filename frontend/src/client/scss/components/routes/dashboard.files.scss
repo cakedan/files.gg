@@ -1,14 +1,14 @@
-.page.dashboard-files {
-    display: flex;
-    flex-direction: column;
-    justify-content: center;
+.route.dashboard-files {
+    @include vp-flexbox;
+    @include vp-flex-direction(column);
+    @include vp-justify-content(center);
 
     height: calc(100vh - 64px);
 
     .message {
-        display: flex;
-        align-items: center;
-        justify-content: center;
+        @include vp-flexbox;
+        @include vp-align-items(center);
+        @include vp-justify-content(center);
 
         span {
             font-size:  14px;
@@ -19,61 +19,31 @@
     }
 
     .main-modal {
-        flex-grow: 1;
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-        justify-content: center;
+        @include vp-flex-grow(1);
+        @include vp-flexbox;
+        @include vp-flex-direction(column);
+        @include vp-align-items(center);
+        @include vp-justify-content(center);
 
         max-height: 100%;
 
-        .total {
-            margin: 5px 0;
-            text-align: center;
-            width: 90%;
-
-            span {
-                display: flex;
-                align-items: center;
-
-                color: $filesGreyLight;
-                font-size: 14px;
-                font-weight: 500;
-                line-height: 19px;
-            }
-            span::before {
-                border-bottom: 1px solid rgba($filesGreyLight, 0.8);
-                content: '';
-                flex-grow: 1;
-                height: 1px;
-                margin-right: 8px;
-            }
-            span::after {
-                border-bottom: 1px solid rgba($filesGreyLight, 0.8);
-                content: '';
-                flex-grow: 1;
-                height: 1px;
-                margin-left: 8px;
-            }
-        }
-
         .files {
-            display: flex;
+            @include vp-flexbox;
+            @include vp-box-sizing(border-box);
 
             height: 100%;
             width: 80vw;
             overflow: auto;
             padding: 10px 0;
-            box-sizing: border-box;
         }
 
         .files.view-content {
-            flex-direction: column;
+            @include vp-flex-direction(column);
 
             .file {
-                flex-shrink: 0;
-                display: flex;
-                flex-direction: row;
+                @include vp-flex-shrink(0);
+                @include vp-flexbox;
+                @include vp-flex-direction(row);
 
                 border-bottom: 1px solid rgba($filesBlack, 0.9);
                 cursor: pointer;
@@ -83,9 +53,9 @@
                 width: 100%;
 
                 .header {
-                    display: flex;
-                    align-items: center;
-                    justify-content: center;
+                    @include vp-flexbox;
+                    @include vp-align-items(center);
+                    @include vp-justify-content(center);
 
                     max-height: 100%;
 
@@ -101,9 +71,9 @@
                         }
                     }
                     .icon {
-                        display: flex;
-                        align-items: center;
-                        justify-content: center;
+                        @include vp-flexbox;
+                        @include vp-align-items(center);
+                        @include vp-justify-content(center);
 
                         color: $filesGreyLight;
                         margin: 0 10px;
@@ -115,22 +85,22 @@
                 }
 
                 .fields, .footer {
-                    flex-shrink: 0;
-                    display: flex;
-                    flex-flow: row;
+                    @include vp-flex-shrink(0);
+                    @include vp-flexbox;
+                    @include vp-flex-direction(row);
 
                     width: 50%;
 
                     .field {
-                        display: flex;
-                        flex-flow: column;
-                        justify-content: center;
+                        @include vp-flexbox;
+                        @include vp-flex-direction(column);
+                        @include vp-justify-content(center);
 
                         width: 50%;
 
                         .info {
-                            display: flex;
-                            flex-flow: row;
+                            @include vp-flexbox;
+                            @include vp-flex-direction(row);
 
                             span {
                                 font-size: 12px;
@@ -144,7 +114,7 @@
                             }
                             span.category {
                                 opacity: 0.4;
-                                overflow: visibile;
+                                overflow: visible;
                                 text-overflow: clip;
                             }
                             span.title {
@@ -154,10 +124,10 @@
                     }
                 }
                 .footer {
-                    flex-shrink: 1;
+                    @include vp-flex-shrink(1);
 
                     .field {
-                        flex-grow: 1;
+                        @include vp-flex-grow(1);
                         width: auto;
                     }
                 }
@@ -168,19 +138,21 @@
         }
 
         .files.view-tiles {
-            flex-direction: row;
-            flex-wrap: wrap;
-            justify-content: center;
+            @include vp-flexbox;
+            @include vp-flex-direction(row);
+            @include vp-flex-wrap(wrap);
+            @include vp-justify-content(center);
 
             .file {
+                @include vp-flex-shrink(0);
+                @include vp-flexbox;
+                @include vp-flex-direction(row);
+
+                @include vp-box-sizing(border-box);
+
                 @extend .noselect;
 
-                flex-shrink: 0;
-                display: flex;
-                flex-direction: row;
-
                 border-radius: 5px;
-                box-sizing: border-box;
                 cursor: pointer;
                 margin: 5px;
                 padding: 0 5px;
@@ -189,9 +161,9 @@
                 width: 225px;
 
                 .header {
-                    display: flex;
-                    align-items: center;
-                    justify-content: center;
+                    @include vp-flexbox;
+                    @include vp-align-items(center);
+                    @include vp-justify-content(center);
 
                     max-height: 100%;
 
@@ -207,9 +179,9 @@
                         }
                     }
                     .icon {
-                        display: flex;
-                        align-items: center;
-                        justify-content: center;
+                        @include vp-flexbox;
+                        @include vp-align-items(center);
+                        @include vp-justify-content(center);
 
                         color: $filesGreyLight;
                         margin: 0 10px;
@@ -221,17 +193,17 @@
                 }
 
                 .fields {
-                    flex-grow: 1;
-                    display: flex;
-                    flex-flow: column;
-                    justify-content: center;
+                    @include vp-flex-grow(1);
+                    @include vp-flexbox;
+                    @include vp-flex-direction(column);
+                    @include vp-justify-content(center);
 
                     min-width: 0;
 
                     .field {
-                        display: flex;
-                        flex-flow: column;
-                        justify-content: center;
+                        @include vp-flexbox;
+                        @include vp-flex-direction(column);
+                        @include vp-justify-content(center);
 
                         span {
                             font-size: 12px;
@@ -253,16 +225,17 @@
         }
 
         .files.view-details {
-            flex-direction: column;
+            @include vp-flex-direction(column);
 
             .file {
+                @include vp-flex-shrink(0);
+                @include vp-flexbox;
+                @include vp-flex-direction(row);
+
+                @include vp-box-sizing(border-box);
+
                 @extend .noselect;
 
-                flex-shrink: 0;
-                display: flex;
-                flex-direction: row;
-
-                box-sizing: border-box;
                 cursor: pointer;
                 margin: 1px 0;
 
@@ -270,16 +243,16 @@
                 width: 100%;
 
                 .header {
-                    display: flex;
-                    align-items: center;
-                    justify-content: center;
+                    @include vp-flexbox;
+                    @include vp-align-items(center);
+                    @include vp-justify-content(center);
 
                     max-height: 100%;
 
                     .icon {
-                        display: flex;
-                        align-items: center;
-                        justify-content: center;
+                        @include vp-flexbox;
+                        @include vp-align-items(center);
+                        @include vp-justify-content(center);
 
                         color: $filesGreyLight;
                         margin: 0 2px;
@@ -291,17 +264,17 @@
                 }
 
                 .fields {
-                    flex-grow: 1;
-                    display: flex;
-                    flex-flow: row;
-                    align-items: center;
+                    @include vp-flex-grow(1);
+                    @include vp-flexbox;
+                    @include vp-flex-direction(row);
+                    @include vp-align-items(center);
 
                     min-width: 0;
 
                     .field {
-                        display: flex;
-                        flex-flow: column;
-                        justify-content: center;
+                        @include vp-flexbox;
+                        @include vp-flex-direction(column);
+                        @include vp-justify-content(center);
 
                         margin: 0 2px;
                         width: 18%;
@@ -330,17 +303,19 @@
         }
 
         .files.view-list {
-            flex-direction: column;
-            flex-wrap: wrap;
+            @include vp-flexbox;
+            @include vp-flex-direction(column);
+            @include vp-flex-wrap(wrap);
 
             .file {
+                @include vp-flex-shrink(0);
+                @include vp-flexbox;
+                @include vp-flex-direction(row);
+
+                @include vp-box-sizing(border-box);
+
                 @extend .noselect;
 
-                flex-shrink: 0;
-                display: flex;
-                flex-direction: row;
-
-                box-sizing: border-box;
                 cursor: pointer;
                 margin: 1px 0;
 
@@ -349,16 +324,16 @@
                 width: 400px;
 
                 .header {
-                    display: flex;
-                    align-items: center;
-                    justify-content: center;
+                    @include vp-flexbox;
+                    @include vp-align-items(center);
+                    @include vp-justify-content(center);
 
                     max-height: 100%;
 
                     .icon {
-                        display: flex;
-                        align-items: center;
-                        justify-content: center;
+                        @include vp-flexbox;
+                        @include vp-align-items(center);
+                        @include vp-justify-content(center);
 
                         color: $filesGreyLight;
                         margin: 0 2px;
@@ -370,19 +345,20 @@
                 }
 
                 .fields {
-                    flex-grow: 1;
-                    display: flex;
-                    flex-flow: row;
-                    align-items: center;
+                    @include vp-flex-grow(1);
+                    @include vp-flexbox;
+                    @include vp-flex-direction(row);
+                    @include vp-align-items(center);
 
                     min-width: 0;
 
                     .field {
-                        display: flex;
-                        flex-flow: column;
-                        justify-content: center;
+                        @include vp-flexbox;
+                        @include vp-flex-direction(column);
+                        @include vp-justify-content(center);
 
-                        box-sizing: border-box;
+                        @include vp-box-sizing(border-box);
+
                         max-width: 100%;
                         padding: 0 2px;
 
@@ -403,16 +379,17 @@
         }
 
         .files.view-icons, .files.view-large-icons {
-            flex-direction: row;
-            flex-wrap: wrap;
-            align-content: flex-start;
+            @include vp-flexbox;
+            @include vp-flex-direction(row);
+            @include vp-flex-wrap(wrap);
+            @include vp-align-items(flex-start);
 
             .file {
-                @extend .noselect;
+                @include vp-flex-shrink(0);
+                @include vp-flexbox;
+                @include vp-flex-direction(column);
 
-                flex-shrink: 0;
-                display: flex;
-                flex-direction: column;
+                @extend .noselect;
 
                 margin: 5px;
 
@@ -426,9 +403,9 @@
                     max-width: 100%;
 
                     .header {
-                        display: flex;
-                        align-items: center;
-                        justify-content: center;
+                        @include vp-flexbox;
+                        @include vp-align-items(center);
+                        @include vp-justify-content(center);
 
                         padding-top: 5px;
 
@@ -443,9 +420,9 @@
                             }
                         }
                         .icon {
-                            display: flex;
-                            align-items: center;
-                            justify-content: center;
+                            @include vp-flexbox;
+                            @include vp-align-items(center);
+                            @include vp-justify-content(center);
 
                             color: $filesGreyLight;
 
@@ -456,19 +433,20 @@
                     }
 
                     .fields {
-                        flex-shrink: 0;
-                        display: flex;
+                        @include vp-flex-shrink(0);
+                        @include vp-flexbox;
 
-                        box-sizing: border-box;
+                        @include vp-box-sizing(border-box);
+
                         padding-top: 5px;
 
                         max-height: calc(100% - 48px - 5px);
 
                         .field {
-                            display: flex;
-                            flex-flow: column;
-                            align-items: center;
-                            justify-content: center;
+                            @include vp-flexbox;
+                            @include vp-flex-direction(column);
+                            @include vp-align-items(center);
+                            @include vp-justify-content(center);
 
                             max-height: 100%;
                             width: 100%;
@@ -659,9 +637,9 @@
     }
 
     .dashboard-file-modal {
-        display: flex;
-        align-items: center;
-        justify-content: center;
+        @include vp-flexbox;
+        @include vp-align-items(center);
+        @include vp-justify-content(center);
 
         background-color: rgba(0, 0, 0, 0.5);
         height: 100vh;
@@ -672,10 +650,9 @@
         position: fixed;
         z-index: 9997;
     }
-}
 
-.app.mobile {
-    .page.dashboard-files {
+
+    @media only screen and (max-width: $mobileWidth) {
         .main-modal {
             .files {
                 width: 95vw;
@@ -689,7 +666,7 @@
                 }
             }
             .files.view-icons, .files.view-large-icons {
-                justify-content: center;
+                @include vp-justify-content(center);
             }
         }
     }

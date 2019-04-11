@@ -1,7 +1,7 @@
-@import '../../../node_modules/codemirror/lib/codemirror.css';
-@import '../../../node_modules/codemirror/theme/tomorrow-night-bright.css';
+@import '../../../node_modules/sass-autoprefixer/scss/prefixes';
 
 @import './variables';
+
 
 html, body {
     background-color: $filesGrey;
@@ -14,91 +14,25 @@ html, body {
 
     -webkit-overflow-scrolling: touch;
 
+    // Text Readability
+    font-feature-settings: 'liga';
     text-rendering: optimizeLegibility;
+    -moz-osx-font-smoothing: grayscale;
+    -webkit-font-smoothing: antialiased;
 }
 
 .app {
-    display: flex;
-    flex-direction: column;
+    @include vp-flexbox;
+    @include vp-flex-direction(column);
+
     min-height: 100%;
     min-width: 100%;
     position: absolute;
 }
 
-::-webkit-scrollbar {
-    height: 16px;
-    width: 16px;
-}
-::-webkit-scrollbar-button, ::-webkit-scrollbar-corner {
-    display: none;
-}
-::-webkit-scrollbar-track {
-    margin: 2px;
-}
-::-webkit-scrollbar-track, ::-webkit-scrollbar-thumb {
-    background-clip: padding-box;
-    background-color: transparent;
-    border: 3px solid transparent;
-    border-radius: 8px;
-}
-::-webkit-scrollbar-track-piece {
-    background-color: rgb(47, 49, 54);
-    border: 3px solid rgb(47, 49, 54);
-    border-radius: 8px;
-}
-::-webkit-scrollbar-thumb {
-    background-color: rgb(30, 33, 36);
-    border: 3px solid rgb(47, 49, 54);
-}
-::-webkit-scrollbar-thumb:hover {
-    background-color: rgb(33, 36, 39);
-}
-
-.noselect {
-    -webkit-touch-callout: none; /* iOS Safari */
-    -webkit-user-select: none; /* Safari */
-    -khtml-user-select: none; /* Konqueror HTML */
-    -moz-user-select: none; /* Firefox */
-    -ms-user-select: none; /* Internet Explorer/Edge */
-    user-select: none; /* Non-prefixed version, currently supported by Chrome and Opera */
-}
-
-.left {
-    float: left;
-}
-.right {
-    float: right;
-}
-
-ul {
-    list-style-type: none;
-    margin: 0;
-    padding-left: 0;
-}
-
-select {
-    background-color: $filesBlack;
-    border: none;
-    border-radius: 5px;
-    color: white;
-    font: 400 13.3333px Whitney, Helvetica Neue, Helvetica, Arial, sans-serif;
-    text-align: center;
-    text-align-last: center;
-    padding: 5px;
-}
-option:focus, option:hover {
-    box-shadow: 0 0 10px 100px $filesGreyDark inset;
-}
-
-
-textarea:focus, input:focus, select:focus {
-    border: none;
-    outline: none;
-}
-
-
 // import down here so the stuff above doesn't overwrite
 
+@import './scrollbar';
 @import './generic-styles';
 @import './icons';
 @import './components';

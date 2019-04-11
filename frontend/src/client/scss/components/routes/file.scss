@@ -1,18 +1,20 @@
-.page.file {
-    @extend .page;
+.route.file {
+    @include vp-flexbox;
+    @include vp-flex-direction(column);
+    @include vp-align-items(center);
+    @include vp-justify-content(center);
 
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
     min-height: calc(100% - 64px);
 
     .context {
-        display: flex;
-        flex-direction: column;
-        justify-content: center;
-        position: relative;
+        @include vp-flexbox;
+        @include vp-flex-direction(column);
+        @include vp-justify-content(center);
 
+        @include vp-box-shadow(0 9px 30px rgba(6, 6, 7, 0.3));
+        @include vp-box-sizing(border-box);
+
+        position: relative;
 
         //max-height: 90vh;
         //min-height: 25vh;
@@ -22,14 +24,12 @@
         margin: 10px 0;
         background-color: $filesGreyDark;
         border-radius: 5px;
-        box-shadow: 0 9px 30px rgba(6, 6, 7, 0.3);
-        box-sizing: border-box;
 
         .thumbnail {
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
+            @include vp-flexbox;
+            @include vp-flex-direction(column);
+            @include vp-align-items(center);
+            @include vp-justify-content(center);
 
             .media-container {
                 border-radius: 5px 5px 0 0;
@@ -62,12 +62,12 @@
             }
 
             .information {
-                display: flex;
-                flex-direction: column;
+                @include vp-flexbox;
+                @include vp-flex-direction(column);
+
+                @include vp-box-sizing(border-box);
 
                 max-width: 100%;
-
-                box-sizing: border-box;
                 padding: 0 2px;
 
                 span {
@@ -83,9 +83,9 @@
         }
 
         .footer {
-            align-self: center;
-            display: flex;
-            flex-direction: column;
+            @include vp-align-self(center);
+            @include vp-flexbox;
+            @include vp-flex-direction(column);
 
             max-width: 50vw;
             width: 100%;
@@ -94,14 +94,14 @@
             padding-top: 15px;
 
             .sections {
-                display: flex;
-                flex-direction: row;
-                justify-content: space-between;
+                @include vp-flexbox;
+                @include vp-flex-direction(row);
+                @include vp-justify-content(space-between);
 
                 .section {
-                    display: flex;
-                    flex-direction: column;
-                    justify-content: center;
+                    @include vp-flexbox;
+                    @include vp-flex-direction(column);
+                    @include vp-justify-content(center);
 
                     width: 50%;
                     max-width: 50vmin;
@@ -131,41 +131,38 @@
                         text-align: right;
                     }
                     a {
-                        align-self: flex-end;
+                        @include vp-align-self(flex-end);
                     }
                 }
             }
 
             .buttons {
+                @include vp-align-self(center);
+                @include vp-flexbox;
+                @include vp-flex-direction(row);
+                @include vp-justify-content(flex-end);
+
                 @extend .noselect;
 
-                align-self: center;
-                display: flex;
-                flex-direction: row;
-                justify-content: flex-end;
                 margin-bottom: 5px;
 
                 .copy-link {
-                    cursor: pointer;
-                    transition: .15s color ease;
-                }
+                    @include vp-transition(color .15s ease-in-out);
 
+                    cursor: pointer;
+                }
                 .copy-link:hover, .copy-link:focus {
                     color: rgb(174, 178, 185);
-                    transition: .15s color ease;
                 }
 
                 .download {
-                    //@extend .btn;
+                    @include vp-transition(color .15s ease-in-out);
 
                     color: $filesGreen;
                     text-decoration: none;
-                    transition: .15s color ease;
                 }
-
                 .download:hover, .download:focus {
                     color: rgba($filesGreen, 0.6);
-                    transition: .15s color ease;
                 }
             }
 
@@ -176,12 +173,12 @@
             }
         }
         .resizer {
-            @extend .noselect;
+            @include vp-align-self(flex-end);
+            @include vp-flexbox;
+            @include vp-flex-direction(row);
+            @include vp-justify-content(flex-end);
 
-            align-self: flex-end;
-            display: flex;
-            flex-direction: row;
-            justify-content: flex-end;
+            @extend .noselect;
 
             //position: absolute;
             //height: 100%;
@@ -190,14 +187,11 @@
             i {
                 color: $filesGreyLight;
                 cursor: nwse-resize;
-                //transform: scaleY(-1);
             }
         }
     }
-}
 
-.app.mobile {
-    .page.file {
+    @media only screen and (max-width: $mobileWidth) {
         .context {
             max-width: 90vw;
 
