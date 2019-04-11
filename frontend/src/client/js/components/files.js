@@ -450,6 +450,7 @@ export class FileComponent {
           (this.expand) ? 'active' : null,
         ].filter((v) => v).join(' '),
         onclick: (event) => this.flipExpand(event),
+        onmousedown: (event) => event.preventDefault(),
       }, [
         (this.file.error) ? [
           m('div', {class: 'fill error'}),

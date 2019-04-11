@@ -1,7 +1,6 @@
 import CodeMirror from 'codemirror';
-
-import * as modeInfo from 'codemirror/mode/meta';
-import * as codeMirrorStyle from 'codemirror/lib/codemirror.css';
+import 'codemirror/mode/meta';
+import 'codemirror/lib/codemirror.css';
 
 
 CodeMirror.hasMode = (mode) => {
@@ -12,19 +11,6 @@ CodeMirror.loadMode = async (editor, mode) => {
   if (!CodeMirror.hasMode(mode)) {
     await CodeMirrorModeLoader.load(mode);
     editor.setOption('mode', editor.getOption('mode'));
-  }
-};
-
-
-CodeMirror.themes = new Set();
-CodeMirror.hasTheme = (theme) => {
-  return CodeMirror.themes.has(theme);
-};
-CodeMirror.loadTheme = async (editor, theme) => {
-  editor.setOption('theme', theme);
-  if (!CodeMirror.hasTheme(theme)) {
-    await CodeMirrorThemeLoader.load(theme);
-    editor.setOption('theme', editor.getOption('theme'));
   }
 };
 
@@ -158,10 +144,22 @@ const CodeMirrorModeLoader = Object.freeze({
 });
 
 
+CodeMirror.themes = {};
+CodeMirror.hasTheme = (theme) => {
+  return CodeMirror.themes.hasOwnProperty(theme);
+};
+CodeMirror.loadTheme = async (editor, theme) => {
+  editor.setOption('theme', theme);
+  if (!CodeMirror.hasTheme(theme)) {
+    CodeMirror.themes[theme] = await CodeMirrorThemeLoader.load(theme);
+    editor.setOption('theme', editor.getOption('theme'));
+  }
+};
+
 const CodeMirrorThemeLoader = Object.freeze({
   async load(theme) {
     if (this.themes.hasOwnProperty(theme)) {
-      await this.themes[theme]();
+      return await this.themes[theme]();
     }
   },
   themes: {

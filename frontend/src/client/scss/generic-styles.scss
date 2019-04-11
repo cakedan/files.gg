@@ -82,6 +82,11 @@ input[type="text"]:invalid {
 }
 
 
+.ace-editor {
+    .ace_scrollbar {
+        right: 1px;
+    }
+}
 .codemirror {
     .CodeMirror-gutter-wrapper {
         // fix for iPhone select all button not working

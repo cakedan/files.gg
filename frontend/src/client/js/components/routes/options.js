@@ -173,7 +173,7 @@ class CustomizationOption {
       m('div', {class: 'section'}, [
         m('div', {class: 'header'}, [
           m('span', {class: 'title'}, 'Text Editor'),
-          m('span', {class: 'description'}, 'Mobile will always use Code Mirror as the text editor'),
+          m('span', {class: 'description'}, 'Mobile cannot use Monaco as a text editor.'),
         ]),
         m('div', {class: 'fields'}, [
           m('div', {class: 'field'}, [
@@ -188,13 +188,19 @@ class CustomizationOption {
           m('div', {class: 'field'}, [
             m('div', {class: 'items'}, [
               m(ItemComponent, {
+                onclick: () => Options.textType = TextTypes.ACE,
+                selected: Options.textType === TextTypes.ACE,
+              }, 'Ace'),
+              m(ItemComponent, {
                 onclick: () => Options.textType = TextTypes.CODEMIRROR,
                 selected: Options.textType === TextTypes.CODEMIRROR,
               }, 'Code Mirror'),
-              m(ItemComponent, {
-                onclick: () => Options.textType = TextTypes.MONACO,
-                selected: Options.textType === TextTypes.MONACO,
-              }, 'Monaco'),
+              (!window.isMobile) ? [
+                m(ItemComponent, {
+                  onclick: () => Options.textType = TextTypes.MONACO,
+                  selected: Options.textType === TextTypes.MONACO,
+                }, 'Monaco'),
+              ] : null,
             ]),
           ]),
         ]),

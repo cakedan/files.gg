@@ -653,6 +653,10 @@ export class VideoMedia extends Media {
 }
 
 
+import {
+  Ace,
+  AceComponent,
+} from './ace';
 
 import {
   CodeMirror,
@@ -666,34 +670,41 @@ import {
 
 
 export const TextTypes = Object.freeze({
+  ACE: 'ace',
   CODEMIRROR: 'codemirror',
   MONACO: 'monaco',
   NATIVE: 'native',
+});
+
+export const MobileTextTypes = Object.freeze({
+  ACE: TextTypes.ACE,
+  CODEMIRROR: TextTypes.CODEMIRROR,
+  NATIVE: TextTypes.NATIVE,
 });
 
 
 export class TextMedia {
   async oninit(vnode) {
     this.type = InputTypes.choices(Object.values(TextTypes), vnode.attrs.type, TextTypes.NATIVE);
+
+    const editor = this.module;
+    if (editor) {
+      if (!editor.isLoaded) {
+        await editor.load();
+        m.redraw();
+      }
+      if (typeof(vnode.attrs.onload) === 'function') {
+        vnode.attrs.onload({type: this.type, module: editor});
+      }
+    }
+  }
+
+  get module() {
     switch (this.type) {
-      case TextTypes.CODEMIRROR: {
-        if (!CodeMirror.isLoaded) {
-          await CodeMirror.load();
-          m.redraw();
-        }
-        if (typeof(vnode.attrs.onload) === 'function') {
-          vnode.attrs.onload({type: this.type, module: CodeMirror});
-        }
-      }; break;
-      case TextTypes.MONACO: {
-        if (!Monaco.isLoaded) {
-          await Monaco.load();
-          m.redraw();
-        }
-        if (typeof(vnode.attrs.onload) === 'function') {
-          vnode.attrs.onload({type: this.type, module: Monaco});
-        }
-      }; break;
+      case TextTypes.ACE: return Ace;
+      case TextTypes.CODEMIRROR: return CodeMirror;
+      case TextTypes.MONACO: return Monaco;
+      default: return null;
     }
   }
 
@@ -707,17 +718,10 @@ export class TextMedia {
 
   view(vnode) {
     let type = TextTypes.NATIVE;
-    switch (this.type) {
-      case TextTypes.CODEMIRROR: {
-        if (CodeMirror.isLoaded) {
-          type = this.type;
-        }
-      }; break;
-      case TextTypes.MONACO: {
-        if (Monaco.isLoaded) {
-          type = this.type;
-        }
-      }; break;
+
+    const editor = this.module;
+    if (editor && editor.isLoaded) {
+      type = this.type;
     }
 
     return m('div', {
@@ -734,6 +738,13 @@ export class TextMedia {
 class TextComponent {
   view(vnode) {
     switch (vnode.attrs.type) {
+      case TextTypes.ACE: {
+        if (Ace.isLoaded) {
+          return m(AceComponent, vnode.attrs);
+        } else {
+          return m(TextComponent, 'Loading Ace...');
+        }
+      };
       case TextTypes.CODEMIRROR: {
         if (CodeMirror.isLoaded) {
           return m(CodeMirrorComponent, vnode.attrs);

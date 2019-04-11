@@ -1,6 +1,9 @@
 import * as InputTypes from './inputtypes';
 
-import { TextTypes } from '../components/media';
+import {
+  MobileTextTypes,
+  TextTypes,
+} from '../components/media';
 
 
 export const Tools = Object.freeze({
@@ -35,7 +38,15 @@ const Options = {
 
 export const Store = {
   get textType() {
-    return (window.isMobile) ? TextTypes.CODEMIRROR : Options.textType;
+    let textType = Options.textType;
+    if (window.isMobile) {
+      textType = InputTypes.choices(
+        Object.values(MobileTextTypes),
+        textType,
+        TextTypes.CODEMIRROR,
+      );
+    }
+    return textType;
   },
   set textType(value) {
     Tools.textType = value;
