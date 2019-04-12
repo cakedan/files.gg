@@ -5,8 +5,10 @@ import { FetchRouter, HttpMethods } from 'cf-worker-router';
 import { 
   apiRouter,
   cdnRouter,
+  proxyRouter,
   stableRouter,
 } from './domains';
+
 import { requestStorage } from './domains/cdn';
 
 const router = new FetchRouter();
@@ -28,6 +30,7 @@ router.route('/favicon.ico', '*', (event) => {
 
 router.addRouter(apiRouter);
 router.addRouter(cdnRouter);
+router.addRouter(proxyRouter);
 router.addRouter(stableRouter);
 
 addEventListener('fetch', (event) => {
