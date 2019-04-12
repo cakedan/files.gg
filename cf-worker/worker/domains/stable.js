@@ -163,6 +163,12 @@ router.route(['/legal', '/legal/*'], async (event) => {
   return renderHtml(event, metatags);
 });
 
+router.route('/legal/privacy', async (event) => {
+  const metatags = new Metatags(defaultMetatags);
+  metatags.set('description', 'Our Privacy Policy');
+  return renderHtml(event, metatags);
+}, {priority: 1});
+
 router.route('/legal/report', async (event) => {
   const metatags = new Metatags(defaultMetatags);
   metatags.set('description', 'Report content');
