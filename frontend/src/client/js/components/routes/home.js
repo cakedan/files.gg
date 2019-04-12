@@ -13,7 +13,6 @@ import {
   TextTypes,
 } from '../media';
 
-import { Ace } from '../ace';
 import { CodeMirror } from '../codemirror';
 import { Monaco } from '../monaco';
 
@@ -30,7 +29,6 @@ const Tools = Object.freeze({
   defaultFilename: '{random}-{random}',
   get defaultLanguageId() {
     switch (Options.textType) {
-      case TextTypes.ACE: return Ace.defaultLanguageId;
       case TextTypes.CODEMIRROR: return CodeMirror.defaultLanguageId;
       case TextTypes.MONACO: return Monaco.defaultLanguageId;
     }
@@ -379,30 +377,6 @@ class TextUpload extends UploadType {
     if (language && this.options.language !== language) {
       this.options.language = language;
       switch (Options.textType) {
-        case TextTypes.ACE: {
-          const languageId = language.id;
-          if (this.options.languageId !== languageId) {
-            this.options.languageId = languageId;
-            Tools.setRoute();
-          }
-          if (language.mimetype) {
-            this.options.type = language.mimetype;
-          } else {
-            this.options.type = 'text/plain';
-          }
-
-          const mimetype = Mimetypes.get(this.options.type);
-          if (mimetype) {
-            const ext = mimetype.extensions.sort((x, y) => y.priority - x.priority)[0];
-            if (ext) {
-              this.options.extension = ext.extension;
-            } else {
-              this.options.extension = 'txt';
-            }
-          } else {
-            this.options.extension = languageId;
-          }
-        }; break;
         case TextTypes.CODEMIRROR: {
           const languageId = language.id;
           if (this.options.languageId !== languageId) {
@@ -493,12 +467,6 @@ class TextUpload extends UploadType {
   view(vnode) {
     const settings = {};
     switch (Options.textType) {
-      case TextTypes.ACE: {
-        Object.assign(settings, {
-          mode: (this.options.language) ? this.options.language.id : null,
-          value: this.data,
-        });
-      }; break;
       case TextTypes.CODEMIRROR: {
         Object.assign(settings, {
           mode: (this.options.language) ? this.options.language.mode : null,
@@ -511,6 +479,11 @@ class TextUpload extends UploadType {
           value: this.data,
         });
       }; break;
+      case TextTypes.NATIVE: {
+        Object.assign(settings, {
+          value: this.data,
+        });
+      }; break;
     }
     return m('div', {class: 'upload-modal text'}, [
         m('div', {class: 'header'}, [
@@ -519,12 +492,6 @@ class TextUpload extends UploadType {
               onchange: ({target}) => {
                 if (target.selectedOptions.length) {
                   switch (Options.textType) {
-                    case TextTypes.ACE: {
-                      const language = Ace.getLanguage({
-                        languageId: target.selectedOptions[0].value,
-                      });
-                      this.setLanguage(language);
-                    }; break;
                     case TextTypes.CODEMIRROR: {
                       const language = CodeMirror.getLanguage({
                         languageId: target.selectedOptions[0].value,
@@ -541,37 +508,22 @@ class TextUpload extends UploadType {
                 }
               },
             }, [
-              (Options.textType === TextTypes.ACE) ? [
-                Ace.languages.map((language) => {
+              (Options.textType === TextTypes.CODEMIRROR) ? [
+                CodeMirror.languages.map((language) => {
                   return m('option', {
                     selected: (this.options.languageId === language.id),
                     value: language.id,
-                  }, [
-                    (language.name) ? [
-                      language.name,
-                    ] : [
-                      language.id.split('_').map((a) => a.slice(0, 1).toUpperCase() + a.slice(1)).join(' '),
-                    ],
-                  ]);
+                  }, language.name);
                 }),
               ] : [
-                (Options.textType === TextTypes.CODEMIRROR) ? [
-                  CodeMirror.languages.map((language) => {
+                (Options.textType === TextTypes.MONACO) ? [
+                  Monaco.languages.map((language) => {
                     return m('option', {
                       selected: (this.options.languageId === language.id),
                       value: language.id,
-                    }, language.name);
+                    }, language.id);
                   }),
-                ] : [
-                  (Options.textType === TextTypes.MONACO) ? [
-                    Monaco.languages.map((language) => {
-                      return m('option', {
-                        selected: (this.options.languageId === language.id),
-                        value: language.id,
-                      }, language.id);
-                    }),
-                  ] : null,
-                ],
+                ] : null,
               ],
             ]),
           ]),
@@ -584,7 +536,6 @@ class TextUpload extends UploadType {
             onclick: () => this.canUpload && this.tryUpload(),
           }, [
             m('i', {class: 'material-icons'}, 'cloud_upload'),
-            m('span', 'Upload'),
           ]),
         ]),
         m(TextMedia, {

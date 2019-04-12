@@ -188,10 +188,6 @@ class CustomizationOption {
           m('div', {class: 'field'}, [
             m('div', {class: 'items'}, [
               m(ItemComponent, {
-                onclick: () => Options.textType = TextTypes.ACE,
-                selected: Options.textType === TextTypes.ACE,
-              }, 'Ace'),
-              m(ItemComponent, {
                 onclick: () => Options.textType = TextTypes.CODEMIRROR,
                 selected: Options.textType === TextTypes.CODEMIRROR,
               }, 'Code Mirror'),
@@ -201,6 +197,10 @@ class CustomizationOption {
                   selected: Options.textType === TextTypes.MONACO,
                 }, 'Monaco'),
               ] : null,
+              m(ItemComponent, {
+                onclick: () => Options.textType = TextTypes.NATIVE,
+                selected: Options.textType === TextTypes.NATIVE,
+              }, 'Native'),
             ]),
           ]),
         ]),

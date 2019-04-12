@@ -654,11 +654,6 @@ export class VideoMedia extends Media {
 
 
 import {
-  Ace,
-  AceComponent,
-} from './ace';
-
-import {
   CodeMirror,
   CodeMirrorComponent,
 } from './codemirror';
@@ -670,14 +665,12 @@ import {
 
 
 export const TextTypes = Object.freeze({
-  ACE: 'ace',
   CODEMIRROR: 'codemirror',
   MONACO: 'monaco',
   NATIVE: 'native',
 });
 
 export const MobileTextTypes = Object.freeze({
-  ACE: TextTypes.ACE,
   CODEMIRROR: TextTypes.CODEMIRROR,
   NATIVE: TextTypes.NATIVE,
 });
@@ -701,7 +694,6 @@ export class TextMedia {
 
   get module() {
     switch (this.type) {
-      case TextTypes.ACE: return Ace;
       case TextTypes.CODEMIRROR: return CodeMirror;
       case TextTypes.MONACO: return Monaco;
       default: return null;
@@ -738,32 +730,81 @@ export class TextMedia {
 class TextComponent {
   view(vnode) {
     switch (vnode.attrs.type) {
-      case TextTypes.ACE: {
-        if (Ace.isLoaded) {
-          return m(AceComponent, vnode.attrs);
-        } else {
-          return m(TextComponent, 'Loading Ace...');
-        }
-      };
       case TextTypes.CODEMIRROR: {
         if (CodeMirror.isLoaded) {
           return m(CodeMirrorComponent, vnode.attrs);
-        } else {
-          return m(TextComponent, 'Loading CodeMirror...');
         }
+        vnode.attrs.readonly = true;
       };
       case TextTypes.MONACO: {
         if (Monaco.isLoaded) {
           return m(MonacoComponent, vnode.attrs);
-        } else {
-          return m(TextComponent, 'Loading Monaco...');
         }
+        vnode.attrs.readonly = true;
       };
     }
 
-    return m('pre', [
-      m('code', {class: 'text'}, [
-        vnode.attrs.value || (vnode.attrs.settings || {}).value,
+    return m(NativeText, vnode.attrs);
+  }
+}
+
+
+class NativeText {
+  constructor(vnode) {
+    this.oneditor = InputTypes.func(vnode.attrs.oneditor, null);
+    this.onselection = InputTypes.func(vnode.attrs.onselection, null);
+    this.onvalue = InputTypes.func(vnode.attrs.onvalue, null);
+
+    this.attributes = {
+      oninput: ({target}) => {
+        if (this.onvalue) {
+          const payload = {value: target.value};
+          this.onvalue(payload);
+          if (payload.redraw || payload.redraw === undefined) {
+            m.redraw();
+          }
+        }
+      },
+      autocapitalize: 'false',
+      autocorrect: 'false',
+      spellcheck: false,
+    };
+  }
+
+  oninit(vnode) {
+    const attributes = Object.assign({}, vnode.attrs, vnode.attrs.settings);
+    for (let key in attributes) {
+      switch (key) {
+        case 'oneditor':
+        case 'onselection':
+        case 'onvalue': {
+          this[key] = InputTypes.func(attributes[key], null);
+        }; break;
+        case 'readonly':
+        case 'value': {
+          this.attributes[key] = attributes[key];
+        }; break;
+      }
+    }
+  }
+
+  onupdate(vnode) {
+    this.oninit(vnode);
+  }
+
+  view(vnode) {
+    return m('div', {class: 'native'}, [
+      m.fragment({
+        oncreate: ({dom}) => {
+          if (this.oneditor) {
+            this.oneditor({
+              type: TextTypes.NATIVE,
+              editor: dom,
+            });
+          }
+        },
+      }, [
+        m('textarea', this.attributes),
       ]),
     ]);
   }

@@ -82,11 +82,6 @@ input[type="text"]:invalid {
 }
 
 
-.ace-editor {
-    .ace_scrollbar {
-        right: 1px;
-    }
-}
 .codemirror {
     .CodeMirror-gutter-wrapper {
         // fix for iPhone select all button not working
@@ -96,7 +91,7 @@ input[type="text"]:invalid {
         right: 1px;
     }
 }
-.monaco-editor, .codemirror {
+.codemirror, .monaco-editor {
     textarea, textarea:focus {
         font-size: 16px !important;
     }
