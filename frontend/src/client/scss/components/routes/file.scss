@@ -18,7 +18,7 @@
 
         //max-height: 90vh;
         //min-height: 25vh;
-        max-width: 80vw;
+        max-width: 90vw;
         min-width: 20vw;
 
         margin: 10px 0;
@@ -47,7 +47,7 @@
                     min-width: 100%;
                 }
 
-                .codemirror, .monaco {
+                .codemirror, .monaco, .native {
                     height: 70vh;
                     width: 80vw;
                 }
@@ -59,6 +59,11 @@
                 .media-controls {
                     border-radius: 5px 5px 0 0;
                 }
+            }
+
+            .media-container.pdf {
+                height: 80vh;
+                width: 90vw;
             }
 
             .information {
@@ -78,6 +83,19 @@
                     white-space: nowrap;
                     overflow: hidden;
                     text-overflow: ellipsis;
+                }
+            }
+
+            .icon {
+                @include vp-flexbox;
+                @include vp-align-items(center);
+                @include vp-justify-content(center);
+
+                color: $filesGreyLight;
+                margin: 0 10px;
+
+                .material-icons {
+                    font-size: 128px;
                 }
             }
         }

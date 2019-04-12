@@ -23,12 +23,14 @@
         "monaco-editor": "^0.14.3",
         "monaco-editor-webpack-plugin": "^1.5.4",
         "node-sass": "^4.11.0",
+        "pdfjs-dist": "^2.0.943",
         "sass-autoprefixer": "^1.0.1",
         "sass-loader": "^7.1.0",
         "url-search-params-polyfill": "^5.1.0",
         "webpack": "^4.29.1",
         "webpack-cli": "^3.2.3",
-        "webpack-manifest-plugin": "^2.0.4"
+        "webpack-manifest-plugin": "^2.0.4",
+        "worker-loader": "^2.0.0"
     },
     "devDependencies": {},
     "scripts": {

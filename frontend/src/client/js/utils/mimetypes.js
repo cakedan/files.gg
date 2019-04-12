@@ -23,6 +23,7 @@ const defaultMimetypes = {
     'image/webp',
   ],
   json: ['application/json'],
+  pdf: ['application/pdf'],
   text: [
     'application/dart',
     'application/ecmascript',
@@ -170,6 +171,10 @@ class MimetypeStore extends Map {
       return true;
     }
     return false;
+  }
+
+  isPDFType(mimetype) {
+    return defaultMimetypes.pdf.includes(mimetype);
   }
 
   isSvgType(mimetype) {

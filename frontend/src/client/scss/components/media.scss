@@ -419,6 +419,26 @@
 }
 
 
+.media-container.pdf {
+    background-color: rgb(61, 61, 61);
+    overflow: auto;
+
+    .pdfjs-document {
+        @include vp-flexbox;
+        @include vp-flex-direction(column);
+        @include vp-align-items(center);
+
+        padding-top: 5px;
+        position: relative;
+
+        .page {
+            margin-bottom: 5px;
+            position: relative;
+        }
+    }
+}
+
+
 .media-container.fullscreen {
     @include vp-flexbox;
     @include vp-flex-direction(column);

@@ -15,6 +15,7 @@ import {
 import {
   AudioMedia,
   ImageMedia,
+  PDFMedia,
   TextMedia,
   VideoMedia,
   TextTypes,
@@ -204,11 +205,24 @@ export class Route {
 Route.className = 'file-route';
 
 
+const PDF_MAX_SIZE = 10485760;
+const TEXT_MAX_SIZE = 10485760;
+
 class FileItem {
   oninit(vnode) {
     this.file = vnode.attrs.file;
     this.dimensions = {};
-    this.showIcon = false;
+
+    this._showIcon = false;
+  }
+
+  get showIcon() {
+    return this._showIcon;
+  }
+
+  set showIcon(value) {
+    this._showIcon = !!value;
+    m.redraw();
   }
 
   get language() {
@@ -260,86 +274,106 @@ class FileItem {
         ]);
       }
 
+      if (Mimetypes.isPDFType(this.file.mimetype)) {
+        if (this.file.size < PDF_MAX_SIZE) {
+          return m(PDFMedia, {
+            type: this.file.mimetype,
+            url: this.file.urls.cdn,
+            onerror: () => this.showIcon = true,
+          });
+        }
+      }
+
       if (Mimetypes.isTextType(this.file.mimetype)) {
-        if (this.file.data === undefined) {
-          return m(TextMedia, {value: 'loading file data...'});
-        } else if (this.file.data instanceof Error) {
-          return m(TextMedia, {
-            value: [
-              'couldn\'t fetch text data, sorry',
-              String(this.file.data),
-            ].join('\n'),
-          });
-        } else {
-          const settings = {};
-          switch (Options.textType) {
-            case TextTypes.CODEMIRROR: {
-              Object.assign(settings, {
-                mode: this.language,
-                readOnly: true,
-                value: this.file.data,
-              });
-            }; break;
-            case TextTypes.MONACO: {
-              Object.assign(settings, {
-                language: this.language,
-                readOnly: true,
-                value: this.file.data,
-              });
-            }; break;
+        if (this.file.data < TEXT_MAX_SIZE) {
+          if (this.file.data === undefined || this.file.data instanceof Error) {
+            let value;
+            if (this.file.data === undefined) {
+              value = 'Loading File Data...';
+            } else {
+              value = [
+                'Failed to fetch File Data',
+                String(this.file.data) || 'Unknown Error',
+              ].join('\n');
+            }
+            return m(TextMedia, {value});
+          } else {
+            const settings = {};
+            switch (Options.textType) {
+              case TextTypes.CODEMIRROR: {
+                Object.assign(settings, {
+                  mode: this.language,
+                  readOnly: true,
+                  value: this.file.data,
+                });
+              }; break;
+              case TextTypes.MONACO: {
+                Object.assign(settings, {
+                  language: this.language,
+                  readOnly: true,
+                  value: this.file.data,
+                });
+              }; break;
+              case TextTypes.NATIVE: {
+                Object.assign(settings, {
+                  readonly: true,
+                  value: this.file.data,
+                });
+              }; break;
+            }
+    
+            return m(TextMedia, {
+              type: Options.textType,
+              settings: settings,
+              oneditor: ({type, editor}) => {
+                switch (type) {
+                  case TextTypes.CODEMIRROR: {
+                    if (Store.line !== null) {
+                      editor.setCursor(Store.line + 20);
+                      editor.setSelection({
+                        line: Store.line - 1,
+                        ch: 0,
+                      }, {
+                        line: Store.line,
+                        ch: 0,
+                      });
+                    }
+                  }; break;
+                  case TextTypes.MONACO: {
+                    if (Store.line !== null) {
+                      editor.revealLineInCenter(Store.line);
+                      editor.setSelection(new Monaco.module.Range(Store.line, 1, Store.line + 1, 1));
+                    }
+                  }; break;
+                }
+              },
+              onselection: (event) => {
+                switch (Options.textType) {
+                  case TextTypes.CODEMIRROR: {
+                    if (event.line) {
+                      Store.line = event.line + 1;
+                    } else {
+                      Store.line = null;
+                    }
+                    Tools.setRoute();
+                  }; break;
+                  case TextTypes.MONACO: {
+                    const selection = event.selection;
+                    if (
+                      (selection.endColumn === 1) &&
+                      (selection.startColumn === 1) &&
+                      (selection.endLineNumber - selection.startLineNumber === 1)
+                    ) {
+                      Store.line = selection.startLineNumber;
+                    } else {
+                      Store.line = null;
+                    }
+                    Tools.setRoute();
+                  }; break;
+                }
+              },
+            });
           }
-  
-          return m(TextMedia, {
-            type: Options.textType,
-            settings: settings,
-            oneditor: ({type, editor}) => {
-              switch (type) {
-                case TextTypes.CODEMIRROR: {
-                  if (Store.line !== null) {
-                    editor.setCursor(Store.line + 20);
-                    editor.setSelection({
-                      line: Store.line - 1,
-                      ch: 0,
-                    }, {
-                      line: Store.line,
-                      ch: 0,
-                    });
-                  }
-                }; break;
-                case TextTypes.MONACO: {
-                  if (Store.line !== null) {
-                    editor.revealLineInCenter(Store.line);
-                    editor.setSelection(new Monaco.module.Range(Store.line, 1, Store.line + 1, 1));
-                  }
-                }; break;
-              }
-            },
-            onselection: (event) => {
-              switch (Options.textType) {
-                case TextTypes.CODEMIRROR: {
-                  if (event.line) {
-                    Store.line = event.line + 1;
-                  } else {
-                    Store.line = null;
-                  }
-                  Tools.setRoute();
-                }; break;
-                case TextTypes.MONACO: {
-                  const selection = event.selection;
-                  if (
-                    (selection.endColumn === 1) &&
-                    (selection.startColumn === 1) &&
-                    (selection.endLineNumber - selection.startLineNumber === 1)
-                  ) {
-                    Store.line = selection.startLineNumber;
-                  } else {
-                    Store.line = null;
-                  }
-                  Tools.setRoute();
-                }; break;
-              }
-            },
-          });
         }
       }
 
@@ -354,7 +388,9 @@ class FileItem {
 
       this.showIcon = true;
     }
-    // return thumbnail/icon
-    return `icon for ${this.file.mimetype} and extension ${this.file.extension}`;
+
+    return m('div', {class: 'icon'}, [
+      m('i', {class: 'material-icons'}, 'insert_drive_file'),
+    ]);
   }
 }

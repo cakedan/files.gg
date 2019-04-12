@@ -5,6 +5,7 @@ import { Auth } from '../../auth';
 
 import {
   formatBytes,
+  Mimetypes,
   snowflakeToTimestamp,
 } from '../../utils';
 
@@ -204,20 +205,16 @@ class FileComponent {
   }
 
   view(vnode) {
-    const type = this.file.mimetype.split('/').shift();
-
     let media;
     if (!this.showIcon) {
-      switch (type) {
-        case 'image': {
-          media = m(ImageMedia, {title: this.file.name}, [
-            m('img', {
-              alt: this.file.name,
-              src: this.file.url,
-              onerror: () => this.file.showIcon = true,
-            }),
-          ]);
-        }; break;
+      if (Mimetypes.isImageType(this.file.mimetype)) {
+        media = m(ImageMedia, {title: this.file.name}, [
+          m('img', {
+            alt: this.file.name,
+            src: this.file.url,
+            onerror: () => this.file.showIcon = true,
+          }),
+        ]);
       }
     }
 

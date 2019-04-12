@@ -17,6 +17,7 @@ import {
   ErrorRoute,
   FileRoute,
   HomeRoute,
+  LegalPrivacyRoute,
   LegalTermsRoute,
   OptionsRoute,
 } from './components/routes';
@@ -75,6 +76,7 @@ const Routes = Object.freeze({
   '/dashboard/:path...': new RouteResolver(ErrorRoute, {authRequired: true}),
   '/details/error': new RouteResolver(ErrorRoute),
   '/details/:path...': new RouteResolver(ErrorRoute),
+  '/legal/privacy': new RouteResolver(LegalPrivacyRoute),
   '/legal/report': new RouteResolver(),
   '/legal/terms': new RouteResolver(LegalTermsRoute),
   '/legal/:path...': new RouteResolver(ErrorRoute),

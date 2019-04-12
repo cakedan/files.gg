@@ -1,0 +1,7 @@
+.route.legal-privacy {
+    @include vp-flexbox;
+    @include vp-flex-direction(column);
+    @include vp-align-items(center);
+
+    max-width: 80%;
+}

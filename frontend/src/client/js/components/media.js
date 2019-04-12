@@ -782,7 +782,10 @@ class NativeText {
         }; break;
         case 'readonly':
         case 'value': {
-          this.attributes[key] = attributes[key];
+          if (this.attributes[key] !== attributes[key]) {
+            this.attributes[key] = attributes[key];
+            m.redraw();
+          }
         }; break;
       }
     }
@@ -807,5 +810,54 @@ class NativeText {
         m('textarea', this.attributes),
       ]),
     ]);
+  }
+}
+
+/*
+export class PDFMedia {
+  view(vnode) {
+    return m('div', {
+      class: ['media-container', 'pdf'].join(' '),
+    }, [
+      m(PDFComponent, vnode.attrs),
+    ]);
+  }
+}
+
+
+class PDFComponent {
+  view(vnode) {
+    return m('object', vnode.attrs);
+  }
+}
+*/
+
+
+import {
+  PDFJS,
+  PDFJSComponent,
+} from './pdfjs';
+
+
+export class PDFMedia {
+  async oninit(vnode) {
+    if (!PDFJS.isLoaded) {
+      await PDFJS.load();
+      m.redraw();
+    }
+  }
+
+  view(vnode) {
+    if (PDFJS.isLoaded) {
+      return m('div', {class: 'media-container pdf'}, [
+        m(PDFJSComponent, vnode.attrs),
+      ]);
+    } else {
+      return m(TextMedia, {
+        type: TextMedia.NATIVE,
+        readonly: true,
+        value: 'Loading PDFJS...',
+      });
+    }
   }
 }

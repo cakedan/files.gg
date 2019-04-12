@@ -7,5 +7,6 @@ export { Route as DashboardFilesRoute } from './dashboard.files';
 export { Route as ErrorRoute } from './error';
 export { Route as FileRoute } from './file';
 export { Route as HomeRoute } from './home';
+export { Route as LegalPrivacyRoute } from './legal.privacy';
 export { Route as LegalTermsRoute } from './legal.terms';
 export { Route as OptionsRoute } from './options';
