@@ -49,7 +49,7 @@ const defaultMetatags = {
   title: 'File Uploader',
   description: 'Upload some files',
   'theme-color': '#43b581',
-  'og:site_name': 'https://files.gg',
+  'og:site_name': 'files.gg',
   'twitter:card': 'summary',
   //'twitter:site': '@filesgg',
   viewport: 'width=device-width, initial-scale=1.0',

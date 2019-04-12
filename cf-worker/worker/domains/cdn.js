@@ -1,5 +1,6 @@
 import { ApiError, DomainRouter } from 'cf-worker-router';
 import { requestApi } from './api';
+import { InputTypes } from '../utils';
 
 
 export const router = new DomainRouter('cdn.files.gg');
@@ -33,12 +34,12 @@ router.route('/files/:fileId...', ['GET', 'HEAD', 'OPTIONS'], async (event) => {
       let mimetype = file.mimetype;
       if (displayAsText.includes(mimetype)) {
         mimetype = 'text/plain';
-      } else if ((event.url.searchParams.get('force-text') || '') === 'true') {
+      } else if (InputTypes.boolean(event.url.searchParams.get('force-text'))) {
         mimetype = 'text/plain';
       }
 
       let disposition = 'inline';
-      if ((event.url.searchParams.get('download') || '').toLowerCase() === 'true') {
+      if (InputTypes.boolean(event.url.searchParams.get('download'))) {
         disposition = 'attachment';
       }
       response.headers.set('content-type', mimetype);
