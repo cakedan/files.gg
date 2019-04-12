@@ -782,10 +782,7 @@ class NativeText {
         }; break;
         case 'readonly':
         case 'value': {
-          if (this.attributes[key] !== attributes[key]) {
-            this.attributes[key] = attributes[key];
-            m.redraw();
-          }
+          this.attributes[key] = attributes[key];
         }; break;
       }
     }

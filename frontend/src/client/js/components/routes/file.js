@@ -50,6 +50,9 @@ const Tools = Object.freeze({
   },
 });
 
+const PDF_MAX_SIZE = 10485760;
+const TEXT_MAX_SIZE = 10485760;
+
 
 export class Route {
   constructor(vnode) {
@@ -90,13 +93,15 @@ export class Route {
     m.redraw();
 
     if (this.file && Mimetypes.isTextType(this.file.mimetype)) {
-      try {
-        this.file.data = await Api.request({url: this.file.urls.cdn, deserialize: (x) => x});
-      } catch(error) {
-        this.file.data = error;
+      if (this.file.size < TEXT_MAX_SIZE) {
+        try {
+          this.file.data = await Api.request({url: this.file.urls.cdn, deserialize: (x) => x});
+        } catch(error) {
+          this.file.data = error;
+        }
+        console.log(this.file);
+        m.redraw();
       }
-      console.log(this.file);
-      m.redraw();
     }
   }
 
@@ -205,9 +210,6 @@ export class Route {
 Route.className = 'file-route';
 
 
-const PDF_MAX_SIZE = 10485760;
-const TEXT_MAX_SIZE = 10485760;
-
 class FileItem {
   oninit(vnode) {
     this.file = vnode.attrs.file;
@@ -285,7 +287,7 @@ class FileItem {
       }
 
       if (Mimetypes.isTextType(this.file.mimetype)) {
-        if (this.file.data < TEXT_MAX_SIZE) {
+        if (this.file.size < TEXT_MAX_SIZE) {
           if (this.file.data === undefined || this.file.data instanceof Error) {
             let value;
             if (this.file.data === undefined) {
