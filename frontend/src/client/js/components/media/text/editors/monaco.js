@@ -1,7 +1,7 @@
 import m from 'mithril';
 
-import { InputTypes } from '../utils';
-import { TextTypes } from './media';
+import { InputTypes } from '../../../../utils';
+import { TextTypes } from '../index';
 
 
 let importedModule;

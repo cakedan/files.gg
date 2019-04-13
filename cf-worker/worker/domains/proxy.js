@@ -1,8 +1,5 @@
 import { ApiError, ApiResponse, DomainRouter } from 'cf-worker-router';
 
-import { requestApi } from './api';
-import { InputTypes } from '../utils';
-
 
 export const router = new DomainRouter('proxy.files.gg');
 
@@ -70,15 +67,8 @@ router.route('/unfurl/:url...', ['GET', 'OPTIONS'], async (event) => {
 
 
 export async function requestProxy(event, url) {
-  if (InputTypes.boolean(event.url.searchParams.get('ip'))) {
-    const ip = Array.from({length: 4}).map(() => Math.round(Math.random() * 255)).join('.');
-    event.request.headers.set('cf-connecting-ip', ip);
-    event.request.headers.set('true-client-ip', ip);
-    event.request.headers.set('x-real-ip', ip);
-  } else {
-    event.request.headers.delete('cf-connecting-ip');
-    event.request.headers.delete('true-client-ip');
-    event.request.headers.delete('x-real-ip');
-  }
+  event.request.headers.delete('cf-connecting-ip');
+  event.request.headers.delete('true-client-ip');
+  event.request.headers.delete('x-real-ip');
   return await fetch(url, event.request);
 };

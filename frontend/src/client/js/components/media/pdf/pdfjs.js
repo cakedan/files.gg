@@ -11,7 +11,7 @@ export const PDFJS = Object.freeze({
   },
   async load() {
     if (!this.isLoaded) {
-      const pdfjs = await import('../bootstrap/pdfjs');
+      const pdfjs = await import('../../../bootstrap/pdfjs');
       importedModule = pdfjs.default;
     }
     return this.module;

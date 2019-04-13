@@ -13,8 +13,10 @@ import {
   TextTypes,
 } from '../media';
 
-import { CodeMirror } from '../codemirror';
-import { Monaco } from '../monaco';
+import {
+  CodeMirror,
+  Monaco,
+} from '../media/text/editors';
 
 import {
   Store as FileStore,

@@ -1,7 +1,7 @@
 import m from 'mithril';
 
-import { InputTypes } from '../utils';
-import { TextTypes } from './media';
+import { InputTypes } from '../../../../utils';
+import { TextTypes } from '../index';
 
 
 let importedModule;
@@ -20,7 +20,7 @@ export const CodeMirror = Object.freeze({
   },
   async load() {
     if (!this.isLoaded) {
-      const codeMirror = await import('../bootstrap/codemirror');
+      const codeMirror = await import('../../../../bootstrap/codemirror');
       importedModule = codeMirror.default;
       for (let language of this.languages) {
         language.id = language.name.toLowerCase().replace(/ /g, '-');
