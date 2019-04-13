@@ -113,7 +113,7 @@ export class MediaComponent extends PlayableMedia {
             oninteract: (interacting) => this.interacting.volume = interacting,
           }),
           m('div', {
-            class: 'fullscreen',
+            class: 'controller-fullscreen',
             onclick: () => {
               this.fullscreen = !this.fullscreen;
               m.redraw();

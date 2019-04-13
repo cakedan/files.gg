@@ -393,7 +393,7 @@ class FileItem {
       this.showIcon = true;
     }
 
-    return m('div', {class: 'icon'}, [
+    return m('div', {class: 'mime-icon'}, [
       m('i', {class: 'material-icons'}, 'insert_drive_file'),
     ]);
   }
