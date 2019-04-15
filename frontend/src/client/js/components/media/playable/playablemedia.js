@@ -123,6 +123,10 @@ class MediaChild {
   constructor(vnode) {
     this.media = vnode.attrs.media;
   }
+
+  onupdate(vnode) {
+    this.media = vnode.attrs.media;
+  }
 }
 
 
@@ -142,13 +146,24 @@ class MediaHoverDragChild extends MediaChild {
     return this.hovering || this.dragging;
   }
 
+  set interacting(value) {
+    this._hovering = value;
+    this._dragging = value;
+    if (this.oninteract) {
+      this.oninteract(this.interacting);
+    }
+    return this.interacting;
+  }
+
   get hovering() {
     return this._hovering;
   }
 
   set hovering(value) {
-    this._hovering = value
-    this.oninteract(this.interacting);
+    this._hovering = value;
+    if (this.oninteract) {
+      this.oninteract(this.interacting);
+    }
     return this._hovering;
   }
 
@@ -158,11 +173,11 @@ class MediaHoverDragChild extends MediaChild {
 
   set dragging(value) {
     this._dragging = value
-    this.oninteract(this.interacting);
+    if (this.oninteract) {
+      this.oninteract(this.interacting);
+    }
     return this._dragging;
   }
-
-  oninteract() {}
 }
 
 
@@ -331,11 +346,14 @@ export class MediaVolume extends MediaHoverDragChild {
     super(vnode);
 
     this.div = null;
-    this.lastVolume = this.volume || 100;
+    this.lastVolume = this.media.volume || 100;
 
     this.listeners = {
       mousemove: this.onHover.bind(this),
       mouseup: this.onMouseUp.bind(this),
+      touchcancel: this.onTouchEnd.bind(this),
+      touchend: this.onTouchEnd.bind(this),
+      touchmove: this.onTouchMove.bind(this),
     };
     for (let listener in this.listeners) {
       window.addEventListener(listener, this.listeners[listener]);
@@ -347,7 +365,7 @@ export class MediaVolume extends MediaHoverDragChild {
   }
 
   onClick(event) {
-    this.dragging = true;
+    this.interacting = true;
     this.onHover(event);
   }
 
@@ -371,16 +389,23 @@ export class MediaVolume extends MediaHoverDragChild {
     }
   }
 
-  onMouseUp(event, force) {
-    if (event.target.className === 'material-icons') {
-      if (!force) {return;}
-    }
-    this.hovering = false;
+  onMouseUp(event) {
     this.dragging = false;
   }
 
+  onTouchEnd(event) {
+    this.interacting = false;
+  }
+
+  onTouchMove(event) {
+    if (this.hovering) {
+      this.interacting = true;
+      this.onHover(event);
+    }
+  }
+
   muteOrUnmute(event) {
-    if (event.target.className !== 'material-icons') {return;}
+    if (event.target.className !== 'volume') {return;}
 
     if (this.isMute) {
       if (this.lastVolume === 0) {
@@ -405,11 +430,9 @@ export class MediaVolume extends MediaHoverDragChild {
       m('div', {
         class: 'volume',
         onmousedown: (event) => this.muteOrUnmute(event),
+        onmouseleave: () => this.hovering = false,
         onmousemove: () => this.hovering = true,
         ontouchstart: () => this.hovering = !this.hovering,
-        ontouchmove: (event) => this.onClick(event),
-        ontouchcancel: (event) => this.onMouseUp(event, true),
-        ontouchend: (event) => this.onMouseUp(event, true),
       }, [
         (this.interacting) ? [
           m('div', {
@@ -425,10 +448,6 @@ export class MediaVolume extends MediaHoverDragChild {
               class: 'interactive-slider',
               onmousedown: (event) => this.onClick(event),
               onmousemove: () => this.hovering = true,
-              ontouchstart: (event) => this.onClick(event),
-              ontouchmove: (event) => this.onHover(event),
-              ontouchcancel: () => this.dragging = false,
-              ontouchend: () => this.dragging = false,
             }, [
               m('span', {class: 'background'}),
               m('div', {
@@ -445,11 +464,9 @@ export class MediaVolume extends MediaHoverDragChild {
             ]),
           ]),
         ] : null,
-        (this.isMute) ? [
-          m('i', {class: 'material-icons'}, 'volume_off'),
-        ] : [
-          m('i', {class: 'material-icons'}, 'volume_up'),
-        ],
+        m('i', {class: 'material-icons'}, [
+          (this.isMute) ? 'volume_off' : 'volume_up',
+        ]),
       ]),
     ];
   }

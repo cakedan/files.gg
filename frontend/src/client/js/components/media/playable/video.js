@@ -51,6 +51,13 @@ export class MediaComponent extends PlayableMedia {
     }
   }
 
+  setInteracting(type, interacting) {
+    if (this.interacting[type] !== interacting) {
+      this.interacting[type] = interacting;
+      m.redraw();
+    }
+  }
+
   onremove(vnode) {
     super.onremove.call(this, vnode);
 
@@ -106,11 +113,11 @@ export class MediaComponent extends PlayableMedia {
           m(MediaTimestamp, {media: this.media}),
           m(MediaBar, {
             media: this.media,
-            oninteract: (interacting) => this.interacting.media = interacting,
+            oninteract: (interacting) => this.setInteracting('media', interacting),
           }),
           m(MediaVolume, {
             media: this.media,
-            oninteract: (interacting) => this.interacting.volume = interacting,
+            oninteract: (interacting) => this.setInteracting('volume', interacting),
           }),
           m('div', {
             class: 'controller-fullscreen',
