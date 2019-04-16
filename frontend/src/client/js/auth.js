@@ -79,6 +79,7 @@ export const Auth = Object.freeze({
       Store.me = await Api.fetchMe();
       Store.isAuthed = true;
       Auth.isAuthing = false;
+      m.redraw();
     } catch(error) {
       this.clear();
       throw error;

@@ -6,12 +6,7 @@
         display: none;
     }
 
-    picture, img {
-        max-height: 100%;
-        max-width: 100%;
-    }
-
-    video {
+    picture, img, video {
         max-height: 100%;
         max-width: 100%;
     }
@@ -374,6 +369,10 @@
         .CodeMirror {
             height: 100%;
             width: 100%;
+
+            .CodeMirror-scrollbar-filler {
+                background: transparent !important;
+            }
         }
         .CodeMirror.cm-s-tomorrow-night-bright {
             background: rgb(30, 30, 30) !important;

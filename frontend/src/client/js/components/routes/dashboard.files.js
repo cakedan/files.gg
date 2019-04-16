@@ -3,6 +3,8 @@ import m from 'mithril';
 import { Api } from '../../api';
 import { Auth } from '../../auth';
 
+import { FileModal } from '../file';
+
 import {
   formatBytes,
   Mimetypes,
@@ -59,7 +61,7 @@ const Tools = Object.freeze({
       Store.file.id = fileId;
       Store.file.vanity = vanity;
       Store.file.response = null;
-      this.setRoute();
+      this.setRoute(!vanity);
 
       if (fileId) {
         await this.fetchFile(fileId);
@@ -75,7 +77,7 @@ const Tools = Object.freeze({
     } else {
       try {
         response = await Api.fetchFile(fileId);
-        if (!response.user || !response.user.id !== Auth.me.id) {
+        if (!response.user || response.user.id !== Auth.me.id) {
           response = new Error('You do not own this file.');
         }
       } catch(error) {
@@ -103,13 +105,16 @@ const Tools = Object.freeze({
       await FileTools.fetchFiles();
     }
   },
-  setRoute() {
+  setRoute(removeParameters) {
     let route = '/dashboard/files';
     if (Store.file.id) {
       // Incase they do something like /dashboard/files/.aaa
       route += `/${Store.file.vanity}`;
     }
-    if (route !== m.route.get()) {
+    if (route !== window.currentPath) {
+      if (!removeParameters && m.route.get().includes('?')) {
+        route += '?' + m.route.get().split('?').pop();
+      }
       m.route.set(route);
     }
   },
@@ -166,7 +171,7 @@ export class Route {
           ] : null,
         ]),
       ]),
-      (Store.file.id) ? m(DashboardFile) : null,
+      (Store.file.id) ? m(DashboardFile, vnode.attrs) : null,
     ]);
   }
 }
@@ -393,51 +398,32 @@ class DashboardFile {
   view(vnode) {
     return m('div', {
       class: 'dashboard-file-modal',
-      onclick: async ({target}) => {
-        if (target.classList.contains('dashboard-file-modal')) {
+      onmousedown: async (event) => {
+        if (event.target.classList.contains('dashboard-file-modal')) {
+          event.preventDefault();
           await Tools.setFileId('');
         }
       },
     }, [
-      m('div', {class: 'file'}, [
-        m('div', {class: 'context'}, [
-          (this.file) ? [
-            (this.file instanceof Error) ? [
-              m('div', {class: 'message error'}, [
-                m('span', [
-                  'Error: ',
-                  this.file.message || 'lol',
-                ]),
-              ]),
-            ] : [
-              m('div', {class: 'thumbnail'}, [
-                m('div', {class: 'media-container'}, [
-                  m('span', this.file.urls.main),
-                ]),
-                m('div', {class: 'information'}, [
-                  m('span', this.file.filename + '.' + this.file.extension),
-                  m('span', this.file.mimetype),
-                ]),
-              ]),
-              m('div', {class: 'footer'}, [
-                m('span', {class: 'sections'}, [
-
-                ]),
-                m('span', {class: 'buttons'}, [
-
-                ]),
-              ]),
-              m('div', {class: 'resizer'}, [
-                m('i', {class: 'material-icons'}, 'texture'),
-              ]),
-            ],
-          ] : [
-            m('div', {class: 'message'}, [
-              m('span', 'Loading...'),
+      (this.file) ? [
+        (!(this.file instanceof Error)) ? [
+          m(FileModal, {
+            file: this.file,
+            ...vnode.attrs,
+          }),
+        ] : [
+          m('div', {class: 'message error'}, [
+            m('span', [
+              'Error: ',
+              this.file.message || 'lol',
             ]),
-          ],
+          ]),
+        ],
+      ] : [
+        m('div', {class: 'message'}, [
+          m('span', 'Loading...'),
         ]),
-      ]),
+      ],
     ]);
   }
 }

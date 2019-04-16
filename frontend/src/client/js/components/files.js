@@ -111,8 +111,11 @@ export const Tools = Object.freeze({
       }
       for (let i = 0; i < files.length; i++) {
         const file = files[i];
-        const mimetype = file.type.split('/').shift();
-        if (mimetype === 'audio' || mimetype === 'image' || mimetype === 'video') {
+        if (
+          (Mimetypes.isAudioType(this.file.mimetype)) ||
+          (Mimetypes.isImageType(this.file.mimetype)) ||
+          (Mimetypes.isVideoType(this.file.mimetype))
+        ) {
           file.url = URL.createObjectURL(file);
         }
 
@@ -177,7 +180,7 @@ export class FilesModal {
   }
 
   view(vnode) {
-    return m('div', {class: 'files-modal'}, [
+    return m('div', {class: 'modal-files'}, [
       m('div', {
         class: 'main-expander',
         onclick: (event) => this.flipExpand(event),
@@ -278,12 +281,12 @@ export class FileComponent {
       this.onupload = vnode.attrs.onupload;
     }
 
-    if (!this.isFetching && this.expand) {
+    if (this.expand) {
       // check if this is a fresh upload, if so ignore
       if (this.file.uploadType !== UploadTypes.TEXT) {
         if (this.file.response && Mimetypes.isTextType(this.file.mimetype)) {
-          if (!this.file.data) {
-            this.isFetching = true;
+          if (this.file.data === undefined) {
+            this.file.data = null;
             try {
               this.file.data = await Api.request({
                 url: this.file.response.urls.cdn,
@@ -292,7 +295,6 @@ export class FileComponent {
             } catch(error) {
               this.file.data = error;
             }
-            this.isFetching = false;
             m.redraw();
           }
         }
@@ -306,6 +308,33 @@ export class FileComponent {
 
   get expand() {
     return this.file.expand && !this.file.error;
+  }
+
+  get language() {
+    switch (Options.textType) {
+      case TextTypes.CODEMIRROR: {
+        const options = {
+          languageId: this.file.extension,
+          extension: this.file.extension,
+          alias: this.file.extension,
+        };
+        if (this.file.mimetype !== 'text/plain') {
+          options.mimetype = this.file.mimetype;
+        }
+        return (CodeMirror.getLanguage(options) || {}).mode;
+      };
+      case TextTypes.MONACO: {
+        const options = {
+          languageId: this.file.extension,
+          extension: this.file.extension,
+          alias: this.file.extension,
+        };
+        if (this.file.mimetype !== 'text/plain') {
+          options.mimetype = this.file.mimetype;
+        }
+        return (Monaco.getLanguage(options) || {}).id;
+      };
+    }
   }
 
   flipExpand(event) {
@@ -326,40 +355,40 @@ export class FileComponent {
     let media;
     if (this.file.expand) {
       if (Mimetypes.isTextType(this.file.mimetype)) {
-        if (this.file.data === undefined) {
-          media = m(TextMedia, {value: 'loading file data...'});
+        if (this.file.data === undefined || this.file.data === null) {
+          media = m(TextMedia, {value: 'Loading File Data...'});
         } else if (this.file.data instanceof Error) {
           media = m(TextMedia, {
             value: [
-              'couldn\'t fetch text data, sorry',
-              String(this.file.data),
+              'Failed to fetch File Data',
+              String(this.file.data) || 'Unknown Error',
             ].join('\n'),
           });
         } else {
           const settings = {
-            readOnly: true,
             value: this.file.data,
           };
+
           switch (Options.textType) {
             case TextTypes.CODEMIRROR: {
               Object.assign(settings, {
-                mode: (CodeMirror.getLanguage({
-                  extension: this.file.extension,
-                  mimetype: this.file.mimetype,
-                }) || {}).mode,
+                mode: this.language,
+                readOnly: true,
               });
             }; break;
             case TextTypes.MONACO: {
               Object.assign(settings, {
-                automaticLayout: true,
-                language: (Monaco.getLanguage({
-                  extension: this.file.extension,
-                  mimetype: this.file.mimetype,
-                }) || {}).id,
-                theme: 'vs-dark',
+                language: this.language,
+                readOnly: true,
+              });
+            }; break;
+            case TextTypes.NATIVE: {
+              Object.assign(settings, {
+                readonly: true,
               });
             }; break;
           }
+
           media = m(TextMedia, {
             type: Options.textType,
             settings: settings,

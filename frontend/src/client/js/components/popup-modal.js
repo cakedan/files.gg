@@ -1,5 +1,7 @@
 import m from 'mithril';
 
+import { InputTypes } from '../utils';
+
 
 export class PopupModal {
   oninit(vnode) {
@@ -8,25 +10,25 @@ export class PopupModal {
     this.buttonText = vnode.attrs.buttonText || 'Okay';
     this.show = !!vnode.attrs.show;
 
-    this.onhide = vnode.attrs.onhide;
+    this._onhide = InputTypes.func(vnode.attrs.onhide);
   }
 
   onupdate(vnode) {
     this.oninit(vnode);
   }
 
-  _onhide() {
+  onhide() {
     this.show = false;
-    if (typeof(this.onhide) === 'function') {
-      this.onhide();
-    } 
+    if (this._onhide) {
+      this._onhide();
+    }
   }
 
   view(vnode) {
-    return m('div', {class: 'popup-modal'}, [
+    return m('div', {class: 'modal-popup'}, [
       m('div', {
         class: 'background',
-        onclick: () => this._onhide(),
+        onclick: () => this.onhide(),
       }),
       m('div', {
         class: [
@@ -39,7 +41,7 @@ export class PopupModal {
         m('div', {class: 'footer'}, [
           m('span', {
             class: 'button',
-            onclick: () => this._onhide(),
+            onclick: () => this.onhide(),
           }, this.buttonText),
         ]),
       ]),
