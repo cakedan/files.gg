@@ -31,10 +31,12 @@
             min-width: 100%;
 
             .compact {
+                border-radius: 5px 5px 0 0;
                 min-height: 100%;
                 min-width: 100%;
 
                 img {
+                    border-radius: 5px 5px 0 0;
                     height: 100%;
                     width: 100%;
 
@@ -45,17 +47,25 @@
                 border-radius: 5px 5px 0 0;
                 min-width: 100%;
             }
+        }
+
+        .media-container.text {
+            height: 70vh;
+            width: 80vw;
 
             .codemirror, .monaco, .native {
-                min-width: 100%;
-                height: 70vh;
-                width: 80vw;
+                border-radius: 5px 5px 0 0;
+            }
+            .codemirror {
+                .CodeMirror-gutters {
+                    border-radius: 5px 0 0 0;
+                }
             }
         }
 
         .media-container.audio {
             max-width: 100%;
-            width: 50vw;
+            width: 60vw;
 
             .media-controls {
                 border-radius: 5px 5px 0 0;
@@ -105,8 +115,8 @@
         @include vp-align-self(center);
         @include vp-flexbox;
         @include vp-flex-direction(column);
+        @include vp-align-items(center);
 
-        max-width: 50vw;
         width: 100%;
 
         color: $filesGreyLighter;
@@ -116,6 +126,9 @@
             @include vp-flexbox;
             @include vp-flex-direction(row);
             @include vp-justify-content(space-between);
+
+            max-width: 50vw;
+            width: 100%;
 
             .section {
                 @include vp-flexbox;
@@ -230,11 +243,17 @@
 
 @media only screen and (max-width: $mobileWidth) {
     .modal-file {
+        max-height: calc(90vh + 300px);
         max-width: 90vw;
         min-width: 20vw;
 
-        .media-container {
-            .codemirror, .monaco {
+        .thumbnail {
+            .media-container.audio {
+                width: 70vw;
+            }
+
+            .media-container.text {
+                min-height: 300px;
                 width: 90vw;
             }
         }
