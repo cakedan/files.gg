@@ -112,9 +112,9 @@ export const Tools = Object.freeze({
       for (let i = 0; i < files.length; i++) {
         const file = files[i];
         if (
-          (Mimetypes.isAudioType(this.file.mimetype)) ||
-          (Mimetypes.isImageType(this.file.mimetype)) ||
-          (Mimetypes.isVideoType(this.file.mimetype))
+          (Mimetypes.isAudioType(file.type)) ||
+          (Mimetypes.isImageType(file.type)) ||
+          (Mimetypes.isVideoType(file.type))
         ) {
           file.url = URL.createObjectURL(file);
         }

@@ -24,9 +24,14 @@
         @include vp-align-items(center);
         @include vp-justify-content(center);
 
+        max-height: calc(100% - 146px);
+        max-width: 100%;
+
         .media-container {
             border-radius: 5px 5px 0 0;
 
+            max-height: 100%;
+            max-width: 100%;
             min-height: 100%;
             min-width: 100%;
 
@@ -64,7 +69,6 @@
         }
 
         .media-container.audio {
-            max-width: 100%;
             width: 60vw;
 
             .media-controls {
