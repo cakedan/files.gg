@@ -18,6 +18,7 @@
     border-radius: 5px;
 
     .thumbnail {
+        @include vp-flex-grow(1);
         @include vp-flexbox;
         @include vp-flex-direction(column);
         @include vp-align-items(center);
@@ -26,14 +27,27 @@
         .media-container {
             border-radius: 5px 5px 0 0;
 
+            min-height: 100%;
             min-width: 100%;
 
+            .compact {
+                min-height: 100%;
+                min-width: 100%;
+
+                img {
+                    height: 100%;
+                    width: 100%;
+
+                    object-fit: contain;
+                }
+            }
             video {
                 border-radius: 5px 5px 0 0;
                 min-width: 100%;
             }
 
             .codemirror, .monaco, .native {
+                min-width: 100%;
                 height: 70vh;
                 width: 80vw;
             }
@@ -53,26 +67,6 @@
             width: 90vw;
         }
 
-        .information {
-            @include vp-flexbox;
-            @include vp-flex-direction(column);
-
-            @include vp-box-sizing(border-box);
-
-            max-width: 100%;
-            padding: 0 2px;
-
-            span {
-                color: $filesGreyLight;
-                padding-top: 5px;
-                text-align: center;
-
-                white-space: nowrap;
-                overflow: hidden;
-                text-overflow: ellipsis;
-            }
-        }
-
         .mime-icon {
             @include vp-flexbox;
             @include vp-align-items(center);
@@ -84,6 +78,26 @@
             .material-icons {
                 font-size: 128px;
             }
+        }
+    }
+
+    .information {
+        @include vp-flexbox;
+        @include vp-flex-direction(column);
+
+        @include vp-box-sizing(border-box);
+
+        max-width: 100%;
+        padding: 0 2px;
+
+        span {
+            color: $filesGreyLight;
+            padding-top: 5px;
+            text-align: center;
+
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
         }
     }
 

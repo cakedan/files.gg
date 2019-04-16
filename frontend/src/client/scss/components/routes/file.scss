@@ -1,4 +1,5 @@
 .route.file-route {
+    @include vp-flex-shrink(0);
     @include vp-flexbox;
     @include vp-flex-direction(column);
     @include vp-align-items(center);

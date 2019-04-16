@@ -176,10 +176,10 @@ export class FileModal {
           },
           ...vnode.attrs,
         }),
-        m('div', {class: 'information'}, [
-          m('span', this.file.name),
-          m('span', this.file.mimetype),
-        ]),
+      ]),
+      m('div', {class: 'information'}, [
+        m('span', this.file.name),
+        m('span', this.file.mimetype),
       ]),
       m('div', {class: 'footer'}, [
         m('div', {class: 'sections'}, [

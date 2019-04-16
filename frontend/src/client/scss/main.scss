@@ -21,6 +21,7 @@ html, body {
     -webkit-font-smoothing: antialiased;
 }
 
+
 .app {
     @include vp-flexbox;
     @include vp-flex-direction(column);
