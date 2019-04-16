@@ -9,9 +9,9 @@
     position: relative;
 
     max-height: 90vh;
-    min-height: 35vh;
+    min-height: 180px;
     max-width: 90vw;
-    min-width: 20vw;
+    min-width: 400px;
 
     margin: 10px 0;
     background-color: $filesGreyDark;
@@ -215,11 +215,14 @@
 }
 
 @media only screen and (max-width: $mobileWidth) {
-    max-width: 90vw;
+    .modal-file {
+        max-width: 90vw;
+        min-width: 20vw;
 
-    .media-container {
-        .codemirror, .monaco {
-            width: 90vw;
+        .media-container {
+            .codemirror, .monaco {
+                width: 90vw;
+            }
         }
     }
 }
