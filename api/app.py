@@ -65,11 +65,13 @@ def before_request():
 @app.after_request
 def after_request(response):
     db.close()
-    if request.headers.get('origin', '').endswith('files.gg'):
+    if request.headers.get('origin'):
         response.headers.add('access-control-allow-credentials', 'true')
         response.headers.add('access-control-allow-headers', 'Authorization, Content-Type, X-Fingerprint')
         response.headers.add('access-control-allow-methods', 'DELETE, GET, HEAD, OPTIONS, PATCH, POST, PUT, TRACE')
-        response.headers.add('access-control-allow-origin', request.headers.get('origin'))
+        response.headers.add('access-control-allow-origin', '*')
+        response.headers.add('access-control-max-age', '300')
+    response.headers.add('cache-control', 'no-cache, no-store')
     return response
 
 import traceback
