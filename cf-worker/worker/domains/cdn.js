@@ -52,6 +52,7 @@ router.route('/files/:fileId...', ['GET', 'HEAD', 'OPTIONS'], async (event) => {
 });
 
 
+const bodyLessMethods = ['GET', 'HEAD', 'OPTIONS'];
 export async function requestStorage(event, options) {
   if (typeof(options) === 'string') {
     options = {path: options};
@@ -63,8 +64,8 @@ export async function requestStorage(event, options) {
   url.pathname = options.path;
 
   const request = new Request(url, event.request);
-  if (options.method === 'GET' || options.method === 'HEAD') {
-    options.body = undefined;
+  if (bodyLessMethods.includes(options.method)) {
+    options.body = null;
   }
 
   let response = await fetch(request, options);

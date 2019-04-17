@@ -763,6 +763,8 @@ export class FileObject {
   }
 
   async delete(event) {
+    event.preventDefault();
+    event.stopPropagation();
     switch (this.type) {
       case FileTypes.PREVIEW: {
         this.revokeUrl();

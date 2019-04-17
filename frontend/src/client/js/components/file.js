@@ -166,7 +166,8 @@ export class FileModal {
         m(FileThumbnail, {
           file: this.file,
           key: this.file.id,
-          onload: () => {
+          onload: (event) => {
+            console.log(event);
             if (this.height === null) {
               this.height = this.div.offsetHeight;
             }

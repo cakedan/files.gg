@@ -6,6 +6,7 @@ export const router = new DomainRouter('api.files.gg');
 router.route('/*', '*', {pass: true});
 
 
+const bodyLessMethods = ['GET', 'HEAD', 'OPTIONS'];
 export async function requestApi(event, options) {
   if (typeof(options) === 'string') {
     options = {path: options};
@@ -20,9 +21,8 @@ export async function requestApi(event, options) {
   }
 
   const request = new Request(url, event.request);
-  if (options.method === 'GET' || options.method === 'HEAD') {
-    // Safari sends a body with OPTIONS requests lol
-    options.body = undefined;
+  if (bodyLessMethods.includes(options.method)) {
+    options.body = null;
   }
   return await fetch(request, options);
 };

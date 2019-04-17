@@ -35,11 +35,12 @@
             min-height: 100%;
             min-width: 100%;
 
-            .compact {
+            .compact, video {
                 border-radius: 5px 5px 0 0;
                 min-height: 100%;
                 min-width: 100%;
-
+            }
+            .compact {
                 img {
                     border-radius: 5px 5px 0 0;
                     height: 100%;
@@ -47,10 +48,6 @@
 
                     object-fit: contain;
                 }
-            }
-            video {
-                border-radius: 5px 5px 0 0;
-                min-width: 100%;
             }
         }
 
