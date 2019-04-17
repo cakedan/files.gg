@@ -1,6 +1,7 @@
 import m from 'mithril';
 
 import { Auth } from '../auth';
+import { Browser } from '../utils';
 
 import branding from '../../assets/branding.png';
 
@@ -44,7 +45,7 @@ class MobileDropdown {
 class UserDropdown {
   oninit(vnode) {
     this.user = vnode.attrs.user || {};
-    this.active = !!vnode.attrs.active;
+    this.active = vnode.attrs.active;
     this.dropdownLocation = 0;
   }
 
@@ -61,7 +62,7 @@ class NavbarLink {
   }
 
   view(vnode) {
-    if (vnode.attrs.href === window.currentPath) {
+    if (vnode.attrs.href === Browser.currentPath) {
       vnode.attrs.class = [vnode.attrs.class, 'active'].filter((v) => v).join(' ');
     }
     return m('a', vnode.attrs, vnode.children);
@@ -72,7 +73,7 @@ class NavbarLink {
 export class Navbar {
   view(vnode) {
     return m('nav', [
-      (window.isMobile) ? [
+      (Browser.isMobile) ? [
         m('div', {class: 'mobile'}, [
           m(MobileDropdown, [
             m('li', [

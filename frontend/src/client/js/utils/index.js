@@ -1,3 +1,4 @@
+export * from './browser';
 export * from './mimetypes';
 export * from './tools';
 

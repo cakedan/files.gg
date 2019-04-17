@@ -29,8 +29,6 @@ router.route('/files/:fileId...', ['GET', 'HEAD', 'OPTIONS'], async (event) => {
     const file = await response.json();
     response = await requestStorage(event, '/files/' + file.hash);
     if (response.ok) {
-      const filename = encodeURIComponent([file.filename, file.extension].join('.'));
-
       let mimetype = file.mimetype;
       if (displayAsText.includes(mimetype)) {
         mimetype = 'text/plain';
@@ -42,8 +40,10 @@ router.route('/files/:fileId...', ['GET', 'HEAD', 'OPTIONS'], async (event) => {
       if (InputTypes.boolean(event.url.searchParams.get('download'))) {
         disposition = 'attachment';
       }
-      response.headers.set('content-type', mimetype);
+
+      const filename  = encodeURIComponent(file.filename);
       response.headers.set('content-disposition', `${disposition}; filename="${filename}"`);
+      response.headers.set('content-type', mimetype);
     }
   } else {
     response = new Response(response.body, response);

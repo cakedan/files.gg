@@ -243,12 +243,10 @@ router.route('/:fileId...', ['GET', 'HEAD'], async (event) => {
         }
       }
 
-      const filename = [file.filename, file.extension].join('.');
-
       metatags.set('mimetype', file.mimetype);
       metatags.set('description', formatBytes(file.size, 2));
       metatags.set('url', file.urls.cdn);
-      metatags.set('title', filename);
+      metatags.set('title', file.filename);
 
       metatags.set('og:type', 'article');
       //og:image is a thumbnail
@@ -261,11 +259,11 @@ router.route('/:fileId...', ['GET', 'HEAD'], async (event) => {
             metatags.set('og:image:type', file.mimetype);
             metatags.set('og:image:height', file.height);
             metatags.set('og:image:width', file.width);
-            metatags.set('og:image:alt', filename);
+            metatags.set('og:image:alt', file.filename);
 
             metatags.set('twitter:card', 'summary_large_image');
             metatags.set('twitter:image', file.urls.cdn);
-            metatags.set('twitter:image:alt', filename);
+            metatags.set('twitter:image:alt', file.filename);
           }; break;
           case 'video': {
             metatags.set('og:type', 'video.other');
@@ -273,7 +271,7 @@ router.route('/:fileId...', ['GET', 'HEAD'], async (event) => {
             metatags.set('og:video:type', file.mimetype);
             metatags.set('og:video:height', file.height);
             metatags.set('og:video:width', file.width);
-            metatags.set('og:video:alt', filename);
+            metatags.set('og:video:alt', file.filename);
             metatags.set('video:duration', file.duration);
 
             metatags.set('twitter:card', 'player');
@@ -315,8 +313,9 @@ router.route('/:fileId...', ['GET', 'HEAD'], async (event) => {
   return renderHtml(event, metatags);
 });
 
-router.route('/assets/:fileName...', '*', async (event) => {
-  return await requestStorage(event, `/assets/${version}/${event.parameters.fileName}`);
+router.route('/assets/:filename...', '*', async (event) => {
+  const filename = encodeURIComponent(event.parameters.filename);
+  return await requestStorage(event, `/assets/${version}/${filename}`);
 });
 
 router.route('/favicon.ico', '*', async (event) => {

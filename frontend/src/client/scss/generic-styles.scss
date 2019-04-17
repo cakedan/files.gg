@@ -146,3 +146,17 @@ input[type="text"]:invalid {
         width: auto;
     }
 }
+
+
+.overlay {
+    @include vp-transform(translate3d(0, 0, 0));
+
+    background-color: rgba(0, 0, 0, 0.5);
+    height: 100vh;
+    width: 100vw;
+
+    top: 0;
+    left: 0;
+    position: fixed;
+    z-index: 9997;
+}

@@ -2,6 +2,7 @@ import m from 'mithril';
 
 import { Api } from '../api';
 import {
+  Browser,
   formatBytes,
   InputTypes,
   Mimetypes,
@@ -33,7 +34,7 @@ const Tools = Object.freeze({
     if (options.line !== null) {
       params.append('line', options.line);
     }
-    const route = [window.currentPath, params.toString()].filter((v) => v).join('?');
+    const route = [Browser.currentPath, params.toString()].filter((v) => v).join('?');
     if (route !== m.route.get()) {
       m.route.set(route, null, {replace: true});
     }
@@ -65,6 +66,10 @@ export class FileModal {
       touchcancel: this.onMouseUp.bind(this),
       touchend: this.onMouseUp.bind(this),
     };
+  }
+
+  get showResizer() {
+    return !Browser.isMobile && !Browser.isInternetExplorer;
   }
 
   async oninit(vnode) {
@@ -179,7 +184,7 @@ export class FileModal {
         }),
       ]),
       m('div', {class: 'information'}, [
-        m('span', this.file.name),
+        m('span', this.file.filename),
         m('span', this.file.mimetype),
       ]),
       m('div', {class: 'footer'}, [
@@ -200,7 +205,7 @@ export class FileModal {
           m('a', {
             class: 'download material-icons',
             href: this.file.urls.cdn + '?download=true',
-            download: this.file.name,
+            download: this.file.filename,
             title: 'Download',
           }, 'file_download'),
         ]),
@@ -208,7 +213,7 @@ export class FileModal {
           `Uploaded on ${date.toLocaleDateString()} at ${date.toLocaleTimeString()}`,
         ]),
       ]),
-      (!window.isMobile) ? [
+      (this.showResizer) ? [
         m('div', {class: 'resizer'}, [
           m('div', {
             class: 'height',
@@ -286,7 +291,7 @@ class FileThumbnail {
     if (!this.showIcon) {
       // maybe parse xml/json, or add a button for it
       if (Mimetypes.isAudioType(this.file.mimetype)) {
-        return m(AudioMedia, {title: this.file.name}, [
+        return m(AudioMedia, {title: this.file.filename}, [
           m('source', {
             src: this.file.urls.cdn,
             onerror: () => this.showIcon = true,
@@ -297,7 +302,7 @@ class FileThumbnail {
       if (Mimetypes.isImageType(this.file.mimetype)) {
         return m(ImageMedia, [
           m('img', {
-            alt: this.file.name,
+            alt: this.file.filename,
             src: this.file.urls.cdn,
             onload: vnode.attrs.onload,
             onerror: () => this.showIcon = true,
@@ -409,7 +414,7 @@ class FileThumbnail {
       }
 
       if (Mimetypes.isVideoType(this.file.mimetype)) {
-        return m(VideoMedia, {title: this.file.name}, [
+        return m(VideoMedia, {title: this.file.filename}, [
           m('source', {
             src: this.file.urls.cdn,
             onload: vnode.attrs.onload,

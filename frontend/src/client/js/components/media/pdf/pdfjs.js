@@ -1,5 +1,6 @@
 import m from 'mithril';
 
+import { Browser } from '../../../utils';
 
 let importedModule;
 export const PDFJS = Object.freeze({
@@ -64,7 +65,7 @@ export class PDFJSComponent {
     this.isRendering = true;
 
     let scale = 0.8;
-    if (window.isMobile) {
+    if (Browser.isMobile) {
       scale = 0.5;
     }
     if (this.lastScale === scale) {return;}

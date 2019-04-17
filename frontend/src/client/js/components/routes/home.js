@@ -1,11 +1,12 @@
 import m from 'mithril';
 import md5 from 'crypto-js/md5';
 
-import { Head } from '../head';
 import {
+  Browser,
   Mimetypes,
   InputTypes,
 } from '../../utils';
+
 import { Store as Options } from '../../utils/options';
 
 import {
@@ -47,7 +48,7 @@ const Tools = Object.freeze({
     if (Store.upload.settings.type !== this.defaultUploadType) {
       params.append('type', Store.upload.settings.type);
     }
-    const route = [window.currentPath, params.toString()].filter((v) => v).join('?');
+    const route = [Browser.currentPath, params.toString()].filter((v) => v).join('?');
     if (route !== m.route.get()) {
       m.route.set(route, null, {replace: true});
     }
@@ -114,7 +115,7 @@ export class Route {
       m('div', {
         class: [
           'divider',
-          (window.isMobile) ? 'horizontal' : 'vertical',
+          (Browser.isMobile) ? 'horizontal' : 'vertical',
         ].join(' '),
       }, [
         m('span', {class: 'divider-line'}),

@@ -1,6 +1,7 @@
 import m from 'mithril';
 
 import { Api } from '../api';
+import { Browser } from './browser';
 
 
 const defaultMimetypes = {
@@ -97,8 +98,6 @@ class MimetypeStore extends Map {
     }
     this.isLoading = false;
     m.redraw();
-
-
   }
 
   async wait() {
@@ -137,11 +136,7 @@ class MimetypeStore extends Map {
     switch (mimetype) {
       case 'audio/ogg': {
         // IE and Safari do not support these types
-        const isValidBrowser = !window.browser.satisfies({
-          'internet explorer': '>=0',
-          safari: '>=0',
-        });
-        if (!isValidBrowser) {
+        if (Browser.isInternetExplorer || Browser.isSafari) {
           return false;
         }
       }; break;
@@ -149,8 +144,7 @@ class MimetypeStore extends Map {
       case 'audio/wave':
       case 'audio/x-wav': {
         // IE does not support these types
-        const isValidBrowser = !window.browser.satisfies({'internet explorer': '>=0'});
-        if (!isValidBrowser) {
+        if (Browser.isInternetExplorer) {
           return false;
         }
       }; break;
@@ -201,7 +195,7 @@ class MimetypeStore extends Map {
 
     switch (mimetype) {
       case 'video/mp4': {
-        const isValidBrowser = window.browser.satisfies({
+        const isValidBrowser = Browser.satisfies({
           firefox: '>=21',
           opera: '>=25',
         });
@@ -214,18 +208,13 @@ class MimetypeStore extends Map {
       case 'video/ogg':
       case 'video/webm': {
         // IE and Safari do not support these types
-        const isValidBrowser = !window.browser.satisfies({
-          'internet explorer': '>=0',
-          safari: '>=0',
-        });
-        if (!isValidBrowser) {
+        if (Browser.isInternetExplorer || Browser.isSafari) {
           return false;
         }
       }; break;
       case 'video/x-m4v': {
         // Only Apple supports this type, something about itunes videos
-        const isValidBrowser = window.browser.satisfies({safari: '>=0'});
-        if (!isValidBrowser) {
+        if (!Browser.isSafari) {
           return false;
         }
       }; break;

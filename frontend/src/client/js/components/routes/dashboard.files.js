@@ -6,6 +6,7 @@ import { Auth } from '../../auth';
 import { FileModal } from '../file';
 
 import {
+  Browser,
   formatBytes,
   Mimetypes,
   snowflakeToTimestamp,
@@ -111,7 +112,7 @@ const Tools = Object.freeze({
       // Incase they do something like /dashboard/files/.aaa
       route += `/${Store.file.vanity}`;
     }
-    if (route !== window.currentPath) {
+    if (route !== Browser.currentPath) {
       if (!removeParameters && m.route.get().includes('?')) {
         route += '?' + m.route.get().split('?').pop();
       }
@@ -140,39 +141,41 @@ export class Route {
   }
 
   view(vnode) {
-    if (FileStore.isLoading) {
-      return m('div', {class: 'message'}, [
-        m('span', 'loading...'),
-      ]);
-    }
-
-    return m('div', {class: 'main-modal'}, [
-      m('div', {class: 'divider'}, [
-        m('span', {class: 'divider-text'}, [
-          `${FileStore.total.toLocaleString()} File${(FileStore.total !== 1) ? 's' : ''}`,
+    return [
+      (FileStore.isLoading) ? [
+        m('div', {class: 'message'}, [
+          m('span', 'loading...'),
         ]),
-      ]),
-      m.fragment({
-        oncreate: ({dom}) => Tools.onScroll(dom),
-      }, [
-        m('div', {
-          class: [
-            'files',
-            `view-${Store.viewType}`,
-          ].join(' '),
-          onscroll: ({target}) => Tools.onScroll(target),
-        }, [
-          FileStore.files.uploaded.map((file) => m(FileComponent, {file, key: file.id})),
-          (FileStore.isFetching) ? [
-            m('div', {class: 'modal'}, [
-              m('i', {class: 'material-icons'}, ''),
-              m('span', 'Fetching more...'),
+      ] : [
+        m('div', {class: 'main-modal'}, [
+          m('div', {class: 'divider'}, [
+            m('span', {class: 'divider-text'}, [
+              `${FileStore.total.toLocaleString()} File${(FileStore.total !== 1) ? 's' : ''}`,
             ]),
-          ] : null,
+          ]),
+          m.fragment({
+            oncreate: ({dom}) => Tools.onScroll(dom),
+          }, [
+            m('div', {
+              class: [
+                'files',
+                `view-${Store.viewType}`,
+              ].join(' '),
+              onscroll: ({target}) => Tools.onScroll(target),
+            }, [
+              FileStore.files.uploaded.map((file) => m(FileComponent, {file, key: file.id})),
+              (FileStore.isFetching) ? [
+                m('div', {class: 'modal'}, [
+                  m('i', {class: 'material-icons'}, ''),
+                  m('span', 'Fetching more...'),
+                ]),
+              ] : null,
+            ]),
+          ]),
         ]),
-      ]),
+      ],
       (Store.file.id) ? m(DashboardFile, vnode.attrs) : null,
-    ]);
+    ];
   }
 }
 Route.className = 'dashboard-files';
@@ -213,9 +216,9 @@ class FileComponent {
     let media;
     if (!this.showIcon) {
       if (Mimetypes.isImageType(this.file.mimetype)) {
-        media = m(ImageMedia, {title: this.file.name}, [
+        media = m(ImageMedia, {title: this.file.filename}, [
           m('img', {
-            alt: this.file.name,
+            alt: this.file.filename,
             src: this.file.url,
             onerror: () => this.file.showIcon = true,
           }),
@@ -241,7 +244,7 @@ class FileComponent {
           m('div', {class: 'fields'}, [
             m('div', {class: 'field'}, [
               m('div', {class: 'info'}, [
-                m('span', {class: 'title'}, this.file.name),
+                m('span', {class: 'title'}, this.file.filename),
               ]),
               m('div', {class: 'info'}, [
                 m('span', {class: 'category'}, 'Mimetype:'),
@@ -284,7 +287,7 @@ class FileComponent {
           ]),
           m('div', {class: 'fields'}, [
             m('div', {class: 'field'}, [
-              m('span', {class: 'title'}, this.file.name),
+              m('span', {class: 'title'}, this.file.filename),
             ]),
             m('div', {class: 'field'}, [
               m('span', this.file.mimetype),
@@ -306,7 +309,7 @@ class FileComponent {
           ]),
           m('div', {class: 'fields'}, [
             m('div', {class: 'field filename'}, [
-              m('span', this.file.name),
+              m('span', this.file.filename),
             ]),
             m('div', {class: 'field timestamp'}, [
               m('span', `${date.toLocaleDateString()} at ${date.toLocaleTimeString()}`),
@@ -329,7 +332,7 @@ class FileComponent {
           ]),
           m('div', {class: 'fields'}, [
             m('div', {class: 'field'}, [
-              m('span', this.file.name),
+              m('span', this.file.filename),
             ]),
           ]),
         ]);
@@ -347,7 +350,7 @@ class FileComponent {
             ]),
             m('div', {class: 'fields'}, [
               m('div', {class: 'field'}, [
-                m('span', this.file.name),
+                m('span', this.file.filename),
               ]),
             ]),
           ]),
@@ -367,7 +370,7 @@ class FileComponent {
           ],
         ]),
         m('div', {class: 'information'}, [
-          m('span', {class: 'filename'}, this.file.name),
+          m('span', {class: 'filename'}, this.file.filename),
           m('span', {class: 'filesize'}, formatBytes(this.file.size, 2)),
         ]),
       ]),
@@ -421,7 +424,7 @@ class DashboardFile {
         ],
       ] : [
         m('div', {class: 'message'}, [
-          m('span', 'Loading...'),
+          m('span', 'Loading File Data...'),
         ]),
       ],
     ]);

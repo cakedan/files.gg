@@ -1,5 +1,7 @@
 import * as InputTypes from './inputtypes';
 
+import { Browser } from './browser';
+
 import {
   MobileTextTypes,
   TextTypes,
@@ -20,7 +22,7 @@ export const Tools = Object.freeze({
       } catch(error) {}
       localStorage.removeItem('textType');
     }
-    return (window.isMobile) ? TextTypes.CODEMIRROR : TextTypes.MONACO;
+    return (Browser.isMobile) ? TextTypes.CODEMIRROR : TextTypes.MONACO;
   },
   set textType(value) {
     const textType = InputTypes.choices(Object.values(TextTypes), value);
@@ -39,7 +41,7 @@ const Options = {
 export const Store = {
   get textType() {
     let textType = Options.textType;
-    if (window.isMobile) {
+    if (Browser.isMobile) {
       textType = InputTypes.choices(
         Object.values(MobileTextTypes),
         textType,

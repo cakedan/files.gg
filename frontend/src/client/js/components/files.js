@@ -4,6 +4,7 @@ import { Api } from '../api';
 import { Auth, Fingerprint } from '../auth';
 
 import {
+  Browser,
   formatBytes,
   InputTypes,
   Mimetypes,
@@ -55,9 +56,6 @@ export const FileTypes = Object.freeze({
 
 
 export const Tools = Object.freeze({
-  get defaultTextType() {
-    return (window.isMobile) ? TextTypes.CODEMIRROR : TextTypes.MONACO;
-  },
   async fetchFiles(options) {
     Store.isFetching = true;
     try {
@@ -106,7 +104,7 @@ export const Tools = Object.freeze({
   addFiles(files) {
     if (files.length) {
       let expand = (!Store.files.preview.length && files.length === 1);
-      if (window.currentPath !== '/') {
+      if (Browser.currentPath !== '/') {
         expand = false;
       }
       for (let i = 0; i < files.length; i++) {
@@ -146,7 +144,7 @@ window.addEventListener('drop', (event) => {
   event.preventDefault();
   event.stopPropagation();
   if (event.dataTransfer.files.length) {
-    if (window.currentPath !== '/') {
+    if (Browser.currentPath !== '/') {
       Store.expand = true;
     }
     Tools.addFiles(event.dataTransfer.files);
@@ -398,7 +396,7 @@ export class FileComponent {
         if (this.file.url) {
           switch (this.file.mimetype.split('/').shift()) {
             case 'audio': {
-              media = m(AudioMedia, {title: this.file.name}, [
+              media = m(AudioMedia, {title: this.file.filename}, [
                 m('source', {
                   src: this.file.url,
                   onerror: () => this.file.revokeUrl(),
@@ -406,16 +404,16 @@ export class FileComponent {
               ]);
             }; break;
             case 'image': {
-              media = m(ImageMedia, {title: this.file.name}, [
+              media = m(ImageMedia, {title: this.file.filename}, [
                 m('img', {
-                  alt: this.file.name,
+                  alt: this.file.filename,
                   src: this.file.url,
                   onerror: () => this.file.revokeUrl(),
                 }),
               ]);
             }; break;
             case 'video': {
-              media = m(VideoMedia, {title: this.file.name}, [
+              media = m(VideoMedia, {title: this.file.filename}, [
                 m('source', {
                   src: this.file.url,
                   onerror: () => this.file.revokeUrl(),
@@ -434,7 +432,7 @@ export class FileComponent {
         ]),
         m('div', {class: 'description'}, [
           m('div', {class: 'filename'}, [
-            m('span', this.file.name),
+            m('span', this.file.filename),
           ]),
           m('div', {class: 'filesize'}, [
             m('span', formatBytes(this.file.size, 2)),
@@ -566,9 +564,9 @@ export class FileObject {
     }
   }
 
-  get name() {
+  get filename() {
     if (this.response) {
-      return `${this.response.filename}.${this.response.extension}`;
+      return this.response.filename;
     }
 
     if (this.file) {
@@ -577,11 +575,11 @@ export class FileObject {
           return this.file.name;
         };
         case UploadTypes.TEXT: {
-          const filename = this.file.name || 'random';
+          const name = this.file.name || 'random';
           if (this.file.extension) {
-            return `${filename}.${this.file.extension}`;
+            return `${name}.${this.file.extension}`;
           } else {
-            return filename;
+            return name;
           }
         };
       }
@@ -736,7 +734,7 @@ export class FileObject {
         }; break;
         case UploadTypes.TEXT: {
           form.append('file', this.file.blob);
-          form.append('filename', this.name);
+          form.append('filename', this.filename);
         }; break;
       }
 

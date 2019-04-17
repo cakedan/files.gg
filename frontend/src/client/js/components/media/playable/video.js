@@ -1,5 +1,7 @@
 import m from 'mithril';
 
+import { Browser } from '../../../utils';
+
 import {
   PlayableMedia,
   MediaBar,
@@ -17,10 +19,6 @@ export class MediaComponent extends PlayableMedia {
     this.interacting = {media: false, volume: false};
 
     this.fullscreen = false;
-
-    this.useCustomControls = !window.browser.satisfies({
-      safari: '>=0',
-    });
 
     this.listeners = {
       fullscreenchange: this.onFullscreenChange.bind(this),
@@ -67,7 +65,8 @@ export class MediaComponent extends PlayableMedia {
   }
 
   view(vnode) {
-    if (this.useCustomControls) {
+    // Safari doesn't like custom controls on videos
+    if (!Browser.isSafari) {
       return m('div', {
         class: [
           'media-container',

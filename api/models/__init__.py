@@ -121,12 +121,14 @@ class File(BaseModel):
     view_count = peewee.BigIntegerField(default=0)
 
     def to_dict(self):
+        extension = self.extension or 'unknown'
         return {
             'id': str(self.id),
             'vanity': self.vanity,
             'mimetype': self.mimetype_id,
-            'extension': self.extension or 'unknown',
-            'filename': self.filename,
+            'extension': extension,
+            'name': self.filename,
+            'filename': '{}.{}'.format(self.filename, extension),
             'hash': str(self.hash_id),
             'size': self.hash.size,
             'height': self.hash.height,

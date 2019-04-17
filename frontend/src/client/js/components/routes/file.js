@@ -15,7 +15,6 @@ export class Route {
     this.loading = true;
     try {
       this.file = vnode.attrs.file = await Api.fetchFile(vnode.attrs.fileId, {views: true});
-      this.file.name = [this.file.filename, this.file.extension].filter((v) => v).join('.');
     } catch(error) {
       this.error = error;
     }

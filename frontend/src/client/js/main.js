@@ -1,16 +1,7 @@
-import favicon from '../assets/favicon.ico';
-
-import Bowser from 'bowser';
-
-Object.defineProperty(window, 'browser', {
-  value: Bowser.getParser(window.navigator.userAgent || ''),
-});
+import '../assets/favicon.ico';
 
 import m from 'mithril';
 
-Object.defineProperty(window, 'isMobile', {
-  get: () => window.innerWidth <= 992,
-});
 
 Object.defineProperty(window, 'currentPath', {
   get: () => m.route.get().split('?').shift(),
