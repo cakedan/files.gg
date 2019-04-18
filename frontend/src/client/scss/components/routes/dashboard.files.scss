@@ -36,6 +36,9 @@
             overflow: auto;
             padding: 10px 0;
         }
+        .files.ios-fix {
+            overflow: hidden;
+        }
 
         .files.view-content {
             @include vp-flex-direction(column);
@@ -641,7 +644,16 @@
         @include vp-align-items(center);
         @include vp-justify-content(center);
 
-        @extend .overlay;
+        background-color: rgba(0, 0, 0, 0.5);
+        min-height: 100vh;
+        width: 100vw;
+        overflow: auto;
+
+        top: 0;
+        left: 0;
+        margin: auto;
+        position: absolute;
+        z-index: 9997;
     }
 
 

@@ -1,4 +1,5 @@
 import m from 'mithril';
+import { formatRelative } from 'date-fns';
 
 import { Api } from '../api';
 import {
@@ -55,7 +56,7 @@ export class FileModal {
     this.file = null;
 
     this.div = null;
-    this.dragging = {height: false, width: false};
+    this.dragging = {top: false, bottom: false, left: false, right: false};
     this.height = null;
     this.width = null;
 
@@ -68,7 +69,7 @@ export class FileModal {
     };
   }
 
-  get showResizer() {
+  get canResize() {
     return !Browser.isMobile && !Browser.isInternetExplorer;
   }
 
@@ -110,19 +111,16 @@ export class FileModal {
     }
   }
 
-  onMouseDown(event, height, width) {
-    if (height) {
-      this.dragging.height = true;
-    }
-    if (width) {
-      this.dragging.width = true;
+  onMouseDown(event, sides) {
+    for (let side of sides) {
+      this.dragging[side] = true;
     }
   }
 
   onMouseMove(event) {
     if (!this.div) {return;}
 
-    if (this.dragging.height || this.dragging.width) {
+    if (this.dragging.top || this.dragging.bottom || this.dragging.left || this.dragging.right) {
       let clientY, clientX;
       if (event.type.startsWith('touch')) {
         clientY = event.touches[0].clientY;
@@ -133,33 +131,62 @@ export class FileModal {
       }
 
       const rect = this.div.getBoundingClientRect();
-      if (this.dragging.height) {
-        const top = this.div.offsetHeight + rect.top;
-        this.height = Math.min(clientY - top, window.innerHeight * 0.80) + this.div.offsetHeight;
-        this.height = Math.max(this.height, 0);
+      if (this.dragging.top || this.dragging.bottom) {
+        const maxHeight = window.innerHeight * 0.80;
+        const minHeight = 0;
+
+        if (this.dragging.top) {
+          const top = rect.top;
+          this.height = Math.min((clientY - top) * -1, maxHeight);
+        }
+        if (this.dragging.bottom) {
+          const top = this.div.clientHeight + rect.top;
+          this.height = Math.min(clientY - top, maxHeight);
+        }
+        this.height += this.div.clientHeight;
+        this.height = Math.max(this.height, minHeight);
       }
-      if (this.dragging.width) {
-        const left = this.div.offsetWidth + rect.left;
-        this.width = Math.min(clientX - left, window.innerWidth * 0.70) + this.div.offsetWidth;
-        this.width = Math.max(this.width, 0);
+      if (this.dragging.left || this.dragging.right) {
+        const maxWidth = window.innerWidth * 0.70;
+        const minWidth = 0;
+
+        if (this.dragging.left) {
+          const left = rect.left;
+          this.width = Math.min((clientX - left) * -1, maxWidth);
+        }
+        if (this.dragging.right) {
+          const left = this.div.clientWidth + rect.left;
+          this.width = Math.min(clientX - left, maxWidth);
+        }
+        this.width += this.div.clientWidth;
+        this.width = Math.max(this.width, minWidth);
       }
       if (this.height === null) {
-        this.height = this.div.offsetHeight;
+        this.height = this.div.clientHeight;
       }
       if (this.width === null) {
-        this.width = this.div.offsetWidth;
+        this.width = this.div.clientWidth;
       }
       m.redraw();
     }
   }
 
   onMouseUp(event) {
-    this.dragging.height = false;
-    this.dragging.width = false;
+    for (let side in this.dragging) {
+      this.dragging[side] = false;
+    }
   }
 
   view(vnode) {
     const date = new Date(snowflakeToTimestamp(this.file.id));
+    const uploadedText = `Uploaded ${formatRelative(date, new Date())}`;
+    /*
+    if (Browser.isMobile) {
+      uploadedText = `Uploaded ${formatRelative(date, new Date())}`;
+    } else {
+      uploadedText = `Uploaded on ${date.toLocaleDateString()} at ${date.toLocaleTimeString()}`;
+    }
+    */
     return m('div', {
       class: 'modal-file',
       style: [
@@ -171,23 +198,191 @@ export class FileModal {
         m(FileThumbnail, {
           file: this.file,
           key: this.file.id,
-          onload: (event) => {
-            console.log(event);
-            if (this.height === null) {
-              this.height = this.div.offsetHeight;
-            }
-            if (this.width === null) {
-              this.width = this.div.offsetWidth;
+          ondimensions: (event) => {
+            // resize div so image/vidoes dont have the extra space for large images
+            if (this.height === null || this.width === null) {
+              const footerHeight = 146;
+              let maxHeight = window.innerHeight * 0.90;
+              let minHeight = 180;
+              let maxWidth = window.innerWidth * 0.90;
+              let minWidth = 400;
+
+              if (Browser.isMobile) {
+                maxHeight += 300;
+                minWidth = 280;
+              }
+
+              let maxMediaHeight = maxHeight - footerHeight;
+              let minMediaHeight = minHeight - footerHeight;
+              let maxMediaWidth = maxWidth;
+              let minMediaWidth = minWidth;
+
+              const ratio = event.naturalHeight / event.naturalWidth;
+
+              let height = event.naturalHeight;
+              let width = event.naturalWidth;
+              if (maxMediaHeight < event.naturalHeight || maxMediaWidth < event.naturalWidth) {
+                // Scale Down
+                // Height or Width bigger than max
+                console.log('scale down');
+                if (maxMediaHeight < event.naturalHeight && maxMediaWidth < event.naturalWidth) {
+                  // Height and Width both bigger than max, scale both
+                  console.log('scale both down');
+                  if (maxMediaHeight < maxMediaWidth) {
+                    // max height smaller than width, scale width
+                    console.log('max height smaller than width, scale width');
+                    height = maxMediaHeight;
+                    width = height / ratio;
+                  } else {
+                    // max width smaller than height, scale height
+                    console.log('max width smaller than height, scale height');
+                    width = maxMediaWidth;
+                    height = width * ratio;
+                  }
+                } else if (maxMediaHeight < event.naturalHeight) {
+                  // Height bigger than max, scale width
+                  console.log('height bigger than max, scale width');
+                  height = maxMediaHeight;
+                  width = height / ratio;
+                } else if (maxMediaWidth < event.naturalWidth) {
+                  // Width bigger than max, scale height
+                  console.log('width bigger than max, scale height');
+                  width = maxMediaWidth;
+                  height = width * ratio;
+                }
+              } else if (event.naturalHeight < minMediaHeight || event.naturalWidth < minMediaWidth) {
+                // Scale Up
+                // Height or Width smaller than min
+                console.log('scale up');
+                if (event.naturalHeight < minMediaHeight && event.naturalWidth < minMediaWidth) {
+                  // Height and Width smaller than min, scale both
+                  console.log('scale both up');
+                  if (minMediaHeight < minMediaWidth) {
+                    // min height smaller than width, scale width
+                    console.log('min height smaller than width, scale width');
+                    height = minMediaHeight;
+                    width = height / ratio;
+                  } else {
+                    // min width smaller than height, scale height
+                    console.log('min width smaller than height, scale height');
+                    width = minMediaWidth;
+                    height = width * ratio;
+                  }
+                } else if (event.naturalHeight < minMediaHeight) {
+                  // Height smaller than min, scale width
+                  console.log('height smaller than min, scale width');
+                  height = minMediaHeight;
+                  width = height / ratio;
+                } else if (event.naturalWidth < minMediaWidth) {
+                  // Width smaller than min, scale height
+                  console.log('width smaller than min, scale height');
+                  width = minMediaWidth;
+                  height = width * ratio;
+                }
+              } else {
+                console.log('perfect');
+              }
+              console.log('scaled', {
+                height: event.naturalHeight,
+                width: event.naturalWidth,
+              }, 'to', {height, width});
+              this.height = height + footerHeight;
+              this.width = width;
+              /*
+              // IDK MAN, RATIOS WRONG
+              // 1920 x 888 === 873 x 888 should be 873 x 336.2375
+              // 1017 x 1920 === 873 x 1728 should be 873 x 1372.5073746312685
+              // 241 x 241 === 546 x 400 (minimum is 400x400, if under minimum then use minimum)
+              // 1080 x 178 === 873 x 400 (but is 2426.9662921348317 x 400 rn lol)
+
+              if (event.naturalHeight < event.naturalWidth) {
+                // height smaller than width, change width first
+                if (width < event.naturalWidth && height < event.naturalHeight) {
+                  // is all good
+                }
+                if (width < event.naturalWidth) {
+                  // width is smaller than naturalWidth, scale height
+                  const percentage = (width / event.naturalWidth);
+                  height = event.naturalHeight * percentage;
+                }
+                if (height < event.naturalHeight) {
+                  // height is smaller than naturalHeight, scale width
+                }
+              }
+              */
+              /*
+              if (maxMediaHeight < event.naturalHeight) {
+                height = maxMediaHeight + footerHeight;
+                width = event.naturalWith * (maxMediaHeight / event.naturalHeight);
+              }
+              */
+              
+
+              /*
+              const height = this.div.clientHeight;
+              const width = this.div.clientWidth;
+
+              const imageHeight = height - 146;
+              const imageWidth = width;
+
+              if (event.naturalHeight < event.naturalWidth) {
+                // height smaller than width, change only width
+
+                if (imageWidth < event.naturalWidth) {
+                  // image is smaller than the natural width, scale
+                  const percentage = imageHeight / event.naturalHeight;
+                  this.width = event.naturalWidth * percentage;
+                }
+              } else {
+                // width smaller than height, change only height
+
+                if (imageHeight < event.naturalHeight) {
+                  const percentage = imageWidth / event.naturalWidth;
+                  this.height = event.naturalHeight * percentage;
+                }
+              }
+              if (this.height === null) {
+                this.height = height;
+              }
+              if (this.width === null) {
+                this.width = width;
+              }
+              // split
+              if (event.naturalHeight < event.naturalWidth) {
+                // height smaller
+
+                if (event.naturalWidth < width) {
+                  this.width = width;
+                } else {
+                  // 146 is the bottom portion of the file preview
+                  const imageHeight = height - 146;
+                  const percentage = imageHeight / event.naturalHeight;
+                  this.width = event.naturalWidth * percentage;
+                }
+                this.height = height;
+              } else {
+                // width smaller
+                if (event.naturalHeight < height) {
+                  this.height = height;
+                } else {
+                  const imageWidth = width;
+                  const percentage = imageWidth / event.naturalWidth;
+                  this.height = event.naturalHeight * percentage;
+                }
+                this.width = width;
+              }
+              */
+              m.redraw();
             }
           },
           ...vnode.attrs,
         }),
       ]),
-      m('div', {class: 'information'}, [
-        m('span', this.file.filename),
-        m('span', this.file.mimetype),
-      ]),
       m('div', {class: 'footer'}, [
+        m('div', {class: 'information'}, [
+          m('span', this.file.filename),
+          m('span', this.file.mimetype),
+        ]),
         m('div', {class: 'sections'}, [
           m('div', {class: 'section left'}, [
             m('span', {class: 'views'}, `${this.file.views.toLocaleString()} views`),
@@ -209,26 +404,34 @@ export class FileModal {
             title: 'Download',
           }, 'file_download'),
         ]),
-        m('span', {class: 'timestamp'}, [
-          `Uploaded on ${date.toLocaleDateString()} at ${date.toLocaleTimeString()}`,
-        ]),
+        m('span', {class: 'timestamp'}, uploadedText),
       ]),
-      (this.showResizer) ? [
+      (this.canResize) ? [
         m('div', {class: 'resizer'}, [
           m('div', {
-            class: 'height',
-            onmousedown: (event) => this.onMouseDown(event, true, false),
-            ontouchstart: (event) => this.onMouseDown(event, true, false),
+            class: 'height top',
+            onmousedown: (event) => this.onMouseDown(event, ['top']),
+            ontouchstart: (event) => this.onMouseDown(event, ['top']),
           }),
           m('div', {
-            class: 'width',
-            onmousedown: (event) => this.onMouseDown(event, false, true),
-            ontouchstart: (event) => this.onMouseDown(event, false, true),
+            class: 'height bottom',
+            onmousedown: (event) => this.onMouseDown(event, ['bottom']),
+            ontouchstart: (event) => this.onMouseDown(event, ['bottom']),
+          }),
+          m('div', {
+            class: 'width left',
+            onmousedown: (event) => this.onMouseDown(event, ['left']),
+            ontouchstart: (event) => this.onMouseDown(event, ['left']),
+          }),
+          m('div', {
+            class: 'width right',
+            onmousedown: (event) => this.onMouseDown(event, ['right']),
+            ontouchstart: (event) => this.onMouseDown(event, ['right']),
           }),
           m('i', {
             class: 'both',
-            onmousedown: (event) => this.onMouseDown(event, true, true),
-            ontouchstart: (event) => this.onMouseDown(event, true, true),
+            onmousedown: (event) => this.onMouseDown(event, ['right', 'bottom']),
+            ontouchstart: (event) => this.onMouseDown(event, ['right', 'bottom']),
           }, 'texture'),
         ]),
       ] : null,
@@ -238,7 +441,6 @@ export class FileModal {
 
 class FileThumbnail {
   oninit(vnode) {
-    console.log(vnode);
     this.file = vnode.attrs.file;
     this.line = InputTypes.number(vnode.attrs.line, null);
 
@@ -300,11 +502,12 @@ class FileThumbnail {
       }
 
       if (Mimetypes.isImageType(this.file.mimetype)) {
-        return m(ImageMedia, [
+        return m(ImageMedia, {
+          ondimensions: vnode.attrs.ondimensions,
+        }, [
           m('img', {
             alt: this.file.filename,
             src: this.file.urls.cdn,
-            onload: vnode.attrs.onload,
             onerror: () => this.showIcon = true,
           }),
         ]);
@@ -414,10 +617,12 @@ class FileThumbnail {
       }
 
       if (Mimetypes.isVideoType(this.file.mimetype)) {
-        return m(VideoMedia, {title: this.file.filename}, [
+        return m(VideoMedia, {
+          ondimensions: vnode.attrs.ondimensions,
+          title: this.file.filename,
+        }, [
           m('source', {
             src: this.file.urls.cdn,
-            onload: vnode.attrs.onload,
             onerror: () => this.showIcon = true,
           }),
         ]);

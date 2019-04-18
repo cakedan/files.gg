@@ -52,7 +52,7 @@ const defaultMetatags = {
   'og:site_name': 'files.gg',
   'twitter:card': 'summary',
   //'twitter:site': '@filesgg',
-  viewport: 'width=device-width, initial-scale=1.0',
+  viewport: 'width=device-width, initial-scale=1.0, viewport-fit=cover',
 };
 
 const renderHtml = async (event, metatags) => {

@@ -1,8 +1,5 @@
 .route {
     @include vp-align-self(center);
     @include vp-flex-grow(1);
-
-	height: auto;
-	width: auto;
-	margin: 0;
+    @include vp-flex-shrink(0);
 }

@@ -93,7 +93,18 @@ export class MediaComponent extends PlayableMedia {
         }, [
           m('video', Object.assign({}, vnode.attrs, {
             onclick: () => this.media.playOrPause(),
-            onloadedmetadata: m.redraw,
+            onloadedmetadata: ({target}) => {
+              m.redraw();
+              if (typeof(vnode.attrs.ondimensions) === 'function') {
+                vnode.attrs.ondimensions({
+                  dom: target,
+                  height: target.offsetHeight,
+                  width: target.offsetWidth,
+                  naturalHeight: target.videoHeight,
+                  naturalWidth: target.videoWidth,
+                });
+              }
+            },
             ontimeupdate: m.redraw,
             preload: 'metadata',
             playsinline: true,

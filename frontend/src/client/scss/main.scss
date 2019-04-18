@@ -23,12 +23,16 @@ html, body {
 
 
 .app {
-    @include vp-flexbox;
-    @include vp-flex-direction(column);
+    .modal-route {
+        @include vp-flexbox;
+        @include vp-flex-direction(column);
 
-    min-height: 100%;
-    min-width: 100%;
-    position: absolute;
+        min-height: 100%;
+        min-width: 100%;
+        overflow-x: hidden;
+
+        position: absolute;
+    }
 }
 
 // import down here so the stuff above doesn't overwrite

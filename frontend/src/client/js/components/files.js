@@ -272,40 +272,39 @@ export class FilesModal {
 
 
 export class FileComponent {
+  constructor(vnode) {
+    this.onupload = InputTypes.func(vnode.attrs.onupload);
+  }
+
   async oninit(vnode) {
     this.file = vnode.attrs.file;
-
-    if (vnode.attrs.onupload !== undefined) {
-      this.onupload = vnode.attrs.onupload;
-    }
+    this.expand = this.file.expand && !this.file.error;
 
     if (this.expand) {
       // check if this is a fresh upload, if so ignore
-      if (this.file.uploadType !== UploadTypes.TEXT) {
-        if (this.file.response && Mimetypes.isTextType(this.file.mimetype)) {
-          if (this.file.data === undefined) {
-            this.file.data = null;
-            try {
-              this.file.data = await Api.request({
-                url: this.file.response.urls.cdn,
-                deserialize: (x) => x,
-              });
-            } catch(error) {
-              this.file.data = error;
+      switch (this.file.uploadType) {
+        case UploadTypes.UPLOAD: {
+          if (this.file.response && Mimetypes.isTextType(this.file.mimetype)) {
+            if (this.file.data === undefined) {
+              this.file.data = null;
+              try {
+                this.file.data = await Api.request({
+                  url: this.file.response.urls.cdn,
+                  deserialize: (x) => x,
+                });
+              } catch(error) {
+                this.file.data = error;
+              }
+              m.redraw();
             }
-            m.redraw();
           }
-        }
+        }; break;
       }
     }
   }
 
   onupdate(vnode) {
     this.oninit(vnode);
-  }
-
-  get expand() {
-    return this.file.expand && !this.file.error;
   }
 
   get language() {
@@ -339,6 +338,7 @@ export class FileComponent {
     event.preventDefault();
     if (!this.file.error) {
       this.file.expand = !this.file.expand;
+      this.expand = this.file.expand;
     }
   }
 
@@ -404,7 +404,15 @@ export class FileComponent {
               ]);
             }; break;
             case 'image': {
-              media = m(ImageMedia, {title: this.file.filename}, [
+              media = m(ImageMedia, {
+                onzoom: (event) => {
+                  if (Browser.isMobile) {
+                    // redirect instead since iOS is so buggy with position: fixed, unknown about android
+                    window.open(this.file.url, '_blank');
+                    event.cancel = true;
+                  }
+                },
+              }, [
                 m('img', {
                   alt: this.file.filename,
                   src: this.file.url,
@@ -553,15 +561,11 @@ export class FileObject {
         };
       }
     }
-    if (this.response) {
-      return this._data;
-    }
+    return this._data;
   }
 
   set data(value) {
-    if (this.response) {
-      return this._data = value;
-    }
+    return this._data = value;
   }
 
   get filename() {
@@ -656,7 +660,7 @@ export class FileObject {
   }
 
   setError(error) {
-    console.log(error);
+    console.error(error);
     this.error = error;
     m.redraw();
   }

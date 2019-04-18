@@ -118,10 +118,30 @@
         @include vp-flex-direction(column);
         @include vp-align-items(center);
 
+        height: 146px;
         width: 100%;
 
         color: $filesGreyLighter;
-        padding-top: 15px;
+
+        .information {
+            @include vp-flexbox;
+            @include vp-flex-direction(column);
+    
+            @include vp-box-sizing(border-box);
+    
+            max-width: 100%;
+            padding: 0 2px;
+    
+            span {
+                color: $filesGreyLight;
+                padding-top: 5px;
+                text-align: center;
+    
+                white-space: nowrap;
+                overflow: hidden;
+                text-overflow: ellipsis;
+            }
+        }
 
         .sections {
             @include vp-flexbox;
@@ -130,6 +150,8 @@
 
             max-width: 50vw;
             width: 100%;
+
+            padding-top: 15px;
 
             .section {
                 @include vp-flexbox;
@@ -225,9 +247,14 @@
             height: 2px;
             width: 100%;
 
-            bottom: 0;
             left: 0;
             position: absolute;
+        }
+        .height.top {
+            top: 0;
+        }
+        .height.bottom {
+            bottom: 0;
         }
 
         .width {
@@ -236,8 +263,13 @@
             width: 2px;
 
             top: 0;
-            right: 0;
             position: absolute;
+        }
+        .width.left {
+            left: 0;
+        }
+        .width.right {
+            right: 0;
         }
     }
 }
@@ -245,8 +277,7 @@
 @media only screen and (max-width: $mobileWidth) {
     .modal-file {
         max-height: calc(90vh + 300px);
-        max-width: 90vw;
-        min-width: 20vw;
+        min-width: 280px;
 
         .thumbnail {
             .media-container.audio {

@@ -89,6 +89,9 @@
                     background-color: $mediaBarSliderSeek;
                     border-radius: 3px;
                     height: 100%;
+
+                    top: 0;
+                    left: 0;
                     position: absolute;
                 }
 
@@ -97,10 +100,12 @@
 
                     background-color: $mediaBar;
                     border-radius: 5px;
-                    padding: 2px 5px;
                     margin-bottom: 16px;
-                    position: absolute;
+                    padding: 2px 5px;
+
+                    left: 0;
                     top: -28px;
+                    position: absolute;
                 }
                 .seek-timestamp.hidden {
                     display: none;
@@ -126,12 +131,13 @@
                         display: block;
                         height: 8px;
                         width: 8px;
-                        position: absolute;
 
                         margin-right: -4px;
                         margin-top: -4px;
+
                         right: 0;
                         top: 50%;
+                        position: absolute;
                     }
                     .bubble.active {
                         background-color: $mediaBarBubbleHover;
@@ -182,12 +188,14 @@
                 border-bottom: 8px solid $mediaBarVolume;
                 border-radius: 10px;
                 cursor: pointer;
-                position: absolute;
-                right: 35%;
-                bottom: 100%;
 
                 height: 100px;
                 width: 16px;
+
+                bottom: 100%;
+                left: 25%;
+                right: 25%;
+                position: absolute;
 
                 .background {
                     background-color: $mediaBarVolumeProgressBackground;
@@ -195,7 +203,10 @@
                     display: block;
                     height: 100%;
                     width: 8px;
+
                     bottom: 0;
+                    left: 25%;
+                    right: 25%;
                     position: absolute;
                 }
 
@@ -203,7 +214,10 @@
                     background-color: $mediaBarVolumeProgress;
                     border-radius: 8px;
                     width: 8px;
+
                     bottom: 0;
+                    left: 25%;
+                    right: 25%;
                     position: absolute;
 
                     .bubble {
@@ -220,12 +234,13 @@
                         display: block;
                         height: 8px;
                         width: 8px;
-                        position: absolute;
 
                         margin-right: -4px;
                         margin-top: -4px;
+
                         top: 0;
                         right: 50%;
+                        position: absolute;
                     }
                     .bubble.active {
                         background-color: $mediaBarVolumeProgressBubbleHover;
@@ -273,6 +288,7 @@
     .media-controls {
         width: 100%;
 
+        left: 0;
         bottom: -1px;
         position: absolute;
 
@@ -316,7 +332,7 @@
 
     top: 0;
     left: 0;
-    margin: 0 !important;
+    margin: auto !important;
     padding: 0 !important;
     position: fixed !important;
 

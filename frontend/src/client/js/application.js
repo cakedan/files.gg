@@ -23,6 +23,13 @@ import {
 } from './components/routes';
 
 
+class Route {
+  view(vnode) {
+    return m('div', {class: 'modal-route'}, vnode.children);
+  }
+}
+
+
 class RouteResolver {
   constructor(component, options) {
     this.component = component;
@@ -52,8 +59,10 @@ class RouteResolver {
 
   render(vnode) {
     return [
-      m(Navbar),
-      m('div', {class: this.className}, vnode),
+      m(Route, [
+        m(Navbar),
+        m('div', {class: this.className}, vnode),
+      ]),
       m(FilesModal, vnode.attrs),
     ];
   }

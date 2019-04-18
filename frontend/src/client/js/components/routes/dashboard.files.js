@@ -55,17 +55,16 @@ const Store = {
 };
 
 const Tools = Object.freeze({
-  async setFileId(vanity) {
-    vanity = String(vanity);
-    const fileId = vanity.split('.').shift();
+  setFileId(vanity, redraw) {
+    const fileId = (vanity || '').split('.').shift();
     if (Store.file.id !== fileId) {
       Store.file.id = fileId;
       Store.file.vanity = vanity;
       Store.file.response = null;
-      this.setRoute(!vanity);
+      this.setRoute(!vanity, redraw);
 
       if (fileId) {
-        await this.fetchFile(fileId);
+        this.fetchFile(fileId);
       }
     }
   },
@@ -88,7 +87,8 @@ const Tools = Object.freeze({
     }
     if (Store.file.id === fileId) {
       Store.file.response = response;
-      console.log(Store.file.response);
+      m.redraw();
+      console.log('set dashboard file', Store.file.response);
     }
   },
   async onScroll(dom) {
@@ -106,7 +106,7 @@ const Tools = Object.freeze({
       await FileTools.fetchFiles();
     }
   },
-  setRoute(removeParameters) {
+  setRoute(removeParameters, redraw) {
     let route = '/dashboard/files';
     if (Store.file.id) {
       // Incase they do something like /dashboard/files/.aaa
@@ -117,6 +117,10 @@ const Tools = Object.freeze({
         route += '?' + m.route.get().split('?').pop();
       }
       m.route.set(route);
+    } else {
+      if (redraw === undefined || redraw) {
+        m.redraw();
+      }
     }
   },
 });
@@ -132,16 +136,19 @@ export class Route {
     }
   }
 
-  async oninit(vnode) {
-    if (vnode.attrs.fileId !== undefined) {
-      if (Store.file.vanity !== vnode.attrs.fileId) {
-        await Tools.setFileId(vnode.attrs.fileId);
-      }
+  oninit(vnode) {
+    if (Store.file.vanity !== vnode.attrs.fileId) {
+      Tools.setFileId(vnode.attrs.fileId, false);
     }
+  }
+
+  onupdate(vnode) {
+    this.oninit(vnode);
   }
 
   view(vnode) {
     return [
+      (Store.file.id) ? m(DashboardFile, vnode.attrs) : null,
       (FileStore.isLoading) ? [
         m('div', {class: 'message'}, [
           m('span', 'loading...'),
@@ -160,10 +167,15 @@ export class Route {
               class: [
                 'files',
                 `view-${Store.viewType}`,
-              ].join(' '),
+                (Store.file.id && Browser.isSafari) ? 'ios-fix' : null,
+              ].filter((v) => v).join(' '),
               onscroll: ({target}) => Tools.onScroll(target),
             }, [
-              FileStore.files.uploaded.map((file) => m(FileComponent, {file, key: file.id})),
+              FileStore.files.uploaded.map((file) => m(FileComponent, {
+                file: file,
+                key: file.key,
+                type: Store.viewType,
+              })),
               (FileStore.isFetching) ? [
                 m('div', {class: 'modal'}, [
                   m('i', {class: 'material-icons'}, ''),
@@ -174,7 +186,6 @@ export class Route {
           ]),
         ]),
       ],
-      (Store.file.id) ? m(DashboardFile, vnode.attrs) : null,
     ];
   }
 }
@@ -188,6 +199,16 @@ class FileComponent {
 
   onupdate(vnode) {
     this.oninit(vnode);
+  }
+
+  onbeforeupdate(vnode, old) {
+    if (vnode.attrs.file !== old.attrs.file) {
+      return true;
+    }
+    if (vnode.attrs.type !== old.attrs.type) {
+      return true;
+    }
+    return false;
   }
 
   get showIcon() {
@@ -204,19 +225,29 @@ class FileComponent {
     }
   }
 
-  async showFile(event) {
+  showFile(event) {
     event.preventDefault();
+    event.redraw = false;
     // zoom event
-    if (event.target.tagName === 'PICTURE' || event.target.tagName === 'IMG') {return;}
+    if (!Browser.isMobile) {
+      // if is not mobile, might be zoom request
+      // PICTURE/IMG click
+      switch (event.target.tagName) {
+        case 'PICTURE':
+        case 'IMG': return;
+      }
+    }
     const {vanity, extension} = this.file.response;
-    await Tools.setFileId([vanity, extension].filter((v) => v).join('.'));
+    Tools.setFileId([vanity, extension].filter((v) => v).join('.'));
   }
 
   view(vnode) {
     let media;
     if (!this.showIcon) {
       if (Mimetypes.isImageType(this.file.mimetype)) {
-        media = m(ImageMedia, {title: this.file.filename}, [
+        media = m(ImageMedia, {
+          disableZoom: Browser.isMobile,
+        }, [
           m('img', {
             alt: this.file.filename,
             src: this.file.url,
@@ -401,10 +432,11 @@ class DashboardFile {
   view(vnode) {
     return m('div', {
       class: 'dashboard-file-modal',
-      onmousedown: async (event) => {
+      onclick: (event) => {
+        event.redraw = false;
         if (event.target.classList.contains('dashboard-file-modal')) {
           event.preventDefault();
-          await Tools.setFileId('');
+          Tools.setFileId();
         }
       },
     }, [

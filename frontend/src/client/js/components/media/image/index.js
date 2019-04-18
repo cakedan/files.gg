@@ -19,8 +19,45 @@ export class MediaComponent {
       m('div', {class: 'media-container image'}, [
         m('picture', {
           class: 'compact',
-          onclick: () => this.zoom = true,
-        }, vnode.children),
+          onclick: () => {
+            if (!vnode.attrs.disableZoom) {
+              if (typeof(vnode.attrs.onzoom) === 'function') {
+                const payload = {};
+                vnode.attrs.onzoom(payload);
+                if (payload.cancel) {
+                  return;
+                }
+              }
+              this.zoom = true;
+            }
+          },
+        }, [
+          m.fragment({
+            oncreate: ({dom}) => {
+              if (typeof(vnode.attrs.ondimensions) === 'function') {
+                if (dom.complete) {
+                  vnode.attrs.ondimensions({
+                    dom: dom,
+                    height: dom.height,
+                    width: dom.width,
+                    naturalHeight: dom.naturalHeight,
+                    naturalWidth: dom.naturalWidth,
+                  });
+                } else {
+                  dom.onload = () => {
+                    vnode.attrs.ondimensions({
+                      dom: dom,
+                      height: dom.height,
+                      width: dom.width,
+                      naturalHeight: dom.naturalHeight,
+                      naturalWidth: dom.naturalWidth,
+                    });
+                  };
+                }
+              }
+            },
+          }, vnode.children),
+        ]),
       ]),
     ];
   }
