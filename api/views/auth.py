@@ -1,34 +1,49 @@
-from datetime import datetime
-from urllib.parse import quote
-import time
+from typing import Annotated, Any, Optional
 
-from flask import Blueprint, request
-from flask_restful import reqparse
-from werkzeug.security import generate_password_hash, check_password_hash
+from sanic import Blueprint
+from werkzeug.security import check_password_hash
 
-from models import File, User
+import db
+from db import queries
 from utils.generators import Snowflake
-from utils.mailgun import Mailgun
+from utils import email_templates
+from utils.email import Email
+from utils.email_domain import domain_accepts_mail
+from utils.params import Arg, Args
 from utils.recaptcha import Recaptcha
 from utils.responses import ApiError, ApiResponse
 from utils.tokens import FingerprintToken, EmailForgotToken, EmailVerifyToken, UserToken
+from utils.wrappers import authenticate, parse_args, route
 
+import utils.helpers as helpers
 import utils.parameters as parameters
-import utils.wrappers as wrappers
 
-auth = Blueprint('auth', __name__, url_prefix='/auth')
+auth = Blueprint('auth', url_prefix='/auth')
+
+Fingerprint = Annotated[Optional[int], Arg('x-fingerprint', location='headers', type=parameters.fingerprint)]
 
 
-parser_get_fingerprint = reqparse.RequestParser(trim=True)
-parser_get_fingerprint.add_argument('x-fingerprint', location='headers', dest='fingerprint', type=parameters.fingerprint)
+async def verify_captcha(captcha):
+    response = await Recaptcha.verify(captcha)
+    if response.status_code != 200:
+        raise ApiError(metadata={'errors': {'captcha': 'Error verifying Captcha'}})
+    captcha = response.json()
+    if not captcha['success']:
+        raise ApiError(metadata={'errors': {'captcha': 'Invalid Captcha'}})
 
-@auth.route('/fingerprint', methods=['GET'])
-@wrappers.parse_args(parser_get_fingerprint)
-def auth_fingerprint(args):
+
+class FingerprintArgs(Args):
+    fingerprint: Fingerprint = None
+
+
+@route(auth, '/fingerprint', ['GET'])
+@parse_args(FingerprintArgs)
+async def auth_fingerprint(request, args):
     fingerprint = args.fingerprint
     if fingerprint is not None:
-        if User.get_or_none(id=fingerprint) is not None:
-            fingerprint = None
+        async with db.connection() as conn:
+            if await queries.get_user(conn, fingerprint) is not None:
+                fingerprint = None
 
     if fingerprint is None:
         fingerprint = Snowflake.generate()
@@ -38,205 +53,175 @@ def auth_fingerprint(args):
     })
 
 
-parser_login = reqparse.RequestParser(trim=True)
-parser_login.add_argument('email', required=True, type=parameters.email)
-parser_login.add_argument('password', required=True, type=parameters.password)
-parser_login.add_argument('captcha', required=True)
-parser_login.add_argument('x-fingerprint', location='headers', dest='fingerprint', type=parameters.fingerprint)
+class LoginArgs(Args):
+    email: Annotated[Optional[str], Arg(type=parameters.email)]
+    password: Annotated[Optional[str], Arg(type=parameters.password)]
+    captcha: Annotated[Optional[str], Arg()]
+    fingerprint: Fingerprint = None
 
-@auth.route('/login', methods=['POST'])
-@wrappers.parse_args(parser_login)
-def auth_login(args):
-    response = Recaptcha.verify(args.captcha)
-    if response.status_code != 200:
-        raise ApiError(metadata={'errors': {'captcha': 'Error verifying Captcha'}})
-    captcha = response.json()
-    if not captcha['success']:
-        raise ApiError(metadata={'errors': {'captcha': 'Invalid Captcha'}})
 
-    user = User.get_or_none(email=args.email)
-    if user is None:
-        raise ApiError('Invalid Email or Password')
+@route(auth, '/login', ['POST'])
+@parse_args(LoginArgs)
+async def auth_login(request, args):
+    await verify_captcha(args.captcha)
 
-    if not check_password_hash(user.password, args.password):
-        raise ApiError('Invalid Email or Password')
+    async with db.connection() as conn:
+        user = await queries.get_user_by_email(conn, args.email)
+        if user is None:
+            raise ApiError('Invalid Email or Password')
 
-    if args.fingerprint is not None:
-        query = File.update(user=user, fingerprint=None).where(File.fingerprint == args.fingerprint)
-        query.execute()
+        if not check_password_hash(user.password, args.password):
+            raise ApiError('Invalid Email or Password')
+
+        if args.fingerprint is not None:
+            await queries.claim_fingerprint_files(conn, user.id, args.fingerprint)
 
     return ApiResponse({
         'token': UserToken.generate(user.id),
     })
 
 
-@auth.route('/logout', methods=['POST'])
-@wrappers.authenticate()
-def auth_logout(user):
+@route(auth, '/logout', ['POST'])
+@authenticate()
+async def auth_logout(request, user):
     return ApiResponse(status=204)
 
 
-parser_create_account = reqparse.RequestParser(trim=True)
-parser_create_account.add_argument('email', required=True, type=parameters.email)
-parser_create_account.add_argument('username', required=True, type=parameters.username)
-parser_create_account.add_argument('password', required=True, type=parameters.password)
-parser_create_account.add_argument('captcha', required=True)
-parser_create_account.add_argument('x-fingerprint', location='headers', dest='fingerprint', type=parameters.fingerprint)
+class RegisterArgs(Args):
+    email: Annotated[Optional[str], Arg(type=parameters.email)]
+    username: Annotated[Optional[str], Arg(type=parameters.username)]
+    password: Annotated[Optional[str], Arg(type=parameters.password)]
+    captcha: Annotated[Optional[str], Arg()]
+    fingerprint: Fingerprint = None
 
-@auth.route('/register', methods=['POST'])
-@wrappers.parse_args(parser_create_account)
-def auth_register(args):
+
+async def send_verify_email(email, username, token):
+    subject, html, text = email_templates.verify_email(
+        username=username, url='https://files.gg/auth/verify/{}'.format(token))
+    await Email.send(to=email, to_name=username, subject=subject, html=html, text=text,
+                     tag='auth-verify')
+
+
+@route(auth, '/register', ['POST'])
+@parse_args(RegisterArgs)
+async def auth_register(request, args):
     # set up discriminator generator later
     discriminator = 1
-    if User.get_or_none(username=args.username, discriminator=discriminator):
-        raise ApiError(metadata={'errors': {'username': 'Already taken'}})
+    async with db.connection() as conn:
+        if await queries.user_exists(conn, args.username, discriminator):
+            raise ApiError(metadata={'errors': {'username': 'Already taken'}})
 
-    response = Recaptcha.verify(args.captcha)
-    if response.status_code != 200:
-        raise ApiError(metadata={'errors': {'captcha': 'Error verifying Captcha'}})
-    captcha = response.json()
-    if not captcha['success']:
-        raise ApiError(metadata={'errors': {'captcha': 'Invalid Captcha'}})
+    await verify_captcha(args.captcha)
 
-    response = Mailgun.verify_email(args.email, True)
-    if response.status_code != 200:
-        raise ApiError(metadata={'errors': {'email': 'Error checking email'}})
-    mail = response.json()
-    if not mail['is_valid'] or mail['is_disposable_address'] or mail['mailbox_verification'] != 'true':
+    # Postmark has no mailbox check: reject domains that can't receive mail (keeps bounces low);
+    # the verification email is the real proof the mailbox exists
+    if not await domain_accepts_mail(args.email):
         raise ApiError(metadata={'errors': {'email': 'Invalid Email'}})
 
-    if User.get_or_none(email=args.email):
-        raise ApiError(metadata={'errors': {'email': 'Already Taken'}})
+    fingerprint = args.fingerprint
+    async with db.connection() as conn:
+        if await queries.get_user_by_email(conn, args.email):
+            raise ApiError(metadata={'errors': {'email': 'Already Taken'}})
 
-    if args.fingerprint is not None:
-        if User.get_or_none(id=args.fingerprint) is not None:
-            args.fingerprint = None
+        if fingerprint is not None:
+            if await queries.get_user(conn, fingerprint) is not None:
+                fingerprint = None
 
-    uid = None
-    if args.fingerprint is not None:
-        uid = args.fingerprint
-    else:
-        uid = Snowflake.generate()
+        uid = fingerprint if fingerprint is not None else Snowflake.generate()
 
-    user = User.create(
-        id=uid,
-        email=args.email,
-        username=args.username,
-        discriminator=discriminator,
-        password=generate_password_hash(args.password, salt_length=10),
-    )
-
-    if args.fingerprint is not None:
-        query = File.update(user=user, fingerprint=None).where(File.fingerprint == args.fingerprint)
-        query.execute()
+        async with conn.transaction():
+            await queries.create_user(
+                conn,
+                id=uid,
+                email=args.email,
+                username=args.username,
+                discriminator=discriminator,
+                password=helpers.hash_password(args.password, salt_length=10),
+            )
+            if fingerprint is not None:
+                await queries.claim_fingerprint_files(conn, uid, fingerprint)
 
     token = EmailVerifyToken.generate({'user_id': uid, 'email': args.email})
-    Mailgun.send_mail({
-        'from': '"files.gg" <noreply@files.gg>',
-        'to': '"{username}" <{email}>'.format(username=quote(args.username), email=args.email),
-        'subject': 'Verify Email',
-        'template': 'auth-verify',
-    }, {
-        'email': args.email,
-        'username': args.username,
-        'discriminator': '{:04d}'.format(discriminator),
-        'url': 'https://files.gg/auth/verify/{}'.format(token),
-    })
+    await send_verify_email(args.email, args.username, token)
 
     return ApiResponse({
         'token': UserToken.generate(uid)
     })
 
 
-parser_verify_account = reqparse.RequestParser(trim=True)
-parser_verify_account.add_argument('token', required=True)
-parser_verify_account.add_argument('token', required=True, dest='payload', type=parameters.token_email(EmailVerifyToken))
+class VerifyArgs(Args):
+    token: Annotated[Optional[str], Arg()]
+    payload: Annotated[Optional[Any], Arg('token', type=parameters.token_email(EmailVerifyToken))]
 
-@auth.route('/verify', methods=['POST'])
-@wrappers.parse_args(parser_verify_account)
-def auth_verify(args):
-    try:
-        user = User.get_or_none(id=args.payload['user_id'])
-        if not user:
-            raise ValueError('Invalid Token')
-        min_timestamp = user.last_email_reset.timestamp() - EmailVerifyToken.epoch
-        if not EmailVerifyToken.validate(args.token, min_timestamp=min_timestamp):
-            raise ValueError('Invalid Token')
-    except Exception as error:
-        raise ApiError(metadata={'errors': {'token': str(error)}})
 
-    user.email = args.payload['email']
-    user.last_email_reset = time.time()
-    user.verified = True
-    user.save()
+@route(auth, '/verify', ['POST'])
+@parse_args(VerifyArgs)
+async def auth_verify(request, args):
+    async with db.connection() as conn:
+        try:
+            user = await queries.get_user(conn, args.payload['user_id'])
+            if not user:
+                raise ValueError('Invalid Token')
+            min_timestamp = helpers.epoch_seconds(user.last_email_reset_at) - EmailVerifyToken.epoch
+            if not EmailVerifyToken.validate(args.token, min_timestamp=min_timestamp):
+                raise ValueError('Invalid Token')
+        except Exception as error:
+            raise ApiError(metadata={'errors': {'token': str(error)}})
+
+        await queries.mark_email_verified(conn, user.id, args.payload['email'])
     return ApiResponse(status=204)
 
 
-@auth.route('/verify/resend', methods=['POST'])
-@wrappers.authenticate()
-def auth_verify_resend(user):
+@route(auth, '/verify/resend', ['POST'])
+@authenticate()
+async def auth_verify_resend(request, user):
     token = EmailVerifyToken.generate({'user_id': user.id, 'email': user.email})
-    Mailgun.send_mail({
-        'from': '"files.gg" <noreply@files.gg>',
-        'to': '"{username}" <{email}>'.format(username=quote(user.username), email=user.email),
-        'subject': 'Verify Email',
-        'template': 'auth-verify',
-    }, {
-        'email': user.email,
-        'username': user.username,
-        'discriminator': '{:04d}'.format(user.discriminator),
-        'url': 'https://files.gg/auth/verify/{}'.format(token),
-    })
+    await send_verify_email(user.email, user.username, token)
     return ApiResponse(status=204)
 
 
-parser_forgot = reqparse.RequestParser(trim=True)
-parser_forgot.add_argument('email', required=True, type=parameters.email)
+class ForgotArgs(Args):
+    email: Annotated[Optional[str], Arg(type=parameters.email)]
 
-@auth.route('/forgot', methods=['POST'])
-@wrappers.parse_args(parser_forgot)
-def auth_forgot(args):
-    user = User.get_or_none(email=args.email)
+
+@route(auth, '/forgot', ['POST'])
+@parse_args(ForgotArgs)
+async def auth_forgot(request, args):
+    async with db.connection() as conn:
+        user = await queries.get_user_by_email(conn, args.email)
     if user is None:
         raise ApiError(metadata={'errors': {'email': 'Email not in use'}})
 
     token = EmailForgotToken.generate({'user_id': user.id, 'email': user.email})
-    Mailgun.send_mail({
-        'from': 'files.gg <noreply@files.gg>',
-        'to': '{username} <{email}>'.format(username=user.username, email=user.email),
-        'subject': 'Password Reset',
-        'template': 'auth-forgot',
-    }, {
-        'email': user.email,
-        'username': user.username,
-        'discriminator': '{:04d}'.format(user.discriminator),
-        'url': 'https://files.gg/auth/forgot/{}'.format(token),
-    })
+    subject, html, text = email_templates.reset_password(
+        username=user.username, url='https://files.gg/auth/forgot/{}'.format(token))
+    await Email.send(to=user.email, to_name=user.username, subject=subject, html=html, text=text,
+                     tag='auth-forgot')
     return ApiResponse(status=204)
 
 
-parser_forgot_reset = reqparse.RequestParser(trim=True)
-parser_forgot_reset.add_argument('token', required=True)
-parser_forgot_reset.add_argument('token', required=True, dest='payload', type=parameters.token_email(EmailForgotToken))
-parser_forgot_reset.add_argument('password', required=True, type=parameters.password)
+class ForgotResetArgs(Args):
+    token: Annotated[Optional[str], Arg()]
+    payload: Annotated[Optional[Any], Arg('token', type=parameters.token_email(EmailForgotToken))]
+    password: Annotated[Optional[str], Arg(type=parameters.password)]
 
-@auth.route('/forgot/reset', methods=['POST'])
-@wrappers.parse_args(parser_forgot_reset)
-def auth_forgot_reset(args):
-    try:
-        user = User.get_or_none(id=args.payload['user_id'])
-        if not user:
-            raise ValueError('Invalid Token')
-        min_timestamp = user.last_password_reset.timestamp() - EmailForgotToken.epoch
-        if not EmailForgotToken.validate(args.token, min_timestamp=min_timestamp):
-            raise ValueError('Invalid Token')
-    except Exception as error:
-        raise ApiError(metadata={'errors': {'token': str(error)}})
 
-    if check_password_hash(user.password, args.password):
-        raise ApiError(metadata={'errors': {'password': 'Cannot use the same password again'}})
+@route(auth, '/forgot/reset', ['POST'])
+@parse_args(ForgotResetArgs)
+async def auth_forgot_reset(request, args):
+    async with db.connection() as conn:
+        try:
+            user = await queries.get_user(conn, args.payload['user_id'])
+            if not user:
+                raise ValueError('Invalid Token')
+            min_timestamp = helpers.epoch_seconds(user.last_password_reset_at) - EmailForgotToken.epoch
+            if not EmailForgotToken.validate(args.token, min_timestamp=min_timestamp):
+                raise ValueError('Invalid Token')
+        except Exception as error:
+            raise ApiError(metadata={'errors': {'token': str(error)}})
 
-    user.password = generate_password_hash(args.password)
-    user.last_password_reset = time.time()
-    user.save()
+        if check_password_hash(user.password, args.password):
+            raise ApiError(metadata={'errors': {'password': 'Cannot use the same password again'}})
+
+        await queries.set_password(conn, user.id, helpers.hash_password(args.password))
     return ApiResponse(status=204)

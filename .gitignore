@@ -57,3 +57,12 @@ typings/
 # dotenv environment variables file
 .env
 
+
+# Production database dumps: personal data, never commit (see docs/redesign/PLAN.md)
+db-dumps/
+*.dump
+
+# Local data written by docker-compose.yml (postgres data, restic cache, restored dumps), as in notsobot.api
+.data/
+.cache/
+.restore/

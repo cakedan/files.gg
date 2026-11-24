@@ -1,13 +1,21 @@
 import { ApiError, ApiResponse, DomainRouter } from 'cf-worker-router';
+import { getStringBinding } from '../utils/env.js';
+import { isValidProxyToken } from '../utils/security.js';
 
 
 export const router = new DomainRouter('proxy.files.gg');
 
-const secret = 'lol';
+// The shared secret is a worker secret named PROXY_SECRET (see cf-worker/README.md).
+// Without one, every request is refused.
+function isAuthorized(event) {
+  return isValidProxyToken(
+    event.originalRequest.headers.get('x-proxy-token'),
+    getStringBinding(event.environment, 'PROXY_SECRET'),
+  );
+}
 
 router.route('/download/:url...', ['GET', 'HEAD', 'OPTIONS'], async (event) => {
-  const token = event.request.headers.get('x-proxy-token');
-  if (token !== secret) {
+  if (!isAuthorized(event)) {
     return new ApiError({status: 403});
   }
 
@@ -24,8 +32,7 @@ const UnfurlConstants = Object.freeze({
 });
 
 router.route('/unfurl/:url...', ['GET', 'OPTIONS'], async (event) => {
-  const token = event.request.headers.get('x-proxy-token');
-  if (token !== secret) {
+  if (!isAuthorized(event)) {
     return new ApiError({status: 403});
   }
 
@@ -70,5 +77,7 @@ export async function requestProxy(event, url) {
   event.request.headers.delete('cf-connecting-ip');
   event.request.headers.delete('true-client-ip');
   event.request.headers.delete('x-real-ip');
+  // Never forward the shared secret to the third-party URL.
+  event.request.headers.delete('x-proxy-token');
   return await fetch(url, event.request);
 };

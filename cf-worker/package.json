@@ -1,20 +1,26 @@
 {
-    "name": "files.gg",
-    "version": "0.0.1",
-    "description": "",
-    "main": "index.js",
-    "scripts": {
-        "build": "nodejs tools build",
-        "deploy": "nodejs tools deploy",
-        "upload": "nodejs tools upload"
-    },
+    "name": "files.gg-worker",
+    "version": "0.1.0",
+    "private": true,
+    "description": "Cloudflare Worker for files.gg, cdn.files.gg, api.files.gg and proxy.files.gg",
+    "type": "module",
     "author": "cakedan",
     "license": "MIT",
+    "scripts": {
+        "dev": "wrangler dev",
+        "deploy": "wrangler deploy",
+        "build": "wrangler deploy --dry-run --outdir dist",
+        "test": "node --test \"test/*.test.js\" \"test/integration/*.test.js\"",
+        "test:unit": "node --test \"test/*.test.js\"",
+        "test:integration": "node --test \"test/integration/*.test.js\""
+    },
     "dependencies": {
-        "cf-worker-router": "^0.0.8",
-        "detritus-rest": "^0.0.6",
-        "webpack": "^4.29.0",
-        "mithril": "^1.1.6",
-        "mithril-node-render": "^2.3.1"
+        "cf-worker-router": "0.2.0"
+    },
+    "devDependencies": {
+        "wrangler": "4.168.0"
+    },
+    "engines": {
+        "node": ">=22"
     }
 }

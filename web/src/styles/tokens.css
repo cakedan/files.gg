@@ -1,0 +1,4 @@
+/* Theme for reference-only imports from lazy-chunk stylesheets: utilities can be
+   generated against it without re-emitting the theme, preflight or base styles. */
+@import 'tailwindcss/theme.css';
+@import './theme.css';

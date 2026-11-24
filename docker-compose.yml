@@ -1,34 +1,162 @@
-version: '3'
+# Secrets come from the shell or an untracked .env file next to this file; compose refuses to
+# start if a required one is missing (the API also refuses to boot without them).
+#   POSTGRES_PASSWORD, SECRET_KEY, RPC_KEY, ORIGIN_SHARED_SECRET, VIEW_HASH_SECRET,
+#   DB_BACKUP_RESTIC_PASSWORD, S3_BACKUP_ACCESS_KEY_ID, S3_BACKUP_SECRET_ACCESS_KEY,
+#   POSTMARK_SERVER_TOKEN, RECAPTCHA_SECRET
+#
+# Order on `docker compose up`: postgres becomes healthy, migrate runs once and must succeed,
+# then api and worker start. Scale either independently, e.g. `docker compose up --scale worker=2`;
+# scheduled tasks still run once (advisory locks), and every process leases its own Snowflake
+# node id.
+#
+# Postgres runs here in Docker, next to files.gg, the same way as notsobot.api (docs/redesign/PLAN.md §2.1 item 8):
+# Postgres 19.0 pinned by digest, published on localhost only, data in ./.data/postgres, and daily encrypted restic
+# backups to Backblaze by backup-db, scheduled by scheduler-ofelia (backup/README.md).
+
+x-api-environment: &api-environment
+  # Defaults to the postgres service below; override to point at another host (e.g. over a
+  # private network when the API runs on several servers).
+  DATABASE_URL: ${DATABASE_URL:-postgresql://filesgg:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}@postgres:5432/filesgg}
+  GOOGLE_APPLICATION_CREDENTIALS: /credentials
+  # account email through Postmark (api/utils/email.py). Send from the mail.files.gg subdomain with SPF, DKIM
+  # and DMARC set up in Postmark; receiving (abuse@, support@) is Cloudflare Email Routing, not this.
+  POSTMARK_SERVER_TOKEN: ${POSTMARK_SERVER_TOKEN:?POSTMARK_SERVER_TOKEN must be set (Postmark server API token)}
+  EMAIL_FROM: ${EMAIL_FROM:-files.gg <noreply@mail.files.gg>}
+  RECAPTCHA_SECRET: ${RECAPTCHA_SECRET:-}
+  RPC_KEY: ${RPC_KEY:?RPC_KEY must be set}
+  SECRET_KEY: ${SECRET_KEY:?SECRET_KEY must be set}
+  STORAGE_BUCKET: filesgg
+  ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-https://files.gg}
+  # Shared with the Cloudflare Worker (its ORIGIN_SHARED_SECRET binding). The API trusts the
+  # forwarded client IP only when this matches; without it every per-IP limit sees nginx/Cloudflare.
+  ORIGIN_SHARED_SECRET: ${ORIGIN_SHARED_SECRET:?ORIGIN_SHARED_SECRET must be set (openssl rand -hex 32)}
+  # Keys the daily rotating HMAC for unique-view counting (no IPs are stored). Same value on every API server.
+  VIEW_HASH_SECRET: ${VIEW_HASH_SECRET:?VIEW_HASH_SECRET must be set (openssl rand -hex 32)}
+
+x-api-service: &api-service
+  build:
+    context: ./api/
+    target: runtime
+  image: filesgg-api:latest
+  environment: *api-environment
+  volumes:
+    - ./gconfig.json:/credentials:ro
 
 services:
-  cloud-sql-proxy:
-    image: gcr.io/cloudsql-docker/gce-proxy:1.13
-    command: /cloud_sql_proxy -instances=myinstance:us-central1:myproject=tcp:0.0.0.0:5433 -credential_file=/credentials
-    volumes:
-      - ./gconfig.json:/credentials
-    expose:
-      - 5433
-  api:
-    build: ./api/
-    image: api:v1
-    container_name: api
-    depends_on:
-      - cloud-sql-proxy
+  postgres:
+    # 2026.11.24, PostgreSQL 19 (latest major, released 2026-11-19, supported to 2031-11). backup/Dockerfile uses the
+    # same image so pg_dump matches the server. notsobot.api is on 18.7; files.gg starts on 19 to avoid a major upgrade later
+    image: postgres:19.0@sha256:aaa10f7ba7328b4a221a6c3184d83eef885bd16bf1f6de864757863156b0a4d1
+    restart: always
+    command: -c config_file=/etc/postgres/postgresql.conf
     environment:
-      DATABASE_URL: postgres+pool://
-      GOOGLE_APPLICATION_CREDENTIALS: /credentials
-      MAILGUN_DOMAIN: mailgun.files.gg
-      MAILGUN_TOKEN: 
-      RECAPTCHA_SECRET: 
-      RPC_KEY: 
-      SECRET_KEY: 
-      STORAGE_BUCKET: filesgg
+      POSTGRES_DB: filesgg
+      POSTGRES_USER: filesgg
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}
+    ports:
+      # only published on localhost by default (docker bypasses ufw), as in notsobot.api. set POSTGRES_BIND to a
+      # private-network address when API servers on other machines need it, and firewall it some other way
+      - ${POSTGRES_BIND:-127.0.0.1}:${POSTGRES_PORT:-5432}:5432
     volumes:
-      - ./gconfig.json:/credentials
+      # 18+ keeps its data in a versioned folder under /var/lib/postgresql (19/docker), so the mount is the parent
+      - ./.data/postgres:/var/lib/postgresql
+      - ./postgres/postgres.conf:/etc/postgres/postgresql.conf:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # backup/: daily encrypted backups of postgres into a restic repository on backblaze (US), restic encrypts before
+  # uploading. same setup as notsobot.api's backup-db. restore steps in backup/README.md
+  backup-db:
+    build:
+      context: ./backup/
+    image: filesgg-backup-db
+    init: true
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      RESTIC_REPOSITORY: s3:${S3_ENDPOINT:?set S3_ENDPOINT in .env (the B2 US region endpoint, e.g. s3.<region>.backblazeb2.com)}/${S3_BUCKET_DB_BACKUP:-filesgg-db-backups}/restic
+      # without it the backups can't be decrypted, keep a copy somewhere other than this server
+      RESTIC_PASSWORD: ${DB_BACKUP_RESTIC_PASSWORD:?set DB_BACKUP_RESTIC_PASSWORD in .env}
+      RESTIC_CACHE_DIR: /cache
+      # a backup-only B2 application key, separate from the one the API uses for files
+      AWS_ACCESS_KEY_ID: ${S3_BACKUP_ACCESS_KEY_ID:?set S3_BACKUP_ACCESS_KEY_ID in .env}
+      AWS_SECRET_ACCESS_KEY: ${S3_BACKUP_SECRET_ACCESS_KEY:?set S3_BACKUP_SECRET_ACCESS_KEY in .env}
+      DB_BACKUP_HEALTHCHECK_URL: ${DB_BACKUP_HEALTHCHECK_URL:-}
+      # empty falls back to backup.sh's defaults (14 daily, unlimited weekly, 0 monthly, 0 yearly)
+      DB_BACKUP_KEEP_DAILY: ${DB_BACKUP_KEEP_DAILY:-}
+      DB_BACKUP_KEEP_WEEKLY: ${DB_BACKUP_KEEP_WEEKLY:-}
+      DB_BACKUP_KEEP_MONTHLY: ${DB_BACKUP_KEEP_MONTHLY:-}
+      DB_BACKUP_KEEP_YEARLY: ${DB_BACKUP_KEEP_YEARLY:-}
+      PG_HOST: postgres
+      PG_PORT: 5432
+      PG_DATABASE: filesgg
+      PG_USER: filesgg
+      PG_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}
+    volumes:
+      - ./.cache/restic:/cache
+      - ./.restore:/restore
+    labels:
+      ofelia.enabled: "true"
+      ofelia.job-exec.db-backup-daily.schedule: "0 0 2 * * *" # 02:00:00 every day
+      ofelia.job-exec.db-backup-daily.command: "backup all"
+      ofelia.job-exec.db-backup-daily.no-overlap: "true"
+      ofelia.job-exec.db-backup-check.schedule: "0 0 5 * * 0" # 05:00:00 every sunday
+      ofelia.job-exec.db-backup-check.command: "backup check"
+      ofelia.job-exec.db-backup-check.no-overlap: "true"
+
+  # runs backup-db's jobs from its labels, as in notsobot.api. it needs the docker socket (read-only) to exec them
+  scheduler-ofelia:
+    # 2026.11.15
+    image: mcuadros/ofelia:0.3.23@sha256:75c3a3d7ddeb99bc1545a4955155019f0444f6e6d6f812f4e3304bfae8e67304
+    restart: unless-stopped
+    depends_on:
+      - backup-db
+    command: daemon --docker
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+
+  # One-off: applies pending SQL migrations, then exits. Never create tables on boot.
+  migrate:
+    <<: *api-service
+    command: ["python", "-m", "migrate"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+
+  api:
+    <<: *api-service
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
     expose:
       - 8080
-  nginx: 
-    image: nginx:latest
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8080/health', timeout=3).status == 200 else 1)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  # Background jobs (uploads finalising, media processing, scans) and the scheduler.
+  worker:
+    <<: *api-service
+    command: ["python", "-m", "worker"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+
+  nginx:
+    # 2026.11.24, nginx mainline 1.31 (latest), pinned by digest
+    image: nginx:1.31@sha256:6a3df739b6312289e87d70947d900669c1b3087474ece5814b9c01bbf2e6dde3
     depends_on:
       - api
     volumes:
@@ -37,3 +165,16 @@ services:
     ports:
       - 80:80
       - 443:443
+
+  # Only for the one-time move off Cloud SQL (PLAN.md §2.1 item 8). Not started by default:
+  #   docker compose --profile cloudsql up -d cloud-sql-proxy
+  #   docker compose run --rm postgres pg_dump -Fc -h cloud-sql-proxy -p 5433 ... > db-dumps/cloudsql.dump
+  cloud-sql-proxy:
+    image: gcr.io/cloudsql-docker/gce-proxy:1.13
+    profiles: ["cloudsql"]
+    command: /cloud_sql_proxy -instances=myinstance:us-central1:myproject=tcp:0.0.0.0:5433 -credential_file=/credentials
+    volumes:
+      - ./gconfig.json:/credentials
+    expose:
+      - 5433
+

@@ -1,36 +1,49 @@
 import hashlib
+import os
 import random
 import re
 import string
+import tempfile
 
-from flask import current_app, Blueprint, request
-from flask_restful import inputs, reqparse
-from peewee import fn, JOIN
+from typing import Annotated, Optional
 
-from models import File, FileHash, FileView, Mimetype, MimetypeExtension, MimetypeType
+from sanic import Blueprint
+
+import db
+from db import queries
 from utils.errors import InvalidMimetype, UnknownFile
 from utils.generators import Snowflake
+from utils.params import Arg, Args
 from utils.responses import ApiError, ApiResponse
-from utils.wrappers import authenticate, parse_args
+from utils.wrappers import authenticate, parse_args, route
+from utils import view_hash
 
 import utils.helpers as helpers
 import utils.parameters as parameters
 
-files = Blueprint('files', __name__, url_prefix='/files')
+files = Blueprint('files', url_prefix='/files')
+
+UPLOAD_TMP_DIR = os.getenv('UPLOAD_TMP_DIR') or None
+FORM_TYPES = ('multipart/form-data', 'application/x-www-form-urlencoded')
+
+Authorization = Annotated[Optional[str], Arg('authorization', location='headers')]
+Fingerprint = Annotated[Optional[int], Arg('x-fingerprint', location='headers', type=parameters.fingerprint)]
 
 
-parser_get_files = reqparse.RequestParser(trim=True)
-parser_get_files.add_argument('authorization', location='headers')
-parser_get_files.add_argument('x-fingerprint', location='headers', dest='fingerprint', type=parameters.fingerprint)
-parser_get_files.add_argument('limit', type=int, default=100, choices=range(1, 101), help='Must be at least or in between 1 and 100')
-parser_get_files.add_argument('after', location='args', type=parameters.snowflake)
-parser_get_files.add_argument('before', location='args', type=parameters.snowflake)
-parser_get_files.add_argument('mimetype', location='args')
-parser_get_files.add_argument('type', location='args')
+class FetchFilesArgs(Args):
+    authorization: Authorization = None
+    fingerprint: Fingerprint = None
+    limit: Annotated[Optional[int], Arg(type=int, choices=range(1, 101),
+                                        help='Must be at least or in between 1 and 100')] = 100
+    after: Annotated[Optional[int], Arg(location='args', type=parameters.snowflake)] = None
+    before: Annotated[Optional[int], Arg(location='args', type=parameters.snowflake)] = None
+    mimetype: Annotated[Optional[str], Arg(location='args')] = None
+    type: Annotated[Optional[str], Arg(location='args')] = None
 
-@files.route('', methods=['GET'])
-@parse_args(parser_get_files)
-def fetch_files(args):
+
+@route(files, '', ['GET'])
+@parse_args(FetchFilesArgs)
+async def fetch_files(request, args):
     if args.authorization is None and args.fingerprint is None:
         raise ApiError(status=401)
 
@@ -40,58 +53,30 @@ def fetch_files(args):
     if args.mimetype is not None and args.type is not None:
         raise ApiError('Choose Mimetype or Type, not both')
 
-    mtype = None
-    if args.type is not None:
-        mtype = MimetypeType.get_or_none(id=args.type)
-        if mtype is None:
-            raise ApiError(metadata={'errors': {'type': 'Invalid Type'}})
+    async with db.connection() as conn:
+        if args.type is not None:
+            if not await queries.mimetype_type_exists(conn, args.type):
+                raise ApiError(metadata={'errors': {'type': 'Invalid Type'}})
 
-    mimetype = None
-    if args.mimetype is not None:
-        mimetype = Mimetype.get_or_none(id=args.mimetype)
-        if mimetype is None:
-            raise ApiError(metadata={'errors': {'mimetype': 'Invalid Mimetype'}})
+        if args.mimetype is not None:
+            if await queries.get_mimetype(conn, args.mimetype) is None:
+                raise ApiError(metadata={'errors': {'mimetype': 'Invalid Mimetype'}})
 
-    files = (File
-            .select(File, FileHash)
-            .join(FileHash)
-            .switch(File)
-            .order_by(File.id.desc())
-            .limit(args.limit))
-    total = File.select(fn.COUNT(File.id).alias('count'))
+        user_id = fingerprint = None
+        if args.authorization is not None:
+            user = await helpers.get_user(conn, args.authorization)
+            user_id = user.id
+        else:
+            fingerprint = args.fingerprint
 
-    if args.authorization is not None:
-        user = helpers.get_user(args.authorization)
-        files = files.where(File.user == user)
-        total = total.where(File.user == user)
-    else:
-        files = files.where(File.fingerprint == args.fingerprint)
-        total = total.where(File.fingerprint == args.fingerprint)
-
-    if mtype is not None:
-        files = (files
-                .join(Mimetype, JOIN.RIGHT_OUTER, on=(Mimetype.id == File.mimetype))
-                .join(MimetypeType, JOIN.RIGHT_OUTER, on=(MimetypeType.id == Mimetype.type))
-                .where(MimetypeType.id == mtype)
-                .switch(File))
-        total = (total
-                .join(Mimetype, JOIN.RIGHT_OUTER, on=(Mimetype.id == File.mimetype))
-                .join(MimetypeType, JOIN.RIGHT_OUTER, on=(MimetypeType.id == Mimetype.type))
-                .where(MimetypeType.id == mtype)
-                .switch(File))
-
-    if mimetype is not None:
-        files = files.where(File.mimetype == mimetype)
-        total = total.where(File.mimetype == mimetype)
-
-    if args.after is not None:
-        files = files.where(File.id > args.after)
-    elif args.before is not None:
-        files = files.where(File.id < args.before)
+        total, items = await queries.list_files(
+            conn, user_id=user_id, fingerprint=fingerprint, type_id=args.type,
+            mimetype_id=args.mimetype, after=args.after, before=args.before, limit=args.limit,
+        )
 
     return ApiResponse({
-        'total': total.scalar(),
-        'files': [x.to_dict() for x in files],
+        'total': total,
+        'files': [x.to_dict() for x in items],
     })
 
 
@@ -142,28 +127,89 @@ def parse_vanity_part(part):
             vlength = int(parts.pop(0))
             return (vlength, vlength)
 
-parser_create_files = reqparse.RequestParser(trim=True)
-parser_create_files.add_argument('filename', location='values')
-parser_create_files.add_argument('vanity', location='values', default='')
-parser_create_files.add_argument('type', location='values', default='multipart', choices=('multipart', 'raw'), help='Invalid Upload Type')
-parser_create_files.add_argument('authorization', location='headers')
-parser_create_files.add_argument('x-fingerprint', location='headers', dest='fingerprint', type=parameters.fingerprint)
 
-@files.route('', methods=['POST'])
-@parse_args(parser_create_files)
-def create_file(args):
+class CreateFileArgs(Args):
+    filename: Annotated[Optional[str], Arg(location='values')] = None
+    vanity: Annotated[Optional[str], Arg(location='values')] = ''
+    type: Annotated[Optional[str], Arg(location='values', choices=('multipart', 'raw'),
+                                       help='Invalid Upload Type')] = 'multipart'
+    authorization: Authorization = None
+    fingerprint: Fingerprint = None
+
+
+def mimetype_of(content_type):
+    """Werkzeug's `.mimetype`: lowercased, without parameters."""
+    return (content_type or '').split(';', 1)[0].strip().lower()
+
+
+class Hasher:
+    def __init__(self):
+        self.blake2b = hashlib.blake2b()
+        self.md5 = hashlib.md5()
+        self.sha1 = hashlib.sha1()
+        self.size = 0
+
+    def update(self, data):
+        self.blake2b.update(data)
+        self.md5.update(data)
+        self.sha1.update(data)
+        self.size += len(data)
+
+    def digests(self):
+        return self.blake2b.hexdigest(), self.md5.hexdigest(), self.sha1.hexdigest()
+
+
+async def stream_to_tempfile(request):
+    """Write the raw request body to a temp file while hashing it, without
+    holding it in memory. Returns (path, Hasher)."""
+    hasher = Hasher()
+    handle = tempfile.NamedTemporaryFile(prefix='upload-', dir=UPLOAD_TMP_DIR, delete=False)
+    try:
+        with handle:
+            while True:
+                chunk = await request.stream.read()
+                if chunk is None:
+                    break
+                if chunk:
+                    hasher.update(chunk)
+                    handle.write(chunk)
+    except BaseException:
+        os.unlink(handle.name)
+        raise
+    return handle.name, hasher
+
+
+# Streamed so raw uploads go to disk while hashing; form bodies (multipart)
+# and JSON bodies are read whole, as before.
+async def create_file(request):
+    content_mimetype = mimetype_of(request.content_type)
+    buffered = content_mimetype in FORM_TYPES or content_mimetype == 'application/json' or (
+        content_mimetype.startswith('application/') and content_mimetype.endswith('+json'))
+    if buffered:
+        await request.receive_body()
+    return await _create_file(request, buffered)
+
+
+create_file.__params_model__ = CreateFileArgs
+route(files, '', ['POST'], stream=True)(create_file)
+
+
+@parse_args(CreateFileArgs)
+async def _create_file(request, args, buffered):
     fingerprint = user = None
-    if args.authorization is not None:
-        try:
-            user = helpers.get_user(args.authorization)
-        except:
-            raise ApiError('Invalid Authentication')
+    async with db.connection() as conn:
+        if args.authorization is not None:
+            try:
+                user = await helpers.get_user(conn, args.authorization)
+            except Exception:
+                raise ApiError('Invalid Authentication')
 
     if args.fingerprint is not None and user is None:
         fingerprint = args.fingerprint
 
-    min_vanity = max_vanity = args.vanity.count('/')
-    for part in args.vanity.split('/'):
+    vanity_arg = args.vanity
+    min_vanity = max_vanity = vanity_arg.count('/')
+    for part in vanity_arg.split('/'):
         minv, maxv = parse_vanity_part(part)
         min_vanity += minv
         max_vanity += maxv
@@ -171,158 +217,161 @@ def create_file(args):
     if min_vanity < MIN_VANITY_LENGTH or MAX_VANITY_LENGTH < max_vanity:
         raise ApiError('Vanity has to be at least or in between {} and {} characters long'.format(MIN_VANITY_LENGTH, MAX_VANITY_LENGTH))
 
+    filename = args.filename
     fextension = None
+    fdata = temp_path = None
     if args.type == 'multipart':
-        storage = next(request.files.values(), None)
+        uploads = request.files if buffered else None
+        storage = None
+        if uploads:
+            storage = next(iter(uploads.values()), [None])[0]
         if storage is None:
             raise ApiError('A file must be uploaded')
-        if args.filename is None:
-            args.filename = storage.filename
+        if filename is None:
+            filename = storage.name
         else:
             # get original extension from uploaded file
             # just incase we generate filename in future
-            if '.' in storage.filename:
-                fextension = storage.filename.split('.')[-1]
-        mimetype = storage.mimetype
-        stream = storage.stream
-        stream.seek(0, 2)
-        fsize = stream.tell()
-        stream.seek(0)
+            if storage.name and '.' in storage.name:
+                fextension = storage.name.split('.')[-1]
+        mimetype = mimetype_of(storage.type)
+        fdata = storage.body
+        hasher = Hasher()
+        hasher.update(fdata)
     elif args.type == 'raw':
-        mimetype = request.mimetype
-        stream = request.stream
-        fsize = request.content_length
+        mimetype = mimetype_of(request.content_type)
+        if buffered:
+            fdata = request.body or b''
+            hasher = Hasher()
+            hasher.update(fdata)
+        else:
+            temp_path, hasher = await stream_to_tempfile(request)
     else:
         raise ApiError('Invalid Upload Type')
 
-    #check filesize
+    try:
+        return await _store(request, args, user, fingerprint, filename, fextension, mimetype, hasher, fdata, temp_path)
+    finally:
+        if temp_path is not None:
+            os.unlink(temp_path)
 
-    fname = None
-    if args.filename is None:
-        fname = [generate_vanity()]
-    else:
-        fname = args.filename.split('.')
 
-    if 1 < len(fname):
-        # do we want to use the original filename's extension all the time?
-        if fextension is None:
-            fextension = fname.pop(-1)
-        elif fextension.lower() == fname[-1].lower():
-            fextension = fname.pop(-1)
-
-    mime = Mimetype.get_or_none(id=mimetype)
-    if mime is None:
-        if fextension is None:
-            raise InvalidMimetype()
-        mextension = MimetypeExtension.get_or_none(extension=fextension.lower())
-        if mextension is None:
-            raise InvalidMimetype()
-        # mime = mextension.mime
-        mimetype = mextension.mimetype_id
-    else:
-        # use extension to determine filetype
-        if mime.id == 'application/octet-stream':
-            if fextension is not None:
-                mextension = MimetypeExtension.get_or_none(extension=fextension.lower())
-                if mextension is not None:
-                    mimetype = mextension.mimetype_id
-    # check flags
-
-    if fextension is not None:
-        mextension = MimetypeExtension.get_or_none(mimetype=mimetype, extension=fextension.lower())
-        # keep extension incase its not found
-        if mextension is None:
-            fname.append(fextension)
-            fextension = None
+async def _store(request, args, user, fingerprint, filename, fextension, mimetype, hasher, fdata, temp_path):
+    async with db.connection() as conn:
+        fname = None
+        if filename is None:
+            fname = [generate_vanity()]
         else:
-            # set it to the stored version, just this or fextension.lower()
-            fextension = mextension.extension
+            fname = filename.split('.')
 
-    if fextension is None:
-        mextension = (MimetypeExtension
-                    .select()
-                    .where(MimetypeExtension.mimetype == mimetype)
-                    .order_by(MimetypeExtension.priority.desc())
-                    .limit(1)
-                    .execute())
-        if mextension:
-            fextension = mextension[0].extension
+        if 1 < len(fname):
+            # do we want to use the original filename's extension all the time?
+            if fextension is None:
+                fextension = fname.pop(-1)
+            elif fextension.lower() == fname[-1].lower():
+                fextension = fname.pop(-1)
+
+        mime = await queries.get_mimetype(conn, mimetype)
+        if mime is None:
+            if fextension is None:
+                raise InvalidMimetype()
+            mextension = await queries.get_extension(conn, fextension.lower())
+            if mextension is None:
+                raise InvalidMimetype()
+            mimetype = mextension.mimetype_id
         else:
-            if mimetype.endswith('+json'):
-                fextension = 'json'
-            elif mimetype.endswith('+xml'):
-                fextension = 'xml'
+            # use extension to determine filetype
+            if mime.id == 'application/octet-stream':
+                if fextension is not None:
+                    mextension = await queries.get_extension(conn, fextension.lower())
+                    if mextension is not None:
+                        mimetype = mextension.mimetype_id
+        # check flags
 
-    fname = '.'.join(fname)[:256] # just incase they send a huge text lol
-    while '{random}' in fname:
-        fname = fname.replace('{random}', generate_vanity(), 1)
-    fname = re.sub(FILENAME_REGEX, '_', fname[:128])
+        if fextension is not None:
+            mextension = await queries.get_extension(conn, fextension.lower(), mimetype_id=mimetype)
+            # keep extension incase its not found
+            if mextension is None:
+                fname.append(fextension)
+                fextension = None
+            else:
+                # set it to the stored version, just this or fextension.lower()
+                fextension = mextension.extension
 
-    # we read the filedata now to get the hashes of it
-    fdata = stream.read(fsize)
+        if fextension is None:
+            mextension = await queries.get_top_extension(conn, mimetype)
+            if mextension:
+                fextension = mextension.extension
+            else:
+                if mimetype.endswith('+json'):
+                    fextension = 'json'
+                elif mimetype.endswith('+xml'):
+                    fextension = 'xml'
 
-    hblake2b = hashlib.blake2b(fdata).hexdigest()
-    hmd5 = hashlib.md5(fdata).hexdigest()
-    hsha1 = hashlib.sha1(fdata).hexdigest()
+        fname = '.'.join(fname)[:256] # just incase they send a huge text lol
+        while '{random}' in fname:
+            fname = fname.replace('{random}', generate_vanity(), 1)
+        fname = re.sub(FILENAME_REGEX, '_', fname[:128])
 
-    fid = Snowflake.generate()
-    fhash = FileHash.get_or_none(blake2b=hblake2b, md5=hmd5, sha1=hsha1)
-    if fhash is None:
-        fhash = FileHash.create(
-            id=Snowflake.generate(),
-            blake2b=hblake2b,
-            md5=hmd5,
-            sha1=hsha1,
-            size=fsize,
-        )
-        # upload it now
-        bucket = current_app.gcs.get_bucket(current_app.config.storage_bucket)
-        blob = bucket.blob('files/{}'.format(fhash.id))
-        blob.upload_from_string(fdata, content_type='application/octet-stream', predefined_acl='publicRead')
+        hblake2b, hmd5, hsha1 = hasher.digests()
 
-    unique = False
-    while not unique:
-        fvanity = generate_vanity(args.vanity)
-        unique = bool(File.get_or_none(vanity=fvanity) is None)
+        fid = Snowflake.generate()
+        fhash = await queries.get_file_hash(conn, hblake2b, hmd5, hsha1)
+        if fhash is None:
+            fhash, created = await queries.create_file_hash(
+                conn, Snowflake.generate(), hblake2b, hmd5, hsha1, hasher.size)
+            if created:
+                # upload it now
+                storage = request.app.ctx.storage
+                key = 'files/{}'.format(fhash.id)
+                if temp_path is not None:
+                    await storage.upload_file(key, temp_path)
+                else:
+                    await storage.upload_bytes(key, fdata)
 
-    fobj = File.create(
-        id=fid,
-        vanity=fvanity,
-        mimetype=mimetype,
-        extension=fextension,
-        filename=fname,
-        hash=fhash,
-        user=user,
-        fingerprint=fingerprint,
-    )
+        fobj = None
+        while fobj is None:
+            fvanity = generate_vanity(args.vanity)
+            if await queries.vanity_exists(conn, fvanity):
+                continue
+            fobj = await queries.create_file(
+                conn,
+                id=fid,
+                vanity=fvanity,
+                mimetype_id=mimetype,
+                extension=fextension,
+                filename=fname,
+                fhash=fhash,
+                user=user,
+                fingerprint=fingerprint,
+            )
     return ApiResponse(fobj.to_dict())
 
 
-parser_fetch_file = reqparse.RequestParser(trim=True)
-parser_fetch_file.add_argument('vanity', location='view_args')
+class FileArgs(Args):
+    vanity: Annotated[Optional[str], Arg(location='view_args')] = None
 
-@files.route('/<path:vanity>', methods=['GET'])
-@parse_args(parser_fetch_file)
-def fetch_file(args):
+
+def view_ip(request):
+    return helpers.client_ip(request)
+
+
+@route(files, '/<vanity:path>', ['GET'])
+@parse_args(FileArgs)
+async def fetch_file(request, args):
     vanity = args.vanity.split('.').pop(0)
-    fobj = File.get_or_none(vanity=vanity)
-    if fobj is None:
-        raise UnknownFile()
-
-    ip = request.remote_addr
-    if FileView.get_or_none(file=fobj, ip=ip) is None:
-        FileView.create(file=fobj, ip=ip)
-        fobj.view_count += 1
-        fobj.save()
+    async with db.connection() as conn:
+        fobj = await queries.get_file_by_vanity(conn, vanity)
+        if fobj is None:
+            raise UnknownFile()
+        day = view_hash.utc_today()
+        await queries.record_view(conn, fobj, view_hash.ip_hash(request.app.ctx.view_hash_secret, day, view_ip(request)), day)
 
     return ApiResponse(fobj.to_dict())
 
 
-parser_delete_file = reqparse.RequestParser(trim=True)
-parser_delete_file.add_argument('vanity', location='view_args')
-
-@files.route('/<path:vanity>', methods=['DELETE'])
-@parse_args(parser_delete_file)
+@route(files, '/<vanity:path>', ['DELETE'])
+@parse_args(FileArgs)
 @authenticate()
-def delete_file(args, user):
-    return args.vanity
+async def delete_file(request, args, user):
+    return ApiResponse(args.vanity)

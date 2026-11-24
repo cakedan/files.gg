@@ -1,0 +1,1 @@
+Migrations here are not applied: `python -m migrate` only reads `migrations/*.sql`. Each ships one release after the migration that made it safe: move it up into `migrations/` once every server runs code that no longer uses what it drops (`0004_drop_legacy.sql` follows `0003`).

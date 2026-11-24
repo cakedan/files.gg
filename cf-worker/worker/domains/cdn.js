@@ -1,23 +1,30 @@
 import { ApiError, DomainRouter } from 'cf-worker-router';
-import { requestApi } from './api';
-import { InputTypes } from '../utils';
+import { requestApi } from './api.js';
+import { storageOrigin } from '../utils/env.js';
+import {
+  cdnSecurityHeaders,
+  decideCdnResponse,
+  isForcedText,
+} from '../utils/security.js';
 
 
-export const router = new DomainRouter('cdn.files.gg');
+export const CDN_HOSTNAME = 'cdn.files.gg';
+
+export const router = new DomainRouter(CDN_HOSTNAME);
 
 
 router.route('/*', ['GET', 'HEAD', 'OPTIONS'], async (event) => {
-  return await requestStorage(event, event.url.pathname);
+  const response = await requestStorage(event, event.url.pathname);
+  // Same XSS guard as /files/: never let storage serve markup with a renderable type.
+  if (response.ok && isForcedText(response.headers.get('content-type'))) {
+    response.headers.set('content-type', 'text/plain');
+  }
+  return response;
 });
 
 
-const displayAsText = [
-  'application/xhtml+xml',
-  'image/svg+xml',
-  'text/html',
-];
-
 router.route('/files/:fileId...', ['GET', 'HEAD', 'OPTIONS'], async (event) => {
+  // `<vanity>` and `<vanity>.<anything>` both resolve, including multi-segment vanities (PLAN.md §1.4).
   const fileId = event.parameters.fileId.split('.').shift();
 
   let response = await requestApi(event, {
@@ -29,27 +36,29 @@ router.route('/files/:fileId...', ['GET', 'HEAD', 'OPTIONS'], async (event) => {
     const file = await response.json();
     response = await requestStorage(event, '/files/' + file.hash);
     if (response.ok) {
-      let mimetype = file.mimetype;
-      if (displayAsText.includes(mimetype)) {
-        mimetype = 'text/plain';
-      } else if (InputTypes.boolean(event.url.searchParams.get('force-text'))) {
-        mimetype = 'text/plain';
-      }
-
-      let disposition = 'inline';
-      if (InputTypes.boolean(event.url.searchParams.get('download'))) {
-        disposition = 'attachment';
-      }
-
-      const filename  = encodeURIComponent(file.filename);
-      response.headers.set('content-disposition', `${disposition}; filename="${filename}"`);
-      response.headers.set('content-type', mimetype);
+      const decision = decideCdnResponse({
+        filename: file.filename,
+        mimetype: file.mimetype,
+        query: event.url.searchParams,
+      });
+      response.headers.set('content-disposition', decision.contentDisposition);
+      response.headers.set('content-type', decision.contentType);
     }
   } else {
     response = new Response(response.body, response);
   }
   return response;
 });
+
+
+// Applied to every response on cdn.files.gg (including 404s, 405s and 500s) from index.js.
+export function applyCdnSecurityHeaders(response) {
+  const headers = cdnSecurityHeaders();
+  for (const name in headers) {
+    response.headers.set(name, headers[name]);
+  }
+  return response;
+};
 
 
 const bodyLessMethods = ['GET', 'HEAD', 'OPTIONS'];
@@ -60,7 +69,7 @@ export async function requestStorage(event, options) {
     options = Object.assign({}, options);
   }
 
-  const url = new URL('https://filesgg.storage.googleapis.com');
+  const url = new URL(storageOrigin(event.environment));
   url.pathname = options.path;
 
   const request = new Request(url, event.request);

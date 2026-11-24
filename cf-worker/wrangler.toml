@@ -1,0 +1,32 @@
+#:schema node_modules/wrangler/config-schema.json
+# files.gg edge Worker: files.gg pages, cdn.files.gg bytes, the api.files.gg passthrough and
+# proxy.files.gg. See README.md.
+name = "files-gg"
+main = "worker/index.js"
+compatibility_date = "2026-11-23"
+
+# Only the zone routes below serve traffic; no *.workers.dev copy of the CDN or API.
+workers_dev = false
+preview_urls = false
+
+routes = [
+  { pattern = "files.gg/*", zone_name = "files.gg" },
+  { pattern = "cdn.files.gg/*", zone_name = "files.gg" },
+  { pattern = "api.files.gg/*", zone_name = "files.gg" },
+  { pattern = "proxy.files.gg/*", zone_name = "files.gg" },
+]
+
+[vars]
+# Comma-separated origins allowed credentialed CORS on api.files.gg and files.gg/api/*.
+CORS_ALLOWED_ORIGINS = "https://files.gg"
+
+# Secrets are never stored here. Set each one once per Worker (values: `openssl rand -hex 32`):
+#
+#   npx wrangler secret put PROXY_SECRET
+#     Shared secret callers of proxy.files.gg send as X-Proxy-Token. Unset: every proxy request is 403.
+#
+#   npx wrangler secret put ORIGIN_SHARED_SECRET
+#     Must equal the API's ORIGIN_SHARED_SECRET. Sent as X-Filesgg-Origin-Secret with
+#     X-Filesgg-Client-Ip on every API request. Unset: neither header is sent.
+#
+# For `npm run dev`, put local values in .dev.vars (git-ignored), e.g. PROXY_SECRET=dev-only.

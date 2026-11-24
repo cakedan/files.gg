@@ -1,0 +1,9 @@
+-r requirements.txt
+pytest==9.2.0
+pytest-asyncio==1.5.0
+sanic-testing==24.6.0
+# transitive (pytest)
+iniconfig==2.3.1
+packaging==26.4
+pluggy==1.7.0
+Pygments==2.21.0

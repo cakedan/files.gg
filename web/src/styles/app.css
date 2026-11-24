@@ -1,0 +1,7 @@
+/* Dashboard entry styles. */
+@import 'tailwindcss' source(none);
+@import './theme.css';
+
+@source '../app';
+@source '../components';
+@source '../lib';

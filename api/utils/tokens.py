@@ -1,7 +1,20 @@
 import itsdangerous
 import time
 
-from flask import current_app
+
+_secret_key = None
+
+
+def set_secret_key(secret_key):
+    """Set once per process by create_app() (was Flask's app.secret_key)."""
+    global _secret_key
+    _secret_key = secret_key
+
+
+def get_secret_key():
+    if not _secret_key:
+        raise RuntimeError('Token secret key is not set')
+    return _secret_key
 
 
 class Token:
@@ -12,7 +25,7 @@ class Token:
     @classmethod
     def generate_serializer(cls):
         return cls.serializer(
-            current_app.secret_key,
+            get_secret_key(),
             salt=cls.salt,
             signer_kwargs=cls.serializer_signer_kwargs,
         )

@@ -1,0 +1,35 @@
+# API test suite against a real Postgres 19 (the same image as docker-compose.yml). From the repo root:
+#
+#   docker compose -f docker-compose.test.yml up --build --attach tests --exit-code-from tests
+#
+# The command's exit code is pytest's. To pass pytest arguments, e.g. one file:
+#
+#   docker compose -f docker-compose.test.yml run --rm --build tests python -m pytest tests/test_jobs.py -v
+#
+# Clean up afterwards with: docker compose -f docker-compose.test.yml down
+name: filesgg-api-tests
+
+services:
+  postgres:
+    image: postgres:19.0@sha256:aaa10f7ba7328b4a221a6c3184d83eef885bd16bf1f6de864757863156b0a4d1
+    environment:
+      POSTGRES_PASSWORD: postgres
+    command: ["postgres", "-c", "max_connections=300", "-c", "fsync=off"]
+    tmpfs:
+      - /var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 1s
+      timeout: 3s
+      retries: 30
+
+  tests:
+    build:
+      context: ./api
+      target: test
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      TEST_DATABASE_ADMIN_URL: postgresql://postgres:postgres@postgres:5432/postgres
+      VIEW_HASH_SECRET: test-view-hash-secret

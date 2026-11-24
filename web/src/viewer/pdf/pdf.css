@@ -1,0 +1,169 @@
+/* Utilities for the lazy PDF chunk only, generated against the shared theme. */
+@reference '../../styles/tokens.css';
+@import 'tailwindcss/utilities.css' layer(utilities) source(none);
+@source './';
+
+/*
+ * Styles for the pdf.js text and annotation layers, adapted from pdf.js's
+ * web/pdf_viewer.css (Apache-2.0). Only the parts this viewer uses.
+ */
+
+.pdf-page {
+  --user-unit: 1;
+  --total-scale-factor: calc(var(--scale-factor) * var(--user-unit));
+  --scale-round-x: 1px;
+  --scale-round-y: 1px;
+  position: relative;
+  margin-inline: auto;
+  background-color: #fff;
+  box-shadow: 0 1px 3px rgb(0 0 0 / 0.4);
+  direction: ltr;
+}
+
+.pdf-page canvas {
+  position: absolute;
+  inset: 0;
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.pdf-page [data-main-rotation='90'] {
+  transform: rotate(90deg) translateY(-100%);
+}
+.pdf-page [data-main-rotation='180'] {
+  transform: rotate(180deg) translate(-100%, -100%);
+}
+.pdf-page [data-main-rotation='270'] {
+  transform: rotate(270deg) translateX(-100%);
+}
+
+.pdf-page .textLayer {
+  color-scheme: only light;
+  position: absolute;
+  text-align: initial;
+  inset: 0;
+  overflow: clip;
+  opacity: 1;
+  line-height: 1;
+  letter-spacing: normal;
+  word-spacing: normal;
+  text-size-adjust: none;
+  forced-color-adjust: none;
+  transform-origin: 0 0;
+  caret-color: CanvasText;
+  z-index: 0;
+
+  --min-font-size: 1;
+  --text-scale-factor: calc(var(--total-scale-factor) * var(--min-font-size));
+  --min-font-size-inv: calc(1 / var(--min-font-size));
+
+  :is(span, br) {
+    color: transparent;
+    position: absolute;
+    white-space: pre;
+    cursor: text;
+    transform-origin: 0% 0%;
+    user-select: text;
+  }
+
+  > :not(.markedContent),
+  .markedContent span:not(.markedContent) {
+    z-index: 1;
+    --font-height: 0;
+    font-size: calc(var(--text-scale-factor) * var(--font-height));
+    --scale-x: 1;
+    --rotate: 0deg;
+    transform: rotate(var(--rotate)) scaleX(var(--scale-x)) scale(var(--min-font-size-inv));
+  }
+
+  .markedContent {
+    display: contents;
+  }
+
+  .highlight {
+    margin: -1px;
+    padding: 1px;
+    background-color: rgb(250 166 26 / 0.4);
+    border-radius: 3px;
+
+    &.appended {
+      position: initial;
+    }
+
+    &.selected {
+      background-color: rgb(61 235 126 / 0.55);
+    }
+  }
+
+  ::selection {
+    background: rgb(0 90 255 / 0.25);
+    color: transparent;
+  }
+
+  br::selection {
+    background: transparent;
+  }
+
+  .endOfContent {
+    display: block;
+    position: absolute;
+    inset: 100% 0 0;
+    z-index: 0;
+    cursor: default;
+    user-select: none;
+  }
+
+  &.selecting .endOfContent {
+    top: 0;
+  }
+}
+
+.pdf-page .annotationLayer {
+  position: absolute;
+  top: 0;
+  left: 0;
+  pointer-events: none;
+  transform-origin: 0 0;
+
+  section {
+    position: absolute;
+    text-align: initial;
+    pointer-events: auto;
+    box-sizing: border-box;
+    transform-origin: 0 0;
+  }
+
+  /* Forms are drawn on the canvas and stay read-only. */
+  .textWidgetAnnotation,
+  .choiceWidgetAnnotation,
+  .buttonWidgetAnnotation:not(.pushButton),
+  .popupAnnotation {
+    display: none;
+  }
+
+  :is(.linkAnnotation, .buttonWidgetAnnotation.pushButton) > a {
+    position: absolute;
+    font-size: 1em;
+    inset: 0;
+  }
+
+  .linkAnnotation > a:hover {
+    background-color: rgb(61 235 126 / 0.18);
+    box-shadow: 0 0 0 1px rgb(61 235 126 / 0.6);
+  }
+}
+
+.pdf-root:fullscreen,
+.pdf-root.pdf-fake-fullscreen {
+  width: 100vw !important;
+  height: 100dvh !important;
+  max-width: none !important;
+  border-radius: 0;
+}
+
+.pdf-root.pdf-fake-fullscreen {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+}

@@ -1,0 +1,712 @@
+{
+ "auth_fingerprint_keep": {
+  "body": "{\"fingerprint\": \".eJwzNkADhgAgWQNl.kYu3L_cgNJyjFqG_rOIdsm5B6jY\"}",
+  "headers": {
+   "cache-control": "no-cache, no-store",
+   "content-type": "application/json"
+  },
+  "status": 200
+ },
+ "auth_forgot_reset_bad": {
+  "body": "{\"errors\": {\"token\": \"Invalid Token\", \"password\": \"Must be at 6 characters or longer in length\"}, \"code\": 0, \"message\": \"Bad Request\", \"status\": 400}",
+  "headers": {
+   "cache-control": "no-cache, no-store",
+   "content-type": "application/json"
+  },
+  "status": 400
+ },
+ "auth_forgot_unknown": {
+  "body": "{\"errors\": {\"email\": \"Email not in use\"}, \"code\": 0, \"message\": \"Bad Request\", \"status\": 400}",
+  "headers": {
+   "cache-control": "no-cache, no-store",
+   "content-type": "application/json"
+  },
+  "status": 400
+ },
+ "auth_login_empty": {
+  "body": "{\"errors\": {\"email\": \"Missing required parameter in the JSON body or the post body or the query string\", \"password\": \"Missing required parameter in the JSON body or the post body or the query string\", \"captcha\": \"Missing required parameter in the JSON body or the post body or the query string\"}, \"code\": 0, \"message\": \"Bad Request\", \"status\": 400}",
+  "headers": {
+   "cache-control": "no-cache, no-store",
+   "content-type": "application/json"
+  },
+  "status": 400
+ },
+ "auth_login_invalid_form": {
+  "body": "{\"errors\": {\"email\": \"Not a well formed email address\", \"captcha\": \"Missing required parameter in the JSON body or the post body or the query string\"}, \"code\": 0, \"message\": \"Bad Request\", \"status\": 400}",
+  "headers": {
+   "cache-control": "no-cache, no-store",
+   "content-type": "application/json"
+  },
+  "status": 400
+ },
+ "auth_login_invalid_json": {
+  "body": "{\"errors\": {\"email\": \"Not a well formed email address\", \"password\": \"Must be at 6 characters or longer in length\", \"captcha\": \"Missing required parameter in the JSON body or the post body or the query string\"}, \"code\": 0, \"message\": \"Bad Request\", \"status\": 400}",
+  "headers": {
+   "cache-control": "no-cache, no-store",
+   "content-type": "application/json"
+  },
+  "status": 400
+ },
+ "auth_login_null": {
+  "body": "{\"errors\": {\"captcha\": \"Invalid Captcha\"}, \"code\": 0, \"message\": \"Bad Request\", \"status\": 400}",
+  "headers": {
+   "cache-control": "no-cache, no-store",
+   "content-type": "application/json"
+  },
+  "status": 400
+ },
+ "auth_login_query": {
+  "body": "{\"errors\": {\"email\": \"Not a well formed email address\", \"password\": \"Missing required parameter in the JSON body or the post body or the query string\", \"captcha\": \"Missing required parameter in the JSON body or the post body or the query string\"}, \"code\": 0, \"message\": \"Bad Request\", \"status\": 400}",
+  "headers": {
+   "cache-control": "no-cache, no-store",
+   "content-type": "application/json"
+  },
+  "status": 400
+ },
+ "auth_logout": {
+  "body": "",
+  "headers": {
+   "cache-control": "no-cache, no-store",
+   "content-type": "application/json"
+  },
+  "status": 204
+ },
+ "auth_logout_no_auth": {
+  "body": "{\"code\": 0, \"message\": \"Unauthorized\", \"status\": 401}",
+  "headers": {
+   "cache-control": "no-cache, no-store",
+   "content-type": "application/json"
+  },
+  "status": 401
+ },
+ "auth_register_invalid": {
+  "body": "{\"errors\": {\"username\": \"Must be 3 characters or longer in length\", \"password\": \"Must be at 6 characters or longer in length\"}, \"code\": 0, \"message\": \"Bad Request\", \"status\": 400}",
+  "headers": {
+   "cache-control": "no-cache, no-store",
+   "content-type": "application/json"
+  },
+  "status": 400
+ },
+ "auth_register_long_username": {
+  "body": "{\"errors\": {\"username\": \"Must be 32 characters or fewer in length\", \"captcha\": \"Missing required parameter in the JSON body or the post body or the query string\"}, \"code\": 0, \"message\": \"Bad Request\", \"status\": 400}",
+  "headers": {
+   "cache-control": "no-cache, no-store",
+   "content-type": "application/json"
+  },
+  "status": 400
+ },
+ "auth_verify_bad_token": {
+  "body": "{\"errors\": {\"token\": \"Invalid Token\"}, \"code\": 0, \"message\": \"Bad Request\", \"status\": 400}",
+  "headers": {
+   "cache-control": "no-cache, no-store",
+   "content-type": "application/json"
+  },
+  "status": 400
+ },
+ "auth_verify_missing": {
+  "body": "{\"errors\": {\"token\": \"Missing required parameter in the JSON body or the post body or the query string\"}, \"code\": 0, \"message\": \"Bad Request\", \"status\": 400}",
+  "headers": {
+   "cache-control": "no-cache, no-store",
+   "content-type": "application/json"
+  },
+  "status": 400
+ },
+ "cors_allowed": {
+  "body": "[{\"mimetype\": \"text/plain\", \"type\": \"text\", \"flags\": 0, \"extensions\": [{\"extension\": \"txt\", \"priority\": 1}, {\"extension\": \"text\", \"priority\": 0}]}]",
+  "headers": {
+   "access-control-allow-credentials": "true",
+   "access-control-allow-headers": "Authorization, Content-Type, X-Fingerprint",
+   "access-control-allow-methods": "DELETE, GET, HEAD, OPTIONS, PATCH, POST, PUT, TRACE",
+   "access-control-allow-origin": "https://files.gg",
+   "access-control-max-age": "300",
+   "cache-control": "no-cache, no-store",
+   "content-type": "application/json",
+   "vary": "Origin"
+  },
+  "status": 200
+ },
+ "cors_foreign": {
+  "body": "[{\"mimetype\": \"text/plain\", \"type\": \"text\", \"flags\": 0, \"extensions\": [{\"extension\": \"txt\", \"priority\": 1}, {\"extension\": \"text\", \"priority\": 0}]}]",
+  "headers": {
+   "access-control-allow-headers": "Authorization, Content-Type, X-Fingerprint",
+   "access-control-allow-methods": "DELETE, GET, HEAD, OPTIONS, PATCH, POST, PUT, TRACE",
+   "access-control-allow-origin": "*",
+   "access-control-max-age": "300",
+   "cache-control": "no-cache, no-store",
+   "content-type": "application/json",
+   "vary": "Origin"
+  },
+  "status": 200
+ },
+ "cors_preflight_allowed": {
+  "body": "",
+  "headers": {
+   "access-control-allow-credentials": "true",
+   "access-control-allow-headers": "Authorization, Content-Type, X-Fingerprint",
+   "access-control-allow-methods": "DELETE, GET, HEAD, OPTIONS, PATCH, POST, PUT, TRACE",
+   "access-control-allow-origin": "https://beta.files.gg",
+   "access-control-max-age": "300",
+   "allow": "POST, GET, OPTIONS, HEAD",
+   "cache-control": "no-cache, no-store",
+   "content-type": "application/json",
+   "vary": "Origin"
+  },
+  "status": 204
+ },
+ "cors_preflight_foreign": {
+  "body": "",
+  "headers": {
+   "access-control-allow-headers": "Authorization, Content-Type, X-Fingerprint",
+   "access-control-allow-methods": "DELETE, GET, HEAD, OPTIONS, PATCH, POST, PUT, TRACE",
+   "access-control-allow-origin": "*",
+   "access-control-max-age": "300",
+   "allow": "GET, OPTIONS, HEAD",
+   "cache-control": "no-cache, no-store",
+   "content-type": "application/json",
+   "vary": "Origin"
+  },
+  "status": 204
+ },
+ "file_delete": {
+  "body": "\"abc.png\"",
+  "headers": {
+   "cache-control": "no-cache, no-store",
+   "content-type": "application/json"
+  },
+  "status": 200
+ },
+ "file_delete_no_auth": {
+  "body": "{\"code\": 0, \"message\": \"Unauthorized\", \"status\": 401}",
+  "headers": {
+   "cache-control": "no-cache, no-store",
+   "content-type": "application/json"
+  },
+  "status": 401
+ },
+ "file_get": {
+  "body": "{\"id\": \"200000000000000001\", \"vanity\": \"abc\", \"mimetype\": \"image/png\", \"extension\": \"png\", \"name\": \"cat\", \"filename\": \"cat.png\", \"hash\": \"400000000000000001\", \"size\": 12345, \"height\": 480, \"width\": 640, \"duration\": null, \"user\": {\"id\": \"100000000000000001\", \"username\": \"alice\", \"discriminator\": \"0001\", \"flags\": 0}, \"urls\": {\"main\": \"https://files.gg/abc.png\", \"cdn\": \"https://cdn.files.gg/files/abc.png\"}, \"views\": 6}",
+  "headers": {
+   "cache-control": "no-cache, no-store",
+   "content-type": "application/json"
+  },
+  "status": 200
+ },
+ "file_get_again": {
+  "body": "{\"id\": \"200000000000000001\", \"vanity\": \"abc\", \"mimetype\": \"image/png\", \"extension\": \"png\", \"name\": \"cat\", \"filename\": \"cat.png\", \"hash\": \"400000000000000001\", \"size\": 12345, \"height\": 480, \"width\": 640, \"duration\": null, \"user\": {\"id\": \"100000000000000001\", \"username\": \"alice\", \"discriminator\": \"0001\", \"flags\": 0}, \"urls\": {\"main\": \"https://files.gg/abc.png\", \"cdn\": \"https://cdn.files.gg/files/abc.png\"}, \"views\": 6}",
+  "headers": {
+   "cache-control": "no-cache, no-store",
+   "content-type": "application/json"
+  },
+  "status": 200
+ },
+ "file_get_anonymous": {
+  "body": "{\"id\": \"200000000000000004\", \"vanity\": \"anon1\", \"mimetype\": \"application/octet-stream\", \"extension\": \"bin\", \"name\": \"blob\", \"filename\": \"blob.bin\", \"hash\": \"400000000000000003\", \"size\": 9876543210, \"height\": 1080, \"width\": 1920, \"duration\": 61, \"user\": null, \"urls\": {\"main\": \"https://files.gg/anon1.bin\", \"cdn\": \"https://cdn.files.gg/files/anon1.bin\"}, \"views\": 3}",
+  "headers": {
+   "cache-control": "no-cache, no-store",
+   "content-type": "application/json"
+  },
+  "status": 200
+ },
+ "file_get_bot_owner": {
+  "body": "{\"id\": \"200000000000000005\", \"vanity\": \"botfile\", \"mimetype\": \"text/plain\", \"extension\": \"txt\", \"name\": \"beep\", \"filename\": \"beep.txt\", \"hash\": \"400000000000000002\", \"size\": 42, \"height\": null, \"width\": null, \"duration\": null, \"user\": {\"id\": \"100000000000000003\", \"username\": \"robot\", \"discriminator\": \"0007\", \"flags\": 1, \"bot\": true}, \"urls\": {\"main\": \"https://files.gg/botfile.txt\", \"cdn\": \"https://cdn.files.gg/files/botfile.txt\"}, \"views\": 1}",
+  "headers": {
+   "cache-control": "no-cache, no-store",
+   "content-type": "application/json"
+  },
+  "status": 200
+ },
+ "file_get_missing": {
+  "body": "{\"code\": 140401, \"message\": \"Unknown File\", \"status\": 404}",
+  "headers": {
+   "cache-control": "no-cache, no-store",
+   "content-type": "application/json"
+  },
+  "status": 404
+ },
+ "file_get_multi_segment": {
+  "body": "{\"id\": \"200000000000000002\", \"vanity\": \"deep/path\", \"mimetype\": \"text/plain\", \"extension\": \"txt\", \"name\": \"notes\", \"filename\": \"notes.txt\", \"hash\": \"400000000000000002\", \"size\": 42, \"height\": null, \"width\": null, \"duration\": null, \"user\": {\"id\": \"100000000000000001\", \"username\": \"alice\", \"discriminator\": \"0001\", \"flags\": 0}, \"urls\": {\"main\": \"https://files.gg/deep/path.txt\", \"cdn\": \"https://cdn.files.gg/files/deep/path.txt\"}, \"views\": 1}",
+  "headers": {
+   "cache-control": "no-cache, no-store",
+   "content-type": "application/json"
+  },
+  "status": 200
+ },
+ "file_get_no_extension": {
+  "body": "{\"id\": \"200000000000000003\", \"vanity\": \"noext\", \"mimetype\": \"application/x-thing\", \"extension\": \"unknown\", \"name\": \"thing\", \"filename\": \"thing.unknown\", \"hash\": \"400000000000000002\", \"size\": 42, \"height\": null, \"width\": null, \"duration\": null, \"user\": {\"id\": \"100000000000000001\", \"username\": \"alice\", \"discriminator\": \"0001\", \"flags\": 0}, \"urls\": {\"main\": \"https://files.gg/noext\", \"cdn\": \"https://cdn.files.gg/files/noext\"}, \"views\": 1}",
+  "headers": {
+   "cache-control": "no-cache, no-store",
+   "content-type": "application/json"
+  },
+  "status": 200
+ },
+ "file_get_other_ip": {
+  "body": "{\"id\": \"200000000000000001\", \"vanity\": \"abc\", \"mimetype\": \"image/png\", \"extension\": \"png\", \"name\": \"cat\", \"filename\": \"cat.png\", \"hash\": \"400000000000000001\", \"size\": 12345, \"height\": 480, \"width\": 640, \"duration\": null, \"user\": {\"id\": \"100000000000000001\", \"username\": \"alice\", \"discriminator\": \"0001\", \"flags\": 0}, \"urls\": {\"main\": \"https://files.gg/abc.png\", \"cdn\": \"https://cdn.files.gg/files/abc.png\"}, \"views\": 7}",
+  "headers": {
+   "cache-control": "no-cache, no-store",
+   "content-type": "application/json"
+  },
+  "status": 200
+ },
+ "file_get_unicode": {
+  "body": "{\"id\": \"200000000000000006\", \"vanity\": \"uni\", \"mimetype\": \"image/png\", \"extension\": \"png\", \"name\": \"\\u00fcn\\u00efc\\u00f8d\\u00e9 \\\"quoted\\\" \\ud83d\\ude00\", \"filename\": \"\\u00fcn\\u00efc\\u00f8d\\u00e9 \\\"quoted\\\" \\ud83d\\ude00.png\", \"hash\": \"400000000000000001\", \"size\": 12345, \"height\": 480, \"width\": 640, \"duration\": null, \"user\": {\"id\": \"100000000000000001\", \"username\": \"alice\", \"discriminator\": \"0001\", \"flags\": 0}, \"urls\": {\"main\": \"https://files.gg/uni.png\", \"cdn\": \"https://cdn.files.gg/files/uni.png\"}, \"views\": 1}",
+  "headers": {
+   "cache-control": "no-cache, no-store",
+   "content-type": "application/json"
+  },
+  "status": 200
+ },
+ "file_get_with_extension": {
+  "body": "{\"id\": \"200000000000000001\", \"vanity\": \"abc\", \"mimetype\": \"image/png\", \"extension\": \"png\", \"name\": \"cat\", \"filename\": \"cat.png\", \"hash\": \"400000000000000001\", \"size\": 12345, \"height\": 480, \"width\": 640, \"duration\": null, \"user\": {\"id\": \"100000000000000001\", \"username\": \"alice\", \"discriminator\": \"0001\", \"flags\": 0}, \"urls\": {\"main\": \"https://files.gg/abc.png\", \"cdn\": \"https://cdn.files.gg/files/abc.png\"}, \"views\": 6}",
+  "headers": {
+   "cache-control": "no-cache, no-store",
+   "content-type": "application/json"
+  },
+  "status": 200
+ },
+ "files_list_after": {
+  "body": "{\"total\": 4, \"files\": [{\"id\": \"200000000000000006\", \"vanity\": \"uni\", \"mimetype\": \"image/png\", \"extension\": \"png\", \"name\": \"\\u00fcn\\u00efc\\u00f8d\\u00e9 \\\"quoted\\\" \\ud83d\\ude00\", \"filename\": \"\\u00fcn\\u00efc\\u00f8d\\u00e9 \\\"quoted\\\" \\ud83d\\ude00.png\", \"hash\": \"400000000000000001\", \"size\": 12345, \"height\": 480, \"width\": 640, \"duration\": null, \"user\": {\"id\": \"100000000000000001\", \"username\": \"alice\", \"discriminator\": \"0001\", \"flags\": 0}, \"urls\": {\"main\": \"https://files.gg/uni.png\", \"cdn\": \"https://cdn.files.gg/files/uni.png\"}, \"views\": 0}]}",
+  "headers": {
+   "cache-control": "no-cache, no-store",
+   "content-type": "application/json"
+  },
+  "status": 200
+ },
+ "files_list_alice": {
+  "body": "{\"total\": 4, \"files\": [{\"id\": \"200000000000000006\", \"vanity\": \"uni\", \"mimetype\": \"image/png\", \"extension\": \"png\", \"name\": \"\\u00fcn\\u00efc\\u00f8d\\u00e9 \\\"quoted\\\" \\ud83d\\ude00\", \"filename\": \"\\u00fcn\\u00efc\\u00f8d\\u00e9 \\\"quoted\\\" \\ud83d\\ude00.png\", \"hash\": \"400000000000000001\", \"size\": 12345, \"height\": 480, \"width\": 640, \"duration\": null, \"user\": {\"id\": \"100000000000000001\", \"username\": \"alice\", \"discriminator\": \"0001\", \"flags\": 0}, \"urls\": {\"main\": \"https://files.gg/uni.png\", \"cdn\": \"https://cdn.files.gg/files/uni.png\"}, \"views\": 0}, {\"id\": \"200000000000000003\", \"vanity\": \"noext\", \"mimetype\": \"application/x-thing\", \"extension\": \"unknown\", \"name\": \"thing\", \"filename\": \"thing.unknown\", \"hash\": \"400000000000000002\", \"size\": 42, \"height\": null, \"width\": null, \"duration\": null, \"user\": {\"id\": \"100000000000000001\", \"username\": \"alice\", \"discriminator\": \"0001\", \"flags\": 0}, \"urls\": {\"main\": \"https://files.gg/noext\", \"cdn\": \"https://cdn.files.gg/files/noext\"}, \"views\": 0}, {\"id\": \"200000000000000002\", \"vanity\": \"deep/path\", \"mimetype\": \"text/plain\", \"extension\": \"txt\", \"name\": \"notes\", \"filename\": \"notes.txt\", \"hash\": \"400000000000000002\", \"size\": 42, \"height\": null, \"width\": null, \"duration\": null, \"user\": {\"id\": \"100000000000000001\", \"username\": \"alice\", \"discriminator\": \"0001\", \"flags\": 0}, \"urls\": {\"main\": \"https://files.gg/deep/path.txt\", \"cdn\": \"https://cdn.files.gg/files/deep/path.txt\"}, \"views\": 0}, {\"id\": \"200000000000000001\", \"vanity\": \"abc\", \"mimetype\": \"image/png\", \"extension\": \"png\", \"name\": \"cat\", \"filename\": \"cat.png\", \"hash\": \"400000000000000001\", \"size\": 12345, \"height\": 480, \"width\": 640, \"duration\": null, \"user\": {\"id\": \"100000000000000001\", \"username\": \"alice\", \"discriminator\": \"0001\", \"flags\": 0}, \"urls\": {\"main\": \"https://files.gg/abc.png\", \"cdn\": \"https://cdn.files.gg/files/abc.png\"}, \"views\": 5}]}",
+  "headers": {
+   "cache-control": "no-cache, no-store",
+   "content-type": "application/json"
+  },
+  "status": 200
+ },
+ "files_list_bad_fingerprint": {
+  "body": "{\"code\": 0, \"message\": \"Unauthorized\", \"status\": 401}",
+  "headers": {
+   "cache-control": "no-cache, no-store",
+   "content-type": "application/json"
+  },
+  "status": 401
+ },
+ "files_list_bad_mimetype": {
+  "body": "{\"errors\": {\"mimetype\": \"Invalid Mimetype\"}, \"code\": 0, \"message\": \"Bad Request\", \"status\": 400}",
+  "headers": {
+   "cache-control": "no-cache, no-store",
+   "content-type": "application/json"
+  },
+  "status": 400
+ },
+ "files_list_bad_type": {
+  "body": "{\"errors\": {\"type\": \"Invalid Type\"}, \"code\": 0, \"message\": \"Bad Request\", \"status\": 400}",
+  "headers": {
+   "cache-control": "no-cache, no-store",
+   "content-type": "application/json"
+  },
+  "status": 400
+ },
+ "files_list_before": {
+  "body": "{\"total\": 4, \"files\": [{\"id\": \"200000000000000002\", \"vanity\": \"deep/path\", \"mimetype\": \"text/plain\", \"extension\": \"txt\", \"name\": \"notes\", \"filename\": \"notes.txt\", \"hash\": \"400000000000000002\", \"size\": 42, \"height\": null, \"width\": null, \"duration\": null, \"user\": {\"id\": \"100000000000000001\", \"username\": \"alice\", \"discriminator\": \"0001\", \"flags\": 0}, \"urls\": {\"main\": \"https://files.gg/deep/path.txt\", \"cdn\": \"https://cdn.files.gg/files/deep/path.txt\"}, \"views\": 0}, {\"id\": \"200000000000000001\", \"vanity\": \"abc\", \"mimetype\": \"image/png\", \"extension\": \"png\", \"name\": \"cat\", \"filename\": \"cat.png\", \"hash\": \"400000000000000001\", \"size\": 12345, \"height\": 480, \"width\": 640, \"duration\": null, \"user\": {\"id\": \"100000000000000001\", \"username\": \"alice\", \"discriminator\": \"0001\", \"flags\": 0}, \"urls\": {\"main\": \"https://files.gg/abc.png\", \"cdn\": \"https://cdn.files.gg/files/abc.png\"}, \"views\": 5}]}",
+  "headers": {
+   "cache-control": "no-cache, no-store",
+   "content-type": "application/json"
+  },
+  "status": 200
+ },
+ "files_list_before_and_after": {
+  "body": "{\"code\": 0, \"message\": \"Choose between before or after, not both\", \"status\": 400}",
+  "headers": {
+   "cache-control": "no-cache, no-store",
+   "content-type": "application/json"
+  },
+  "status": 400
+ },
+ "files_list_fingerprint": {
+  "body": "{\"total\": 1, \"files\": [{\"id\": \"200000000000000004\", \"vanity\": \"anon1\", \"mimetype\": \"application/octet-stream\", \"extension\": \"bin\", \"name\": \"blob\", \"filename\": \"blob.bin\", \"hash\": \"400000000000000003\", \"size\": 9876543210, \"height\": 1080, \"width\": 1920, \"duration\": 61, \"user\": null, \"urls\": {\"main\": \"https://files.gg/anon1.bin\", \"cdn\": \"https://cdn.files.gg/files/anon1.bin\"}, \"views\": 2}]}",
+  "headers": {
+   "cache-control": "no-cache, no-store",
+   "content-type": "application/json"
+  },
+  "status": 200
+ },
+ "files_list_limit": {
+  "body": "{\"total\": 4, \"files\": [{\"id\": \"200000000000000006\", \"vanity\": \"uni\", \"mimetype\": \"image/png\", \"extension\": \"png\", \"name\": \"\\u00fcn\\u00efc\\u00f8d\\u00e9 \\\"quoted\\\" \\ud83d\\ude00\", \"filename\": \"\\u00fcn\\u00efc\\u00f8d\\u00e9 \\\"quoted\\\" \\ud83d\\ude00.png\", \"hash\": \"400000000000000001\", \"size\": 12345, \"height\": 480, \"width\": 640, \"duration\": null, \"user\": {\"id\": \"100000000000000001\", \"username\": \"alice\", \"discriminator\": \"0001\", \"flags\": 0}, \"urls\": {\"main\": \"https://files.gg/uni.png\", \"cdn\": \"https://cdn.files.gg/files/uni.png\"}, \"views\": 0}, {\"id\": \"200000000000000003\", \"vanity\": \"noext\", \"mimetype\": \"application/x-thing\", \"extension\": \"unknown\", \"name\": \"thing\", \"filename\": \"thing.unknown\", \"hash\": \"400000000000000002\", \"size\": 42, \"height\": null, \"width\": null, \"duration\": null, \"user\": {\"id\": \"100000000000000001\", \"username\": \"alice\", \"discriminator\": \"0001\", \"flags\": 0}, \"urls\": {\"main\": \"https://files.gg/noext\", \"cdn\": \"https://cdn.files.gg/files/noext\"}, \"views\": 0}]}",
+  "headers": {
+   "cache-control": "no-cache, no-store",
+   "content-type": "application/json"
+  },
+  "status": 200
+ },
+ "files_list_limit_json_body": {
+  "body": "{\"total\": 4, \"files\": [{\"id\": \"200000000000000006\", \"vanity\": \"uni\", \"mimetype\": \"image/png\", \"extension\": \"png\", \"name\": \"\\u00fcn\\u00efc\\u00f8d\\u00e9 \\\"quoted\\\" \\ud83d\\ude00\", \"filename\": \"\\u00fcn\\u00efc\\u00f8d\\u00e9 \\\"quoted\\\" \\ud83d\\ude00.png\", \"hash\": \"400000000000000001\", \"size\": 12345, \"height\": 480, \"width\": 640, \"duration\": null, \"user\": {\"id\": \"100000000000000001\", \"username\": \"alice\", \"discriminator\": \"0001\", \"flags\": 0}, \"urls\": {\"main\": \"https://files.gg/uni.png\", \"cdn\": \"https://cdn.files.gg/files/uni.png\"}, \"views\": 0}]}",
+  "headers": {
+   "cache-control": "no-cache, no-store",
+   "content-type": "application/json"
+  },
+  "status": 200
+ },
+ "files_list_limit_text": {
+  "body": "{\"errors\": {\"limit\": \"Must be at least or in between 1 and 100\", \"before\": \"xyz is not a valid Snowflake\"}, \"code\": 0, \"message\": \"Bad Request\", \"status\": 400}",
+  "headers": {
+   "cache-control": "no-cache, no-store",
+   "content-type": "application/json"
+  },
+  "status": 400
+ },
+ "files_list_limit_zero": {
+  "body": "{\"errors\": {\"limit\": \"Must be at least or in between 1 and 100\"}, \"code\": 0, \"message\": \"Bad Request\", \"status\": 400}",
+  "headers": {
+   "cache-control": "no-cache, no-store",
+   "content-type": "application/json"
+  },
+  "status": 400
+ },
+ "files_list_mimetype": {
+  "body": "{\"total\": 1, \"files\": [{\"id\": \"200000000000000002\", \"vanity\": \"deep/path\", \"mimetype\": \"text/plain\", \"extension\": \"txt\", \"name\": \"notes\", \"filename\": \"notes.txt\", \"hash\": \"400000000000000002\", \"size\": 42, \"height\": null, \"width\": null, \"duration\": null, \"user\": {\"id\": \"100000000000000001\", \"username\": \"alice\", \"discriminator\": \"0001\", \"flags\": 0}, \"urls\": {\"main\": \"https://files.gg/deep/path.txt\", \"cdn\": \"https://cdn.files.gg/files/deep/path.txt\"}, \"views\": 0}]}",
+  "headers": {
+   "cache-control": "no-cache, no-store",
+   "content-type": "application/json"
+  },
+  "status": 200
+ },
+ "files_list_no_auth": {
+  "body": "{\"code\": 0, \"message\": \"Unauthorized\", \"status\": 401}",
+  "headers": {
+   "cache-control": "no-cache, no-store",
+   "content-type": "application/json"
+  },
+  "status": 401
+ },
+ "files_list_type": {
+  "body": "{\"total\": 2, \"files\": [{\"id\": \"200000000000000006\", \"vanity\": \"uni\", \"mimetype\": \"image/png\", \"extension\": \"png\", \"name\": \"\\u00fcn\\u00efc\\u00f8d\\u00e9 \\\"quoted\\\" \\ud83d\\ude00\", \"filename\": \"\\u00fcn\\u00efc\\u00f8d\\u00e9 \\\"quoted\\\" \\ud83d\\ude00.png\", \"hash\": \"400000000000000001\", \"size\": 12345, \"height\": 480, \"width\": 640, \"duration\": null, \"user\": {\"id\": \"100000000000000001\", \"username\": \"alice\", \"discriminator\": \"0001\", \"flags\": 0}, \"urls\": {\"main\": \"https://files.gg/uni.png\", \"cdn\": \"https://cdn.files.gg/files/uni.png\"}, \"views\": 0}, {\"id\": \"200000000000000001\", \"vanity\": \"abc\", \"mimetype\": \"image/png\", \"extension\": \"png\", \"name\": \"cat\", \"filename\": \"cat.png\", \"hash\": \"400000000000000001\", \"size\": 12345, \"height\": 480, \"width\": 640, \"duration\": null, \"user\": {\"id\": \"100000000000000001\", \"username\": \"alice\", \"discriminator\": \"0001\", \"flags\": 0}, \"urls\": {\"main\": \"https://files.gg/abc.png\", \"cdn\": \"https://cdn.files.gg/files/abc.png\"}, \"views\": 5}]}",
+  "headers": {
+   "cache-control": "no-cache, no-store",
+   "content-type": "application/json"
+  },
+  "status": 200
+ },
+ "files_list_type_and_mimetype": {
+  "body": "{\"code\": 0, \"message\": \"Choose Mimetype or Type, not both\", \"status\": 400}",
+  "headers": {
+   "cache-control": "no-cache, no-store",
+   "content-type": "application/json"
+  },
+  "status": 400
+ },
+ "health": {
+  "body": "{\"status\": \"ok\", \"checks\": {\"database\": \"ok\"}}",
+  "headers": {
+   "cache-control": "no-cache, no-store",
+   "content-type": "application/json"
+  },
+  "status": 200
+ },
+ "health_alias": {
+  "body": "{\"status\": \"ok\", \"checks\": {\"database\": \"ok\"}}",
+  "headers": {
+   "cache-control": "no-cache, no-store",
+   "content-type": "application/json"
+  },
+  "status": 200
+ },
+ "health_head": {
+  "body": "",
+  "headers": {
+   "cache-control": "no-cache, no-store",
+   "content-type": "application/json"
+  },
+  "status": 200
+ },
+ "me_file_count": {
+  "body": "{\"count\": 4}",
+  "headers": {
+   "cache-control": "no-cache, no-store",
+   "content-type": "application/json"
+  },
+  "status": 200
+ },
+ "me_file_count_both": {
+  "body": "{\"code\": 0, \"message\": \"Choose Mimetype or Type, not both\", \"status\": 400}",
+  "headers": {
+   "cache-control": "no-cache, no-store",
+   "content-type": "application/json"
+  },
+  "status": 400
+ },
+ "me_file_count_fingerprint": {
+  "body": "{\"count\": 1}",
+  "headers": {
+   "cache-control": "no-cache, no-store",
+   "content-type": "application/json"
+  },
+  "status": 200
+ },
+ "me_file_count_mimetype": {
+  "body": "{\"count\": 2}",
+  "headers": {
+   "cache-control": "no-cache, no-store",
+   "content-type": "application/json"
+  },
+  "status": 200
+ },
+ "me_file_count_no_auth": {
+  "body": "{\"code\": 0, \"message\": \"Unauthorized\", \"status\": 401}",
+  "headers": {
+   "cache-control": "no-cache, no-store",
+   "content-type": "application/json"
+  },
+  "status": 401
+ },
+ "me_file_count_type": {
+  "body": "{\"count\": 1}",
+  "headers": {
+   "cache-control": "no-cache, no-store",
+   "content-type": "application/json"
+  },
+  "status": 200
+ },
+ "me_mimetypes": {
+  "body": "[{\"mimetype\": \"image/png\", \"type\": \"image\", \"flags\": 0, \"extensions\": [{\"extension\": \"png\", \"priority\": 1}]}, {\"mimetype\": \"text/plain\", \"type\": \"text\", \"flags\": 0, \"extensions\": [{\"extension\": \"txt\", \"priority\": 1}, {\"extension\": \"text\", \"priority\": 0}]}, {\"mimetype\": \"application/x-thing\", \"type\": \"application\", \"flags\": 4, \"extensions\": []}, {\"mimetype\": \"image/png\", \"type\": \"image\", \"flags\": 0, \"extensions\": [{\"extension\": \"png\", \"priority\": 1}]}]",
+  "headers": {
+   "cache-control": "no-cache, no-store",
+   "content-type": "application/json"
+  },
+  "status": 200
+ },
+ "method_not_allowed": {
+  "body": "{\"code\": 0, \"message\": \"Method Not Allowed\", \"status\": 405}",
+  "headers": {
+   "cache-control": "no-cache, no-store",
+   "content-type": "application/json"
+  },
+  "status": 405
+ },
+ "mimetype": {
+  "body": "{\"mimetype\": \"text/plain\", \"type\": \"text\", \"flags\": 0, \"extensions\": [{\"extension\": \"txt\", \"priority\": 1}, {\"extension\": \"text\", \"priority\": 0}]}",
+  "headers": {
+   "cache-control": "no-cache, no-store",
+   "content-type": "application/json"
+  },
+  "status": 200
+ },
+ "mimetype_missing": {
+  "body": "{\"code\": 0, \"message\": \"Unknown Mimetype\", \"status\": 404}",
+  "headers": {
+   "cache-control": "no-cache, no-store",
+   "content-type": "application/json"
+  },
+  "status": 404
+ },
+ "mimetype_no_extensions": {
+  "body": "{\"mimetype\": \"application/x-thing\", \"type\": \"application\", \"flags\": 4, \"extensions\": []}",
+  "headers": {
+   "cache-control": "no-cache, no-store",
+   "content-type": "application/json"
+  },
+  "status": 200
+ },
+ "mimetype_put": {
+  "body": "{\"code\": 0, \"message\": \"Forbidden\", \"status\": 403}",
+  "headers": {
+   "cache-control": "no-cache, no-store",
+   "content-type": "application/json"
+  },
+  "status": 403
+ },
+ "mimetype_put_bad_int": {
+  "body": "{\"errors\": {\"flags\": \"invalid literal for int() with base 10: 'x'\", \"priority\": \"invalid literal for int() with base 10: '1.5'\"}, \"code\": 0, \"message\": \"Bad Request\", \"status\": 400}",
+  "headers": {
+   "cache-control": "no-cache, no-store",
+   "content-type": "application/json"
+  },
+  "status": 400
+ },
+ "mimetype_put_no_auth": {
+  "body": "{\"code\": 0, \"message\": \"Unauthorized\", \"status\": 401}",
+  "headers": {
+   "cache-control": "no-cache, no-store",
+   "content-type": "application/json"
+  },
+  "status": 401
+ },
+ "mimetype_put_type": {
+  "body": "{\"code\": 0, \"message\": \"Forbidden\", \"status\": 403}",
+  "headers": {
+   "cache-control": "no-cache, no-store",
+   "content-type": "application/json"
+  },
+  "status": 403
+ },
+ "mimetype_put_type_no_auth": {
+  "body": "{\"code\": 0, \"message\": \"Unauthorized\", \"status\": 401}",
+  "headers": {
+   "cache-control": "no-cache, no-store",
+   "content-type": "application/json"
+  },
+  "status": 401
+ },
+ "mimetypes": {
+  "body": "[{\"mimetype\": \"image/png\", \"type\": \"image\", \"flags\": 0, \"extensions\": [{\"extension\": \"png\", \"priority\": 1}]}, {\"mimetype\": \"text/plain\", \"type\": \"text\", \"flags\": 0, \"extensions\": [{\"extension\": \"txt\", \"priority\": 1}, {\"extension\": \"text\", \"priority\": 0}]}, {\"mimetype\": \"application/octet-stream\", \"type\": \"application\", \"flags\": 0, \"extensions\": [{\"extension\": \"bin\", \"priority\": 0}]}, {\"mimetype\": \"application/x-thing\", \"type\": \"application\", \"flags\": 4, \"extensions\": []}]",
+  "headers": {
+   "cache-control": "no-cache, no-store",
+   "content-type": "application/json"
+  },
+  "status": 200
+ },
+ "mimetypes_type": {
+  "body": "[{\"mimetype\": \"text/plain\", \"type\": \"text\", \"flags\": 0, \"extensions\": [{\"extension\": \"txt\", \"priority\": 1}, {\"extension\": \"text\", \"priority\": 0}]}]",
+  "headers": {
+   "cache-control": "no-cache, no-store",
+   "content-type": "application/json"
+  },
+  "status": 200
+ },
+ "mimetypes_type_missing": {
+  "body": "{\"code\": 0, \"message\": \"Unknown Type\", \"status\": 404}",
+  "headers": {
+   "cache-control": "no-cache, no-store",
+   "content-type": "application/json"
+  },
+  "status": 404
+ },
+ "not_found": {
+  "body": "{\"code\": 0, \"message\": \"Not Found\", \"status\": 404}",
+  "headers": {
+   "cache-control": "no-cache, no-store",
+   "content-type": "application/json"
+  },
+  "status": 404
+ },
+ "not_found_with_origin": {
+  "body": "{\"code\": 0, \"message\": \"Not Found\", \"status\": 404}",
+  "headers": {
+   "access-control-allow-credentials": "true",
+   "access-control-allow-headers": "Authorization, Content-Type, X-Fingerprint",
+   "access-control-allow-methods": "DELETE, GET, HEAD, OPTIONS, PATCH, POST, PUT, TRACE",
+   "access-control-allow-origin": "https://files.gg",
+   "access-control-max-age": "300",
+   "cache-control": "no-cache, no-store",
+   "content-type": "application/json",
+   "vary": "Origin"
+  },
+  "status": 404
+ },
+ "upload_bad_auth": {
+  "body": "{\"code\": 0, \"message\": \"Invalid Authentication\", \"status\": 400}",
+  "headers": {
+   "cache-control": "no-cache, no-store",
+   "content-type": "application/json"
+  },
+  "status": 400
+ },
+ "upload_bad_type": {
+  "body": "{\"errors\": {\"type\": \"Invalid Upload Type\"}, \"code\": 0, \"message\": \"Bad Request\", \"status\": 400}",
+  "headers": {
+   "cache-control": "no-cache, no-store",
+   "content-type": "application/json"
+  },
+  "status": 400
+ },
+ "upload_bad_vanity": {
+  "body": "{\"code\": 0, \"message\": \"Vanity has to be at least or in between 3 and 128 characters long\", \"status\": 400}",
+  "headers": {
+   "cache-control": "no-cache, no-store",
+   "content-type": "application/json"
+  },
+  "status": 400
+ },
+ "upload_no_file": {
+  "body": "{\"code\": 0, \"message\": \"A file must be uploaded\", \"status\": 400}",
+  "headers": {
+   "cache-control": "no-cache, no-store",
+   "content-type": "application/json"
+  },
+  "status": 400
+ },
+ "upload_unknown_mimetype": {
+  "body": "{\"code\": 140001, \"message\": \"Invalid Mimetype\", \"status\": 400}",
+  "headers": {
+   "cache-control": "no-cache, no-store",
+   "content-type": "application/json"
+  },
+  "status": 400
+ },
+ "users_get": {
+  "body": "{\"id\": 123}",
+  "headers": {
+   "cache-control": "no-cache, no-store",
+   "content-type": "application/json"
+  },
+  "status": 200
+ },
+ "users_get_not_int": {
+  "body": "{\"code\": 0, \"message\": \"Not Found\", \"status\": 404}",
+  "headers": {
+   "cache-control": "no-cache, no-store",
+   "content-type": "application/json"
+  },
+  "status": 404
+ },
+ "users_get_too_big": {
+  "body": "{\"errors\": {\"user_id\": \"Snowflake value should be 0 <= snowflake <= 9223372036854775807\"}, \"code\": 0, \"message\": \"Bad Request\", \"status\": 400}",
+  "headers": {
+   "cache-control": "no-cache, no-store",
+   "content-type": "application/json"
+  },
+  "status": 400
+ },
+ "users_me_alice": {
+  "body": "{\"id\": \"100000000000000001\", \"username\": \"alice\", \"discriminator\": \"0001\", \"flags\": 0, \"email\": \"alice@example.com\", \"verified\": true}",
+  "headers": {
+   "cache-control": "no-cache, no-store",
+   "content-type": "application/json"
+  },
+  "status": 200
+ },
+ "users_me_bad_token": {
+  "body": "{\"code\": 0, \"message\": \"Unauthorized\", \"status\": 401}",
+  "headers": {
+   "cache-control": "no-cache, no-store",
+   "content-type": "application/json"
+  },
+  "status": 401
+ },
+ "users_me_bob": {
+  "body": "{\"id\": \"100000000000000002\", \"username\": \"bob\", \"discriminator\": \"0042\", \"flags\": 3, \"email\": \"bob@example.com\", \"verified\": false}",
+  "headers": {
+   "cache-control": "no-cache, no-store",
+   "content-type": "application/json"
+  },
+  "status": 200
+ },
+ "users_me_bot_scheme": {
+  "body": "{\"code\": 0, \"message\": \"Unauthorized\", \"status\": 401}",
+  "headers": {
+   "cache-control": "no-cache, no-store",
+   "content-type": "application/json"
+  },
+  "status": 401
+ },
+ "users_me_bot_user": {
+  "body": "{\"code\": 0, \"message\": \"Unknown User\", \"status\": 404}",
+  "headers": {
+   "cache-control": "no-cache, no-store",
+   "content-type": "application/json"
+  },
+  "status": 404
+ },
+ "users_me_no_auth": {
+  "body": "{\"code\": 0, \"message\": \"Unauthorized\", \"status\": 401}",
+  "headers": {
+   "cache-control": "no-cache, no-store",
+   "content-type": "application/json"
+  },
+  "status": 401
+ },
+ "users_me_unknown": {
+  "body": "{\"code\": 0, \"message\": \"Unknown User\", \"status\": 404}",
+  "headers": {
+   "cache-control": "no-cache, no-store",
+   "content-type": "application/json"
+  },
+  "status": 404
+ }
+}

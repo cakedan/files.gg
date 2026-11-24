@@ -1,0 +1,67 @@
+/* Viewer entry styles. Only viewer-safe sources are scanned, so dashboard
+   classes never end up in the viewer's CSS. */
+@import 'tailwindcss' source(none);
+@import './theme.css';
+
+@source '../viewer';
+/* Lazy chunks bring their own utilities (see album/album.css and pdf/pdf.css). */
+@source not '../viewer/album';
+@source not '../viewer/pdf';
+@source '../components';
+@source '../lib';
+
+/* Appendix A layout variables. */
+:root {
+  --footer-height: 13.5rem;
+  --media-max-width: min(90vw, 100vw - 1.5rem);
+  --media-max-height: calc(90dvh - var(--footer-height));
+  --media-min-width: min(25rem, 100vw - 1.5rem);
+}
+
+@layer components {
+  .viewer-card {
+    display: inline-flex;
+    flex-direction: column;
+    min-width: var(--media-min-width);
+    max-width: var(--media-max-width);
+    overflow: hidden;
+    border-radius: 8px;
+    border: 1px solid var(--line);
+    background-color: var(--surface);
+    box-shadow: var(--shadow-card);
+  }
+
+  /* The footer never widens the card: the media decides the width. */
+  .viewer-footer {
+    width: 0;
+    min-width: 100%;
+  }
+
+  .viewer-well {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background-color: var(--well);
+  }
+
+  /* Media width: min(Wpx, --media-max-width, --media-max-height × W/H),
+     with aspect-ratio W/H so space is reserved before the media loads.
+     Renderers set --media-w and --media-h (unitless) inline. */
+  .viewer-media-sized {
+    width: min(
+      calc(var(--media-w) * 1px),
+      var(--media-max-width),
+      calc(var(--media-max-height) * var(--media-w) / var(--media-h))
+    );
+    aspect-ratio: var(--media-w) / var(--media-h);
+  }
+
+  .viewer-media-free {
+    max-width: var(--media-max-width);
+    max-height: var(--media-max-height);
+  }
+
+  .checkerboard {
+    background: repeating-conic-gradient(#26282c 0 25%, #1e2023 0 50%) 0 0 / 16px 16px;
+  }
+}

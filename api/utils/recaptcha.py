@@ -1,4 +1,4 @@
-import requests
+from utils.http import get_client
 
 BASE_URL = 'https://www.google.com/recaptcha/api/siteverify'
 
@@ -11,11 +11,14 @@ class Recaptcha:
         cls.secret = secret
 
     @classmethod
-    def verify(cls, response, remoteip=None):
+    async def verify(cls, response, remoteip=None):
         if cls.secret is None:
             raise Exception('Secret is not set on Recaptcha')
 
-        data = {'secret': cls.secret, 'response': response}
+        data = {'secret': cls.secret}
+        if response is not None:
+            # requests dropped None values from form data
+            data['response'] = response
         if remoteip is not None:
             data['remoteip'] = remoteip
-        return requests.post(BASE_URL, data=data)
+        return await get_client().post(BASE_URL, data=data)

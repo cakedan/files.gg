@@ -1,95 +1,57 @@
-from flask import Blueprint, request
-from flask_restful import reqparse
-from peewee import prefetch
+from typing import Annotated, Optional
 
-from models import Mimetype, MimetypeExtension, MimetypeType
+from sanic import Blueprint
+
+import db
+from db import queries
+from utils.params import Arg, Args
 from utils.responses import ApiError, ApiResponse
-from utils.wrappers import authenticate, parse_args
+from utils.wrappers import authenticate, parse_args, route
 
-mimetypes = Blueprint('mimetypes', __name__, url_prefix='/mimetypes')
+mimetypes = Blueprint('mimetypes', url_prefix='/mimetypes')
 
 
-
-@mimetypes.route('', methods=['GET'])
-def fetch_mimetypes():
-    mimetypes = Mimetype.select()
-    extensions = MimetypeExtension.select()
-    group = prefetch(mimetypes, extensions)
+@route(mimetypes, '', ['GET'])
+async def fetch_mimetypes(request):
+    async with db.connection() as conn:
+        group = await queries.list_mimetypes(conn)
     return ApiResponse([x.to_dict() for x in group])
 
-@mimetypes.route('/<mtype>', methods=['GET'])
-def fetch_mimetype_types(mtype):
-    mtype = MimetypeType.get_or_none(id=mtype)
-    if mtype is None:
-        raise ApiError('Unknown Type', status=404)
 
-    mimetypes = Mimetype.select().where(Mimetype.type == mtype)
-    extensions = MimetypeExtension.select()
-    group = prefetch(mimetypes, extensions)
+@route(mimetypes, '/<mtype:str>', ['GET'])
+async def fetch_mimetype_types(request, mtype):
+    async with db.connection() as conn:
+        if not await queries.mimetype_type_exists(conn, mtype):
+            raise ApiError('Unknown Type', status=404)
+        group = await queries.list_mimetypes(conn, type_id=mtype)
     return ApiResponse([x.to_dict() for x in group])
 
-@mimetypes.route('/<mtype>/<subtype>', methods=['GET'])
-def fetch_mimetype(mtype, subtype):
-    mimetype = Mimetype.get_or_none(id='{}/{}'.format(mtype, subtype))
+
+@route(mimetypes, '/<mtype:str>/<subtype:str>', ['GET'])
+async def fetch_mimetype(request, mtype, subtype):
+    async with db.connection() as conn:
+        mimetype = await queries.get_mimetype(conn, '{}/{}'.format(mtype, subtype), with_extensions=True)
     if mimetype is None:
         raise ApiError('Unknown Mimetype', status=404)
     return ApiResponse(mimetype.to_dict())
 
 
+# Mimetype editing is disabled (always 403), as before.
 
-@mimetypes.route('/<mtype>', methods=['PUT'])
+@route(mimetypes, '/<mtype:str>', ['PUT'])
 @authenticate()
-def put_type(mtype, user):
+async def put_type(request, mtype, user):
     raise ApiError(status=403)
 
-    mtype = MimetypeType.get_or_create(id=mtype.lower())
-    return ApiResponse(status=204)
+
+class PutMimetypeArgs(Args):
+    extension: Annotated[Optional[str], Arg()] = None
+    flags: Annotated[Optional[int], Arg(type=int)] = None
+    priority: Annotated[Optional[int], Arg(type=int)] = None
 
 
-parser_create_mimetype = reqparse.RequestParser(trim=True)
-parser_create_mimetype.add_argument('extension')
-parser_create_mimetype.add_argument('flags', type=int)
-parser_create_mimetype.add_argument('priority', type=int)
-
-@mimetypes.route('/<mtype>/<subtype>', methods=['PUT'])
-@parse_args(parser_create_mimetype)
+@route(mimetypes, '/<mtype:str>/<subtype:str>', ['PUT'])
+@parse_args(PutMimetypeArgs)
 @authenticate()
-def put_mimetype(args, mtype, subtype, user):
+async def put_mimetype(request, args, mtype, subtype, user):
     raise ApiError(status=403)
-
-    mtype = mtype.lower()
-    subtype = subtype.lower()
-
-    if MimetypeType.get_or_none(id=mtype) is None:
-        raise ApiError('Unknown Type', status=404)
-
-    defaults = {'type': mtype}
-    if args.flags is not None:
-        defaults['flags'] = args.flags
-
-    mimetype = Mimetype.get_or_none(id='{}/{}'.format(mtype, subtype))
-    if mimetype is None:
-        mimetype = Mimetype.create(
-            id='{}/{}'.format(mtype, subtype),
-            flags=args.flags or 0,
-            type=mtype,
-        )
-    else:
-        if args.flags is not None:
-            mimetype.flags = args.flags
-            mimetype.save()
-
-    if args.extension is not None:
-        extension = MimetypeExtension.get_or_none(mimetype=mimetype, extension=args.extension)
-        if extension is None:
-            extension = MimetypeExtension.create(
-                mimetype=mimetype,
-                extension=args.extension,
-                priority=args.priority or 0,
-            )
-        else:
-            if args.priority is not None:
-                extension.priority = args.priority
-                extension.save()
-
-    return ApiResponse(status=204)

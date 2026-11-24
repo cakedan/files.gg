@@ -1,0 +1,81 @@
+/*
+ * files.gg design tokens. Dark theme only for now.
+ *
+ * The raw tokens live on :root so a light theme can later redefine them in one
+ * place. `@theme inline` maps them to Tailwind utilities (bg-surface, text-muted,
+ * border-line, text-gg, ...) that read the variables at runtime.
+ *
+ * Brand values come from branding/README.md; neutrals from PLAN.md Phase 4.
+ */
+:root {
+  color-scheme: dark;
+
+  /* Brand */
+  --gg: #3deb7e;
+  --gg-end: #25b874;
+  --gg-fold: #1b7945;
+  --gg-ink: #16301f;
+  --gg-on-light: #1fa86a;
+
+  /* Neutrals */
+  --bg: #1e1f22;
+  --surface: #2b2d31;
+  --surface-2: #313338;
+  --well: #1a1b1e;
+  --line: #3f4147;
+  --text: #f2f3f5;
+  --muted: #b5bac1;
+
+  /* Status */
+  --danger: #f04747;
+  --warn: #faa61a;
+}
+
+@theme inline {
+  --color-gg: var(--gg);
+  --color-gg-end: var(--gg-end);
+  --color-gg-fold: var(--gg-fold);
+  --color-gg-ink: var(--gg-ink);
+  --color-gg-on-light: var(--gg-on-light);
+  --color-bg: var(--bg);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-well: var(--well);
+  --color-line: var(--line);
+  --color-text: var(--text);
+  --color-muted: var(--muted);
+  --color-danger: var(--danger);
+  --color-warn: var(--warn);
+
+  --font-sans:
+    system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', 'Noto Sans', Arial, sans-serif,
+    'Apple Color Emoji', 'Segoe UI Emoji';
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', monospace;
+
+  --shadow-card: 0 9px 30px rgba(6, 6, 7, 0.3);
+}
+
+@layer base {
+  html {
+    background-color: var(--bg);
+    color: var(--text);
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    -webkit-text-size-adjust: 100%;
+  }
+
+  body {
+    min-height: 100dvh;
+    background-color: var(--bg);
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--gg);
+    outline-offset: 2px;
+  }
+
+  ::selection {
+    background-color: color-mix(in srgb, var(--gg) 35%, transparent);
+  }
+}
