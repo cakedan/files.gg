@@ -192,7 +192,7 @@ describe('cdnSecurityHeaders', () => {
 
 describe('corsHeaders', () => {
   const allowedOrigins = ['https://files.gg'];
-  const allowHeaders = 'Authorization, Content-Type, X-Fingerprint';
+  const allowHeaders = 'Authorization, Content-Type, X-Fingerprint, X-Filesgg-Access';
 
   it('reflects an allowlisted origin on a credentialed route', () => {
     const headers = corsHeaders({ origin: 'https://files.gg', allowedOrigins, credentialed: true });

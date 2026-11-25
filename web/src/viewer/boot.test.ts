@@ -225,3 +225,42 @@ describe('parseTimestamp', () => {
     expect(parseTimestamp(null)).toBeUndefined();
   });
 });
+
+describe('parseBoot: locked (contract §4)', () => {
+  it('parses a locked file, with the name only when present', () => {
+    expect(parseBoot({ page: 'file', state: 'locked', fileJson: '{"vanity":"abc","protected":"password"}' })).toEqual({
+      page: 'locked',
+      target: { kind: 'file', vanity: 'abc', name: undefined, passwordExpired: false },
+    });
+    expect(
+      parseBoot({ page: 'file', state: 'locked', fileJson: '{"vanity":"abc","protected":"password","filename":"a.png"}' }),
+    ).toMatchObject({ page: 'locked', target: { name: 'a.png' } });
+  });
+
+  it('parses password_expired', () => {
+    expect(
+      parseBoot({ page: 'file', state: 'locked', fileJson: '{"vanity":"abc","protected":"password","password_expired":true}' }),
+    ).toMatchObject({ page: 'locked', target: { passwordExpired: true } });
+  });
+
+  it('parses a locked album from #album-data, with its title', () => {
+    expect(
+      parseBoot({ page: 'album', state: 'locked', albumJson: '{"vanity":"alb","protected":"password","title":"Trip"}' }),
+    ).toEqual({ page: 'locked', target: { kind: 'album', vanity: 'alb', name: 'Trip', passwordExpired: false } });
+  });
+
+  it('treats a malformed locked payload as missing', () => {
+    expect(parseBoot({ page: 'file', state: 'locked', fileJson: '{"protected":"password"}' })).toEqual({ page: 'missing' });
+    expect(parseBoot({ page: 'file', state: 'locked', fileJson: '{"vanity":"a","protected":"private"}' })).toEqual({ page: 'missing' });
+    expect(parseBoot({ page: 'file', state: 'locked', fileJson: null })).toEqual({ page: 'missing' });
+  });
+
+  it('private files are plain missing (null payload)', () => {
+    expect(parseBoot({ page: 'file', state: 'missing', fileJson: 'null' })).toEqual({ page: 'missing' });
+  });
+
+  it('keeps visibility on file payloads', () => {
+    expect(parseFileData({ ...file, visibility: 'password' })?.visibility).toBe('password');
+    expect(parseFileData({ ...file, visibility: 'public' })?.visibility).toBeUndefined();
+  });
+});

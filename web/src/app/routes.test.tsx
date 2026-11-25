@@ -21,7 +21,8 @@ describe('dashboard routes', () => {
   it.each(NAV_ITEMS.map((item) => [item.path, item.label] as const))('%s renders the %s page', async (path, label) => {
     renderAt(path);
     expect(await screen.findByRole('heading', { level: 1, name: label })).toBeInTheDocument();
-    expect(screen.getByText(/coming in a later milestone/i)).toBeInTheDocument();
+    // Upload is built (Milestone 2); the rest are still placeholders.
+    if (path !== '/upload') expect(screen.getByText(/coming in a later milestone/i)).toBeInTheDocument();
   });
 
   it('renders a not-found page for unknown paths', async () => {

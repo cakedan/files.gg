@@ -1,9 +1,16 @@
 import { ApiError, ApiResponse, DomainRouter } from 'cf-worker-router';
 import { getStringBinding } from '../utils/env.js';
+import { DEFAULT_HOSTS, getHosts, hostPattern, originFor } from '../utils/hosts.js';
 import { isValidProxyToken } from '../utils/security.js';
 
 
-export const router = new DomainRouter('proxy.files.gg');
+// The PROXY_HOST router (proxy.files.gg by default); the routes are added below.
+export function createRouter(hosts = DEFAULT_HOSTS) {
+  const router = new DomainRouter(hostPattern(hosts.proxy));
+  router.route('/download/:url...', ['GET', 'HEAD', 'OPTIONS'], download);
+  router.route('/unfurl/:url...', ['GET', 'OPTIONS'], unfurl);
+  return router;
+}
 
 // The shared secret is a worker secret named PROXY_SECRET (see cf-worker/README.md).
 // Without one, every request is refused.
@@ -14,13 +21,13 @@ function isAuthorized(event) {
   );
 }
 
-router.route('/download/:url...', ['GET', 'HEAD', 'OPTIONS'], async (event) => {
+async function download(event) {
   if (!isAuthorized(event)) {
     return new ApiError({status: 403});
   }
 
   return await requestProxy(event, new URL(event.parameters.url));
-});
+}
 
 
 const UnfurlConstants = Object.freeze({
@@ -31,7 +38,7 @@ const UnfurlConstants = Object.freeze({
   imageTags: ['og:image', 'twitter:image'],
 });
 
-router.route('/unfurl/:url...', ['GET', 'OPTIONS'], async (event) => {
+async function unfurl(event) {
   if (!isAuthorized(event)) {
     return new ApiError({status: 403});
   }
@@ -64,13 +71,14 @@ router.route('/unfurl/:url...', ['GET', 'OPTIONS'], async (event) => {
         imageUrl = url.origin + imageUrl;
       }
       body.imageUrl = imageUrl;
-      body.imageUrlProxy = 'https://proxy.files.gg/download/' + encodeURIComponent(body.imageUrl);
+      const proxyOrigin = originFor(getHosts(event.environment).proxy, event.url);
+      body.imageUrlProxy = `${proxyOrigin}/download/` + encodeURIComponent(body.imageUrl);
     }
   }
 
   // check oembed
   return new ApiResponse(body);
-});
+}
 
 
 export async function requestProxy(event, url) {

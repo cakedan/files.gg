@@ -1,0 +1,10 @@
+eff_large_wordlist.txt is the EFF Large Wordlist for Passphrases (7,776 words),
+published by the Electronic Frontier Foundation:
+https://www.eff.org/deeplinks/2016/07/new-wordlists-random-passphrases
+
+It is licensed under the Creative Commons Attribution 3.0 United States License
+(CC BY 3.0 US): https://creativecommons.org/licenses/by/3.0/us/
+Attribution: Electronic Frontier Foundation (EFF).
+
+Copied here as the bare word column (the dice-roll numbers removed), as shipped
+in the xkcdpass 1.30.0 package's static/eff-long file.

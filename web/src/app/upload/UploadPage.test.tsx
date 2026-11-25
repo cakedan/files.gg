@@ -1,0 +1,70 @@
+import { QueryClientProvider } from '@tanstack/react-query';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
+import { createQueryClient } from '../../lib/queryClient';
+import { installTurnstile } from '../../test/turnstile';
+import UploadPage from '../pages/UploadPage';
+
+const json = (body: unknown, status = 200) =>
+  new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
+
+const anonymousLimits = {
+  storage: { used: 0, limit: null },
+  max_file_size_single: 25 * 1024 * 1024,
+  max_file_size_chunked: 25 * 1024 * 1024,
+  max_expiry: 21 * 86400,
+  allow_no_expiry: false,
+  anonymous: true,
+};
+
+function renderPage() {
+  return render(
+    <QueryClientProvider client={createQueryClient()}>
+      <UploadPage />
+    </QueryClientProvider>,
+  );
+}
+
+beforeEach(() => {
+  installTurnstile();
+  localStorage.setItem('fingerprint', JSON.stringify('fp1'));
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async (url: string) => (String(url).endsWith('/users/@me/limits') ? json(anonymousLimits) : json({}, 404))),
+  );
+});
+afterEach(() => {
+  localStorage.clear();
+  delete window.turnstile;
+});
+
+describe('UploadPage (anonymous)', () => {
+  it('shows the anonymous expiry choices with the note, and disables "Only me"', async () => {
+    renderPage();
+    const expiry = await screen.findByLabelText('Expires');
+    await waitFor(() => expect(expiry).toHaveValue(String(21 * 86400)));
+    expect(within(expiry).queryByRole('option', { name: 'Never' })).not.toBeInTheDocument();
+    expect(screen.getByText(/Anonymous uploads are deleted after at most 21 days/)).toBeInTheDocument();
+    expect(screen.getByRole('radio', { name: /only me/i })).toBeDisabled();
+  });
+
+  it('rejects a too-large file before uploading, with the typed message', async () => {
+    renderPage();
+    await screen.findByText(/Up to 25 MB per file/);
+    const big = new File(['x'], 'huge.bin');
+    Object.defineProperty(big, 'size', { value: 30 * 1024 * 1024 });
+    fireEvent.change(screen.getByLabelText('Choose files to upload'), { target: { files: [big] } });
+    expect(await screen.findByText('This file is too large. The limit is 25 MB.')).toBeInTheDocument();
+    expect(vi.mocked(fetch).mock.calls.some(([url]) => /\/files$|\/uploads$/.test(String(url)))).toBe(false);
+  });
+
+  it('password access shows the password fields and Generate', async () => {
+    renderPage();
+    fireEvent.click(await screen.findByRole('radio', { name: /password/i }));
+    expect(screen.getByLabelText('Stay unlocked for')).toHaveValue('3600');
+    expect(screen.getByLabelText('Password works until')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Generate' }));
+    expect(screen.getByText('Each file gets its own generated password, shown once.')).toBeInTheDocument();
+  });
+});

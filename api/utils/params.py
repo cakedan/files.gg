@@ -42,8 +42,12 @@ _FRIENDLY_LOCATIONS = {
 class Arg:
     """Field metadata: request source + converter (a pydantic plain validator)."""
 
-    def __init__(self, name=None, location=DEFAULT_LOCATION, type=str, choices=None, help=None, trim=True):
+    def __init__(self, name=None, location=DEFAULT_LOCATION, type=str, choices=None, help=None, trim=True,
+                 aliases=()):
         self.name = name
+        # other request names tried first, in order; errors are still reported
+        # under `name` (e.g. turnstile_token for the legacy captcha field)
+        self.aliases = tuple(aliases)
         self.location = (location,) if isinstance(location, str) else tuple(location)
         self.type = type
         self.choices = choices
@@ -114,10 +118,13 @@ def _first(multidict, name):
 
 class Sources:
     def __init__(self, request, view_args=None, form=True):
+        """`form`: True reads Sanic's parsed form (and a JSON body), False
+        neither, or a mapping with getlist() (a form parsed elsewhere)."""
         self.request = request
         self.view_args = view_args or {}
-        self.form_enabled = form
-        self._json = request_json(request) if form else None
+        self.form_override = None if isinstance(form, bool) else form
+        self.form_enabled = bool(form) if isinstance(form, bool) else True
+        self._json = request_json(request) if form is True else None
         self._args = request.get_args(keep_blank_values=True)
 
     def lookup(self, location, name):
@@ -152,6 +159,8 @@ class Sources:
 
     @property
     def form(self):
+        if self.form_override is not None:
+            return self.form_override
         if not self.form_enabled:
             return {}
         return self.request.form or {}
@@ -162,10 +171,13 @@ def parse(request, model, view_args=None, form=True):
     sources = Sources(request, view_args, form=form)
     arguments = model.arguments()
     for fname, name, arg in arguments:
-        for location in arg.location:
-            found, value = sources.lookup(location, name)
-            if found:
-                raw[fname] = value
+        for candidate in arg.aliases + (name,):
+            for location in arg.location:
+                found, value = sources.lookup(location, candidate)
+                if found:
+                    raw[fname] = value
+                    break
+            if fname in raw:
                 break
     try:
         return model.model_validate(raw)

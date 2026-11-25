@@ -11,15 +11,20 @@
  * "planned" don't exist on the API yet.
  */
 
-import { getLegacyString } from './storage';
+import { getLegacyString, setLegacyString } from './storage';
 
 export const DEFAULT_API_URL = 'https://api.files.gg';
 
 export const TOKEN_KEY = 'token';
 export const FINGERPRINT_KEY = 'fingerprint';
 
+/**
+ * The API origin. A path such as `/__mock-api` (the dev mock, see vite.plugins.ts)
+ * is resolved against the page's origin.
+ */
 export function apiBaseUrl(value: string | undefined = import.meta.env.VITE_API_URL): string {
-  const base = value?.trim() || DEFAULT_API_URL;
+  let base = value?.trim() || DEFAULT_API_URL;
+  if (base.startsWith('/') && typeof window !== 'undefined') base = window.location.origin + base;
   return base.replace(/\/+$/, '');
 }
 
@@ -58,14 +63,18 @@ export class ApiError extends Error {
 
 /** Builds an ApiError from a failed response. Never throws. */
 export async function parseApiError(response: Response): Promise<ApiError> {
-  const fallback = response.statusText || `Request failed with status ${response.status}`;
   let text: string;
   try {
     text = await response.text();
   } catch {
-    return new ApiError(response.status, null, fallback);
+    return apiErrorFromText(response.status, response.statusText, '');
   }
+  return apiErrorFromText(response.status, response.statusText, text);
+}
 
+/** Builds an ApiError from a status and raw body (shared with the XHR upload path). */
+export function apiErrorFromText(status: number, statusText: string, text: string): ApiError {
+  const fallback = statusText || `Request failed with status ${status}`;
   let body: unknown = text || undefined;
   try {
     body = text ? JSON.parse(text) : undefined;
@@ -77,10 +86,12 @@ export async function parseApiError(response: Response): Promise<ApiError> {
     const { code, message } = body as { code?: unknown; message?: unknown };
     const parsedCode = typeof code === 'string' || typeof code === 'number' ? code : null;
     const parsedMessage = typeof message === 'string' && message ? message : fallback;
-    return new ApiError(response.status, parsedCode, parsedMessage, body);
+    return new ApiError(status, parsedCode, parsedMessage, body);
   }
-  return new ApiError(response.status, null, fallback, body);
+  return new ApiError(status, null, fallback, body);
 }
+
+export const hasToken = (): boolean => Boolean(getLegacyString(TOKEN_KEY));
 
 /** Auth headers from localStorage. Storage failures simply mean "no header". */
 export function authHeaders(): Record<string, string> {
@@ -109,6 +120,20 @@ export interface RequestOptions {
   signal?: AbortSignal | undefined;
   /** Defaults to true. */
   auth?: boolean;
+}
+
+/**
+ * Anonymous uploads and limits need a fingerprint (contract §6). Reuses the old
+ * app's stored one, or asks the API for a new one (`GET /auth/fingerprint`).
+ */
+export async function ensureFingerprint(): Promise<string | null> {
+  if (hasToken()) return null;
+  const existing = getLegacyString(FINGERPRINT_KEY);
+  if (existing) return existing;
+  const { fingerprint } = await request<{ fingerprint: string | number }>('/auth/fingerprint', { auth: false });
+  const value = String(fingerprint);
+  setLegacyString(FINGERPRINT_KEY, value);
+  return value;
 }
 
 export function buildUrl(path: string, query?: Record<string, QueryValue>, base: string = apiBaseUrl()): string {
@@ -196,7 +221,7 @@ export interface Me {
   needs_username?: boolean;
 }
 
-/** One file, as `File.to_dict()` returns it, plus the planned expiry. */
+/** One file, as `File.to_dict()` returns it, plus the Milestone 2 fields. */
 export interface UserFile {
   id: string;
   vanity: string;
@@ -213,8 +238,9 @@ export interface UserFile {
   duration: number | null;
   urls: { main: string; cdn: string };
   views: number;
-  /** planned: ISO timestamp, or null when the file never expires. */
-  expires_at?: string | null;
+  /** Epoch seconds, or null when the file never expires (contract §6). */
+  expires_at?: number | null;
+  visibility?: Visibility;
 }
 
 export type FileSort = 'newest' | 'oldest' | 'largest' | 'name';
@@ -240,23 +266,92 @@ export interface MyFilesResponse {
   total: { count: number; size: number };
 }
 
-/** The result of `get_limits()` on the server. Byte values; null means unlimited. */
-export interface Limits {
-  storage_bytes: number | null;
-  max_file_size: number;
-  /** Seconds; null means no maximum. */
+/** `GET /users/@me/limits` (contract §6). Anonymous callers get the anonymous values. */
+export interface MyLimitsResponse {
+  storage: { used: number; limit: number | null };
+  max_file_size_single: number;
+  max_file_size_chunked: number;
+  /** Seconds, or null for no maximum. */
   max_expiry: number | null;
   allow_no_expiry: boolean;
+  anonymous: boolean;
 }
 
-/** `GET /users/@me/limits` (planned): limits plus current usage. */
-export interface MyLimitsResponse {
-  limits: Limits;
-  usage: {
-    storage_bytes: number;
-    files: number;
-    by_type: Partial<Record<FileTypeFilter, { count: number; size: number }>>;
-  };
+// ---------------------------------------------------------------------------
+// Access (contract §5)
+// ---------------------------------------------------------------------------
+
+export type Visibility = 'link' | 'password' | 'private';
+export type AccessKind = 'file' | 'album';
+
+export interface AccessGrant {
+  token: string;
+  /** Epoch seconds. */
+  expires_at: number;
+}
+
+/** `POST /{files|albums}/<vanity>/unlock`: the token plus the full payload (`file` or `album`). */
+export interface UnlockResponse extends AccessGrant {
+  file?: unknown;
+  album?: unknown;
+}
+
+/** `GET /{files|albums}/<vanity>/view` with `X-Filesgg-Access`. */
+export interface ViewResponse {
+  file?: unknown;
+  album?: unknown;
+  expires_at: number;
+}
+
+const accessBase = (kind: AccessKind, vanity: string) =>
+  `/${kind === 'album' ? 'albums' : 'files'}/${vanity.split('/').map(encodeURIComponent).join('/')}`;
+
+// ---------------------------------------------------------------------------
+// Uploads (contract §6)
+// ---------------------------------------------------------------------------
+
+/** Seconds, per contract §6 `unlock_ttl`. */
+export const UNLOCK_TTLS = [600, 3600, 86400, 604800, 2592000] as const;
+export type UnlockTtl = (typeof UNLOCK_TTLS)[number];
+
+/** Optional upload fields shared by `POST /files` and `POST /uploads`. */
+export interface UploadParams {
+  expires_in?: number;
+  visibility?: Visibility;
+  password?: string;
+  generate_password?: boolean;
+  unlock_ttl?: UnlockTtl;
+  password_expires_in?: number;
+  /** Anonymous uploads only, action `upload`. */
+  turnstile_token?: string;
+}
+
+/** `POST /files` response, and `file` in a completed upload session. */
+export interface UploadedFile extends UserFile {
+  expires_at: number | null;
+  visibility: Visibility;
+  /** Only with `generate_password`, shown once. */
+  password?: string;
+  /** `https://files.gg/<vanity>#pw=<password>`, only with `generate_password`. */
+  url_with_password?: string;
+}
+
+export interface UploadSession {
+  upload_id: string;
+  chunk_size: number;
+  chunk_count: number;
+  /** Epoch seconds. */
+  expires_at: number;
+}
+
+export type UploadSessionStatus = 'open' | 'processing' | 'complete' | 'failed';
+
+export interface UploadStatus {
+  status: UploadSessionStatus;
+  received: number[];
+  size: number;
+  file?: UploadedFile;
+  error?: string;
 }
 
 export const api = {
@@ -264,4 +359,27 @@ export const api = {
   myFiles: (params: MyFilesParams = {}, signal?: AbortSignal) =>
     request<MyFilesResponse>('/users/@me/files', { query: { limit: 25, ...params }, signal }),
   myLimits: (signal?: AbortSignal) => request<MyLimitsResponse>('/users/@me/limits', { signal }),
+
+  unlock: (kind: AccessKind, vanity: string, password: string, turnstileToken: string) =>
+    request<UnlockResponse>(`${accessBase(kind, vanity)}/unlock`, {
+      method: 'POST',
+      body: { password, turnstile_token: turnstileToken },
+      auth: false,
+    }),
+  /**
+   * Contract §5 defines this for files only. Albums use the symmetric
+   * `/albums/<vanity>/unlock/refresh`, which still needs adding to the contract.
+   */
+  refreshUnlock: (kind: AccessKind, vanity: string, token: string) =>
+    request<AccessGrant>(`${accessBase(kind, vanity)}/unlock/refresh`, { method: 'POST', body: { token }, auth: false }),
+  view: (kind: AccessKind, vanity: string, token: string) =>
+    request<ViewResponse>(`${accessBase(kind, vanity)}/view`, { headers: { 'X-Filesgg-Access': token }, auth: false }),
+
+  createUpload: (body: UploadParams & { filename: string; size: number }) =>
+    request<UploadSession>('/uploads', { method: 'POST', body }),
+  uploadStatus: (id: string, signal?: AbortSignal) =>
+    request<UploadStatus>(`/uploads/${encodeURIComponent(id)}`, { signal }),
+  completeUpload: (id: string) =>
+    request<{ status: UploadSessionStatus }>(`/uploads/${encodeURIComponent(id)}/complete`, { method: 'POST' }),
+  abortUpload: (id: string) => request<void>(`/uploads/${encodeURIComponent(id)}`, { method: 'DELETE' }),
 };

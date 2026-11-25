@@ -5,6 +5,8 @@ import { fileURLToPath } from 'node:url';
 
 import type { Connect, Plugin } from 'vite';
 
+import { mockApiMiddleware } from './mock-api.ts';
+
 const here = (path: string) => fileURLToPath(new URL(path, import.meta.url));
 
 const CONTENT_TYPES: Record<string, string> = {
@@ -70,7 +72,13 @@ export function routeEntries(): Plugin {
     const [pathname = '/', search = ''] = url.split(/(?=\?)/, 2);
     if (pathname === '/app' || (pathname.startsWith('/app/') && !pathname.includes('.'))) {
       req.url = `/app.html${search}`;
-    } else if (pathname === '/' || pathname === '/convert' || /^\/a\/[^/.]+(\/\d+)?\/?$/.test(pathname)) {
+    } else if (
+      pathname === '/' ||
+      pathname === '/convert' ||
+      /^\/a\/[^/.]+(\/\d+)?\/?$/.test(pathname) ||
+      // A bare vanity (no extension), e.g. /private123 for owner-pass testing.
+      /^\/[a-z0-9]{3,}$/i.test(pathname)
+    ) {
       req.url = `/viewer.html${search}`;
     }
     next();
@@ -133,6 +141,17 @@ export function pdfjsAssets(): Plugin {
           });
         }
       }
+    },
+  };
+}
+
+/** Dev only: the in-memory Milestone 2 API (mock-api.ts) at /__mock-api. */
+export function mockApi(): Plugin {
+  return {
+    name: 'filesgg:mock-api',
+    apply: 'serve',
+    configureServer(server) {
+      server.middlewares.use(mockApiMiddleware());
     },
   };
 }

@@ -1,21 +1,27 @@
 import { DomainRouter } from 'cf-worker-router';
 
 import { apiOrigin, getStringBinding } from '../utils/env.js';
+import { DEFAULT_HOSTS, hostPattern } from '../utils/hosts.js';
 import { originRequestHeaders } from '../utils/security.js';
 
-export const API_HOSTNAME = 'api.files.gg';
-
-export const router = new DomainRouter(API_HOSTNAME);
+export const API_HOSTNAME = DEFAULT_HOSTS.api;
 
 
 // Handled (not `{pass: true}`) so the response goes through `beforeResponse` in index.js and gets
 // the credentialed CORS headers. A worker's subrequest to its own route goes to the origin.
-router.route('/*', '*', async (event) => {
+async function passthrough(event) {
   const url = new URL(apiOrigin(event.environment));
   url.pathname = event.url.pathname;
   url.search = event.url.search;
   return await fetch(forOrigin(new Request(url, event.originalRequest), event));
-});
+}
+
+// The API_HOST router (api.files.gg by default); `hosts` is utils/hosts.js getHosts(env).
+export function createRouter(hosts = DEFAULT_HOSTS) {
+  const router = new DomainRouter(hostPattern(hosts.api));
+  router.route('/*', '*', passthrough);
+  return router;
+}
 
 
 let warnedMissingSecret = false;

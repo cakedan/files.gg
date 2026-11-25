@@ -6,6 +6,7 @@ import { formatBytes } from '../../lib/format';
 import { formatExpiry, formatFullDate, RELATIVE_REFRESH_MS } from '../../lib/time';
 import { useNow } from '../../lib/useNow';
 import type { AlbumData } from '../types';
+import { downloadAllUrl } from './albumUrl';
 import { linkify } from './linkify';
 
 export function AlbumDescription({ text }: { text: string }) {
@@ -50,7 +51,7 @@ export function AlbumHeader({ album, shareUrl, title }: { album: AlbumData; shar
       {album.description && <AlbumDescription text={album.description} />}
       <div className="flex flex-wrap gap-2">
         <CopyButton text={shareUrl} />
-        <LinkButton href={`${shareUrl.replace(/\/+$/, '')}/download.zip`} download>
+        <LinkButton href={downloadAllUrl(shareUrl, album.accessToken)} download>
           <Download aria-hidden className="size-4" />
           Download all
         </LinkButton>

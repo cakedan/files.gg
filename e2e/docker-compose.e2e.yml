@@ -1,0 +1,138 @@
+# Local full stack for the end-to-end test (e2e/README.md): Postgres 19, MinIO standing in for B2,
+# the migrations, the API and `python -m worker`. The Cloudflare Worker runs on the host under
+# `wrangler dev` (started by e2e/up.sh) and reaches the API and MinIO on the loopback ports below.
+#
+# Don't run this file by hand: e2e/up.sh generates the secrets in e2e/.local/.env and passes it
+# with --env-file. Data lives in Docker named volumes only (no bind mounts: this repo may sit in a
+# synced folder); e2e/down.sh removes them.
+name: filesgg-e2e
+
+x-api-environment: &api-environment
+  DATABASE_URL: postgresql://filesgg:${POSTGRES_PASSWORD:?run e2e/up.sh}@postgres:5432/filesgg
+  SECRET_KEY: ${SECRET_KEY:?run e2e/up.sh}
+  RPC_KEY: ${RPC_KEY:?run e2e/up.sh}
+  ORIGIN_SHARED_SECRET: ${ORIGIN_SHARED_SECRET:?run e2e/up.sh}
+  VIEW_HASH_SECRET: ${VIEW_HASH_SECRET:?run e2e/up.sh}
+  CDN_TOKEN_SECRET: ${CDN_TOKEN_SECRET:?run e2e/up.sh}
+  # Cloudflare's documented always-pass Turnstile testing secret: siteverify is the real one (the
+  # stack needs internet), and only the testing site key's dummy token passes it.
+  TURNSTILE_SECRET: 1x0000000000000000000000000000000AA
+  TURNSTILE_HOSTNAMES: files.localhost
+  S3_ENDPOINT: http://minio:9000
+  S3_REGION: us-east-1
+  S3_BUCKET_FILES: filesgg
+  S3_ACCESS_KEY_ID: filesgg-e2e
+  S3_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD:?run e2e/up.sh}
+  # The local public hostnames (served by wrangler dev on the host). *.localhost resolves to loopback.
+  PUBLIC_URL: http://files.localhost:${E2E_PORT:-8787}
+  CDN_URL: http://cdn.files.localhost:${E2E_PORT:-8787}
+  ALLOWED_ORIGINS: http://files.localhost:${E2E_PORT:-8787}
+  LOG_LEVEL: INFO
+
+x-api-service: &api-service
+  build:
+    context: ../api
+    target: runtime
+  image: filesgg-api:e2e
+  environment: *api-environment
+
+services:
+  postgres:
+    # the same image as docker-compose.yml
+    image: postgres:19.0@sha256:aaa10f7ba7328b4a221a6c3184d83eef885bd16bf1f6de864757863156b0a4d1
+    environment:
+      POSTGRES_DB: filesgg
+      POSTGRES_USER: filesgg
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?run e2e/up.sh}
+    volumes:
+      - postgres-data:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U filesgg -d filesgg"]
+      interval: 1s
+      timeout: 3s
+      retries: 60
+
+  # stands in for Backblaze B2; the same image as docker-compose.test.yml
+  minio:
+    image: cgr.dev/chainguard/minio:latest@sha256:9f0aab4471ebb181be3cfabea21b719303ec583cd9abdb7779f9e53032b844f7
+    command: ["server", "/data", "--address", ":9000"]
+    environment:
+      MINIO_ROOT_USER: filesgg-e2e
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?run e2e/up.sh}
+    volumes:
+      - minio-data:/data
+    ports:
+      # the Worker (wrangler dev, on the host) reads the bucket with SigV4 here
+      - 127.0.0.1:${E2E_MINIO_PORT:-19000}:9000
+
+  # One-off: creates the files bucket (boto3 is already in the API image), retrying while MinIO starts.
+  bucket:
+    <<: *api-service
+    restart: "no"
+    depends_on:
+      - minio
+    command:
+      - python
+      - -c
+      - |
+        import os, time, boto3
+        from botocore.config import Config
+        s3 = boto3.client('s3', endpoint_url=os.environ['S3_ENDPOINT'], region_name=os.environ['S3_REGION'],
+                          aws_access_key_id=os.environ['S3_ACCESS_KEY_ID'],
+                          aws_secret_access_key=os.environ['S3_SECRET_ACCESS_KEY'],
+                          config=Config(s3={'addressing_style': 'path'}))
+        bucket = os.environ['S3_BUCKET_FILES']
+        for attempt in range(60):
+            try:
+                if bucket not in [b['Name'] for b in s3.list_buckets().get('Buckets', [])]:
+                    s3.create_bucket(Bucket=bucket)
+                print('bucket ready:', bucket)
+                break
+            except Exception as error:
+                print('waiting for minio:', type(error).__name__)
+                time.sleep(1)
+        else:
+            raise SystemExit('minio never came up')
+
+  # One-off: applies the migrations, then exits.
+  migrate:
+    <<: *api-service
+    restart: "no"
+    command: ["python", "-m", "migrate"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  api:
+    <<: *api-service
+    command: ["sanic", "app:create_app", "--factory", "--host", "0.0.0.0", "--port", "8080", "--workers", "2"]
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      bucket:
+        condition: service_completed_successfully
+    ports:
+      # API_ORIGIN for wrangler dev; browsers and the test go through the Worker instead
+      - 127.0.0.1:${E2E_API_PORT:-18080}:8080
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8080/health', timeout=3).status == 200 else 1)"]
+      interval: 2s
+      timeout: 5s
+      retries: 60
+
+  # Background jobs (finalising chunked uploads) and the scheduled tasks (the expiry reaper).
+  worker:
+    <<: *api-service
+    command: ["python", "-m", "worker"]
+    environment:
+      <<: *api-environment
+      WORKER_POLL_INTERVAL: "0.5"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      bucket:
+        condition: service_completed_successfully
+
+volumes:
+  postgres-data:
+  minio-data:

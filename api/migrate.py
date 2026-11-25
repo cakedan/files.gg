@@ -5,6 +5,12 @@
 
 Migrations are `migrations/NNNN_name.sql`. Each pending file runs in its own
 transaction, together with the row that records it in `schema_migrations`.
+
+A file whose first line is `-- migrate:no-transaction` (for `CREATE INDEX
+CONCURRENTLY`) instead runs statement by statement in autocommit. Its
+statements must each end with `;` at the end of a line, and must be safe to
+re-run (`IF NOT EXISTS`); an INVALID index left by an interrupted concurrent
+build is dropped before its `CREATE INDEX CONCURRENTLY IF NOT EXISTS` is retried.
 A session advisory lock stops two release steps from migrating at once.
 Run this as a one-off release step before new servers start. Synchronous
 psycopg 3, autocommit connection with explicit transactions.
@@ -15,6 +21,7 @@ import logging
 import os
 import re
 import sys
+import time
 
 import db
 
@@ -35,6 +42,30 @@ CREATE TABLE IF NOT EXISTS schema_migrations (
 """
 
 
+NO_TRANSACTION = '-- migrate:no-transaction'
+STATEMENT_END = re.compile(r';[ \t]*$', re.MULTILINE)
+CONCURRENT_INDEX = re.compile(
+    r'CREATE\s+(?:UNIQUE\s+)?INDEX\s+CONCURRENTLY\s+IF\s+NOT\s+EXISTS\s+("?)([A-Za-z0-9_]+)\1', re.IGNORECASE)
+
+
+def split_statements(sql):
+    lines = [line for line in sql.splitlines() if not line.lstrip().startswith('--')]
+    return [s.strip() for s in STATEMENT_END.split('\n'.join(lines)) if s.strip()]
+
+
+def _run_without_transaction(conn, sql):
+    for statement in split_statements(sql):
+        match = CONCURRENT_INDEX.search(statement)
+        if match:
+            invalid = conn.execute(
+                'SELECT 1 FROM pg_index i JOIN pg_class c ON c.oid = i.indexrelid '
+                'WHERE c.relname = %s AND NOT i.indisvalid', (match.group(2),)).fetchone()
+            if invalid:
+                log.warning('dropping invalid index %s left by an interrupted build', match.group(2))
+                conn.execute('DROP INDEX CONCURRENTLY IF EXISTS "{}"'.format(match.group(2)))
+        conn.execute(statement)
+
+
 class Migration:
     def __init__(self, version, name, path):
         self.version = version
@@ -45,6 +76,10 @@ class Migration:
     def sql(self):
         with open(self.path, 'r', encoding='utf-8') as handle:
             return handle.read()
+
+    @property
+    def transactional(self):
+        return not self.sql.lstrip().startswith(NO_TRANSACTION)
 
     @property
     def checksum(self):
@@ -90,7 +125,11 @@ def migrate(conn, directory=MIGRATIONS_DIR):
     Returns the list applied."""
     migrations = discover(directory)
     done = []
-    conn.execute('SELECT pg_advisory_lock(%s)', (LOCK_KEY,))
+    # Poll with pg_try_advisory_lock instead of waiting inside pg_advisory_lock:
+    # a session blocked in a statement holds a snapshot, and CREATE INDEX
+    # CONCURRENTLY in the session holding the lock would wait for it (deadlock).
+    while not conn.execute('SELECT pg_try_advisory_lock(%s)', (LOCK_KEY,)).fetchone()[0]:
+        time.sleep(0.2)
     try:
         applied = _applied(conn)
         for migration in migrations:
@@ -99,10 +138,13 @@ def migrate(conn, directory=MIGRATIONS_DIR):
                     log.warning('%r changed after it was applied (checksum mismatch)', migration)
                 continue
             log.info('applying %r', migration)
+            if not migration.transactional:
+                _run_without_transaction(conn, migration.sql)
             with conn.transaction():
-                # no parameters: psycopg sends it as one simple query, so a
-                # file may hold many statements
-                conn.execute(migration.sql)
+                if migration.transactional:
+                    # no parameters: psycopg sends it as one simple query, so a
+                    # file may hold many statements
+                    conn.execute(migration.sql)
                 conn.execute(
                     'INSERT INTO schema_migrations (version, name, checksum) VALUES (%s, %s, %s)',
                     (migration.version, migration.name, migration.checksum),

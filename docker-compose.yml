@@ -2,7 +2,8 @@
 # start if a required one is missing (the API also refuses to boot without them).
 #   POSTGRES_PASSWORD, SECRET_KEY, RPC_KEY, ORIGIN_SHARED_SECRET, VIEW_HASH_SECRET,
 #   DB_BACKUP_RESTIC_PASSWORD, S3_BACKUP_ACCESS_KEY_ID, S3_BACKUP_SECRET_ACCESS_KEY,
-#   POSTMARK_SERVER_TOKEN, RECAPTCHA_SECRET
+#   POSTMARK_SERVER_TOKEN, CDN_TOKEN_SECRET, TURNSTILE_SECRET,
+#   S3_ENDPOINT, S3_REGION, S3_BUCKET_FILES, S3_ACCESS_KEY_ID, S3_SECRET_ACCESS_KEY
 #
 # Order on `docker compose up`: postgres becomes healthy, migrate runs once and must succeed,
 # then api and worker start. Scale either independently, e.g. `docker compose up --scale worker=2`;
@@ -22,16 +23,32 @@ x-api-environment: &api-environment
   # and DMARC set up in Postmark; receiving (abuse@, support@) is Cloudflare Email Routing, not this.
   POSTMARK_SERVER_TOKEN: ${POSTMARK_SERVER_TOKEN:?POSTMARK_SERVER_TOKEN must be set (Postmark server API token)}
   EMAIL_FROM: ${EMAIL_FROM:-files.gg <noreply@mail.files.gg>}
-  RECAPTCHA_SECRET: ${RECAPTCHA_SECRET:-}
   RPC_KEY: ${RPC_KEY:?RPC_KEY must be set}
   SECRET_KEY: ${SECRET_KEY:?SECRET_KEY must be set}
   STORAGE_BUCKET: filesgg
   ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-https://files.gg}
+  # The public site and CDN origins written into file URLs, #pw=/#t= links, owner passes and email links
+  # (api/utils/urls.py). Change them only for another deployment (staging, or the local stack in e2e/).
+  PUBLIC_URL: ${PUBLIC_URL:-https://files.gg}
+  CDN_URL: ${CDN_URL:-https://cdn.files.gg}
+  # Comma-separated hostnames a Turnstile token must have been issued for (siteverify's `hostname`).
+  TURNSTILE_HOSTNAMES: ${TURNSTILE_HOSTNAMES:-files.gg}
   # Shared with the Cloudflare Worker (its ORIGIN_SHARED_SECRET binding). The API trusts the
   # forwarded client IP only when this matches; without it every per-IP limit sees nginx/Cloudflare.
   ORIGIN_SHARED_SECRET: ${ORIGIN_SHARED_SECRET:?ORIGIN_SHARED_SECRET must be set (openssl rand -hex 32)}
   # Keys the daily rotating HMAC for unique-view counting (no IPs are stored). Same value on every API server.
   VIEW_HASH_SECRET: ${VIEW_HASH_SECRET:?VIEW_HASH_SECRET must be set (openssl rand -hex 32)}
+  # Signs unlock and owner-pass tokens (contract §1); the same value is the Worker's CDN_TOKEN_SECRET secret.
+  CDN_TOKEN_SECRET: ${CDN_TOKEN_SECRET:?CDN_TOKEN_SECRET must be set (openssl rand -hex 32, shared with the Worker)}
+  # Cloudflare Turnstile secret key (contract §8); the site key goes in web/ config.
+  TURNSTILE_SECRET: ${TURNSTILE_SECRET:?TURNSTILE_SECRET must be set (Cloudflare Turnstile secret key)}
+  # The files bucket on B2 (S3-compatible API), with the API's write/delete application key (contract §3).
+  # The CDN Worker reads with its own read-only key.
+  S3_ENDPOINT: ${S3_ENDPOINT:?S3_ENDPOINT must be set (the B2 US region endpoint, e.g. s3.<region>.backblazeb2.com)}
+  S3_REGION: ${S3_REGION:?S3_REGION must be set (the B2 region, e.g. us-west-004)}
+  S3_BUCKET_FILES: ${S3_BUCKET_FILES:?S3_BUCKET_FILES must be set (the private files bucket)}
+  S3_ACCESS_KEY_ID: ${S3_ACCESS_KEY_ID:?S3_ACCESS_KEY_ID must be set (B2 key with writeFiles and deleteFiles)}
+  S3_SECRET_ACCESS_KEY: ${S3_SECRET_ACCESS_KEY:?S3_SECRET_ACCESS_KEY must be set}
 
 x-api-service: &api-service
   build:

@@ -12,5 +12,5 @@
     "noEmit": true,
     "allowImportingTsExtensions": true
   },
-  "include": ["vite.config.ts", "vite.plugins.ts", "eslint.config.js"]
+  "include": ["vite.config.ts", "vite.plugins.ts", "mock-api.ts", "eslint.config.js"]
 }

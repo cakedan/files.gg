@@ -27,9 +27,40 @@ npm run lint
 npm run fixtures   # regenerates web/fixtures/ (dev-only sample media)
 ```
 
-The API base URL comes from `VITE_API_URL` and defaults to `https://api.files.gg`. See `.env.example`.
+The API base URL comes from `VITE_API_URL`. See `.env.example`.
+- **Builds** default to `https://api.files.gg`.
+- **`npm run dev`** uses the in-memory **mock API** (below) unless `VITE_API_URL` is set, for example to a local API in `.env.local`.
+- **The real stack locally:** `e2e/up.sh` builds this app (into `e2e/.local/web-dist`, not `dist`) against the local API and serves it through the Worker on `http://files.localhost:8787`. See `e2e/README.md`.
 
-In dev and preview, `/app` and `/app/*` serve `app.html`, and `/`, `/convert` and `/a/<vanity>[/<n>]` serve `viewer.html`. The same rewrites happen in production (see below).
+**Turnstile:** set `VITE_TURNSTILE_SITE_KEY` for production builds, which warn when it's missing. Dev and tests use Cloudflare's documented testing key `1x00000000000000000000AA` (always passes; https://developers.cloudflare.com/turnstile/troubleshooting/testing/). It issues the dummy token `XXXX.DUMMY.TOKEN.XXXX`, which the mock accepts the way the testing secret keys do. All five testing site keys and three testing secrets are in `src/lib/config.ts`.
+
+In dev and preview, `/app` and `/app/*` serve `app.html`, and `/`, `/convert` and `/a/<vanity>[/<n>]` serve `viewer.html`. In dev, a bare vanity such as `/private123` does too. The same rewrites happen in production (see below).
+
+### Mock API (dev only)
+
+`mock-api.ts` is a Vite middleware at `/__mock-api` that implements the Milestone 2 contract in memory, so the whole flow works with no backend. It's never part of a build.
+
+**Endpoints:**
+- `GET /auth/fingerprint`, `GET /users/@me` and `GET /users/@me/limits`. Without `Authorization` you get the anonymous values; with any `Authorization` you're "Mock User".
+- `POST /files`, with a multipart parser.
+- The chunked `POST /uploads`, `PUT …/chunks/<i>`, `GET`, `complete` (moves to `complete` after 1.5 s) and `DELETE`.
+- `POST /{files|albums}/<vanity>/unlock`, `…/unlock/refresh` and `GET …/view`.
+- `POST /users/@me/{files|albums}/<id or vanity>/pass`, for owner passes.
+
+**Behaviour:**
+- Tokens are real contract §1 tokens, signed with the contract's test secret. `mock-api.test.ts` checks them against the test vectors.
+- Turnstile, rate limits (5 a minute), expiry and the size limits follow the contract.
+- Every §7 error code the uploads can hit is reproducible.
+
+**Knobs (env):** `MOCK_CHUNK_DELAY_MS` (default 400), `MOCK_CHUNK_FAIL_RATE` (default 0, which exercises retries) and `MOCK_PROCESSING_MS`.
+
+**To be signed in:** run `localStorage.token = '"mock"'` in the console.
+
+**Owner pass:**
+```bash
+curl -X POST -H 'Authorization: x' localhost:5173/__mock-api/users/@me/files/private123/pass
+```
+Then open `/private123?fixture=private#t=<token>`.
 
 ### Viewer fixtures (dev only)
 
@@ -48,6 +79,11 @@ With no backend, the viewer has nothing to boot from. In `npm run dev`, add `?fi
 | `/viewer.html?fixture=album-grid` or `/a/<anything>` | A grid album: images, an unplayable HEVC video with a poster, a PDF and a zip, with captions. |
 | `/viewer.html?fixture=album-list` | The list layout. |
 | `/viewer.html?fixture=album-tracklist` | An all-audio album (tagged tones with covers), shown as a tracklist. |
+| `/viewer.html?fixture=locked` | A password file (`locked1234`), named on the lock screen. The password is `files.gg`, and `#pw=files.gg` unlocks it automatically. |
+| `/viewer.html?fixture=locked-short` | A password PDF whose mock `unlock_ttl` is 90 s, to watch the refresh run out and the lock screen return. |
+| `/viewer.html?fixture=locked-expired` | `password_expired: true`: "This link's password has expired". |
+| `/viewer.html?fixture=locked-album` | A password album (`lockedalbum`, password `files.gg`). One item is a `link` file, so it gets no `?t=`. |
+| `/private123?fixture=private` | A private file: "doesn't exist", unless the URL has a `#t=` owner pass. |
 
 Add `/<n>` to an album path, for example `/a/demo1234/3?fixture=album-grid`, to open item 3 in the lightbox.
 
@@ -167,6 +203,33 @@ The payload is the album from `GET /albums/:vanity` (PLAN.md Phase 1 "Albums"). 
 
 The owner's username is never shown, so don't send it unless "Show my name on albums" is on (later milestone).
 
+### 4b. Milestone 2: protected files and albums
+
+This follows `docs/redesign/contracts/milestone-2.md` §4 and §5; the client is `src/viewer/locked/` (a lazy chunk).
+
+**Loading:**
+- `data-state="locked"` takes `{ vanity, protected: "password", filename? | title?, password_expired? }` in `#file-data` or `#album-data`.
+- On boot, `#pw=` and `#t=` are read and immediately stripped from the address bar with `replaceState`.
+
+**Order of attempts:**
+1. **A `#t=` owner pass:** `GET /{files|albums}/<vanity>/view` with `X-Filesgg-Access`. There's no unlock call and it's never stored. It refreshes through `/unlock/refresh` with the same timing, capped at 12 h from minting.
+2. **A stored unlock token** (`localStorage["filesgg.access.<kind>.<vanity>"]`, kept until it expires): the same `/view` call. `401` drops the token.
+3. **Otherwise the lock screen:**
+   - a password field with a show toggle;
+   - managed Turnstile (action `unlock`, `interaction-only`) on every attempt;
+   - a `#pw=` password is tried once automatically when Turnstile passes;
+   - errors for `WRONG_PASSWORD`, `TOO_MANY_ATTEMPTS` (with a live countdown), `PASSWORD_EXPIRED` and `CAPTCHA_INVALID` (with Retry the check).
+
+**Private files:** the shell is `missing`. With `#t=` in the URL, the vanity comes from the path, and `404` or `401` show "doesn't exist".
+
+**After unlocking:**
+- Every media URL gets `?t=`. That covers `cdnUrl`, so Download and Raw carry it too, plus the thumbnail, the hover clip, album covers and album items.
+- `link` files never get `?t=`, and the share link never does.
+- Album "Download all" gets `?t=` too.
+- The token refreshes 5 minutes before expiry (or at half-life if less is left).
+- Refreshing stops once the server stops extending the token (its cap). `UNLOCK_EXPIRED`, or reaching expiry, returns to the lock screen.
+- Media URLs move to a newer token only 2 minutes before theirs expires, so a refresh never reloads the image, restarts the video or reopens the PDF.
+
 ### 5. Meta tags
 
 `viewer.html` wraps its default meta tags in `<!-- filesgg:meta:start … -->` and `<!-- filesgg:meta:end -->`. Replace everything between the two markers with the file's own tags: `description`, `og:title`, `og:description`, `og:url`, and `og:image` / `og:video` with their dimensions. Use `property=` and not `name=` (§1.3). For albums, `og:title` is "*Title* · N files" and `og:image` is the collage (PLAN.md "Embeds"). NSFW albums get no image. Leave the default tags in place for `home`, `convert`, `missing` and `unavailable`. The client sets `document.title` itself.
@@ -181,6 +244,8 @@ The PDF viewer needs these directives:
 
 PDF JavaScript never runs. pdf.js 6 has no `eval` code path; the loader still passes `isEvalSupported: false`. The annotation layer gets `enableScripting: false`, and the scripting sandbox is never loaded.
 
+**Turnstile** (lock screen, and anonymous uploads in the dashboard) adds `script-src https://challenges.cloudflare.com` and `frame-src https://challenges.cloudflare.com`. The script is loaded on demand from Cloudflare, never bundled or proxied (Cloudflare warns that breaks updates). There's no official npm package for the browser widget.
+
 ## Layout
 
 ```
@@ -190,7 +255,10 @@ src/
     pdf/        lazy PDF chunk: pdf.js loader, pdfState.ts (pure, tested), viewer, pages, sidebar
     album/      lazy album chunk: layouts, justified grid, lightbox, tracklist, URL sync
   components/   shared by both entries and viewer-safe: Button, CopyButton, Brand (lockup/mark)
+    locked/     lazy chunk: lock screen, unlock / view / refresh, owner passes
   lib/          api client, TanStack Query client and hooks, storage, time and format helpers
+    access.ts   access tokens: storage, refresh timing, ?t= signing, #pw= / #t= fragments
+    upload/     chunk scheduler, upload task, resume store, picker rules, error messages, limits check
   styles/       theme.css (tokens), viewer.css and app.css (one per entry)
   test/         Vitest setup
 ```
@@ -263,7 +331,41 @@ Each lazy chunk has its own utility stylesheet (`pdf/pdf.css`, `album/album.css`
 - Every localStorage access goes through `src/lib/storage.ts`, which never throws.
 - A non-2xx response throws `ApiError { status, code, message, body }`, parsed from the `{ code, message }` body. Network failures become `status: 0, code: "NETWORK_ERROR"`.
 
-`src/lib/queries.ts` has the TanStack Query hooks (`useMe`, `useMyFiles`, `useMyLimits`). The response types follow PLAN.md Phase 1; the `/files` and `/limits` endpoints don't exist on the API yet.
+`src/lib/queries.ts` has the TanStack Query hooks (`useMe`, `useMyFiles`, `useMyLimits`).
+
+The Milestone 2 calls are typed from the contract:
+- `unlock`, `refreshUnlock` and `view`;
+- `createUpload`, `uploadStatus`, `completeUpload` and `abortUpload`;
+- `ensureFingerprint`.
+
+Uploads use XHR (`lib/upload/xhr.ts`) for progress, with the same headers and `ApiError` parsing.
+
+### Upload page (`/app/upload`)
+
+**Adding files:**
+- Drop anywhere on the page, paste, or pick; multiple files work.
+- Each file is checked against `GET /users/@me/limits` first: file size (single or chunked) and storage including what's already queued.
+
+**How files are sent:**
+- **10 MiB or less:** one `POST /files` with progress.
+- **Larger:** a chunked session:
+  - 3 chunks in parallel;
+  - retries with exponential backoff and jitter, on network, 408, 429 and 5xx errors;
+  - Pause and Resume;
+  - polling `complete`.
+- **Resuming after a reload:** the session is remembered by `name + size + lastModified`; ids only, never passwords. "Re-select *name* to resume" then sends only the chunks the server is missing.
+
+**Pickers** (rules in `lib/upload/options.ts`):
+- **Expiry:** signed in, Never (the default), presets or custom; anonymous, 1 h / 1 d / 7 d / 21 d (default 21 d) with the note.
+- **Access:** anyone with the link, a password (typed, or Generate), or Only me (signed in only).
+- **Password timing:** "Stay unlocked for" and "Password works until", both capped by the file's own expiry.
+
+**Turnstile:** anonymous uploads use it with action `upload`, one fresh token per request.
+
+**Results:**
+- Copy link, plus "Copy link with password" (`url_with_password`).
+- A generated password is shown once.
+- Every contract §7 code has its own message (`lib/upload/errors.ts`).
 
 ## Assets
 

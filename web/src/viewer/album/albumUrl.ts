@@ -27,6 +27,12 @@ export function albumShareUrl(vanity: string, url: string | undefined, origin: s
   return url ?? `${origin}${albumPath(vanity, null)}`;
 }
 
+/** `<album url>/download.zip`, with `?t=` for an unlocked protected album. */
+export function downloadAllUrl(shareUrl: string, token?: string): string {
+  const base = `${shareUrl.replace(/\/+$/, '')}/download.zip`;
+  return token ? `${base}?t=${encodeURIComponent(token)}` : base;
+}
+
 /** Index within bounds, or null. */
 export function clampIndex(index: number | null, count: number): number | null {
   if (index === null || count <= 0 || !Number.isInteger(index) || index < 0 || index >= count) return null;

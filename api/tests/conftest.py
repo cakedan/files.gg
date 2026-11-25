@@ -53,19 +53,33 @@ def connect(name):
 
 # --- environment for the app ----------------------------------------------------
 create_database(APP_DATABASE)
-STORAGE_DIR = tempfile.mkdtemp(prefix='filesgg-storage-')
+# B2 is MinIO in tests (docker-compose.test.yml); these defaults match it
+for _name, _value in {
+    'S3_ENDPOINT': 'http://localhost:9000',
+    'S3_REGION': 'us-east-1',
+    'S3_BUCKET_FILES': 'filesgg-test',
+    'S3_ACCESS_KEY_ID': 'filesgg-test',
+    'S3_SECRET_ACCESS_KEY': 'filesgg-test-secret',
+    'CDN_TOKEN_SECRET': 'test-cdn-token-secret',
+}.items():
+    os.environ.setdefault(_name, _value)
+# Not one of Cloudflare's testing secrets (those skip the action and hostname
+# checks), so the mocked siteverify below exercises the full checks. This
+# overrides the compose file's value on purpose.
+os.environ['TURNSTILE_SECRET'] = 'test-turnstile-secret'
 os.environ.update({
     'DATABASE_URL': database_url(APP_DATABASE),
     'SECRET_KEY': SECRET_KEY,
     'RPC_KEY': 'test-rpc-key',
     'ALLOWED_ORIGINS': 'https://files.gg, https://beta.files.gg',
-    'STORAGE_BACKEND': 'local',
-    'LOCAL_STORAGE_PATH': STORAGE_DIR,
     'ORIGIN_SHARED_SECRET': 'test-origin-secret',
     'VIEW_HASH_SECRET': os.environ.get('VIEW_HASH_SECRET', 'test-view-hash-secret'),
     'PROXIES_COUNT': '1',
 })
 os.environ.pop('DEBUG', None)
+# the public URLs keep their production defaults (the golden responses depend on them)
+for _name in ('PUBLIC_URL', 'CDN_URL', 'TURNSTILE_HOSTNAMES', 'FILESGG_DEV_TOOLS'):
+    os.environ.pop(_name, None)
 
 import migrate  # noqa: E402
 
@@ -75,6 +89,96 @@ with connect(APP_DATABASE) as _conn:
 from utils import tokens  # noqa: E402
 
 tokens.set_secret_key(SECRET_KEY)
+
+# --- Turnstile: siteverify is mocked, so tests don't need the internet --------------------
+# The mock answers like Cloudflare does for a real secret: a token minted by
+# turnstile_token(action, hostname) verifies with that action and hostname,
+# anything else fails. Action and hostname checks stay fully enforced. One
+# opt-in test (FILESGG_NETWORK_TESTS=1) calls the real siteverify with
+# Cloudflare's testing keys.
+
+def turnstile_token(action, hostname='files.gg'):
+    return 'mock:{}:{}'.format(action, hostname)
+
+
+UPLOAD_TOKEN = turnstile_token('upload')
+UNLOCK_TOKEN = turnstile_token('unlock')
+LOGIN_TOKEN = turnstile_token('login')
+REGISTER_TOKEN = turnstile_token('register')
+TURNSTILE_TOKEN = UPLOAD_TOKEN
+FAILING_TOKEN = 'mock-fail'
+
+
+def mock_siteverify(request):
+    from urllib.parse import parse_qs
+    form = {k: v[0] for k, v in parse_qs(request.content.decode()).items()}
+    if form.get('secret') != os.environ['TURNSTILE_SECRET']:
+        return httpx.Response(200, json={'success': False, 'error-codes': ['invalid-input-secret']})
+    token = form.get('response', '')
+    parts = token.split(':')
+    if len(parts) != 3 or parts[0] != 'mock':
+        code = 'missing-input-response' if not token else 'invalid-input-response'
+        return httpx.Response(200, json={'success': False, 'error-codes': [code]})
+    return httpx.Response(200, json={
+        'success': True, 'challenge_ts': '2026-11-24T00:00:00.000Z', 'hostname': parts[2], 'action': parts[1],
+        'cdata': '', 'error-codes': [], 'metadata': {'interactive': False},
+    })
+
+
+from utils.turnstile import Turnstile  # noqa: E402
+
+Turnstile.http = httpx.AsyncClient(transport=httpx.MockTransport(mock_siteverify))
+# as create_app() configures it, so tests that use Turnstile directly don't depend on order
+Turnstile.configure(os.environ['TURNSTILE_SECRET'], ['files.gg'])
+
+
+def s3_client():
+    from utils.storage import sync_client
+    return sync_client()
+
+
+def _create_bucket():
+    client = s3_client()
+    bucket = os.environ['S3_BUCKET_FILES']
+    deadline = time.time() + 60
+    while True:
+        try:
+            client.head_bucket(Bucket=bucket)
+            return
+        except Exception:
+            try:
+                client.create_bucket(Bucket=bucket)
+                return
+            except Exception:
+                if time.time() > deadline:
+                    raise
+                time.sleep(0.5)
+
+
+_create_bucket()
+BUCKET = os.environ['S3_BUCKET_FILES']
+
+
+def s3_object(key):
+    """The bytes of an object in the files bucket, or None."""
+    try:
+        return s3_client().get_object(Bucket=BUCKET, Key=key)['Body'].read()
+    except Exception:
+        return None
+
+
+def s3_keys(prefix):
+    keys, token = [], None
+    client = s3_client()
+    while True:
+        kwargs = {'Bucket': BUCKET, 'Prefix': prefix}
+        if token:
+            kwargs['ContinuationToken'] = token
+        page = client.list_objects_v2(**kwargs)
+        keys += [item['Key'] for item in page.get('Contents', [])]
+        if not page.get('IsTruncated'):
+            return keys
+        token = page['NextContinuationToken']
 
 
 class TempDatabase:
@@ -250,3 +354,8 @@ class ServerProcess:
             self.proc.kill()
             self.proc.wait()
         return self.proc.returncode, self.output()
+
+
+def hash_of(temp, file):
+    """The blob id behind a file object (public responses no longer carry it)."""
+    return str(temp.fetchone('SELECT hash_id FROM files WHERE id = %s', (int(file['id']),))[0])

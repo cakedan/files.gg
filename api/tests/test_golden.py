@@ -7,7 +7,8 @@ fixtures/golden_seed.sql         the data both runs started from
 
 The Flask capture ran with SECRET_KEY=test-secret-key, ALLOWED_ORIGINS
 'https://files.gg, https://beta.files.gg', from 127.0.0.1, with reCAPTCHA
-answering {"success": false}.
+answering {"success": false}. Turnstile replaced reCAPTCHA in Milestone 2; the
+golden requests that reach the check send no token, which fails the same way.
 """
 
 import json
@@ -36,16 +37,6 @@ def golden_client():
     import app as app_module
     import migrate
     from utils.generators import Snowflake
-    from utils.recaptcha import Recaptcha
-
-    class Reply:
-        status_code = 200
-
-        def json(self):
-            return {'success': False}
-
-    async def captcha(response, remoteip=None):
-        return Reply()
 
     name = create_database()
     temp = TempDatabase(name)
@@ -54,15 +45,13 @@ def golden_client():
         temp.conn.execute(handle.read())
 
     saved = Snowflake.node_provider
-    with pytest.MonkeyPatch.context() as patch:
-        patch.setattr(Recaptcha, 'verify', captcha)
-        try:
-            with Client(app_module.create_app('filesgg-golden', database_url=temp.url)) as client:
-                yield client
-        finally:
-            Snowflake.node_provider = saved
-            temp.close()
-            drop_database(name)
+    try:
+        with Client(app_module.create_app('filesgg-golden', database_url=temp.url)) as client:
+            yield client
+    finally:
+        Snowflake.node_provider = saved
+        temp.close()
+        drop_database(name)
 
 
 def build(req):

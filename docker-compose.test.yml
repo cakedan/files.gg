@@ -1,4 +1,7 @@
-# API test suite against a real Postgres 19 (the same image as docker-compose.yml). From the repo root:
+# API test suite against a real Postgres 19 (the same image as docker-compose.yml) and MinIO for B2.
+# Turnstile's siteverify is mocked (httpx.MockTransport), so the suite runs offline. One live test against
+# Cloudflare's testing keys runs only with FILESGG_NETWORK_TESTS=1 (it needs internet).
+# From the repo root:
 #
 #   docker compose -f docker-compose.test.yml up --build --attach tests --exit-code-from tests
 #
@@ -23,6 +26,17 @@ services:
       timeout: 3s
       retries: 30
 
+  # stands in for Backblaze B2 (S3-compatible); tests never touch real B2 (contract §3).
+  # MinIO no longer publishes images to Docker Hub; Chainguard's build, 2026.11.24, pinned by digest
+  minio:
+    image: cgr.dev/chainguard/minio:latest@sha256:9f0aab4471ebb181be3cfabea21b719303ec583cd9abdb7779f9e53032b844f7
+    command: ["server", "/data", "--address", ":9000"]
+    environment:
+      MINIO_ROOT_USER: filesgg-test
+      MINIO_ROOT_PASSWORD: filesgg-test-secret
+    tmpfs:
+      - /data:mode=1777
+
   tests:
     build:
       context: ./api
@@ -30,6 +44,17 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      minio:
+        condition: service_started
     environment:
       TEST_DATABASE_ADMIN_URL: postgresql://postgres:postgres@postgres:5432/postgres
       VIEW_HASH_SECRET: test-view-hash-secret
+      S3_ENDPOINT: http://minio:9000
+      S3_REGION: us-east-1
+      S3_BUCKET_FILES: filesgg-test
+      S3_ACCESS_KEY_ID: filesgg-test
+      S3_SECRET_ACCESS_KEY: filesgg-test-secret
+      # the contract's test-vector secret
+      CDN_TOKEN_SECRET: test-cdn-token-secret
+      # Cloudflare's documented testing secret that always passes (used only by the opt-in live test)
+      TURNSTILE_SECRET: 1x0000000000000000000000000000000AA

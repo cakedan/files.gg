@@ -1,4 +1,4 @@
-export { router as apiRouter } from './api.js';
-export { router as cdnRouter } from './cdn.js';
-export { router as proxyRouter } from './proxy.js';
-export { router as stableRouter } from './stable.js';
+export { createRouter as createApiRouter } from './api.js';
+export { createRouter as createCdnRouter } from './cdn.js';
+export { createRouter as createProxyRouter } from './proxy.js';
+export { createRouter as createStableRouter } from './stable.js';

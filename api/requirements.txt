@@ -6,47 +6,53 @@ psycopg[binary]==3.3.9
 psycopg-pool==3.3.3
 pydantic==2.14.4
 httpx==0.28.1
-google-cloud-storage==3.17.2
 itsdangerous==2.2.0
 # password hashing (pbkdf2, verifies existing hashes) and HTTP reason phrases
 Werkzeug==3.1.9
 # MX lookups for sign-up email checks (utils/email_domain.py)
 dnspython==2.9.2
+# B2 (S3-compatible): async in the API, sync in `python -m worker`
+aiobotocore==3.10.0
+# held at 1.43.117: aiobotocore 3.10.0 (latest) pins botocore to 1.43.x, and boto3 must match it
+boto3==1.43.117
+# argon2id for file and album passwords
+argon2-cffi==25.1.0
+# streaming multipart parser for POST /files (uploads go to a temp file, not memory)
+python-multipart==0.0.34
 
 # Transitive dependencies:
 aiofiles==25.1.0
+aiohappyeyeballs==2.7.1
+aiohttp==3.14.5
+aioitertools==0.13.0
+aiosignal==1.4.0
 annotated-types==0.8.0
 anyio==4.16.0
+argon2-cffi-bindings==26.2.0
+attrs==26.1.0
+botocore==1.43.117
 certifi==2026.11.20
 cffi==2.1.1
-charset-normalizer==3.5.3
-cryptography==50.0.2
-google-api-core==2.44.0
-google-auth==2.63.1
-google-cloud-core==2.8.0
-google-crc32c==1.9.0
-google-resumable-media==2.11.0
-googleapis-common-protos==1.76.0
+frozenlist==1.8.0
 h11==0.16.0
 html5tagger==2.0.0
 httpcore==1.0.9
 httptools==0.9.0
 idna==3.20
+jmespath==1.1.0
 MarkupSafe==3.0.4
 # held below 7: sanic 25.12.1 (latest) requires multidict<7.0
 multidict==6.9.1
-opentelemetry-api==1.45.2
-proto-plus==1.29.0
-protobuf==7.36.2
+propcache==0.5.4
 psycopg-binary==3.3.9
-pyasn1==0.6.5
-pyasn1_modules==0.4.2
 pycparser==3.12
 pydantic_core==2.50.5
+python-dateutil==2.9.0.post0
 PyYAML==6.0.4
-requests==2.34.2
+s3transfer==0.19.3
 sanic-routing==23.12.0
 setuptools==84.2.1
+six==1.17.0
 tracerite==2.6.5
 typing-inspection==0.4.5
 typing_extensions==4.16.0
@@ -54,3 +60,5 @@ ujson==6.1.0
 urllib3==2.8.0
 uvloop==0.23.0
 websockets==17.4
+wrapt==2.5.2
+yarl==1.25.1

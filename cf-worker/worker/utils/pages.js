@@ -1,8 +1,8 @@
-// The files.gg page shell: <head> meta tags for the old SPA, and the bot/embed routing that sends
-// non-browsers straight to the CDN (docs/redesign/PLAN.md §1.4 item 3). Pure, so it is unit-tested.
+// The legacy shell for the old frontend's pages (/auth, /dashboard, /details, /legal, /options),
+// and the bot/embed routing that sends non-browsers straight to the CDN (docs/redesign/PLAN.md
+// §1.4 item 3). Pure, so it is unit-tested.
 
 import { element } from './html.js';
-import { formatBytes } from './tools.js';
 
 
 export const DEFAULT_METATAGS = Object.freeze({
@@ -99,60 +99,36 @@ export function shouldRedirectToCdn(headers, file) {
 }
 
 
-// Meta tags for files.gg/<vanity>; `file` is the API's file JSON, or null when it wasn't found.
-export function fileMetatags(file) {
+// Meta tags for the old frontend's pages (the legacy shell), exactly as the old router set them.
+// The more specific routes only changed `description`, so they keep the default title.
+export function legacyMetatags(pathname) {
+  const path = pathname.replace(/(.)\/$/, '$1');
   const metatags = new Metatags();
-  if (!file) {
-    metatags.set('description', '404, file not found');
-    return metatags;
-  }
+  const set = (key, value) => metatags.set(key, value);
+  const one = '[^/]+';
 
-  const mime = file.mimetype.split('/').shift();
-  metatags.set('mimetype', file.mimetype);
-  metatags.set('description', formatBytes(file.size, 2));
-  metatags.set('url', file.urls.cdn);
-  metatags.set('title', file.filename);
-
-  metatags.set('og:type', 'article');
-  //og:image is a thumbnail
-
-  if (mime in EMBED_MIMETYPES && EMBED_MIMETYPES[mime].includes(file.mimetype)) {
-    switch (mime) {
-      case 'image': {
-        metatags.set('favicon', file.urls.cdn);
-        metatags.set('og:image', file.urls.cdn);
-        metatags.set('og:image:type', file.mimetype);
-        metatags.set('og:image:height', file.height);
-        metatags.set('og:image:width', file.width);
-        metatags.set('og:image:alt', file.filename);
-
-        metatags.set('twitter:card', 'summary_large_image');
-        metatags.set('twitter:image', file.urls.cdn);
-        metatags.set('twitter:image:alt', file.filename);
-      }; break;
-      case 'video': {
-        metatags.set('og:type', 'video.other');
-        metatags.set('og:video', file.urls.cdn);
-        metatags.set('og:video:type', file.mimetype);
-        metatags.set('og:video:height', file.height);
-        metatags.set('og:video:width', file.width);
-        metatags.set('og:video:alt', file.filename);
-        metatags.set('video:duration', file.duration);
-
-        metatags.set('twitter:card', 'player');
-        metatags.set('twitter:player', file.urls.cdn);
-        metatags.set('twitter:player:height', file.height);
-        metatags.set('twitter:player:width', file.width);
-      }; break;
-      case 'audio': {
-        metatags.set('og:type', 'music.song');
-        metatags.set('og:audio', file.urls.cdn);
-        metatags.set('og:audio:type', file.mimetype);
-        metatags.set('music:duration', file.duration);
-
-        metatags.set('twitter:card', 'player');
-        metatags.set('twitter:player', file.urls.cdn);
-      }; break;
+  const rules = [
+    [new RegExp(`^/auth/callback/${one}$`), () => set('description', 'secret')],
+    [/^\/auth\/login$/, () => set('description', 'Login here to view your files')],
+    [/^\/auth\/logout$/, () => set('description', 'Logout here')],
+    [new RegExp(`^/auth/forgot/${one}$`), () => set('description', 'Do not share this forgot password url with anyone')],
+    [new RegExp(`^/auth/verify/${one}$`), () => set('description', 'Do not share this verify url with anyone')],
+    [/^\/auth(\/.*)?$/, () => set('description', '??')],
+    [/^\/dashboard\/configs$/, () => set('description', 'View your custom uploader configs here.')],
+    [/^\/dashboard\/files(\/.*)?$/, () => set('description', 'View your files here.')],
+    [/^\/dashboard(\/.*)?$/, () => set('title', 'File Uploader Dashboard')],
+    [/^\/details(\/.*)?$/, () => set('description', '??')],
+    [/^\/legal\/privacy$/, () => set('description', 'Our Privacy Policy')],
+    [/^\/legal\/report$/, () => set('description', 'Report content')],
+    [/^\/legal\/terms$/, () => set('description', 'Our Terms of Service')],
+    [/^\/legal(\/.*)?$/, () => set('description', '??')],
+    [new RegExp(`^/options(/${one})?$`), () => set('description', 'Customizable Options')],
+    [/^\/options\/.*$/, () => set('description', '??')],
+  ];
+  for (const [pattern, apply] of rules) {
+    if (pattern.test(path)) {
+      apply();
+      break;
     }
   }
   return metatags;

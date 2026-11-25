@@ -45,13 +45,33 @@ export default defineConfig([
     },
   },
   {
+    // The lazy lock-screen chunk talks to the API (unlock, refresh, view). lib/api is
+    // dependency-free; TanStack Query and the router stay out of the viewer.
+    files: ['src/viewer/locked/**/*.{ts,tsx}'],
+    rules: {
+      'no-restricted-imports': [
+        'error',
+        {
+          patterns: [
+            { group: ['**/app/**', '../app', '../../app'], message: 'The viewer must not import dashboard code.' },
+            { group: ['**/lib/queries', '**/lib/queryClient'], message: 'The viewer must not import TanStack Query.' },
+          ],
+          paths: [
+            { name: 'react-router', message: 'The viewer must not import the router.' },
+            { name: '@tanstack/react-query', message: 'The viewer must not import TanStack Query.' },
+          ],
+        },
+      ],
+    },
+  },
+  {
     files: ['**/*.test.{ts,tsx}', 'src/test/**'],
     rules: {
       'react-refresh/only-export-components': 'off',
     },
   },
   {
-    files: ['vite.config.ts', 'vite.plugins.ts', 'eslint.config.js', 'scripts/**/*.mjs'],
+    files: ['vite.config.ts', 'vite.plugins.ts', 'mock-api.ts', 'eslint.config.js', 'scripts/**/*.mjs'],
     languageOptions: { globals: globals.node },
   },
 ]);

@@ -2,36 +2,41 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 
 import { escapeAttribute, escapeText, element } from '../worker/utils/html.js';
-import { DEFAULT_METATAGS, Metatags, fileMetatags, renderDocument, shouldRedirectToCdn } from '../worker/utils/pages.js';
+import { DEFAULT_METATAGS, Metatags, legacyMetatags, renderDocument, shouldRedirectToCdn } from '../worker/utils/pages.js';
 import { cases, fileFor, headersFor, mithril, withOgProperty } from './support/fixtures.js';
 
 
-describe('stable page HTML matches the old Mithril output', () => {
+// The old frontend's pages still use the legacy shell, byte for byte (apart from og:* property=).
+export const LEGACY_PATH = /^\/(auth|dashboard|details|legal|options)(\/|$)/;
+
+describe('legacy shell HTML matches the old Mithril output', () => {
   for (const request of cases.requests) {
-    const expected = mithril[request.name];
-    const isFilePage = request.path !== '/' && expected.status === 200 && !/^\/(auth|dashboard|details|legal|options)(\/|$)/.test(request.path);
-    if (!isFilePage) {
+    if (!LEGACY_PATH.test(request.path)) {
       continue;
     }
     it(request.name, () => {
-      const html = renderDocument({
-        manifest: request.noManifest ? null : cases.manifest,
-        metatags: fileMetatags(fileFor(request.path)),
-      });
-      assert.equal(html, withOgProperty(expected.body));
+      const html = renderDocument({ manifest: cases.manifest, metatags: legacyMetatags(request.path) });
+      let expected = withOgProperty(mithril[request.name].body);
+      if (request.path === '/auth' || request.path === '/legal') {
+        // Deliberate: the old router let the vanity route win for these two exact paths, so it
+        // looked up the (reserved) vanity "auth"/"legal" and said "404, file not found".
+        expected = expected.replace('content="404, file not found"', 'content="??"');
+      }
+      assert.equal(html, expected);
     });
   }
 
-  it('root', () => {
-    assert.equal(renderDocument({ manifest: cases.manifest, metatags: new Metatags() }), withOgProperty(mithril.root.body));
+  it('keeps the route-specific descriptions for trailing slashes and deeper paths', () => {
+    assert.equal(legacyMetatags('/auth/login/').get('description'), 'Login here to view your files');
+    assert.equal(legacyMetatags('/options/theme/dark').get('description'), '??');
+    assert.equal(legacyMetatags('/dashboard/files/1/2').get('description'), 'View your files here.');
+    assert.equal(legacyMetatags('/dashboard/files/1/2').get('title'), 'File Uploader');
+    assert.equal(legacyMetatags('/dashboard/x').get('title'), 'File Uploader Dashboard');
   });
 
-  it('only og:* changed from name= to property=', () => {
-    const html = renderDocument({ manifest: cases.manifest, metatags: fileMetatags(cases.files.vid1) });
-    assert.match(html, /<meta property="og:video" content="https:\/\/cdn.files.gg\/files\/vid1.mp4">/);
-    assert.match(html, /<meta name="twitter:player" content=/);
-    assert.match(html, /<meta name="video:duration" content="12.5">/);
-    assert.match(html, /<meta name="theme-color" content="#43b581">/);
+  it('renders the "script unavailable" body without a manifest', () => {
+    const html = renderDocument({ manifest: null, metatags: legacyMetatags('/auth/login') });
+    assert.match(html, /<body><span>script unavailable srry bro<\/span><\/body>/);
     assert.doesNotMatch(html, /name="og:/);
   });
 });
@@ -60,9 +65,11 @@ describe('HTML escaping', () => {
     assert.equal(escapeAttribute(`"><script>alert(1)</script>&`), '&quot;&gt;&lt;script&gt;alert(1)&lt;/script&gt;&amp;');
   });
 
-  it('cannot break out of a meta tag through a filename', () => {
-    const file = { ...cases.files.img1, filename: '"><script>alert(1)</script>.png' };
-    const html = fileMetatags(file).toHtml();
+  it('cannot break out of a meta tag or the title', () => {
+    const metatags = new Metatags();
+    metatags.set('title', '"><script>alert(1)</script>.png');
+    metatags.set('og:image:alt', '"><script>alert(1)</script>.png');
+    const html = metatags.toHtml();
     assert.doesNotMatch(html, /<script>/);
     assert.ok(html.includes('<title>"&gt;&lt;script&gt;alert(1)&lt;/script&gt;.png</title>'));
     assert.ok(html.includes('content="&quot;&gt;&lt;script&gt;alert(1)&lt;/script&gt;.png"'));

@@ -1,30 +1,30 @@
-import hashlib
-import os
-import random
-import re
-import string
-import tempfile
+import time
 
+from datetime import timedelta
 from typing import Annotated, Optional
 
 from sanic import Blueprint
 
 import db
 from db import queries
-from utils.errors import InvalidMimetype, UnknownFile
+from utils import access, access_token, errors, limits as limits_module, params, passwords, payloads, storage as storage_module
+from utils import uploading, view_hash
+from utils.errors import UnknownFile
 from utils.generators import Snowflake
 from utils.params import Arg, Args
 from utils.responses import ApiError, ApiResponse
+from utils.turnstile import Turnstile
+from utils.vanity import (  # noqa: F401  (re-exported for older imports)
+    MAX_VANITY_LENGTH, MIN_VANITY_LENGTH, blacklisted_ids, generate_id, generate_vanity, parse_vanity_part,
+    vanity_length_ok,
+)
 from utils.wrappers import authenticate, parse_args, route
-from utils import view_hash
 
 import utils.helpers as helpers
 import utils.parameters as parameters
 
 files = Blueprint('files', url_prefix='/files')
 
-UPLOAD_TMP_DIR = os.getenv('UPLOAD_TMP_DIR') or None
-FORM_TYPES = ('multipart/form-data', 'application/x-www-form-urlencoded')
 
 Authorization = Annotated[Optional[str], Arg('authorization', location='headers')]
 Fingerprint = Annotated[Optional[int], Arg('x-fingerprint', location='headers', type=parameters.fingerprint)]
@@ -80,53 +80,7 @@ async def fetch_files(request, args):
     })
 
 
-FILENAME_REGEX = r'([\\\/?%*:|"<>])'
-MIN_VANITY_LENGTH = 3
-MAX_VANITY_LENGTH = 128
-MIN_RANDOM_LENGTH = 3
-MAX_RANDOM_LENGTH = 16
-VANITY_CHOICES_ASCII = string.ascii_lowercase + string.digits
-VANITY_PART = r'^(?:\(?((\d+)|\d+\-?\d+)\)?)$'
-
-blacklisted_ids = (
-    'assets',
-    'auth',
-    'dashboard',
-    'details',
-    'legal',
-    'options',
-)
-
-def generate_id(length):
-    fid = ''.join(random.choice(VANITY_CHOICES_ASCII) for _ in range(length))
-    if fid in blacklisted_ids:
-        return generate_id(length)
-    return fid
-
-def generate_vanity(vanity=''):
-    vparts = []
-    for part in vanity.split('/'):
-        minv, maxv = parse_vanity_part(part)
-        vparts.append(generate_id(random.randint(minv, maxv)))
-    return '/'.join(vparts)
-
-def parse_vanity_part(part):
-    match = re.match(VANITY_PART, part)
-    if match is None:
-        return (MIN_RANDOM_LENGTH, MAX_RANDOM_LENGTH)
-    else:
-        parts = match.group(1).split('-')
-        if len(parts) == 2:
-            minv = int(parts.pop(0))
-            maxv = int(parts.pop(0))
-            if maxv < minv:
-                return (maxv, minv)
-            else:
-                return (minv, maxv)
-        else:
-            vlength = int(parts.pop(0))
-            return (vlength, vlength)
-
+# --- POST /files: single-request upload ------------------------------------------------
 
 class CreateFileArgs(Args):
     filename: Annotated[Optional[str], Arg(location='values')] = None
@@ -135,218 +89,169 @@ class CreateFileArgs(Args):
                                        help='Invalid Upload Type')] = 'multipart'
     authorization: Authorization = None
     fingerprint: Fingerprint = None
+    # Milestone 2 (contract §6)
+    expires_in: Annotated[Optional[int], Arg(location='values', type=uploading.positive_int)] = None
+    visibility: Annotated[Optional[str], Arg(location='values', choices=uploading.VISIBILITIES)] = None
+    password: Annotated[Optional[str], Arg(location='values', type=passwords.validate, trim=False)] = None
+    generate_password: Annotated[Optional[bool], Arg(location='values', type=uploading.boolean)] = False
+    unlock_ttl: Annotated[Optional[int], Arg(location='values', type=uploading.unlock_ttl)] = None
+    password_expires_in: Annotated[Optional[int], Arg(location='values', type=uploading.positive_int)] = None
+    turnstile_token: Annotated[Optional[str], Arg(location='values')] = None
 
 
-def mimetype_of(content_type):
-    """Werkzeug's `.mimetype`: lowercased, without parameters."""
-    return (content_type or '').split(';', 1)[0].strip().lower()
-
-
-class Hasher:
-    def __init__(self):
-        self.blake2b = hashlib.blake2b()
-        self.md5 = hashlib.md5()
-        self.sha1 = hashlib.sha1()
-        self.size = 0
-
-    def update(self, data):
-        self.blake2b.update(data)
-        self.md5.update(data)
-        self.sha1.update(data)
-        self.size += len(data)
-
-    def digests(self):
-        return self.blake2b.hexdigest(), self.md5.hexdigest(), self.sha1.hexdigest()
-
-
-async def stream_to_tempfile(request):
-    """Write the raw request body to a temp file while hashing it, without
-    holding it in memory. Returns (path, Hasher)."""
-    hasher = Hasher()
-    handle = tempfile.NamedTemporaryFile(prefix='upload-', dir=UPLOAD_TMP_DIR, delete=False)
-    try:
-        with handle:
-            while True:
-                chunk = await request.stream.read()
-                if chunk is None:
-                    break
-                if chunk:
-                    hasher.update(chunk)
-                    handle.write(chunk)
-    except BaseException:
-        os.unlink(handle.name)
-        raise
-    return handle.name, hasher
-
-
-# Streamed so raw uploads go to disk while hashing; form bodies (multipart)
-# and JSON bodies are read whole, as before.
 async def create_file(request):
-    content_mimetype = mimetype_of(request.content_type)
-    buffered = content_mimetype in FORM_TYPES or content_mimetype == 'application/json' or (
-        content_mimetype.startswith('application/') and content_mimetype.endswith('+json'))
-    if buffered:
-        await request.receive_body()
-    return await _create_file(request, buffered)
+    """Multipart or raw. The body streams to a temp file while it is hashed
+    (multipart is parsed as it arrives), then goes to B2; the FileHash row is
+    written only once the blob is stored."""
+    content_mimetype = uploading.mimetype_of(request.content_type)
+
+    user = None
+    authorization = request.headers.get('authorization')
+    if authorization is not None:
+        async with db.connection() as conn:
+            try:
+                user = await helpers.get_user(conn, authorization)
+            except Exception:
+                raise ApiError('Invalid Authentication')
+    limit = limits_module.get_limits(user).max_file_size_single
+
+    # Content-Length first, before reading anything
+    try:
+        declared = int(request.headers.get('content-length'))
+    except (TypeError, ValueError):
+        declared = None
+    slack = uploading.MULTIPART_SLACK if content_mimetype == 'multipart/form-data' else 0
+    if declared is not None and declared > limit + slack:
+        raise limits_module.file_too_large(limit)
+
+    form, upload = False, None
+    try:
+        if content_mimetype == 'multipart/form-data':
+            form, upload = await uploading.read_multipart(request, limit)
+        elif content_mimetype == 'application/x-www-form-urlencoded':
+            form = await uploading.read_urlencoded(request)
+    except uploading.TooLarge:
+        raise limits_module.file_too_large(limit)
+    try:
+        args = params.parse(request, CreateFileArgs, form=form)
+        return await _create_file(request, args, user, upload, declared)
+    finally:
+        if upload is not None:
+            upload.discard()
 
 
 create_file.__params_model__ = CreateFileArgs
 route(files, '', ['POST'], stream=True)(create_file)
 
 
-@parse_args(CreateFileArgs)
-async def _create_file(request, args, buffered):
-    fingerprint = user = None
-    async with db.connection() as conn:
-        if args.authorization is not None:
-            try:
-                user = await helpers.get_user(conn, args.authorization)
-            except Exception:
-                raise ApiError('Invalid Authentication')
+async def _create_file(request, args, user, upload, declared):
+    fingerprint = args.fingerprint if user is None else None
+    owner = uploading.Owner(user, fingerprint, helpers.client_ip(request), request.app.ctx.view_hash_secret)
+    limits = owner.limits
 
-    if args.fingerprint is not None and user is None:
-        fingerprint = args.fingerprint
-
-    vanity_arg = args.vanity
-    min_vanity = max_vanity = vanity_arg.count('/')
-    for part in vanity_arg.split('/'):
-        minv, maxv = parse_vanity_part(part)
-        min_vanity += minv
-        max_vanity += maxv
-
-    if min_vanity < MIN_VANITY_LENGTH or MAX_VANITY_LENGTH < max_vanity:
-        raise ApiError('Vanity has to be at least or in between {} and {} characters long'.format(MIN_VANITY_LENGTH, MAX_VANITY_LENGTH))
+    if not vanity_length_ok(args.vanity):
+        raise ApiError('Vanity has to be at least or in between {} and {} characters long'.format(
+            MIN_VANITY_LENGTH, MAX_VANITY_LENGTH))
 
     filename = args.filename
     fextension = None
-    fdata = temp_path = None
     if args.type == 'multipart':
-        uploads = request.files if buffered else None
-        storage = None
-        if uploads:
-            storage = next(iter(uploads.values()), [None])[0]
-        if storage is None:
+        if upload is None:
             raise ApiError('A file must be uploaded')
         if filename is None:
-            filename = storage.name
-        else:
-            # get original extension from uploaded file
-            # just incase we generate filename in future
-            if storage.name and '.' in storage.name:
-                fextension = storage.name.split('.')[-1]
-        mimetype = mimetype_of(storage.type)
-        fdata = storage.body
-        hasher = Hasher()
-        hasher.update(fdata)
+            filename = upload.filename
+        elif upload.filename and '.' in upload.filename:
+            fextension = upload.filename.split('.')[-1]
+        mimetype = uploading.mimetype_of(upload.content_type)
     elif args.type == 'raw':
-        mimetype = mimetype_of(request.content_type)
-        if buffered:
-            fdata = request.body or b''
-            hasher = Hasher()
-            hasher.update(fdata)
-        else:
-            temp_path, hasher = await stream_to_tempfile(request)
+        mimetype = uploading.mimetype_of(request.content_type)
     else:
         raise ApiError('Invalid Upload Type')
 
-    try:
-        return await _store(request, args, user, fingerprint, filename, fextension, mimetype, hasher, fdata, temp_path)
-    finally:
-        if temp_path is not None:
-            os.unlink(temp_path)
+    expires_in = limits_module.resolve_expiry(limits, args.expires_in)
+    if args.visibility == 'private' and user is None:
+        raise uploading.private_requires_account()
 
-
-async def _store(request, args, user, fingerprint, filename, fextension, mimetype, hasher, fdata, temp_path):
     async with db.connection() as conn:
-        fname = None
-        if filename is None:
-            fname = [generate_vanity()]
-        else:
-            fname = filename.split('.')
+        name, extension, mimetype = await uploading.resolve_name(conn, filename, fextension, mimetype)
+        # pre-check the quota with what we know before reading the body
+        await owner.check(conn, upload.size if upload is not None else (declared or 0))
 
-        if 1 < len(fname):
-            # do we want to use the original filename's extension all the time?
-            if fextension is None:
-                fextension = fname.pop(-1)
-            elif fextension.lower() == fname[-1].lower():
-                fextension = fname.pop(-1)
+    if user is None and not await Turnstile.verify(args.turnstile_token, 'upload', helpers.client_ip(request)):
+        raise errors.captcha_invalid()
 
-        mime = await queries.get_mimetype(conn, mimetype)
-        if mime is None:
-            if fextension is None:
-                raise InvalidMimetype()
-            mextension = await queries.get_extension(conn, fextension.lower())
-            if mextension is None:
-                raise InvalidMimetype()
-            mimetype = mextension.mimetype_id
-        else:
-            # use extension to determine filetype
-            if mime.id == 'application/octet-stream':
-                if fextension is not None:
-                    mextension = await queries.get_extension(conn, fextension.lower())
-                    if mextension is not None:
-                        mimetype = mextension.mimetype_id
-        # check flags
+    access_columns, generated = await uploading.resolve_access(
+        user, args.visibility, args.password, args.generate_password, args.unlock_ttl, args.password_expires_in)
 
-        if fextension is not None:
-            mextension = await queries.get_extension(conn, fextension.lower(), mimetype_id=mimetype)
-            # keep extension incase its not found
-            if mextension is None:
-                fname.append(fextension)
-                fextension = None
-            else:
-                # set it to the stored version, just this or fextension.lower()
-                fextension = mextension.extension
+    spooled = upload
+    if spooled is None:
+        try:
+            spooled = await uploading.spool_body(request, limits.max_file_size_single)
+        except uploading.TooLarge:
+            raise limits_module.file_too_large(limits.max_file_size_single)
+    try:
+        if spooled.size > limits.max_file_size_single:
+            raise limits_module.file_too_large(limits.max_file_size_single)
+        fobj = await store_upload(request, owner, spooled, name, extension, mimetype, expires_in, access_columns,
+                                  args.vanity)
+    finally:
+        if spooled is not upload:
+            spooled.discard()
+    return ApiResponse(payloads.upload_dict(fobj, password=generated))
 
-        if fextension is None:
-            mextension = await queries.get_top_extension(conn, mimetype)
-            if mextension:
-                fextension = mextension.extension
-            else:
-                if mimetype.endswith('+json'):
-                    fextension = 'json'
-                elif mimetype.endswith('+xml'):
-                    fextension = 'xml'
 
-        fname = '.'.join(fname)[:256] # just incase they send a huge text lol
-        while '{random}' in fname:
-            fname = fname.replace('{random}', generate_vanity(), 1)
-        fname = re.sub(FILENAME_REGEX, '_', fname[:128])
+async def store_upload(request, owner, spooled, name, extension, mimetype, expires_in, access_columns, vanity=''):
+    """Blob to B2 (unless de-duplicated), then FileHash and File in one
+    transaction under the owner's quota lock."""
+    storage = request.app.ctx.storage
+    hblake2b, hmd5, hsha1 = spooled.hasher.digests()
+    size = spooled.size
 
-        hblake2b, hmd5, hsha1 = hasher.digests()
+    async with db.connection() as conn:
+        existing = await queries.get_file_hash(conn, hblake2b, hmd5, hsha1)
 
-        fid = Snowflake.generate()
-        fhash = await queries.get_file_hash(conn, hblake2b, hmd5, hsha1)
-        if fhash is None:
-            fhash, created = await queries.create_file_hash(
-                conn, Snowflake.generate(), hblake2b, hmd5, hsha1, hasher.size)
-            if created:
-                # upload it now
-                storage = request.app.ctx.storage
-                key = 'files/{}'.format(fhash.id)
-                if temp_path is not None:
-                    await storage.upload_file(key, temp_path)
+    uploaded_key = None
+    if existing is None:
+        hash_id = Snowflake.generate()
+        uploaded_key = storage_module.blob_key(hash_id)
+        await storage.upload_file(uploaded_key, spooled.path, size)
+
+    orphan = None
+    try:
+        async with db.connection() as conn:
+            async with conn.transaction():
+                await owner.check(conn, size, lock=True)
+                if existing is None:
+                    fhash, created = await queries.insert_file_hash(conn, hash_id, hblake2b, hmd5, hsha1, size)
+                    if not created:
+                        orphan = uploaded_key  # the same content was stored meanwhile
                 else:
-                    await storage.upload_bytes(key, fdata)
+                    fhash = existing
+                expires_at = uploading.utcnow() + timedelta(seconds=expires_in) if expires_in else None
+                fobj = None
+                while fobj is None:
+                    fvanity = generate_vanity(vanity)
+                    if await queries.vanity_exists(conn, fvanity):
+                        continue
+                    fobj = await queries.create_file(
+                        conn, id=Snowflake.generate(), vanity=fvanity, mimetype_id=mimetype, extension=extension,
+                        filename=name, fhash=fhash, user=owner.user, fingerprint=owner.fingerprint, size=size,
+                        expires_at=expires_at, uploader_ip_hash=owner.ip_hash, **access_columns,
+                    )
+    except BaseException:
+        if uploaded_key is not None:
+            orphan = uploaded_key
+        raise
+    finally:
+        if orphan is not None:
+            try:
+                await storage.delete(orphan)
+            except Exception:
+                pass
+    return fobj
 
-        fobj = None
-        while fobj is None:
-            fvanity = generate_vanity(args.vanity)
-            if await queries.vanity_exists(conn, fvanity):
-                continue
-            fobj = await queries.create_file(
-                conn,
-                id=fid,
-                vanity=fvanity,
-                mimetype_id=mimetype,
-                extension=fextension,
-                filename=fname,
-                fhash=fhash,
-                user=user,
-                fingerprint=fingerprint,
-            )
-    return ApiResponse(fobj.to_dict())
 
+# --- reading a file ------------------------------------------------------------------------
 
 class FileArgs(Args):
     vanity: Annotated[Optional[str], Arg(location='view_args')] = None
@@ -356,14 +261,35 @@ def view_ip(request):
     return helpers.client_ip(request)
 
 
+async def _visible_file(conn, request, vanity):
+    """(file, caller may see everything). Private files are unknown to everyone
+    but their owner."""
+    fobj = await queries.get_file_by_vanity(conn, vanity)
+    if fobj is None:
+        return None, False
+    if fobj.visibility == 'link':
+        return fobj, True
+    user = await access.optional_user(conn, request)
+    fingerprint = parameters.fingerprint(request.headers.get('x-fingerprint')) if request.headers.get(
+        'x-fingerprint') else None
+    if access.is_owner(fobj, user, fingerprint):
+        return fobj, True
+    if fobj.visibility == 'private':
+        return None, False
+    return fobj, access.token_claims(request, fobj, request.ctx.access_token) is not None
+
+
 @route(files, '/<vanity:path>', ['GET'])
 @parse_args(FileArgs)
 async def fetch_file(request, args):
     vanity = args.vanity.split('.').pop(0)
     async with db.connection() as conn:
-        fobj = await queries.get_file_by_vanity(conn, vanity)
+        fobj, full = await _visible_file(conn, request, vanity)
         if fobj is None:
             raise UnknownFile()
+        if not full:
+            # a password file, locked: no content, no view counted
+            return ApiResponse(payloads.locked_file(fobj, access.password_has_expired(fobj)))
         day = view_hash.utc_today()
         await queries.record_view(conn, fobj, view_hash.ip_hash(request.app.ctx.view_hash_secret, day, view_ip(request)), day)
 
@@ -375,3 +301,92 @@ async def fetch_file(request, args):
 @authenticate()
 async def delete_file(request, args, user):
     return ApiResponse(args.vanity)
+
+
+# --- unlocking (contract §5) -------------------------------------------------------------------
+
+class UnlockArgs(Args):
+    password: Annotated[Optional[str], Arg(trim=False)] = None
+    turnstile_token: Annotated[Optional[str], Arg()] = None
+
+
+class RefreshArgs(Args):
+    token: Annotated[Optional[str], Arg(trim=False)] = None
+
+
+async def _protected_file(conn, vanity):
+    fobj = await queries.get_file_by_vanity(conn, vanity.split('.').pop(0))
+    if fobj is None or fobj.visibility == 'private':
+        raise errors.unknown_file()
+    return fobj
+
+
+@route(files, '/<vanity:path>/unlock', ['POST'])
+@parse_args(UnlockArgs)
+async def unlock_file(request, args, vanity):
+    """Turnstile, then the rate limit, then password expiry, then the password."""
+    async with db.connection() as conn:
+        fobj = await _protected_file(conn, vanity)
+    if not await Turnstile.verify(args.turnstile_token, 'unlock', helpers.client_ip(request)):
+        raise errors.captcha_invalid()
+    async with db.connection() as conn:
+        await access.rate_limit(conn, request, fobj, 'unlock', access.UNLOCK_ATTEMPTS_PER_MINUTE)
+    if fobj.visibility == 'password':
+        if access.password_has_expired(fobj):
+            raise errors.password_expired()
+        if not await passwords.verify(fobj.password_hash, args.password):
+            raise errors.wrong_password()
+    unlocked_at = access.now()
+    expires_at = access.unlock_expiry(fobj, unlocked_at)
+    return ApiResponse({
+        'token': access.mint(request, fobj, 'unlock', unlocked_at, expires_at),
+        'expires_at': expires_at,
+        'file': payloads.public_file(fobj),
+    })
+
+
+@route(files, '/<vanity:path>/unlock/refresh', ['POST'])
+@parse_args(RefreshArgs)
+async def refresh_unlock(request, args, vanity):
+    """No Turnstile; keeps `u`. Unlock tokens: e = min(now + 3600, u + unlock_ttl,
+    password_expires_at). Owner passes: e = min(now + 3600, u + 43200), 12 h
+    from minting. access_version must still match."""
+    async with db.connection() as conn:
+        fobj = await queries.get_file_by_vanity(conn, vanity.split('.').pop(0))
+        if fobj is None:
+            raise errors.unknown_file()
+        claims = access.token_claims(request, fobj, args.token)
+        # a private file is only confirmed to an owner pass
+        if fobj.visibility == 'private' and (claims is None or claims['s'] != 'owner'):
+            raise errors.unknown_file()
+        await access.rate_limit(conn, request, fobj, 'access', access.ACCESS_REQUESTS_PER_MINUTE)
+    if claims is None:
+        raise errors.unlock_expired()
+    now = access.now()
+    if claims['s'] == 'owner':
+        expires_at = min(now + access_token.REFRESH_SECONDS, claims['u'] + access_token.OWNER_PASS_MAX_SECONDS)
+    else:
+        expires_at = min(now + access_token.REFRESH_SECONDS, access.unlock_expiry(fobj, claims['u']))
+    if expires_at <= now:
+        raise errors.unlock_expired()
+    return ApiResponse({
+        'token': access.mint(request, fobj, claims['s'], claims['u'], expires_at),
+        'expires_at': expires_at,
+    })
+
+
+@route(files, '/<vanity:path>/view', ['GET'])
+async def view_file(request, vanity):
+    """The full payload for a valid unlock or owner token in X-Filesgg-Access.
+    No Turnstile; rate-limited like /unlock/refresh."""
+    async with db.connection() as conn:
+        fobj = await queries.get_file_by_vanity(conn, vanity.split('.').pop(0))
+        if fobj is None:
+            raise errors.unknown_file()
+        claims = access.token_claims(request, fobj, request.ctx.access_token)
+        if fobj.visibility == 'private' and claims is None:
+            raise errors.unknown_file()
+        await access.rate_limit(conn, request, fobj, 'access', access.ACCESS_REQUESTS_PER_MINUTE)
+    if claims is None:
+        raise errors.unlock_expired()
+    return ApiResponse({'file': payloads.public_file(fobj), 'expires_at': claims['e']})

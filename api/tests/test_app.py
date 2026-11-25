@@ -6,7 +6,8 @@ import uuid
 
 import pytest
 
-from tests.conftest import API_DIR, APP_DATABASE, STORAGE_DIR, TempDatabase, subprocess_env
+from tests.conftest import hash_of  # noqa: E402
+from tests.conftest import API_DIR, APP_DATABASE, LOGIN_TOKEN, REGISTER_TOKEN, TURNSTILE_TOKEN, TempDatabase, s3_keys, s3_object, subprocess_env
 
 from db.models import File, FileHash
 from utils import helpers
@@ -351,7 +352,7 @@ def test_me_with_valid_token(client, appdb):
 
 
 def stored_blobs():
-    return sorted(os.listdir(os.path.join(STORAGE_DIR, 'files'))) if os.path.isdir(os.path.join(STORAGE_DIR, 'files')) else []
+    return s3_keys('files/')
 
 
 def test_fingerprint_and_upload_flow(client, appdb):
@@ -361,24 +362,27 @@ def test_fingerprint_and_upload_flow(client, appdb):
     before = len(stored_blobs())
 
     payload = uuid.uuid4().bytes
-    response = client.post('/files', headers=headers, files={'file': ('notes.txt', payload, 'text/plain')})
+    response = client.post('/files', headers=headers, files={'file': ('notes.txt', payload, 'text/plain')},
+                           data={'turnstile_token': TURNSTILE_TOKEN})
     assert response.status_code == 200, response.text
     created = response.json()
     assert created['extension'] == 'txt' and created['name'] == 'notes'
     assert created['urls']['main'].endswith('.txt')
     assert len(stored_blobs()) == before + 1
-    with open(os.path.join(STORAGE_DIR, 'files', created['hash']), 'rb') as handle:
-        assert handle.read() == payload
+    assert s3_object('files/' + hash_of(appdb, created)) == payload
 
     # same bytes again: de-duplicated, no second blob upload
-    response = client.post('/files', headers=headers, files={'file': ('again.txt', payload, 'text/plain')})
+    response = client.post('/files', headers=headers, files={'file': ('again.txt', payload, 'text/plain')},
+                           data={'turnstile_token': TURNSTILE_TOKEN})
     assert response.status_code == 200
-    assert response.json()['hash'] == created['hash']
+    assert 'hash' not in response.json()
+    assert hash_of(appdb, response.json()) == hash_of(appdb, created)
     assert len(stored_blobs()) == before + 1
 
     # raw upload, streamed
     raw = uuid.uuid4().bytes * 1000
-    response = client.post('/files?type=raw&filename=raw.txt', headers=dict(headers, **{'Content-Type': 'text/plain'}),
+    response = client.post('/files?type=raw&filename=raw.txt&turnstile_token=' + TURNSTILE_TOKEN,
+                           headers=dict(headers, **{'Content-Type': 'text/plain'}),
                            content=raw)
     assert response.status_code == 200, response.text
     assert response.json()['size'] == len(raw)
@@ -394,19 +398,8 @@ def test_fingerprint_and_upload_flow(client, appdb):
 def test_login_and_register_claim_anonymous_files(client, appdb, monkeypatch):
     import views.auth
     from utils.email import Email
-    from utils.recaptcha import Recaptcha
-
-    class Reply:
-        def __init__(self, data):
-            self.status_code, self.data = 200, data
-
-        def json(self):
-            return self.data
 
     sent = []
-
-    async def captcha(response, remoteip=None):
-        return Reply({'success': True})
 
     async def domain_accepts_mail(address):
         return True
@@ -414,14 +407,14 @@ def test_login_and_register_claim_anonymous_files(client, appdb, monkeypatch):
     async def send(**message):
         sent.append(message)
 
-    monkeypatch.setattr(Recaptcha, 'verify', captcha)
     monkeypatch.setattr(views.auth, 'domain_accepts_mail', domain_accepts_mail)
     monkeypatch.setattr(Email, 'send', staticmethod(send))
     seed_mimetypes(appdb)
 
     def upload(fingerprint):
         response = client.post('/files', headers={'X-Fingerprint': fingerprint},
-                               files={'file': ('a.txt', uuid.uuid4().bytes, 'text/plain')})
+                               files={'file': ('a.txt', uuid.uuid4().bytes, 'text/plain')},
+                               data={'turnstile_token': TURNSTILE_TOKEN})
         assert response.status_code == 200
         return response.json()['id']
 
@@ -432,7 +425,8 @@ def test_login_and_register_claim_anonymous_files(client, appdb, monkeypatch):
     username = 'reg' + uuid.uuid4().hex[:8]
     email = username + '@example.com'
     response = client.post('/auth/register', headers={'X-Fingerprint': fingerprint},
-                           json={'email': email, 'username': username, 'password': 'hunter22', 'captcha': 'ok'})
+                           json={'email': email, 'username': username, 'password': 'hunter22',
+                                 'turnstile_token': REGISTER_TOKEN})
     assert response.status_code == 200, response.text
     token = response.json()['token']
     me = client.get('/users/@me', headers={'Authorization': token}).json()
@@ -447,33 +441,23 @@ def test_login_and_register_claim_anonymous_files(client, appdb, monkeypatch):
     other = FingerprintToken.generate(Snowflake.generate())
     other_file = upload(other)
     response = client.post('/auth/login', headers={'X-Fingerprint': other},
-                           data={'email': email, 'password': 'hunter22', 'captcha': 'ok'})
+                           data={'email': email, 'password': 'hunter22', 'captcha': LOGIN_TOKEN})
     assert response.status_code == 200, response.text
     assert appdb.fetchone('SELECT user_id FROM files WHERE id = %s', (int(other_file),))[0] == fingerprint_id
 
-    response = client.post('/auth/login', json={'email': email, 'password': 'wrong-password', 'captcha': 'ok'})
+    response = client.post('/auth/login', json={'email': email, 'password': 'wrong-password',
+                                                'turnstile_token': LOGIN_TOKEN})
     assert response.status_code == 400 and response.json()['message'] == 'Invalid Email or Password'
 
 
 def test_legacy_password_hash_still_verifies(client, appdb, monkeypatch):
     """A Werkzeug 0.14 default hash (pbkdf2:sha256, 50000 rounds)."""
     from werkzeug.security import generate_password_hash
-    from utils.recaptcha import Recaptcha
-
-    class Reply:
-        status_code = 200
-
-        def json(self):
-            return {'success': True}
-
-    async def captcha(response, remoteip=None):
-        return Reply()
-
-    monkeypatch.setattr(Recaptcha, 'verify', captcha)
     user_id, email = make_user(appdb)
     appdb.execute('UPDATE users SET password = %s WHERE id = %s',
                   (generate_password_hash('old-password', method='pbkdf2:sha256:50000', salt_length=8), user_id))
-    response = client.post('/auth/login', json={'email': email, 'password': 'old-password', 'captcha': 'x'})
+    response = client.post('/auth/login', json={'email': email, 'password': 'old-password',
+                                                'turnstile_token': LOGIN_TOKEN})
     assert response.status_code == 200
 
 

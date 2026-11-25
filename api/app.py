@@ -15,7 +15,12 @@ import os
 
 log = logging.getLogger('files.gg')
 
-REQUIRED_SECRETS = ('SECRET_KEY', 'RPC_KEY', 'VIEW_HASH_SECRET')
+REQUIRED_SECRETS = (
+    'SECRET_KEY', 'RPC_KEY', 'VIEW_HASH_SECRET',
+    # Milestone 2: shared with the CDN Worker (contract §1), Turnstile, and the B2 files bucket
+    'CDN_TOKEN_SECRET', 'TURNSTILE_SECRET',
+    'S3_ENDPOINT', 'S3_BUCKET_FILES', 'S3_ACCESS_KEY_ID', 'S3_SECRET_ACCESS_KEY',
+)
 DEFAULT_ALLOWED_ORIGINS = 'https://files.gg'
 CORS_ALLOW_HEADERS = 'Authorization, Content-Type, X-Fingerprint'
 CORS_ALLOW_METHODS = 'DELETE, GET, HEAD, OPTIONS, PATCH, POST, PUT, TRACE'
@@ -43,6 +48,9 @@ def truthy(value):
 def create_app(name='filesgg', database_url=None, storage=None):
     # Fail before anything else (DB, leases) if secrets are absent.
     require_secrets()
+    # PUBLIC_URL and CDN_URL (default https://files.gg, https://cdn.files.gg) must be origins
+    from utils import urls
+    urls.validate()
 
     from sanic import Sanic
     from sanic.exceptions import SanicException
@@ -51,17 +59,21 @@ def create_app(name='filesgg', database_url=None, storage=None):
 
     import db
     from utils import client_ip, http, tokens
-    from utils import storage as storage_module
     from utils.generators import EPOCH, Snowflake
     from utils.email import Email
-    from utils.recaptcha import Recaptcha
+    from utils.access import ACCESS_HEADER
+    from utils.storage import S3Storage
+    from utils.turnstile import Turnstile
     from utils.responses import ApiError
     from utils.snowflake_nodes import AsyncNodeLease
     from utils.wrappers import allowed_methods
 
     from views.auth import auth
     from views.files import files
+    from views.albums import albums
     from views.google import google
+    from views.internal import internal
+    from views.uploads import uploads
     from views.health import health
     from views.me import me
     from views.mimetypes import mimetypes
@@ -76,7 +88,8 @@ def create_app(name='filesgg', database_url=None, storage=None):
         'REAL_IP_HEADER': None,
         'FORWARDED_SECRET': None,
         'PROXIES_COUNT': int(os.getenv('PROXIES_COUNT', '1')),
-        'REQUEST_MAX_SIZE': int(os.getenv('REQUEST_MAX_SIZE', str(100 * 1024 * 1024))),
+        # the largest body is a single-request upload (100 MB) plus multipart framing
+        'REQUEST_MAX_SIZE': int(os.getenv('REQUEST_MAX_SIZE', str(101 * 1024 * 1024))),
         # sanic-ext: our own CORS, OPTIONS and HEAD handling (Flask-compatible)
         'CORS': False,
         'HTTP_AUTO_OPTIONS': False,
@@ -121,10 +134,15 @@ def create_app(name='filesgg', database_url=None, storage=None):
         sender=os.getenv('EMAIL_FROM'),
         stream=os.getenv('POSTMARK_MESSAGE_STREAM'),
     )
-    Recaptcha.set_secret(os.getenv('RECAPTCHA_SECRET', ''))
+    # Turnstile replaces reCAPTCHA (contract §8); tokens must be issued for these hostnames
+    hostnames = [h.strip() for h in os.getenv('TURNSTILE_HOSTNAMES', 'files.gg').split(',') if h.strip()]
+    if debug:
+        hostnames.append('localhost')
+    Turnstile.configure(os.environ['TURNSTILE_SECRET'], hostnames)
+    app.ctx.cdn_token_secret = os.environ['CDN_TOKEN_SECRET']
     Snowflake.set_epoch(EPOCH)
 
-    for blueprint in (auth, files, google, health, me, mimetypes, users):
+    for blueprint in (auth, files, google, health, me, mimetypes, users, uploads, internal, albums):
         app.blueprint(blueprint)
 
     # --- per-worker resources ------------------------------------------------
@@ -139,7 +157,8 @@ def create_app(name='filesgg', database_url=None, storage=None):
         app.ctx.lease = lease
         app.ctx.http = http.open_client()
         if app.ctx.storage is None:
-            app.ctx.storage = storage_module.from_env()
+            app.ctx.storage = await S3Storage().open()
+            app.ctx.own_storage = True
 
     @app.after_server_stop
     async def close_resources(app):
@@ -147,6 +166,10 @@ def create_app(name='filesgg', database_url=None, storage=None):
         if lease is not None:
             await lease.stop()
             app.ctx.lease = None
+        if getattr(app.ctx, 'own_storage', False):
+            await app.ctx.storage.close()
+            app.ctx.storage = None
+            app.ctx.own_storage = False
         await http.close_client(getattr(app.ctx, 'http', None))
         await db.close_pool(getattr(app.ctx, 'pool', None))
 
@@ -154,9 +177,14 @@ def create_app(name='filesgg', database_url=None, storage=None):
 
     @app.on_request(priority=100)
     async def resolve_client(request):
+        request.ctx.from_worker = client_ip.from_trusted_worker(request.headers, app.ctx.origin_secret)
         request.ctx.client_ip = client_ip.resolve(
             request.headers, request.ip, app.ctx.origin_secret, app.ctx.proxies_count)
         client_ip.scrub(request.headers)
+        # access tokens never stay in the headers (nothing can log them)
+        request.ctx.access_token = request.headers.get(ACCESS_HEADER)
+        while ACCESS_HEADER in request.headers:
+            del request.headers[ACCESS_HEADER]
 
     @app.on_request
     async def preflight(request):

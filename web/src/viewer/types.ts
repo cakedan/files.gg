@@ -61,6 +61,8 @@ export interface FileData {
   hover_url?: string | undefined;
   /** True until `derive` finishes. */
   processing?: boolean | undefined;
+  /** Milestone 2 access level. `link` files are public and never get `?t=`. */
+  visibility?: 'link' | 'password' | 'private' | undefined;
   /** ms epoch. */
   uploadedAt: number;
   /** ms epoch, or null when the file never expires. */
@@ -104,10 +106,26 @@ export interface AlbumData {
   nextCursor: string | null;
   /** Visible, unexpired items sorted by position. Never empty. */
   items: AlbumItem[];
+  /** Client-only: the album access token after an unlock, for "Download all". */
+  accessToken?: string | undefined;
+}
+
+/**
+ * A `locked` shell (contract §4): the worker knows only the vanity, plus the name
+ * when the owner chose to show it.
+ */
+export interface LockedTarget {
+  kind: 'file' | 'album';
+  vanity: string;
+  /** `filename` (files) or `title` (albums), only with "show name when locked". */
+  name?: string | undefined;
+  /** The password stopped working (`password_expired: true`). */
+  passwordExpired: boolean;
 }
 
 export type BootState =
   | { page: 'home' }
+  | { page: 'locked'; target: LockedTarget }
   | { page: 'convert' }
   | { page: 'unavailable' }
   | { page: 'missing' }

@@ -1,6 +1,8 @@
 // Worker bindings (vars and secrets) arrive on `env` in the ES module format.
 
-export const DEFAULT_API_ORIGIN = 'https://api.files.gg';
+import { DEFAULT_HOSTS, getHosts } from './hosts.js';
+
+export const DEFAULT_API_ORIGIN = `https://${DEFAULT_HOSTS.api}`;
 export const DEFAULT_STORAGE_ORIGIN = 'https://filesgg.storage.googleapis.com';
 
 // A non-empty string binding, or undefined.
@@ -14,9 +16,10 @@ function origin(env, name, fallback) {
   return new URL(value || fallback).origin;
 }
 
-// Where API lookups and the api.files.gg passthrough go. Only tests override API_ORIGIN.
+// Where API lookups and the API passthrough go: API_ORIGIN, else https://<API_HOST> (a Worker's
+// subrequest to its own route goes to the origin). Production leaves API_ORIGIN unset.
 export function apiOrigin(env) {
-  return origin(env, 'API_ORIGIN', DEFAULT_API_ORIGIN);
+  return origin(env, 'API_ORIGIN', `https://${getHosts(env).api}`);
 }
 
 // The storage bucket files and assets are streamed from. Only tests override STORAGE_ORIGIN.

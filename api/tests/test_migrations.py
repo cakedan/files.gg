@@ -53,7 +53,7 @@ def load_legacy_schema(temp):
         temp.conn.execute(handle.read())
 
 
-ALL_VERSIONS = ['0001', '0002', '0003']
+ALL_VERSIONS = ['0001', '0002', '0003', '0004', '0005']
 
 
 def baseline_only(tmp_path):
@@ -70,8 +70,9 @@ def test_discovers_migrations_in_order():
 
 
 def test_pending_migrations_are_not_applied():
-    assert os.path.exists(os.path.join(migrate.MIGRATIONS_DIR, 'pending', '0004_drop_legacy.sql'))
-    assert '0004' not in [m.version for m in migrate.discover()]
+    # unnumbered until the release that applies it takes the next free number
+    assert os.path.exists(os.path.join(migrate.MIGRATIONS_DIR, 'pending', 'drop_legacy.sql'))
+    assert all(m.name != 'drop_legacy' for m in migrate.discover())
 
 
 def test_applies_once_and_is_idempotent(empty_db):
@@ -82,9 +83,11 @@ def test_applies_once_and_is_idempotent(empty_db):
     assert migrate.pending(empty_db.conn) == []
 
     rows = empty_db.fetchall('SELECT version, name FROM schema_migrations ORDER BY version')
-    assert rows == [('0001', 'baseline'), ('0002', 'jobs_and_snowflake_nodes'), ('0003', 'views_timestamps_queues')]
+    assert rows == [('0001', 'baseline'), ('0002', 'jobs_and_snowflake_nodes'), ('0003', 'views_timestamps_queues'),
+                    ('0004', 'milestone2'), ('0005', 'milestone2_indexes')]
     assert set(LEGACY_TABLES) | {'jobs', 'snowflake_nodes', 'schema_migrations', 'file_view_days',
-                                 'file_view_seen'} == table_names(empty_db)
+                                 'file_view_seen', 'upload_sessions', 'upload_parts',
+                                 'unlock_attempts'} == table_names(empty_db)
 
 
 def test_baseline_is_noop_on_existing_create_tables_schema(empty_db, tmp_path):
@@ -99,7 +102,7 @@ def test_baseline_is_noop_on_existing_create_tables_schema(empty_db, tmp_path):
     assert snapshot(empty_db) == before
     assert empty_db.fetchall('SELECT id, flags, type_id FROM mimetypes') == [('image/png', 0, 'image')]
     # and the rest applies on top of the production-shaped schema
-    assert [m.version for m in migrate.migrate(empty_db.conn)] == ['0002', '0003']
+    assert [m.version for m in migrate.migrate(empty_db.conn)] == ['0002', '0003', '0004', '0005']
 
 
 def test_baseline_reproduces_create_tables_schema_exactly(empty_db, tmp_path):
@@ -176,7 +179,7 @@ def test_0003_backfills_views_timestamps_and_queues(empty_db, tmp_path):
         views, ips = expected.get((file_id, day), (0, set()))
         expected[(file_id, day)] = (views + 1, ips | {ip})
 
-    assert [m.version for m in migrate.migrate(conn)] == ['0003']
+    assert [m.version for m in migrate.migrate(conn)] == ['0003', '0004', '0005']
 
     got = {(f, d): (v, u) for f, d, v, u in empty_db.fetchall(
         'SELECT file_id, day, views, unique_views FROM file_view_days')}
@@ -219,11 +222,11 @@ def test_0003_keeps_old_and_new_user_timestamps_in_step(migrated_db):
     assert migrated_db.fetchone('SELECT last_password_reset_at FROM users')[0] == at(1700000005)
 
 
-def test_pending_0004_drops_the_legacy_objects(migrated_db, tmp_path):
+def test_pending_drop_legacy_drops_the_legacy_objects(migrated_db, tmp_path):
     import shutil
-    shutil.copy(os.path.join(migrate.MIGRATIONS_DIR, 'pending', '0004_drop_legacy.sql'), tmp_path)
-    # the runner records versions it knows; apply 0004 from its own directory
-    assert [m.version for m in migrate.migrate(migrated_db.conn, directory=str(tmp_path))] == ['0004']
+    # as at its release: numbered after the latest applied migration
+    shutil.copy(os.path.join(migrate.MIGRATIONS_DIR, 'pending', 'drop_legacy.sql'), tmp_path / '0006_drop_legacy.sql')
+    assert [m.version for m in migrate.migrate(migrated_db.conn, directory=str(tmp_path))] == ['0006']
     assert 'file_views' not in table_names(migrated_db)
     columns = [r[0] for r in migrated_db.fetchall(
         "SELECT column_name FROM information_schema.columns WHERE table_name = 'users'")]
@@ -274,3 +277,62 @@ def test_concurrent_runners_apply_each_migration_once(empty_db):
 
     applied = [m.version for result in results for m in result]
     assert sorted(applied) == ALL_VERSIONS
+
+
+# --- 0004 / 0005 (Milestone 2) on production-shaped data ------------------------------------
+
+def test_0004_on_existing_data(empty_db, tmp_path):
+    import shutil
+    load_legacy_schema(empty_db)
+    upto = tmp_path / 'upto3'
+    upto.mkdir()
+    for name in ('0001_baseline.sql', '0002_jobs_and_snowflake_nodes.sql', '0003_views_timestamps_queues.sql'):
+        shutil.copy(os.path.join(migrate.MIGRATIONS_DIR, name), upto)
+    migrate.migrate(empty_db.conn, directory=str(upto))
+
+    conn = empty_db.conn
+    conn.execute("INSERT INTO mimetype_types (id) VALUES ('text')")
+    conn.execute("INSERT INTO mimetypes (id, flags, type_id) VALUES ('text/plain', 0, 'text')")
+    conn.execute("INSERT INTO file_hashes (id, blake2b, sha1, md5, size) "
+                 "SELECT n, 'b' || n, 's' || n, 'm' || n, n * 100 FROM generate_series(1, 50) n")
+    conn.execute("INSERT INTO files (id, vanity, mimetype_id, filename, hash_id, view_count) "
+                 "SELECT n, 'v' || n, 'text/plain', 'f', 1 + n % 50, 0 FROM generate_series(1, 3000) n")
+
+    assert [m.version for m in migrate.migrate(conn)] == ['0004', '0005']
+
+    # size backfilled from the blob, in one statement
+    assert empty_db.fetchone('SELECT count(*) FROM files f JOIN file_hashes h ON h.id = f.hash_id '
+                             'WHERE f.size IS DISTINCT FROM h.size')[0] == 0
+    # existing rows: link, version 0, 1 h, blobs still on GCS; new hashes default to B2
+    assert empty_db.fetchone("SELECT count(*) FROM files WHERE visibility = 'link' AND access_version = 0 "
+                             "AND unlock_ttl = 3600 AND NOT show_name_when_locked")[0] == 3000
+    assert empty_db.fetchone("SELECT count(*) FROM file_hashes WHERE storage_backend = 'gcs'")[0] == 50
+    conn.execute("INSERT INTO file_hashes (id, blake2b, sha1, md5, size) VALUES (999, 'x', 'y', 'z', 1)")
+    assert empty_db.fetchone('SELECT storage_backend FROM file_hashes WHERE id = 999')[0] == 'b2'
+    # the CHECKs are validated, and every index from 0005 exists and is valid
+    assert empty_db.fetchall("SELECT conname FROM pg_constraint WHERE conrelid = 'files'::regclass "
+                             "AND contype = 'c' AND NOT convalidated") == []
+    indexes = dict(empty_db.fetchall(
+        "SELECT c.relname, i.indisvalid FROM pg_index i JOIN pg_class c ON c.oid = i.indexrelid "
+        "WHERE i.indrelid = 'files'::regclass"))
+    for name in ('files_user_id_desc', 'files_fingerprint_id_desc', 'files_user_mimetype', 'files_user_size',
+                 'files_expires_at', 'files_filename_trgm', 'files_uploader_ip', 'file_hash_id'):
+        assert indexes.get(name) is True, name
+    with pytest.raises(Exception):
+        conn.execute("UPDATE files SET visibility = 'public' WHERE id = 1")
+
+
+def test_no_transaction_migration_recovers_an_invalid_index(empty_db, tmp_path):
+    empty_db.execute('CREATE TABLE t (id int)')
+    empty_db.execute('INSERT INTO t VALUES (1), (1)')
+    # an interrupted/failed concurrent build leaves an INVALID index behind
+    with pytest.raises(Exception):
+        empty_db.execute('CREATE UNIQUE INDEX CONCURRENTLY t_id ON t (id)')
+    assert empty_db.fetchone("SELECT indisvalid FROM pg_index i JOIN pg_class c ON c.oid = i.indexrelid "
+                             "WHERE c.relname = 't_id'")[0] is False
+    empty_db.execute('DELETE FROM t')
+    (tmp_path / '0001_index.sql').write_text(
+        '-- migrate:no-transaction\nCREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS t_id ON t (id);\n')
+    assert [m.version for m in migrate.migrate(empty_db.conn, directory=str(tmp_path))] == ['0001']
+    assert empty_db.fetchone("SELECT indisvalid FROM pg_index i JOIN pg_class c ON c.oid = i.indexrelid "
+                             "WHERE c.relname = 't_id'")[0] is True

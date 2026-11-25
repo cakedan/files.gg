@@ -169,7 +169,7 @@ async def test_async_enqueue_from_the_api_side(migrated_db):
 def test_only_ping_is_registered_by_default():
     import jobs.tasks  # noqa: F401
     assert 'ping' in jobs.registered_kinds()
-    assert set(jobs.registered_kinds()) <= {'ping', 'boom'}
+    assert set(jobs.registered_kinds()) <= {'ping', 'boom', 'finalize_upload'}
 
 
 def test_queues_are_isolated(migrated_db):

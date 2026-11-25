@@ -1,6 +1,7 @@
 // Pure helpers for hardening cdn.files.gg (docs/redesign/PLAN.md, "Hardening cdn.files.gg").
 // No Worker globals in here, so everything can be unit-tested with `node --test`.
 
+import { DEFAULT_HOSTS, DEFAULT_ORIGINS, isMainHost } from './hosts.js';
 import { boolean } from './inputtypes.js';
 
 
@@ -27,18 +28,24 @@ export function isForcedText(mimetype) {
   return FORCED_TEXT_MIMETYPES.includes(value) || value.endsWith('+xml');
 }
 
-export const DEFAULT_ALLOWED_ORIGINS = Object.freeze(['https://files.gg']);
-export const CORS_ALLOW_HEADERS = 'Authorization, Content-Type, X-Fingerprint';
+export const DEFAULT_ALLOWED_ORIGINS = Object.freeze([DEFAULT_ORIGINS.main]);
+// X-Filesgg-Access carries unlock tokens and owner passes for /files/<vanity>/view (contract §5).
+export const CORS_ALLOW_HEADERS = 'Authorization, Content-Type, X-Fingerprint, X-Filesgg-Access';
 export const CORS_ALLOW_METHODS = 'DELETE, GET, HEAD, OPTIONS, PATCH, POST, PUT';
 
-export const CDN_CONTENT_SECURITY_POLICY = [
-  'sandbox',
-  "default-src 'none'",
-  "img-src 'self' data:",
-  "media-src 'self'",
-  "style-src 'unsafe-inline'",
-  'frame-ancestors https://files.gg',
-].join('; ');
+// `mainOrigin` is the site allowed to frame CDN responses (MAIN_HOST; https://files.gg by default).
+export function cdnContentSecurityPolicy(mainOrigin = DEFAULT_ORIGINS.main) {
+  return [
+    'sandbox',
+    "default-src 'none'",
+    "img-src 'self' data:",
+    "media-src 'self'",
+    "style-src 'unsafe-inline'",
+    `frame-ancestors ${mainOrigin}`,
+  ].join('; ');
+}
+
+export const CDN_CONTENT_SECURITY_POLICY = cdnContentSecurityPolicy();
 
 
 // Written as \u escapes on purpose: literal invisible characters in source are easy for an
@@ -171,9 +178,9 @@ export function isInlineAllowed(mimetype) {
 }
 
 
-export function cdnSecurityHeaders() {
+export function cdnSecurityHeaders({ mainOrigin } = {}) {
   return {
-    'Content-Security-Policy': CDN_CONTENT_SECURITY_POLICY,
+    'Content-Security-Policy': (mainOrigin) ? cdnContentSecurityPolicy(mainOrigin) : CDN_CONTENT_SECURITY_POLICY,
     'X-Content-Type-Options': 'nosniff',
     'Cross-Origin-Opener-Policy': 'same-origin',
     'Referrer-Policy': 'no-referrer',
@@ -182,26 +189,28 @@ export function cdnSecurityHeaders() {
 }
 
 
-export function parseAllowedOrigins(value) {
+// `fallback`: the origins used when the value is empty (the main site's origin).
+export function parseAllowedOrigins(value, fallback = DEFAULT_ALLOWED_ORIGINS) {
   if (Array.isArray(value)) {
     value = value.join(',');
   }
   if (typeof(value) !== 'string' || !value.trim()) {
-    return DEFAULT_ALLOWED_ORIGINS.slice();
+    return fallback.slice();
   }
   const origins = value.split(',')
     .map((origin) => origin.trim().replace(/\/+$/, '').toLowerCase())
     .filter((origin) => origin && origin !== '*' && origin !== 'null');
-  return (origins.length) ? origins : DEFAULT_ALLOWED_ORIGINS.slice();
+  return (origins.length) ? origins : fallback.slice();
 }
 
-// API passthrough: everything on api.files.gg, plus files.gg/api/* (the stable router's proxy).
-export function isCredentialedRoute(hostname, pathname) {
+// API passthrough: everything on API_HOST (api.files.gg), plus MAIN_HOST/api/* (the stable
+// router's proxy). `hosts` comes from utils/hosts.js getHosts(env).
+export function isCredentialedRoute(hostname, pathname, hosts = DEFAULT_HOSTS) {
   const host = String(hostname || '').toLowerCase();
-  if (host === 'api.files.gg') {
+  if (host === hosts.api) {
     return true;
   }
-  return (host === 'files.gg' || host === 'www.files.gg') && /^\/+api(?:\/|$)/.test(String(pathname || ''));
+  return isMainHost(host, hosts) && /^\/+api(?:\/|$)/.test(String(pathname || ''));
 }
 
 // Credentialed routes reflect an allowlisted origin; everything else is `*` without credentials.

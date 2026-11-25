@@ -8,6 +8,8 @@
  *   2. data-page="convert"        -> convert (placeholder)
  *   3. data-state="unavailable"   -> unavailable (Retry button)
  *   4. data-state="missing"       -> missing
+ *   4b. data-state="locked"       -> locked (contract §4), when the script tag holds
+ *                                    `{ vanity, protected: "password" }`; else missing
  *   5. data-page="album"          -> album when #album-data is a valid album with at
  *                                    least one visible item, otherwise missing
  *   6. valid file JSON            -> file
@@ -24,6 +26,7 @@ import {
   type FileData,
   type FileKind,
   type FileThumbnail,
+  type LockedTarget,
   type MediaInfo,
   type MediaTags,
 } from './types';
@@ -159,6 +162,10 @@ export function parseFileData(value: unknown): FileData | null {
     media,
     hover_url: nonEmptyString(pick(value, 'hover_url', 'hoverUrl')),
     processing: value.processing === true ? true : undefined,
+    visibility:
+      value.visibility === 'link' || value.visibility === 'password' || value.visibility === 'private'
+        ? value.visibility
+        : undefined,
     uploadedAt: parseTimestamp(pick(value, 'uploadedAt', 'uploaded_at', 'created_at')) ?? 0,
     expiresAt: parseTimestamp(pick(value, 'expiresAt', 'expires_at')) ?? null,
   };
@@ -214,11 +221,29 @@ export function parseAlbumData(value: unknown, now: number = Date.now()): AlbumD
   };
 }
 
+/** `{ vanity, protected: "password", filename? | title?, password_expired? }` (contract §4). */
+export function parseLockedTarget(value: unknown, kind: LockedTarget['kind']): LockedTarget | null {
+  if (!isObject(value)) return null;
+  const vanity = nonEmptyString(value.vanity);
+  if (!vanity || value.protected !== 'password') return null;
+  return {
+    kind,
+    vanity,
+    name: nonEmptyString(kind === 'album' ? value.title : value.filename),
+    passwordExpired: value.password_expired === true,
+  };
+}
+
 export function parseBoot({ page, state, fileJson, albumJson }: BootInput, now: number = Date.now()): BootState {
   if (page === 'home') return { page: 'home' };
   if (page === 'convert') return { page: 'convert' };
   if (state === 'unavailable') return { page: 'unavailable' };
   if (state === 'missing') return { page: 'missing' };
+  if (state === 'locked') {
+    const kind = page === 'album' ? 'album' : 'file';
+    const target = parseLockedTarget(parseJson(kind === 'album' ? albumJson : fileJson), kind);
+    return target ? { page: 'locked', target } : { page: 'missing' };
+  }
 
   if (page === 'album') {
     const album = parseAlbumData(parseJson(albumJson), now);

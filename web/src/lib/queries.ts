@@ -8,8 +8,8 @@ export const queryKeys = {
   myLimits: ['users', '@me', 'limits'] as const,
 };
 
-export function useMe() {
-  return useQuery({ queryKey: queryKeys.me, queryFn: ({ signal }) => api.me(signal) });
+export function useMe(enabled = true) {
+  return useQuery({ queryKey: queryKeys.me, queryFn: ({ signal }) => api.me(signal), enabled });
 }
 
 export function useMyFiles(params: MyFilesParams = {}) {

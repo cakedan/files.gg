@@ -8,13 +8,19 @@ import time
 
 from datetime import datetime, timezone
 
-from db.models import File, FileHash, Mimetype, MimetypeExtension, User, columns, from_row, width
+from db.models import (
+    File, FileHash, Mimetype, MimetypeExtension, UploadPart, UploadSession, User, columns, from_row, width,
+)
 
 USER_COLUMNS = columns(User)
 FILE_COLUMNS = columns(File, 'f')
 HASH_COLUMNS = columns(FileHash, 'h')
 MIMETYPE_COLUMNS = columns(Mimetype, 'm')
 EXTENSION_COLUMNS = columns(MimetypeExtension)
+SESSION_COLUMNS = columns(UploadSession)
+
+# Deleted and expired files are gone at read time, whatever the reaper has done.
+LIVE = '(f.deleted_at IS NULL AND (f.expires_at IS NULL OR f.expires_at > now()))'
 
 
 async def _one(conn, sql, params=()):
@@ -120,20 +126,24 @@ async def get_mimetype(conn, mimetype_id, with_extensions=False):
         return None
     mimetype = from_row(Mimetype, row)
     if with_extensions:
-        rows = await _all(conn, 'SELECT {} FROM mimetype_extensions WHERE mimetype_id = %s'.format(EXTENSION_COLUMNS),
+        rows = await _all(conn, 'SELECT {} FROM mimetype_extensions WHERE mimetype_id = %s ORDER BY ctid'.format(EXTENSION_COLUMNS),
                           (mimetype_id,))
         mimetype.extensions = [from_row(MimetypeExtension, r) for r in rows]
     return mimetype
 
 
-async def _prefetch(conn, from_where, params):
+async def _prefetch(conn, from_where, params, order='m.ctid'):
     """Peewee's prefetch(): run the mimetype query, then all their extensions
-    (`WHERE mimetype_id IN (<same query>)`), and attach them in row order."""
+    (`WHERE mimetype_id IN (<same query>)`), and attach them in row order.
+    Peewee's queries had no ORDER BY and Postgres answered them with sequential
+    scans, i.e. in physical (ctid) order; that order is now explicit, so new
+    indexes can't change the responses."""
     mimetypes = [from_row(Mimetype, row) for row in await _all(
-        conn, 'SELECT {} {}'.format(MIMETYPE_COLUMNS, from_where), params)]
+        conn, 'SELECT {} {} ORDER BY {}'.format(MIMETYPE_COLUMNS, from_where, order), params)]
     rows = await _all(
         conn,
-        'SELECT {} FROM mimetype_extensions WHERE mimetype_id IN (SELECT m.id {})'.format(EXTENSION_COLUMNS, from_where),
+        'SELECT {} FROM mimetype_extensions WHERE mimetype_id IN (SELECT m.id {}) ORDER BY ctid'.format(
+            EXTENSION_COLUMNS, from_where),
         params,
     )
     by_id = {}
@@ -155,8 +165,9 @@ async def list_mimetypes(conn, type_id=None):
 async def list_user_mimetypes(conn, user_id):
     # one row per file, as the Peewee query returned (duplicates included)
     return await _prefetch(
-        conn, 'FROM mimetypes AS m RIGHT OUTER JOIN files AS f ON (f.mimetype_id = m.id) WHERE (f.user_id = %s)',
-        (user_id,))
+        conn, 'FROM mimetypes AS m RIGHT OUTER JOIN files AS f ON (f.mimetype_id = m.id) WHERE (f.user_id = %s) '
+        'AND ' + LIVE,
+        (user_id,), order='f.ctid')
 
 
 async def get_extension(conn, extension, mimetype_id=None):
@@ -182,8 +193,8 @@ async def get_top_extension(conn, mimetype_id):
 
 def _owner_filter(user_id, fingerprint):
     if user_id is not None:
-        return 'f.user_id = %s', user_id
-    return 'f.fingerprint = %s', fingerprint
+        return 'f.user_id = %s AND ' + LIVE, user_id
+    return 'f.fingerprint = %s AND ' + LIVE, fingerprint
 
 
 def _type_join(type_id):
@@ -251,12 +262,12 @@ async def count_files(conn, user_id=None, fingerprint=None, type_id=None, mimety
     return row[0]
 
 
-async def get_file_by_vanity(conn, vanity):
+async def _get_file(conn, where, params):
     row = await _one(
         conn,
         'SELECT {}, {} FROM files AS f INNER JOIN file_hashes AS h ON (f.hash_id = h.id) '
-        'WHERE f.vanity = %s LIMIT 1'.format(FILE_COLUMNS, HASH_COLUMNS),
-        (vanity,),
+        'WHERE {} AND {} LIMIT 1'.format(FILE_COLUMNS, HASH_COLUMNS, where, LIVE),
+        params,
     )
     if row is None:
         return None
@@ -264,6 +275,15 @@ async def get_file_by_vanity(conn, vanity):
     fobj.hash = from_row(FileHash, row, width(File))
     await _attach_users(conn, [fobj])
     return fobj
+
+
+async def get_file_by_vanity(conn, vanity):
+    """A live file (not deleted, not expired) by vanity, else None."""
+    return await _get_file(conn, 'f.vanity = %s', (vanity,))
+
+
+async def get_owned_file(conn, file_id, user_id):
+    return await _get_file(conn, 'f.id = %s AND f.user_id = %s', (file_id, user_id))
 
 
 async def vanity_exists(conn, vanity):
@@ -317,13 +337,19 @@ async def create_file_hash(conn, id, blake2b, md5, sha1, size):
     return await get_file_hash(conn, blake2b, md5, sha1), False
 
 
-async def create_file(conn, id, vanity, mimetype_id, extension, filename, fhash, user, fingerprint):
+async def create_file(conn, id, vanity, mimetype_id, extension, filename, fhash, user, fingerprint, size=None,
+                      expires_at=None, visibility='link', password_hash=None, unlock_ttl=3600,
+                      password_expires_at=None, uploader_ip_hash=None):
     """Insert a file; returns None if the vanity was taken meanwhile."""
     row = await _one(
         conn,
-        'INSERT INTO files AS f (id, vanity, mimetype_id, extension, filename, hash_id, user_id, fingerprint, view_count) '
-        'VALUES (%s, %s, %s, %s, %s, %s, %s, %s, 0) ON CONFLICT (vanity) DO NOTHING RETURNING {}'.format(FILE_COLUMNS),
-        (id, vanity, mimetype_id, extension, filename, fhash.id, user.id if user else None, fingerprint),
+        'INSERT INTO files AS f (id, vanity, mimetype_id, extension, filename, hash_id, user_id, fingerprint, '
+        'view_count, size, expires_at, visibility, password_hash, unlock_ttl, password_expires_at, uploader_ip_hash) '
+        'VALUES (%s, %s, %s, %s, %s, %s, %s, %s, 0, %s, %s, %s, %s, %s, %s, %s) '
+        'ON CONFLICT (vanity) DO NOTHING RETURNING {}'.format(FILE_COLUMNS),
+        (id, vanity, mimetype_id, extension, filename, fhash.id, user.id if user else None, fingerprint,
+         fhash.size if size is None else size, expires_at, visibility, password_hash, unlock_ttl,
+         password_expires_at, uploader_ip_hash),
     )
     if row is None:
         return None
@@ -331,3 +357,147 @@ async def create_file(conn, id, vanity, mimetype_id, extension, filename, fhash,
     fobj.hash = fhash
     fobj.user = user
     return fobj
+
+
+async def insert_file_hash(conn, id, blake2b, md5, sha1, size):
+    """Insert a hash row for a blob that is already stored. Returns (FileHash,
+    created); on a race with the same content, the existing row and False."""
+    return await create_file_hash(conn, id, blake2b, md5, sha1, size)
+
+
+async def update_file(conn, file_id, **changes):
+    """Set columns on a file; returns the new row."""
+    if not changes:
+        return None
+    assignments = ', '.join('"{}" = %s'.format(name) for name in changes)
+    row = await _one(conn, 'UPDATE files AS f SET {} WHERE id = %s RETURNING {}'.format(assignments, FILE_COLUMNS),
+                     list(changes.values()) + [file_id])
+    return row and from_row(File, row)
+
+
+# --- usage and limits ------------------------------------------------------------
+
+RESERVING = "status IN ('open', 'processing')"
+
+
+async def lock_quota(conn, *keys):
+    """Serialise quota checks for these owners until the transaction ends."""
+    for key in sorted(set(keys)):
+        await conn.execute('SELECT pg_advisory_xact_lock(hashtext(%s))', ('quota:' + key,))
+
+
+async def user_usage(conn, user_id):
+    """Bytes of the user's live files, plus open upload sessions (reservations)."""
+    row = await _one(
+        conn,
+        'SELECT (SELECT COALESCE(SUM(f.size), 0) FROM files AS f WHERE f.user_id = %s AND ' + LIVE + ') + '
+        '(SELECT COALESCE(SUM(size), 0) FROM upload_sessions WHERE owner_user_id = %s AND ' + RESERVING + ')',
+        (user_id, user_id),
+    )
+    return int(row[0])
+
+
+async def anonymous_usage(conn, fingerprint, ip_hashes, since_id):
+    """Bytes uploaded (plus reserved) in the rolling window: (by fingerprint, by IP)."""
+    by_fingerprint = by_ip = 0
+    if fingerprint is not None:
+        row = await _one(
+            conn,
+            'SELECT (SELECT COALESCE(SUM(f.size), 0) FROM files AS f WHERE f.fingerprint = %s AND f.id >= %s) + '
+            '(SELECT COALESCE(SUM(size), 0) FROM upload_sessions WHERE owner_fingerprint = %s AND ' + RESERVING + ')',
+            (fingerprint, since_id, fingerprint),
+        )
+        by_fingerprint = int(row[0])
+    if ip_hashes:
+        row = await _one(
+            conn,
+            'SELECT (SELECT COALESCE(SUM(f.size), 0) FROM files AS f WHERE f.uploader_ip_hash = ANY(%s) '
+            'AND f.id >= %s) + (SELECT COALESCE(SUM(size), 0) FROM upload_sessions WHERE owner_ip_hash = ANY(%s) '
+            'AND ' + RESERVING + ')',
+            (list(ip_hashes), since_id, list(ip_hashes)),
+        )
+        by_ip = int(row[0])
+    return by_fingerprint, by_ip
+
+
+# --- upload sessions -----------------------------------------------------------------
+
+async def create_session(conn, **values):
+    names = list(values)
+    row = await _one(
+        conn,
+        'INSERT INTO upload_sessions ({}) VALUES ({}) RETURNING {}'.format(
+            ', '.join('"{}"'.format(n) for n in names), ', '.join(['%s'] * len(names)), SESSION_COLUMNS),
+        [values[n] for n in names],
+    )
+    return from_row(UploadSession, row)
+
+
+async def get_session(conn, session_id, for_update=False):
+    row = await _one(conn, 'SELECT {} FROM upload_sessions WHERE id = %s{}'.format(
+        SESSION_COLUMNS, ' FOR UPDATE' if for_update else ''), (session_id,))
+    return row and from_row(UploadSession, row)
+
+
+async def session_part_indexes(conn, session_id):
+    return [r[0] for r in await _all(conn, 'SELECT "index" FROM upload_parts WHERE session_id = %s ORDER BY 1',
+                                      (session_id,))]
+
+
+async def session_parts(conn, session_id):
+    return [from_row(UploadPart, r) for r in await _all(
+        conn, 'SELECT {} FROM upload_parts WHERE session_id = %s ORDER BY "index"'.format(columns(UploadPart)),
+        (session_id,))]
+
+
+async def record_part(conn, session_id, index, etag, size):
+    await conn.execute(
+        'INSERT INTO upload_parts (session_id, "index", etag, size) VALUES (%s, %s, %s, %s) '
+        'ON CONFLICT (session_id, "index") DO UPDATE SET etag = EXCLUDED.etag, size = EXCLUDED.size, '
+        'received_at = now()',
+        (session_id, index, etag, size),
+    )
+
+
+async def set_session_status(conn, session_id, status, from_status=None, **extra):
+    sets = ['status = %s'] + ['"{}" = %s'.format(k) for k in extra]
+    params = [status] + list(extra.values()) + [session_id]
+    where = 'id = %s'
+    if from_status is not None:
+        where += ' AND status = %s'
+        params.append(from_status)
+    row = await _one(conn, 'UPDATE upload_sessions SET {} WHERE {} RETURNING id'.format(', '.join(sets), where), params)
+    return row is not None
+
+
+async def delete_session(conn, session_id):
+    await conn.execute('DELETE FROM upload_sessions WHERE id = %s', (session_id,))
+
+
+async def get_file(conn, file_id):
+    """Any file by id (live or not), with hash and user."""
+    row = await _one(
+        conn,
+        'SELECT {}, {} FROM files AS f INNER JOIN file_hashes AS h ON (f.hash_id = h.id) WHERE f.id = %s'.format(
+            FILE_COLUMNS, HASH_COLUMNS), (file_id,))
+    if row is None:
+        return None
+    fobj = from_row(File, row)
+    fobj.hash = from_row(FileHash, row, width(File))
+    await _attach_users(conn, [fobj])
+    return fobj
+
+
+# --- unlock rate limiting ----------------------------------------------------------------
+
+async def count_attempt(conn, file_id, scope, ip_hash, window_seconds=60):
+    """Count one attempt in the current window. Returns (count, seconds left)."""
+    row = await _one(
+        conn,
+        'INSERT INTO unlock_attempts AS a (file_id, scope, ip_hash, window_start, count) '
+        "VALUES (%s, %s, %s, to_timestamp(floor(extract(epoch FROM now()) / %s) * %s), 1) "
+        'ON CONFLICT (file_id, scope, ip_hash, window_start) DO UPDATE SET count = a.count + 1 '
+        'RETURNING count, ceil(extract(epoch FROM (window_start + make_interval(secs => %s::float8) - now())))::int',
+        (file_id, scope, ip_hash, window_seconds, window_seconds, window_seconds),
+    )
+    return row[0], max(1, row[1])

@@ -20,6 +20,11 @@ export const FIXTURE_NAMES = [
   'album-grid',
   'album-list',
   'album-tracklist',
+  'locked',
+  'locked-short',
+  'locked-expired',
+  'locked-album',
+  'private',
 ] as const;
 export type FixtureName = (typeof FIXTURE_NAMES)[number];
 
@@ -30,7 +35,7 @@ interface Fixture {
   page?: string;
   state?: string;
   /** undefined: no script tag. null: the literal `null` payload. */
-  file?: FileData | null;
+  file?: FileData | Record<string, unknown> | null;
   album?: Record<string, unknown>;
 }
 
@@ -194,6 +199,18 @@ function fixtures(now: number): Record<FixtureName, Fixture> {
         ),
       },
     },
+    // Milestone 2 (contract §4). The mock API (npm run dev) knows these vanities;
+    // the password is `files.gg`.
+    locked: { page: 'file', state: 'locked', file: { vanity: 'locked1234', protected: 'password', filename: 'holiday.png' } },
+    'locked-short': { page: 'file', state: 'locked', file: { vanity: 'shortlock1', protected: 'password' } },
+    'locked-expired': {
+      page: 'file',
+      state: 'locked',
+      file: { vanity: 'expired123', protected: 'password', password_expired: true },
+    },
+    'locked-album': { page: 'album', state: 'locked', album: { vanity: 'lockedalbum', protected: 'password', title: 'Private trip' } },
+    // A private file without an owner pass is plain "missing" (null payload).
+    private: { page: 'file', state: 'missing', file: null },
     'album-tracklist': {
       page: 'album',
       state: 'album',

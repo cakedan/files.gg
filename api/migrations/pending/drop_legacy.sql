@@ -1,4 +1,5 @@
--- Applied one release after 0003 (see README.md here): only once no server
+-- Applied one release after 0003 (see README.md here), under the next free
+-- migration number at that release: only once no server
 -- runs code that reads or writes file_views or the users' unix-seconds columns.
 -- Dropping file_views deletes the stored raw IPs.
 

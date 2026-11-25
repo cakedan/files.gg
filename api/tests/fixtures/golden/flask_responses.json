@@ -1,4 +1,5 @@
 {
+ "_intentional_changes": "Milestone 2 (2026-11-24): file objects no longer contain \"hash\" (the blob id) in any public response (GET /files/<vanity>, the file list, uploads, PATCH), because it revealed when two links share content, private files included (PLAN.md hardening). Only the internal lookup (and staff tools) expose the storage key. That one field was removed from these responses, which are otherwise byte-identical: file_get, file_get_again, file_get_with_extension, file_get_other_ip, file_get_multi_segment, file_get_no_extension, file_get_anonymous, file_get_bot_owner, file_get_unicode, files_list_after, files_list_alice, files_list_before, files_list_fingerprint, files_list_limit, files_list_limit_json_body, files_list_mimetype, files_list_type. Every other golden response is byte-identical to the Flask capture.",
  "auth_fingerprint_keep": {
   "body": "{\"fingerprint\": \".eJwzNkADhgAgWQNl.kYu3L_cgNJyjFqG_rOIdsm5B6jY\"}",
   "headers": {
@@ -184,7 +185,7 @@
   "status": 401
  },
  "file_get": {
-  "body": "{\"id\": \"200000000000000001\", \"vanity\": \"abc\", \"mimetype\": \"image/png\", \"extension\": \"png\", \"name\": \"cat\", \"filename\": \"cat.png\", \"hash\": \"400000000000000001\", \"size\": 12345, \"height\": 480, \"width\": 640, \"duration\": null, \"user\": {\"id\": \"100000000000000001\", \"username\": \"alice\", \"discriminator\": \"0001\", \"flags\": 0}, \"urls\": {\"main\": \"https://files.gg/abc.png\", \"cdn\": \"https://cdn.files.gg/files/abc.png\"}, \"views\": 6}",
+  "body": "{\"id\": \"200000000000000001\", \"vanity\": \"abc\", \"mimetype\": \"image/png\", \"extension\": \"png\", \"name\": \"cat\", \"filename\": \"cat.png\", \"size\": 12345, \"height\": 480, \"width\": 640, \"duration\": null, \"user\": {\"id\": \"100000000000000001\", \"username\": \"alice\", \"discriminator\": \"0001\", \"flags\": 0}, \"urls\": {\"main\": \"https://files.gg/abc.png\", \"cdn\": \"https://cdn.files.gg/files/abc.png\"}, \"views\": 6}",
   "headers": {
    "cache-control": "no-cache, no-store",
    "content-type": "application/json"
@@ -192,7 +193,7 @@
   "status": 200
  },
  "file_get_again": {
-  "body": "{\"id\": \"200000000000000001\", \"vanity\": \"abc\", \"mimetype\": \"image/png\", \"extension\": \"png\", \"name\": \"cat\", \"filename\": \"cat.png\", \"hash\": \"400000000000000001\", \"size\": 12345, \"height\": 480, \"width\": 640, \"duration\": null, \"user\": {\"id\": \"100000000000000001\", \"username\": \"alice\", \"discriminator\": \"0001\", \"flags\": 0}, \"urls\": {\"main\": \"https://files.gg/abc.png\", \"cdn\": \"https://cdn.files.gg/files/abc.png\"}, \"views\": 6}",
+  "body": "{\"id\": \"200000000000000001\", \"vanity\": \"abc\", \"mimetype\": \"image/png\", \"extension\": \"png\", \"name\": \"cat\", \"filename\": \"cat.png\", \"size\": 12345, \"height\": 480, \"width\": 640, \"duration\": null, \"user\": {\"id\": \"100000000000000001\", \"username\": \"alice\", \"discriminator\": \"0001\", \"flags\": 0}, \"urls\": {\"main\": \"https://files.gg/abc.png\", \"cdn\": \"https://cdn.files.gg/files/abc.png\"}, \"views\": 6}",
   "headers": {
    "cache-control": "no-cache, no-store",
    "content-type": "application/json"
@@ -200,7 +201,7 @@
   "status": 200
  },
  "file_get_anonymous": {
-  "body": "{\"id\": \"200000000000000004\", \"vanity\": \"anon1\", \"mimetype\": \"application/octet-stream\", \"extension\": \"bin\", \"name\": \"blob\", \"filename\": \"blob.bin\", \"hash\": \"400000000000000003\", \"size\": 9876543210, \"height\": 1080, \"width\": 1920, \"duration\": 61, \"user\": null, \"urls\": {\"main\": \"https://files.gg/anon1.bin\", \"cdn\": \"https://cdn.files.gg/files/anon1.bin\"}, \"views\": 3}",
+  "body": "{\"id\": \"200000000000000004\", \"vanity\": \"anon1\", \"mimetype\": \"application/octet-stream\", \"extension\": \"bin\", \"name\": \"blob\", \"filename\": \"blob.bin\", \"size\": 9876543210, \"height\": 1080, \"width\": 1920, \"duration\": 61, \"user\": null, \"urls\": {\"main\": \"https://files.gg/anon1.bin\", \"cdn\": \"https://cdn.files.gg/files/anon1.bin\"}, \"views\": 3}",
   "headers": {
    "cache-control": "no-cache, no-store",
    "content-type": "application/json"
@@ -208,7 +209,7 @@
   "status": 200
  },
  "file_get_bot_owner": {
-  "body": "{\"id\": \"200000000000000005\", \"vanity\": \"botfile\", \"mimetype\": \"text/plain\", \"extension\": \"txt\", \"name\": \"beep\", \"filename\": \"beep.txt\", \"hash\": \"400000000000000002\", \"size\": 42, \"height\": null, \"width\": null, \"duration\": null, \"user\": {\"id\": \"100000000000000003\", \"username\": \"robot\", \"discriminator\": \"0007\", \"flags\": 1, \"bot\": true}, \"urls\": {\"main\": \"https://files.gg/botfile.txt\", \"cdn\": \"https://cdn.files.gg/files/botfile.txt\"}, \"views\": 1}",
+  "body": "{\"id\": \"200000000000000005\", \"vanity\": \"botfile\", \"mimetype\": \"text/plain\", \"extension\": \"txt\", \"name\": \"beep\", \"filename\": \"beep.txt\", \"size\": 42, \"height\": null, \"width\": null, \"duration\": null, \"user\": {\"id\": \"100000000000000003\", \"username\": \"robot\", \"discriminator\": \"0007\", \"flags\": 1, \"bot\": true}, \"urls\": {\"main\": \"https://files.gg/botfile.txt\", \"cdn\": \"https://cdn.files.gg/files/botfile.txt\"}, \"views\": 1}",
   "headers": {
    "cache-control": "no-cache, no-store",
    "content-type": "application/json"
@@ -224,7 +225,7 @@
   "status": 404
  },
  "file_get_multi_segment": {
-  "body": "{\"id\": \"200000000000000002\", \"vanity\": \"deep/path\", \"mimetype\": \"text/plain\", \"extension\": \"txt\", \"name\": \"notes\", \"filename\": \"notes.txt\", \"hash\": \"400000000000000002\", \"size\": 42, \"height\": null, \"width\": null, \"duration\": null, \"user\": {\"id\": \"100000000000000001\", \"username\": \"alice\", \"discriminator\": \"0001\", \"flags\": 0}, \"urls\": {\"main\": \"https://files.gg/deep/path.txt\", \"cdn\": \"https://cdn.files.gg/files/deep/path.txt\"}, \"views\": 1}",
+  "body": "{\"id\": \"200000000000000002\", \"vanity\": \"deep/path\", \"mimetype\": \"text/plain\", \"extension\": \"txt\", \"name\": \"notes\", \"filename\": \"notes.txt\", \"size\": 42, \"height\": null, \"width\": null, \"duration\": null, \"user\": {\"id\": \"100000000000000001\", \"username\": \"alice\", \"discriminator\": \"0001\", \"flags\": 0}, \"urls\": {\"main\": \"https://files.gg/deep/path.txt\", \"cdn\": \"https://cdn.files.gg/files/deep/path.txt\"}, \"views\": 1}",
   "headers": {
    "cache-control": "no-cache, no-store",
    "content-type": "application/json"
@@ -232,7 +233,7 @@
   "status": 200
  },
  "file_get_no_extension": {
-  "body": "{\"id\": \"200000000000000003\", \"vanity\": \"noext\", \"mimetype\": \"application/x-thing\", \"extension\": \"unknown\", \"name\": \"thing\", \"filename\": \"thing.unknown\", \"hash\": \"400000000000000002\", \"size\": 42, \"height\": null, \"width\": null, \"duration\": null, \"user\": {\"id\": \"100000000000000001\", \"username\": \"alice\", \"discriminator\": \"0001\", \"flags\": 0}, \"urls\": {\"main\": \"https://files.gg/noext\", \"cdn\": \"https://cdn.files.gg/files/noext\"}, \"views\": 1}",
+  "body": "{\"id\": \"200000000000000003\", \"vanity\": \"noext\", \"mimetype\": \"application/x-thing\", \"extension\": \"unknown\", \"name\": \"thing\", \"filename\": \"thing.unknown\", \"size\": 42, \"height\": null, \"width\": null, \"duration\": null, \"user\": {\"id\": \"100000000000000001\", \"username\": \"alice\", \"discriminator\": \"0001\", \"flags\": 0}, \"urls\": {\"main\": \"https://files.gg/noext\", \"cdn\": \"https://cdn.files.gg/files/noext\"}, \"views\": 1}",
   "headers": {
    "cache-control": "no-cache, no-store",
    "content-type": "application/json"
@@ -240,7 +241,7 @@
   "status": 200
  },
  "file_get_other_ip": {
-  "body": "{\"id\": \"200000000000000001\", \"vanity\": \"abc\", \"mimetype\": \"image/png\", \"extension\": \"png\", \"name\": \"cat\", \"filename\": \"cat.png\", \"hash\": \"400000000000000001\", \"size\": 12345, \"height\": 480, \"width\": 640, \"duration\": null, \"user\": {\"id\": \"100000000000000001\", \"username\": \"alice\", \"discriminator\": \"0001\", \"flags\": 0}, \"urls\": {\"main\": \"https://files.gg/abc.png\", \"cdn\": \"https://cdn.files.gg/files/abc.png\"}, \"views\": 7}",
+  "body": "{\"id\": \"200000000000000001\", \"vanity\": \"abc\", \"mimetype\": \"image/png\", \"extension\": \"png\", \"name\": \"cat\", \"filename\": \"cat.png\", \"size\": 12345, \"height\": 480, \"width\": 640, \"duration\": null, \"user\": {\"id\": \"100000000000000001\", \"username\": \"alice\", \"discriminator\": \"0001\", \"flags\": 0}, \"urls\": {\"main\": \"https://files.gg/abc.png\", \"cdn\": \"https://cdn.files.gg/files/abc.png\"}, \"views\": 7}",
   "headers": {
    "cache-control": "no-cache, no-store",
    "content-type": "application/json"
@@ -248,7 +249,7 @@
   "status": 200
  },
  "file_get_unicode": {
-  "body": "{\"id\": \"200000000000000006\", \"vanity\": \"uni\", \"mimetype\": \"image/png\", \"extension\": \"png\", \"name\": \"\\u00fcn\\u00efc\\u00f8d\\u00e9 \\\"quoted\\\" \\ud83d\\ude00\", \"filename\": \"\\u00fcn\\u00efc\\u00f8d\\u00e9 \\\"quoted\\\" \\ud83d\\ude00.png\", \"hash\": \"400000000000000001\", \"size\": 12345, \"height\": 480, \"width\": 640, \"duration\": null, \"user\": {\"id\": \"100000000000000001\", \"username\": \"alice\", \"discriminator\": \"0001\", \"flags\": 0}, \"urls\": {\"main\": \"https://files.gg/uni.png\", \"cdn\": \"https://cdn.files.gg/files/uni.png\"}, \"views\": 1}",
+  "body": "{\"id\": \"200000000000000006\", \"vanity\": \"uni\", \"mimetype\": \"image/png\", \"extension\": \"png\", \"name\": \"\\u00fcn\\u00efc\\u00f8d\\u00e9 \\\"quoted\\\" \\ud83d\\ude00\", \"filename\": \"\\u00fcn\\u00efc\\u00f8d\\u00e9 \\\"quoted\\\" \\ud83d\\ude00.png\", \"size\": 12345, \"height\": 480, \"width\": 640, \"duration\": null, \"user\": {\"id\": \"100000000000000001\", \"username\": \"alice\", \"discriminator\": \"0001\", \"flags\": 0}, \"urls\": {\"main\": \"https://files.gg/uni.png\", \"cdn\": \"https://cdn.files.gg/files/uni.png\"}, \"views\": 1}",
   "headers": {
    "cache-control": "no-cache, no-store",
    "content-type": "application/json"
@@ -256,7 +257,7 @@
   "status": 200
  },
  "file_get_with_extension": {
-  "body": "{\"id\": \"200000000000000001\", \"vanity\": \"abc\", \"mimetype\": \"image/png\", \"extension\": \"png\", \"name\": \"cat\", \"filename\": \"cat.png\", \"hash\": \"400000000000000001\", \"size\": 12345, \"height\": 480, \"width\": 640, \"duration\": null, \"user\": {\"id\": \"100000000000000001\", \"username\": \"alice\", \"discriminator\": \"0001\", \"flags\": 0}, \"urls\": {\"main\": \"https://files.gg/abc.png\", \"cdn\": \"https://cdn.files.gg/files/abc.png\"}, \"views\": 6}",
+  "body": "{\"id\": \"200000000000000001\", \"vanity\": \"abc\", \"mimetype\": \"image/png\", \"extension\": \"png\", \"name\": \"cat\", \"filename\": \"cat.png\", \"size\": 12345, \"height\": 480, \"width\": 640, \"duration\": null, \"user\": {\"id\": \"100000000000000001\", \"username\": \"alice\", \"discriminator\": \"0001\", \"flags\": 0}, \"urls\": {\"main\": \"https://files.gg/abc.png\", \"cdn\": \"https://cdn.files.gg/files/abc.png\"}, \"views\": 6}",
   "headers": {
    "cache-control": "no-cache, no-store",
    "content-type": "application/json"
@@ -264,7 +265,7 @@
   "status": 200
  },
  "files_list_after": {
-  "body": "{\"total\": 4, \"files\": [{\"id\": \"200000000000000006\", \"vanity\": \"uni\", \"mimetype\": \"image/png\", \"extension\": \"png\", \"name\": \"\\u00fcn\\u00efc\\u00f8d\\u00e9 \\\"quoted\\\" \\ud83d\\ude00\", \"filename\": \"\\u00fcn\\u00efc\\u00f8d\\u00e9 \\\"quoted\\\" \\ud83d\\ude00.png\", \"hash\": \"400000000000000001\", \"size\": 12345, \"height\": 480, \"width\": 640, \"duration\": null, \"user\": {\"id\": \"100000000000000001\", \"username\": \"alice\", \"discriminator\": \"0001\", \"flags\": 0}, \"urls\": {\"main\": \"https://files.gg/uni.png\", \"cdn\": \"https://cdn.files.gg/files/uni.png\"}, \"views\": 0}]}",
+  "body": "{\"total\": 4, \"files\": [{\"id\": \"200000000000000006\", \"vanity\": \"uni\", \"mimetype\": \"image/png\", \"extension\": \"png\", \"name\": \"\\u00fcn\\u00efc\\u00f8d\\u00e9 \\\"quoted\\\" \\ud83d\\ude00\", \"filename\": \"\\u00fcn\\u00efc\\u00f8d\\u00e9 \\\"quoted\\\" \\ud83d\\ude00.png\", \"size\": 12345, \"height\": 480, \"width\": 640, \"duration\": null, \"user\": {\"id\": \"100000000000000001\", \"username\": \"alice\", \"discriminator\": \"0001\", \"flags\": 0}, \"urls\": {\"main\": \"https://files.gg/uni.png\", \"cdn\": \"https://cdn.files.gg/files/uni.png\"}, \"views\": 0}]}",
   "headers": {
    "cache-control": "no-cache, no-store",
    "content-type": "application/json"
@@ -272,7 +273,7 @@
   "status": 200
  },
  "files_list_alice": {
-  "body": "{\"total\": 4, \"files\": [{\"id\": \"200000000000000006\", \"vanity\": \"uni\", \"mimetype\": \"image/png\", \"extension\": \"png\", \"name\": \"\\u00fcn\\u00efc\\u00f8d\\u00e9 \\\"quoted\\\" \\ud83d\\ude00\", \"filename\": \"\\u00fcn\\u00efc\\u00f8d\\u00e9 \\\"quoted\\\" \\ud83d\\ude00.png\", \"hash\": \"400000000000000001\", \"size\": 12345, \"height\": 480, \"width\": 640, \"duration\": null, \"user\": {\"id\": \"100000000000000001\", \"username\": \"alice\", \"discriminator\": \"0001\", \"flags\": 0}, \"urls\": {\"main\": \"https://files.gg/uni.png\", \"cdn\": \"https://cdn.files.gg/files/uni.png\"}, \"views\": 0}, {\"id\": \"200000000000000003\", \"vanity\": \"noext\", \"mimetype\": \"application/x-thing\", \"extension\": \"unknown\", \"name\": \"thing\", \"filename\": \"thing.unknown\", \"hash\": \"400000000000000002\", \"size\": 42, \"height\": null, \"width\": null, \"duration\": null, \"user\": {\"id\": \"100000000000000001\", \"username\": \"alice\", \"discriminator\": \"0001\", \"flags\": 0}, \"urls\": {\"main\": \"https://files.gg/noext\", \"cdn\": \"https://cdn.files.gg/files/noext\"}, \"views\": 0}, {\"id\": \"200000000000000002\", \"vanity\": \"deep/path\", \"mimetype\": \"text/plain\", \"extension\": \"txt\", \"name\": \"notes\", \"filename\": \"notes.txt\", \"hash\": \"400000000000000002\", \"size\": 42, \"height\": null, \"width\": null, \"duration\": null, \"user\": {\"id\": \"100000000000000001\", \"username\": \"alice\", \"discriminator\": \"0001\", \"flags\": 0}, \"urls\": {\"main\": \"https://files.gg/deep/path.txt\", \"cdn\": \"https://cdn.files.gg/files/deep/path.txt\"}, \"views\": 0}, {\"id\": \"200000000000000001\", \"vanity\": \"abc\", \"mimetype\": \"image/png\", \"extension\": \"png\", \"name\": \"cat\", \"filename\": \"cat.png\", \"hash\": \"400000000000000001\", \"size\": 12345, \"height\": 480, \"width\": 640, \"duration\": null, \"user\": {\"id\": \"100000000000000001\", \"username\": \"alice\", \"discriminator\": \"0001\", \"flags\": 0}, \"urls\": {\"main\": \"https://files.gg/abc.png\", \"cdn\": \"https://cdn.files.gg/files/abc.png\"}, \"views\": 5}]}",
+  "body": "{\"total\": 4, \"files\": [{\"id\": \"200000000000000006\", \"vanity\": \"uni\", \"mimetype\": \"image/png\", \"extension\": \"png\", \"name\": \"\\u00fcn\\u00efc\\u00f8d\\u00e9 \\\"quoted\\\" \\ud83d\\ude00\", \"filename\": \"\\u00fcn\\u00efc\\u00f8d\\u00e9 \\\"quoted\\\" \\ud83d\\ude00.png\", \"size\": 12345, \"height\": 480, \"width\": 640, \"duration\": null, \"user\": {\"id\": \"100000000000000001\", \"username\": \"alice\", \"discriminator\": \"0001\", \"flags\": 0}, \"urls\": {\"main\": \"https://files.gg/uni.png\", \"cdn\": \"https://cdn.files.gg/files/uni.png\"}, \"views\": 0}, {\"id\": \"200000000000000003\", \"vanity\": \"noext\", \"mimetype\": \"application/x-thing\", \"extension\": \"unknown\", \"name\": \"thing\", \"filename\": \"thing.unknown\", \"size\": 42, \"height\": null, \"width\": null, \"duration\": null, \"user\": {\"id\": \"100000000000000001\", \"username\": \"alice\", \"discriminator\": \"0001\", \"flags\": 0}, \"urls\": {\"main\": \"https://files.gg/noext\", \"cdn\": \"https://cdn.files.gg/files/noext\"}, \"views\": 0}, {\"id\": \"200000000000000002\", \"vanity\": \"deep/path\", \"mimetype\": \"text/plain\", \"extension\": \"txt\", \"name\": \"notes\", \"filename\": \"notes.txt\", \"size\": 42, \"height\": null, \"width\": null, \"duration\": null, \"user\": {\"id\": \"100000000000000001\", \"username\": \"alice\", \"discriminator\": \"0001\", \"flags\": 0}, \"urls\": {\"main\": \"https://files.gg/deep/path.txt\", \"cdn\": \"https://cdn.files.gg/files/deep/path.txt\"}, \"views\": 0}, {\"id\": \"200000000000000001\", \"vanity\": \"abc\", \"mimetype\": \"image/png\", \"extension\": \"png\", \"name\": \"cat\", \"filename\": \"cat.png\", \"size\": 12345, \"height\": 480, \"width\": 640, \"duration\": null, \"user\": {\"id\": \"100000000000000001\", \"username\": \"alice\", \"discriminator\": \"0001\", \"flags\": 0}, \"urls\": {\"main\": \"https://files.gg/abc.png\", \"cdn\": \"https://cdn.files.gg/files/abc.png\"}, \"views\": 5}]}",
   "headers": {
    "cache-control": "no-cache, no-store",
    "content-type": "application/json"
@@ -304,7 +305,7 @@
   "status": 400
  },
  "files_list_before": {
-  "body": "{\"total\": 4, \"files\": [{\"id\": \"200000000000000002\", \"vanity\": \"deep/path\", \"mimetype\": \"text/plain\", \"extension\": \"txt\", \"name\": \"notes\", \"filename\": \"notes.txt\", \"hash\": \"400000000000000002\", \"size\": 42, \"height\": null, \"width\": null, \"duration\": null, \"user\": {\"id\": \"100000000000000001\", \"username\": \"alice\", \"discriminator\": \"0001\", \"flags\": 0}, \"urls\": {\"main\": \"https://files.gg/deep/path.txt\", \"cdn\": \"https://cdn.files.gg/files/deep/path.txt\"}, \"views\": 0}, {\"id\": \"200000000000000001\", \"vanity\": \"abc\", \"mimetype\": \"image/png\", \"extension\": \"png\", \"name\": \"cat\", \"filename\": \"cat.png\", \"hash\": \"400000000000000001\", \"size\": 12345, \"height\": 480, \"width\": 640, \"duration\": null, \"user\": {\"id\": \"100000000000000001\", \"username\": \"alice\", \"discriminator\": \"0001\", \"flags\": 0}, \"urls\": {\"main\": \"https://files.gg/abc.png\", \"cdn\": \"https://cdn.files.gg/files/abc.png\"}, \"views\": 5}]}",
+  "body": "{\"total\": 4, \"files\": [{\"id\": \"200000000000000002\", \"vanity\": \"deep/path\", \"mimetype\": \"text/plain\", \"extension\": \"txt\", \"name\": \"notes\", \"filename\": \"notes.txt\", \"size\": 42, \"height\": null, \"width\": null, \"duration\": null, \"user\": {\"id\": \"100000000000000001\", \"username\": \"alice\", \"discriminator\": \"0001\", \"flags\": 0}, \"urls\": {\"main\": \"https://files.gg/deep/path.txt\", \"cdn\": \"https://cdn.files.gg/files/deep/path.txt\"}, \"views\": 0}, {\"id\": \"200000000000000001\", \"vanity\": \"abc\", \"mimetype\": \"image/png\", \"extension\": \"png\", \"name\": \"cat\", \"filename\": \"cat.png\", \"size\": 12345, \"height\": 480, \"width\": 640, \"duration\": null, \"user\": {\"id\": \"100000000000000001\", \"username\": \"alice\", \"discriminator\": \"0001\", \"flags\": 0}, \"urls\": {\"main\": \"https://files.gg/abc.png\", \"cdn\": \"https://cdn.files.gg/files/abc.png\"}, \"views\": 5}]}",
   "headers": {
    "cache-control": "no-cache, no-store",
    "content-type": "application/json"
@@ -320,7 +321,7 @@
   "status": 400
  },
  "files_list_fingerprint": {
-  "body": "{\"total\": 1, \"files\": [{\"id\": \"200000000000000004\", \"vanity\": \"anon1\", \"mimetype\": \"application/octet-stream\", \"extension\": \"bin\", \"name\": \"blob\", \"filename\": \"blob.bin\", \"hash\": \"400000000000000003\", \"size\": 9876543210, \"height\": 1080, \"width\": 1920, \"duration\": 61, \"user\": null, \"urls\": {\"main\": \"https://files.gg/anon1.bin\", \"cdn\": \"https://cdn.files.gg/files/anon1.bin\"}, \"views\": 2}]}",
+  "body": "{\"total\": 1, \"files\": [{\"id\": \"200000000000000004\", \"vanity\": \"anon1\", \"mimetype\": \"application/octet-stream\", \"extension\": \"bin\", \"name\": \"blob\", \"filename\": \"blob.bin\", \"size\": 9876543210, \"height\": 1080, \"width\": 1920, \"duration\": 61, \"user\": null, \"urls\": {\"main\": \"https://files.gg/anon1.bin\", \"cdn\": \"https://cdn.files.gg/files/anon1.bin\"}, \"views\": 2}]}",
   "headers": {
    "cache-control": "no-cache, no-store",
    "content-type": "application/json"
@@ -328,7 +329,7 @@
   "status": 200
  },
  "files_list_limit": {
-  "body": "{\"total\": 4, \"files\": [{\"id\": \"200000000000000006\", \"vanity\": \"uni\", \"mimetype\": \"image/png\", \"extension\": \"png\", \"name\": \"\\u00fcn\\u00efc\\u00f8d\\u00e9 \\\"quoted\\\" \\ud83d\\ude00\", \"filename\": \"\\u00fcn\\u00efc\\u00f8d\\u00e9 \\\"quoted\\\" \\ud83d\\ude00.png\", \"hash\": \"400000000000000001\", \"size\": 12345, \"height\": 480, \"width\": 640, \"duration\": null, \"user\": {\"id\": \"100000000000000001\", \"username\": \"alice\", \"discriminator\": \"0001\", \"flags\": 0}, \"urls\": {\"main\": \"https://files.gg/uni.png\", \"cdn\": \"https://cdn.files.gg/files/uni.png\"}, \"views\": 0}, {\"id\": \"200000000000000003\", \"vanity\": \"noext\", \"mimetype\": \"application/x-thing\", \"extension\": \"unknown\", \"name\": \"thing\", \"filename\": \"thing.unknown\", \"hash\": \"400000000000000002\", \"size\": 42, \"height\": null, \"width\": null, \"duration\": null, \"user\": {\"id\": \"100000000000000001\", \"username\": \"alice\", \"discriminator\": \"0001\", \"flags\": 0}, \"urls\": {\"main\": \"https://files.gg/noext\", \"cdn\": \"https://cdn.files.gg/files/noext\"}, \"views\": 0}]}",
+  "body": "{\"total\": 4, \"files\": [{\"id\": \"200000000000000006\", \"vanity\": \"uni\", \"mimetype\": \"image/png\", \"extension\": \"png\", \"name\": \"\\u00fcn\\u00efc\\u00f8d\\u00e9 \\\"quoted\\\" \\ud83d\\ude00\", \"filename\": \"\\u00fcn\\u00efc\\u00f8d\\u00e9 \\\"quoted\\\" \\ud83d\\ude00.png\", \"size\": 12345, \"height\": 480, \"width\": 640, \"duration\": null, \"user\": {\"id\": \"100000000000000001\", \"username\": \"alice\", \"discriminator\": \"0001\", \"flags\": 0}, \"urls\": {\"main\": \"https://files.gg/uni.png\", \"cdn\": \"https://cdn.files.gg/files/uni.png\"}, \"views\": 0}, {\"id\": \"200000000000000003\", \"vanity\": \"noext\", \"mimetype\": \"application/x-thing\", \"extension\": \"unknown\", \"name\": \"thing\", \"filename\": \"thing.unknown\", \"size\": 42, \"height\": null, \"width\": null, \"duration\": null, \"user\": {\"id\": \"100000000000000001\", \"username\": \"alice\", \"discriminator\": \"0001\", \"flags\": 0}, \"urls\": {\"main\": \"https://files.gg/noext\", \"cdn\": \"https://cdn.files.gg/files/noext\"}, \"views\": 0}]}",
   "headers": {
    "cache-control": "no-cache, no-store",
    "content-type": "application/json"
@@ -336,7 +337,7 @@
   "status": 200
  },
  "files_list_limit_json_body": {
-  "body": "{\"total\": 4, \"files\": [{\"id\": \"200000000000000006\", \"vanity\": \"uni\", \"mimetype\": \"image/png\", \"extension\": \"png\", \"name\": \"\\u00fcn\\u00efc\\u00f8d\\u00e9 \\\"quoted\\\" \\ud83d\\ude00\", \"filename\": \"\\u00fcn\\u00efc\\u00f8d\\u00e9 \\\"quoted\\\" \\ud83d\\ude00.png\", \"hash\": \"400000000000000001\", \"size\": 12345, \"height\": 480, \"width\": 640, \"duration\": null, \"user\": {\"id\": \"100000000000000001\", \"username\": \"alice\", \"discriminator\": \"0001\", \"flags\": 0}, \"urls\": {\"main\": \"https://files.gg/uni.png\", \"cdn\": \"https://cdn.files.gg/files/uni.png\"}, \"views\": 0}]}",
+  "body": "{\"total\": 4, \"files\": [{\"id\": \"200000000000000006\", \"vanity\": \"uni\", \"mimetype\": \"image/png\", \"extension\": \"png\", \"name\": \"\\u00fcn\\u00efc\\u00f8d\\u00e9 \\\"quoted\\\" \\ud83d\\ude00\", \"filename\": \"\\u00fcn\\u00efc\\u00f8d\\u00e9 \\\"quoted\\\" \\ud83d\\ude00.png\", \"size\": 12345, \"height\": 480, \"width\": 640, \"duration\": null, \"user\": {\"id\": \"100000000000000001\", \"username\": \"alice\", \"discriminator\": \"0001\", \"flags\": 0}, \"urls\": {\"main\": \"https://files.gg/uni.png\", \"cdn\": \"https://cdn.files.gg/files/uni.png\"}, \"views\": 0}]}",
   "headers": {
    "cache-control": "no-cache, no-store",
    "content-type": "application/json"
@@ -360,7 +361,7 @@
   "status": 400
  },
  "files_list_mimetype": {
-  "body": "{\"total\": 1, \"files\": [{\"id\": \"200000000000000002\", \"vanity\": \"deep/path\", \"mimetype\": \"text/plain\", \"extension\": \"txt\", \"name\": \"notes\", \"filename\": \"notes.txt\", \"hash\": \"400000000000000002\", \"size\": 42, \"height\": null, \"width\": null, \"duration\": null, \"user\": {\"id\": \"100000000000000001\", \"username\": \"alice\", \"discriminator\": \"0001\", \"flags\": 0}, \"urls\": {\"main\": \"https://files.gg/deep/path.txt\", \"cdn\": \"https://cdn.files.gg/files/deep/path.txt\"}, \"views\": 0}]}",
+  "body": "{\"total\": 1, \"files\": [{\"id\": \"200000000000000002\", \"vanity\": \"deep/path\", \"mimetype\": \"text/plain\", \"extension\": \"txt\", \"name\": \"notes\", \"filename\": \"notes.txt\", \"size\": 42, \"height\": null, \"width\": null, \"duration\": null, \"user\": {\"id\": \"100000000000000001\", \"username\": \"alice\", \"discriminator\": \"0001\", \"flags\": 0}, \"urls\": {\"main\": \"https://files.gg/deep/path.txt\", \"cdn\": \"https://cdn.files.gg/files/deep/path.txt\"}, \"views\": 0}]}",
   "headers": {
    "cache-control": "no-cache, no-store",
    "content-type": "application/json"
@@ -376,7 +377,7 @@
   "status": 401
  },
  "files_list_type": {
-  "body": "{\"total\": 2, \"files\": [{\"id\": \"200000000000000006\", \"vanity\": \"uni\", \"mimetype\": \"image/png\", \"extension\": \"png\", \"name\": \"\\u00fcn\\u00efc\\u00f8d\\u00e9 \\\"quoted\\\" \\ud83d\\ude00\", \"filename\": \"\\u00fcn\\u00efc\\u00f8d\\u00e9 \\\"quoted\\\" \\ud83d\\ude00.png\", \"hash\": \"400000000000000001\", \"size\": 12345, \"height\": 480, \"width\": 640, \"duration\": null, \"user\": {\"id\": \"100000000000000001\", \"username\": \"alice\", \"discriminator\": \"0001\", \"flags\": 0}, \"urls\": {\"main\": \"https://files.gg/uni.png\", \"cdn\": \"https://cdn.files.gg/files/uni.png\"}, \"views\": 0}, {\"id\": \"200000000000000001\", \"vanity\": \"abc\", \"mimetype\": \"image/png\", \"extension\": \"png\", \"name\": \"cat\", \"filename\": \"cat.png\", \"hash\": \"400000000000000001\", \"size\": 12345, \"height\": 480, \"width\": 640, \"duration\": null, \"user\": {\"id\": \"100000000000000001\", \"username\": \"alice\", \"discriminator\": \"0001\", \"flags\": 0}, \"urls\": {\"main\": \"https://files.gg/abc.png\", \"cdn\": \"https://cdn.files.gg/files/abc.png\"}, \"views\": 5}]}",
+  "body": "{\"total\": 2, \"files\": [{\"id\": \"200000000000000006\", \"vanity\": \"uni\", \"mimetype\": \"image/png\", \"extension\": \"png\", \"name\": \"\\u00fcn\\u00efc\\u00f8d\\u00e9 \\\"quoted\\\" \\ud83d\\ude00\", \"filename\": \"\\u00fcn\\u00efc\\u00f8d\\u00e9 \\\"quoted\\\" \\ud83d\\ude00.png\", \"size\": 12345, \"height\": 480, \"width\": 640, \"duration\": null, \"user\": {\"id\": \"100000000000000001\", \"username\": \"alice\", \"discriminator\": \"0001\", \"flags\": 0}, \"urls\": {\"main\": \"https://files.gg/uni.png\", \"cdn\": \"https://cdn.files.gg/files/uni.png\"}, \"views\": 0}, {\"id\": \"200000000000000001\", \"vanity\": \"abc\", \"mimetype\": \"image/png\", \"extension\": \"png\", \"name\": \"cat\", \"filename\": \"cat.png\", \"size\": 12345, \"height\": 480, \"width\": 640, \"duration\": null, \"user\": {\"id\": \"100000000000000001\", \"username\": \"alice\", \"discriminator\": \"0001\", \"flags\": 0}, \"urls\": {\"main\": \"https://files.gg/abc.png\", \"cdn\": \"https://cdn.files.gg/files/abc.png\"}, \"views\": 5}]}",
   "headers": {
    "cache-control": "no-cache, no-store",
    "content-type": "application/json"

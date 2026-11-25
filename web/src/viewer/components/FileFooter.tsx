@@ -20,12 +20,12 @@ export function FileFooter({ file }: { file: FileData }) {
   ].filter(Boolean);
 
   return (
-    <footer className="viewer-footer flex flex-col gap-2 px-4 pt-3 pb-3.5">
+    <footer className="viewer-footer flex flex-col gap-2 px-4 pt-3 pb-3.5 text-center">
       <h1 className="truncate text-base font-semibold" title={file.filename}>
         {file.filename}
       </h1>
       <p className="truncate text-xs text-muted">{details.join(' · ')}</p>
-      <p className="flex flex-wrap gap-x-3 gap-y-0.5 text-sm text-muted">
+      <p className="flex flex-wrap justify-center gap-x-3 gap-y-0.5 text-sm text-muted">
         {file.uploadedAt > 0 && (
           <time dateTime={new Date(file.uploadedAt).toISOString()} title={formatFullDate(file.uploadedAt)}>
             {formatUploaded(file.uploadedAt, now)}
@@ -41,7 +41,7 @@ export function FileFooter({ file }: { file: FileData }) {
           </time>
         )}
       </p>
-      <div className="mt-1 flex flex-wrap gap-2">
+      <div className="mt-1 flex flex-wrap justify-center gap-2">
         <CopyButton text={shareUrl(file.url)} />
         <LinkButton href={downloadUrl(file.cdnUrl)} download={file.filename}>
           <Download aria-hidden className="size-4" />

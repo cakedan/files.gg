@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { api, ApiError, apiBaseUrl, authHeaders, buildUrl, parseApiError, request } from './api';
+import { api, ApiError, apiBaseUrl, authHeaders, buildUrl, ensureFingerprint, parseApiError, request } from './api';
 
 const json = (body: unknown, init: ResponseInit = {}) =>
   new Response(JSON.stringify(body), { headers: { 'Content-Type': 'application/json' }, ...init });
@@ -29,6 +29,10 @@ describe('apiBaseUrl', () => {
     expect(apiBaseUrl(undefined)).toBe('https://api.files.gg');
     expect(apiBaseUrl('')).toBe('https://api.files.gg');
     expect(apiBaseUrl('http://localhost:8080/')).toBe('http://localhost:8080');
+  });
+
+  it('resolves a path base (the dev mock) against the page origin', () => {
+    expect(apiBaseUrl('/__mock-api')).toBe(`${window.location.origin}/__mock-api`);
   });
 
   it('builds URLs with query params, skipping empty values', () => {
@@ -153,5 +157,32 @@ describe('parseApiError', () => {
     const error = await parseApiError(json({ code: { nested: true }, message: 42 }, { status: 400 }));
     expect(error.code).toBeNull();
     expect(error.message).toBe('Request failed with status 400');
+  });
+});
+
+describe('Milestone 2 endpoints', () => {
+  it('unlock posts password + Turnstile token without auth headers', async () => {
+    localStorage.setItem('token', JSON.stringify('tok'));
+    const fetchMock = mockFetch(json({ token: 't', expires_at: 1, file: {} }));
+    await api.unlock('album', 'v1', 'pw', 'XXXX.DUMMY.TOKEN.XXXX');
+    expect(fetchMock.mock.calls[0]?.[0]).toBe('https://api.files.gg/albums/v1/unlock');
+    expect(sentHeaders(fetchMock)).not.toHaveProperty('Authorization');
+  });
+
+  it('view sends the token in X-Filesgg-Access, never the query string', async () => {
+    const fetchMock = mockFetch(json({ file: {}, expires_at: 1 }));
+    await api.view('file', 'abcd/xyz', 'secret-token');
+    expect(fetchMock.mock.calls[0]?.[0]).toBe('https://api.files.gg/files/abcd/xyz/view');
+    expect(sentHeaders(fetchMock)['X-Filesgg-Access']).toBe('secret-token');
+  });
+
+  it('ensureFingerprint reuses a stored fingerprint or fetches and stores one', async () => {
+    const fetchMock = mockFetch(json({ fingerprint: 123 }));
+    await expect(ensureFingerprint()).resolves.toBe('123');
+    expect(localStorage.getItem('fingerprint')).toBe('"123"');
+    await expect(ensureFingerprint()).resolves.toBe('123');
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    localStorage.setItem('token', JSON.stringify('t'));
+    await expect(ensureFingerprint()).resolves.toBeNull();
   });
 });

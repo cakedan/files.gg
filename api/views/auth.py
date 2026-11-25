@@ -10,7 +10,8 @@ from utils import email_templates
 from utils.email import Email
 from utils.email_domain import domain_accepts_mail
 from utils.params import Arg, Args
-from utils.recaptcha import Recaptcha
+from utils.turnstile import Turnstile
+from utils.urls import public_url
 from utils.responses import ApiError, ApiResponse
 from utils.tokens import FingerprintToken, EmailForgotToken, EmailVerifyToken, UserToken
 from utils.wrappers import authenticate, parse_args, route
@@ -23,12 +24,14 @@ auth = Blueprint('auth', url_prefix='/auth')
 Fingerprint = Annotated[Optional[int], Arg('x-fingerprint', location='headers', type=parameters.fingerprint)]
 
 
-async def verify_captcha(captcha):
-    response = await Recaptcha.verify(captcha)
-    if response.status_code != 200:
-        raise ApiError(metadata={'errors': {'captcha': 'Error verifying Captcha'}})
-    captcha = response.json()
-    if not captcha['success']:
+# Turnstile (contract §8) replaced reCAPTCHA. These endpoints predate Milestone 2,
+# so they keep their error shape: the token arrives as `turnstile_token` (or the
+# legacy `captcha` field) and failures are reported under `captcha`.
+Captcha = Annotated[Optional[str], Arg('captcha', aliases=('turnstile_token',))]
+
+
+async def verify_captcha(request, token, action):
+    if not await Turnstile.verify(token, action, helpers.client_ip(request)):
         raise ApiError(metadata={'errors': {'captcha': 'Invalid Captcha'}})
 
 
@@ -56,21 +59,21 @@ async def auth_fingerprint(request, args):
 class LoginArgs(Args):
     email: Annotated[Optional[str], Arg(type=parameters.email)]
     password: Annotated[Optional[str], Arg(type=parameters.password)]
-    captcha: Annotated[Optional[str], Arg()]
+    captcha: Captcha
     fingerprint: Fingerprint = None
 
 
 @route(auth, '/login', ['POST'])
 @parse_args(LoginArgs)
 async def auth_login(request, args):
-    await verify_captcha(args.captcha)
+    await verify_captcha(request, args.captcha, 'login')
 
     async with db.connection() as conn:
         user = await queries.get_user_by_email(conn, args.email)
         if user is None:
             raise ApiError('Invalid Email or Password')
 
-        if not check_password_hash(user.password, args.password):
+        if not user.password or not check_password_hash(user.password, args.password):
             raise ApiError('Invalid Email or Password')
 
         if args.fingerprint is not None:
@@ -91,13 +94,13 @@ class RegisterArgs(Args):
     email: Annotated[Optional[str], Arg(type=parameters.email)]
     username: Annotated[Optional[str], Arg(type=parameters.username)]
     password: Annotated[Optional[str], Arg(type=parameters.password)]
-    captcha: Annotated[Optional[str], Arg()]
+    captcha: Captcha
     fingerprint: Fingerprint = None
 
 
 async def send_verify_email(email, username, token):
     subject, html, text = email_templates.verify_email(
-        username=username, url='https://files.gg/auth/verify/{}'.format(token))
+        username=username, url=public_url('/auth/verify/{}'.format(token)))
     await Email.send(to=email, to_name=username, subject=subject, html=html, text=text,
                      tag='auth-verify')
 
@@ -111,7 +114,7 @@ async def auth_register(request, args):
         if await queries.user_exists(conn, args.username, discriminator):
             raise ApiError(metadata={'errors': {'username': 'Already taken'}})
 
-    await verify_captcha(args.captcha)
+    await verify_captcha(request, args.captcha, 'register')
 
     # Postmark has no mailbox check: reject domains that can't receive mail (keeps bounces low);
     # the verification email is the real proof the mailbox exists
@@ -182,6 +185,8 @@ async def auth_verify_resend(request, user):
 
 class ForgotArgs(Args):
     email: Annotated[Optional[str], Arg(type=parameters.email)]
+    # optional here so an unknown email still answers as before; checked before any email is sent
+    captcha: Annotated[Optional[str], Arg('captcha', aliases=('turnstile_token',))] = None
 
 
 @route(auth, '/forgot', ['POST'])
@@ -191,10 +196,11 @@ async def auth_forgot(request, args):
         user = await queries.get_user_by_email(conn, args.email)
     if user is None:
         raise ApiError(metadata={'errors': {'email': 'Email not in use'}})
+    await verify_captcha(request, args.captcha, 'forgot')
 
     token = EmailForgotToken.generate({'user_id': user.id, 'email': user.email})
     subject, html, text = email_templates.reset_password(
-        username=user.username, url='https://files.gg/auth/forgot/{}'.format(token))
+        username=user.username, url=public_url('/auth/forgot/{}'.format(token)))
     await Email.send(to=user.email, to_name=user.username, subject=subject, html=html, text=text,
                      tag='auth-forgot')
     return ApiResponse(status=204)
