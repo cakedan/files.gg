@@ -1,14 +1,28 @@
 # files.gg redesign plan
 
-Status: **v0.2: Milestone 1 built on branch `redesign/milestone-1`** (2026-11-24); see §0
+Status: **Milestones 1–7 built and committed on `redesign/milestone-3`** (2026-11-25); what's left is the launch itself, in [`LAUNCH.md`](LAUNCH.md). See §0.
 
-Goal: move files.gg's viewer to work like nsb.gg's and its account area to work like notsobot.com's dashboard, while keeping files.gg's own identity: the green, the rounded "F" and `.gg`. The existing URLs (`files.gg/<vanity>.<ext>`, `cdn.files.gg/files/<vanity>.<ext>`) must keep working.
+Goal: move files.gg's viewer to work like nsb.gg's and its account area to work like notsobot.com's dashboard, while keeping files.gg's own identity: the green, the rounded "F" and `.gg`. Nothing is carried over from the old site (decided 2026-11-25): no data, no old links, no old API shapes; an old link gets the plain missing page.
 
 ---
 
 ## 0. Progress
 
-### Milestone 1: foundations (built 2026-11-24, not yet committed or deployed)
+| Milestone | Commit | Contract | What it added |
+|---|---|---|---|
+| 1. Foundations | `0e126d4` | (this plan) | Sanic API on psycopg 3, the hardened CDN Worker, the React app, Postgres 19 with backups, the new logo |
+| 2. Storage and uploads | `bb22eed` | [milestone-2](contracts/milestone-2.md) | B2, single and chunked uploads, expiry, limits, link/password/private access, Turnstile, the local e2e stack |
+| 3. Media and library | `d9240b5`, `7ed11a4` | [milestone-3](contracts/milestone-3.md) | Previews, players, the text viewer, albums, the file library, signed CDN URLs; the squashed schema, curated file types, executables blocked |
+| 4. Trust & safety | `c63ddc3` | [milestone-4](contracts/milestone-4.md) | Scanning gates (PhotoDNA, ClamAV, Web Risk), NSFW, reports, appeals, the admin queue, the security review fixes |
+| 6. Accounts | `9c82e0f` | [milestone-6](contracts/milestone-6.md) | Sessions, Discord identities, upload keys, premium, custom domains, view limits |
+| 5. Conversion | `181f86e` | [milestone-5](contracts/milestone-5.md) | Conversions on RQ worker pools, document previews, Redis rate limits, guests, upload defaults, the home, changelog and legal pages |
+| 7. Rollout | `61fa1ad`, `c839c4c` | [milestone-7](contracts/milestone-7.md) | Production compose, nginx, zero-downtime `ops/deploy.sh`, metrics, Prometheus, Grafana and alerts, the launch gates, [`LAUNCH.md`](LAUNCH.md); Discord sign-in made optional |
+
+Milestone 6 was committed before 5. **Latest full verification** (2026-11-25, after Milestone 7): API 952 passed (1 opt-in network test skipped), web 1,134, Worker 655, e2e 44 steps and 961 checks on a fresh stack, `ops/smoke.mjs --uploads` 304 checks, the load test (404 uploads, no failures), the restore drill, five zero-downtime rollovers with no failed requests, and a browser pass. **Not deployed:** the launch steps are in [`LAUNCH.md`](LAUNCH.md).
+
+The milestone sections below are the record of what each one found while it was being built.
+
+### Milestone 1: foundations (built 2026-11-24, committed `0e126d4`)
 
 | Part | What landed | Verified |
 |---|---|---|
@@ -17,7 +31,7 @@ Goal: move files.gg's viewer to work like nsb.gg's and its account area to work 
 | **Web app** (`web/`) | Vite + React 19 + TypeScript + Tailwind v4. Viewer entry (≈78 KB gzipped, no dashboard code) with the nsb.gg boot states, the card, the image lightbox and dev fixtures. **PDF viewer** (pdf.js 6.5 in a lazy 145 KB chunk, plus its worker): text and annotation layers, lazy page rendering, search, thumbnails and outline, zoom, rotate, fullscreen, `#page=` deep links, a password prompt and an external-link interstitial. **Album page** (`/a/<vanity>`): grid, list and tracklist layouts, a lightbox carousel with URL sync, and an NSFW gate. Native video and audio renderers. Dashboard entry with the sidebar/drawer layout and placeholder sections, including Albums and Convert, plus a public `/convert` placeholder. Typed API client compatible with the old app's localStorage keys. Brand tokens and favicons. | 210 Vitest tests, typecheck, lint, build. Viewer entry +1.6 KB for all of this. PDF, album grid and tracklist checked in the browser at desktop and 375 px widths. |
 | **Deploy** (`docker-compose.yml`, `nginx/`) | One-off `migrate` service, which `api` and `worker` wait on. Secrets are required through `${VAR:?}` (no more empty `SECRET_KEY`), now including `ORIGIN_SHARED_SECRET`. New `worker` service. API healthcheck. nginx overwrites `X-Forwarded-For`. | `docker compose config` with and without secrets. |
 
-### Milestone 2: storage, uploads, expiry, limits, access (built 2026-11-24 on `redesign/milestone-2`, not yet committed or deployed)
+### Milestone 2: storage, uploads, expiry, limits, access (built 2026-11-24, committed `bb22eed`)
 
 The exact cross-service formats are in [`contracts/milestone-2.md`](contracts/milestone-2.md).
 
@@ -30,12 +44,12 @@ The exact cross-service formats are in [`contracts/milestone-2.md`](contracts/mi
 
 **Found in the Milestone 2 checks (to do):**
 - ~~**Mimetype tables are empty after the migrations.**~~ Fixed by the 2026-11-25 squash: `0002_mimetypes.sql` seeds 228 curated types, and the e2e seed file is gone.
-- **Access changes take up to ~30 s to reach the CDN,** because of the Worker's lookup cache (contract §2). The plan promises immediate revocation. Options: shorten the cache to ~5 s, or have the API bump a purge key the Worker checks. Decide before launch.
+- ~~**Access changes take up to ~30 s to reach the CDN.**~~ Decided in Milestone 3: a 5 s lookup cache.
 - ~~**`#pw=` / `#t=` pasted into an already-open tab of the same file** leaves the password visible in the address bar.~~ Fixed on `redesign/milestone-3`: the viewer also handles `hashchange` (`watchFragmentSecrets`), strips the fragment and re-mounts the page with it.
 - `test_three_workers_lease…` is flaky: a Sanic shutdown race. It was flaky before Milestone 2.
 - Discordbot gets the embed page rather than a redirect to the CDN. That matches the old Worker; only Telegram is redirected, and protected files are never redirected.
 
-**Before the first deploy:**
+**Before the first deploy** (now all in [`LAUNCH.md`](LAUNCH.md), which `ops/check-env.sh` enforces; kept for the record):
 - **Check Cloudflare's request-body limit on the real zone** (Milestone 5, 2026-11-25): upload a file of exactly 100,000,000 bytes with an upload key through `api.files.gg`. It must succeed; ShareX and curl are promised 100 MB. If Cloudflare answers 413, its "100 MB" means 10⁸ bytes: set `PROXY_BODY_LIMIT_BYTES=100000000` (the cap becomes 98.95 MB) or move to a plan with a bigger limit.
 - Set `SECRET_KEY`, `RPC_KEY`, `DATABASE_URL`, `ORIGIN_SHARED_SECRET` and `VIEW_HASH_SECRET` (compose now refuses to start without them). Generate the last with `openssl rand -hex 32`, and set the **same value** as the worker's `ORIGIN_SHARED_SECRET` binding.
 - ~~Set `PROXY_SECRET` on the worker.~~ **`proxy.files.gg` is removed (decided 2026-11-25):** nothing in files.gg used it, and a shared-secret URL fetcher was a needless abuse risk. Delete the `PROXY_SECRET` Worker secret and the `proxy.files.gg` DNS record when deploying.
@@ -44,13 +58,13 @@ The exact cross-service formats are in [`contracts/milestone-2.md`](contracts/mi
 
 **Follow-ups found while building:**
 - ~~Make psycopg2 cooperative under gevent~~: no longer applies after the Sanic and psycopg 3 port.
-- Seed the mimetype tables as a migration.
+- ~~Seed the mimetype tables as a migration.~~ `0002_mimetypes.sql`.
 - `to_dict` returns `extension: "unknown"` when there is none.
 - ~~Evaluate peewee 4~~: Peewee is being removed.
 - ~~The worker's npm scripts call `nodejs`~~ / ~~old zone-script upload~~: replaced by wrangler. **Before the first `wrangler deploy`:** remove the old unnamed zone-level Worker and its routes in the Cloudflare dashboard, add `www.files.gg/*` to `routes` if it was routed before, and set the `PROXY_SECRET` and `ORIGIN_SHARED_SECRET` secrets with `wrangler secret put`.
-- `files.gg/favicon.ico` and other root files must be routed before vanity matching once the new viewer is served.
+- ~~`files.gg/favicon.ico` and other root files must be routed before vanity matching.~~ Done in Milestone 2: `web/dist` files are served before any vanity lookup.
 
-### Milestone 3: media, albums, library (in progress on `redesign/milestone-3`)
+### Milestone 3: media, albums, library (committed `d9240b5`)
 
 The exact formats are in [`contracts/milestone-3.md`](contracts/milestone-3.md).
 | Part | What landed | Verified |
@@ -135,9 +149,9 @@ The exact formats are in [`contracts/milestone-3.md`](contracts/milestone-3.md).
 - Sanic bug: a SIGTERM within about a second of startup can hang the main process (reproduced on a bare Sanic app). Docker's SIGKILL covers it.
 - Sanic percent-encodes `@`, so `/users/@me` is matched as `/users/<me>`, and OpenAPI shows it that way.
 - `isEvalSupported` was removed in pdf.js 6 (it has no eval path); `enableScripting: false` is still set.
-- Restrict the origin to Cloudflare (Authenticated Origin Pulls, or the `allow` list in `nginx.conf`) as defence in depth alongside the shared secret.
+- ~~Restrict the origin to Cloudflare.~~ Milestone 7: Authenticated Origin Pulls in nginx, and a firewall allowing only Cloudflare's ranges (`ops/cloudflare-ips.sh`, `ops/nftables.conf.example`).
 
-**Proposed order of the remaining work** (each item needs the ones before it):
+**Build order** (as proposed; all done, with Milestone 6 before 5):
 1. **Milestone 2: storage and uploads.** B2, streaming and chunked uploads, expiry and limits, and the worker serving the new viewer shell with inlined file and album data. It also includes **access control** (link, password and private, with signed CDN tokens), because it changes how the CDN serves every byte, and is cheaper to build in from the start than to retrofit.
 2. **Milestone 3: media.** `probe` / `derive` (thumbnails, posters, covers, waveforms), players and the text viewer, and the album API and dashboard editor.
 3. **Milestone 4: trust & safety.** Scanning gates, NSFW, the report system and the admin queue. **Required before public launch.**
