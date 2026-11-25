@@ -79,9 +79,9 @@ def _decide(row, anonymous, nsfw):
     return refusal(reason, scan_state, scan_reason, bool(nsfw_auto), warnings or (), anonymous, nsfw)
 
 
-def standing(conn, user_id=None, fingerprint=None, ip_hash=None):
+def standing(conn, user_id=None, guest_id=None, ip_hash=None):
     """Sync: an error code and its `until` for a banned or restricted uploader, else (None, None)."""
-    if user_id is None and core.active_ban(conn, fingerprint=fingerprint, ip_hash=ip_hash):
+    if user_id is None and core.active_ban(conn, guest_id=guest_id, ip_hash=ip_hash):
         return 'BANNED', None
     if user_id is not None:
         if core.active_ban(conn, ip_hash=ip_hash):

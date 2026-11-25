@@ -13,7 +13,7 @@ TARGETS=(postgres)
 # how many daily/weekly/monthly/yearly snapshots restic forget keeps (DB_BACKUP_KEEP_* in .env), a number or `unlimited`
 KEEP=(
 	--keep-daily "${DB_BACKUP_KEEP_DAILY:-14}"
-	--keep-weekly "${DB_BACKUP_KEEP_WEEKLY:-unlimited}"
+	--keep-weekly "${DB_BACKUP_KEEP_WEEKLY:-52}"
 	--keep-monthly "${DB_BACKUP_KEEP_MONTHLY:-0}"
 	--keep-yearly "${DB_BACKUP_KEEP_YEARLY:-0}"
 )

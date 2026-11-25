@@ -20,16 +20,6 @@ def authenticate():
     return decorator
 
 
-def ratelimit(amount, time):
-    def decorator(func):
-        @wraps(func)
-        async def wrapper(*args, **kwargs):
-            # ratelimit by ip/token?
-            return await func(*args, **kwargs)
-        return wrapper
-    return decorator
-
-
 def parse_args(model, form=True):
     """Validate the request against a utils.params.Args model and pass it as
     the first argument after `request`. Route params the model reads

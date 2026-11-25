@@ -2,6 +2,7 @@ import { Flag } from 'lucide-react';
 import { lazy, Suspense, useState, type MouseEvent } from 'react';
 
 import { LinkButton, type ButtonVariant } from '../../components/Button';
+import { mainUrl } from '../host/context';
 import { reportPath, type ReportableTarget } from './reportPath';
 
 /** The report form is its own chunk: it loads on the first click, not with the page. */
@@ -16,11 +17,17 @@ export function ReportButton({
   target,
   variant = 'ghost',
   compact = false,
+  plain = false,
 }: {
   target: ReportableTarget;
   variant?: ButtonVariant;
   /** Icon only (the album lightbox toolbar). */
   compact?: boolean;
+  /**
+   * A text link (the file footer's "Terms · Privacy · Report", milestone-5 §19.2), to
+   * files.gg's report page: absolute on a custom domain.
+   */
+  plain?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const onClick = (event: MouseEvent<HTMLAnchorElement>) => {
@@ -28,6 +35,21 @@ export function ReportButton({
     event.preventDefault();
     setOpen(true);
   };
+  const dialog = open && (
+    <Suspense fallback={null}>
+      <ReportDialog target={target} onClose={() => setOpen(false)} />
+    </Suspense>
+  );
+  if (plain) {
+    return (
+      <>
+        <a href={mainUrl(reportPath(target))} onClick={onClick} aria-haspopup="dialog" className="hover:text-text hover:underline">
+          Report
+        </a>
+        {dialog}
+      </>
+    );
+  }
   return (
     <>
       <LinkButton
@@ -42,11 +64,7 @@ export function ReportButton({
         <Flag aria-hidden className="size-4" />
         {!compact && 'Report'}
       </LinkButton>
-      {open && (
-        <Suspense fallback={null}>
-          <ReportDialog target={target} onClose={() => setOpen(false)} />
-        </Suspense>
-      )}
+      {dialog}
     </>
   );
 }

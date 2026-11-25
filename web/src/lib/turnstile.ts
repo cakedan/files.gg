@@ -9,8 +9,8 @@
 
 export const TURNSTILE_SCRIPT = 'https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit';
 
-/** `view`: opening a view-limited file (milestone-6 §19.4). */
-export type TurnstileAction = 'unlock' | 'upload' | 'login' | 'register' | 'forgot' | 'reset' | 'report' | 'view';
+/** `view`: opening a view-limited file (milestone-6 §19.4). `convert`: an anonymous conversion (milestone-5 §7.1). */
+export type TurnstileAction = 'unlock' | 'upload' | 'login' | 'register' | 'forgot' | 'reset' | 'report' | 'view' | 'convert';
 
 export interface TurnstileRenderOptions {
   sitekey: string;

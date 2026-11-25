@@ -46,6 +46,58 @@ describe('Settings → Profile (milestone-6 §2.2, §8.1)', () => {
   });
 });
 
+describe('Settings → Uploads (milestone-5 §21)', () => {
+  const USER_LIMITS = { storage: { used: 0, limit: 1e10 }, max_file_size_single: 1e8, max_file_size_chunked: 1e9, max_expiry: null, allow_no_expiry: true, anonymous: false, nsfw_allowed: true };
+
+  it('shows the saved defaults, and saves the changed ones', async () => {
+    const saved = { expires_in: 7 * 86400, visibility: 'link' as const, nsfw: false };
+    const { fetchMock } = setup(
+      { ...ME, settings: { ...ME.settings, upload_defaults: saved } },
+      {
+        'GET /users/@me/limits': () => USER_LIMITS,
+        'PATCH /users/@me': ({ body }) => ({ ...ME, settings: { ...ME.settings, upload_defaults: { ...saved, ...body.settings.upload_defaults } } }),
+      },
+    );
+    renderDashboard('/settings/uploads');
+    const panel = await screen.findByRole('region', { name: 'Upload defaults' });
+    const expiry = within(panel).getByLabelText('Expires');
+    expect(expiry).toHaveValue(String(7 * 86400));
+    expect(within(expiry).getAllByRole('option').map((option) => option.textContent)).toEqual(['Never', '1 hour', '1 day', '7 days', '21 days']);
+    expect(within(panel).getByRole('radio', { name: /Anyone with the link/ })).toBeChecked();
+    const save = within(panel).getByRole('button', { name: 'Save defaults' });
+    expect(save).toBeDisabled();
+
+    fireEvent.change(expiry, { target: { value: 'null' } });
+    fireEvent.click(within(panel).getByRole('radio', { name: /Password: a new one generated for each file/ }));
+    await waitFor(() => expect(within(panel).getByLabelText('Mark uploads as adult content', { exact: false })).toBeEnabled());
+    fireEvent.click(within(panel).getByLabelText('Mark uploads as adult content', { exact: false }));
+    fireEvent.click(save);
+    expect(await screen.findByText('Upload defaults saved.')).toBeInTheDocument();
+    expect(calls(fetchMock).find((call) => call.method === 'PATCH')!.body).toEqual({ settings: { upload_defaults: { expires_in: null, visibility: 'password', nsfw: true } } });
+    expect(within(panel).getByRole('button', { name: 'Save defaults' })).toBeDisabled();
+  });
+
+  it('lists a saved expiry that isn’t a preset, and shows the API’s field error', async () => {
+    setup(
+      { ...ME, settings: { ...ME.settings, upload_defaults: { expires_in: 3 * 86400, visibility: 'private', nsfw: false } } },
+      {
+        'GET /users/@me/limits': () => USER_LIMITS,
+        'PATCH /users/@me': () =>
+          jsonResponse({ code: 'INVALID_PARAMETERS', message: 'Some fields are invalid', status: 400, errors: { 'settings.upload_defaults.expires_in': 'Must be at most 21 days' } }, 400),
+      },
+    );
+    renderDashboard('/settings/uploads');
+    const panel = await screen.findByRole('region', { name: 'Upload defaults' });
+    expect(within(panel).getByLabelText('Expires')).toHaveValue(String(3 * 86400));
+    expect(within(panel).getByRole('option', { name: '3 days' })).toBeInTheDocument();
+    expect(within(panel).getByRole('radio', { name: /Only me/ })).toBeChecked();
+    fireEvent.change(within(panel).getByLabelText('Expires'), { target: { value: String(86400) } });
+    fireEvent.click(within(panel).getByRole('button', { name: 'Save defaults' }));
+    expect(await within(panel).findByText('Must be at most 21 days')).toBeInTheDocument();
+    expect(screen.queryByText('Upload defaults saved.')).not.toBeInTheDocument();
+  });
+});
+
 describe('Settings → Security (§3.5, §5.6, §8.3–§8.5)', () => {
   it('asks to re-authenticate on REAUTH_REQUIRED, then retries the email change', async () => {
     let fresh = false;

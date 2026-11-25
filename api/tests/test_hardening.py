@@ -82,9 +82,13 @@ def test_finalize_gives_up_when_no_vanity_is_free(client, appdb, monkeypatch):
     assert put(client, headers, session['upload_id'], 0, data).status_code == 204
     assert client.post('/uploads/{}/complete'.format(session['upload_id']), headers=headers).status_code == 202
 
-    monkeypatch.setattr(finalize_module, 'generate_vanity', lambda pattern='': taken)
-    with pytest.raises(RuntimeError, match='no free vanity'):
+    # the File insert finalize shares with conversion outputs (db/file_rows.py, milestone-5 §4.4)
+    from db import file_rows
+    from utils.responses import ApiError
+    monkeypatch.setattr(file_rows, 'generate_vanity', lambda pattern='': taken)
+    with pytest.raises(ApiError) as raised:
         finalize_module.finalize(int(session['upload_id']))
+    assert raised.value.code == 'VANITY_EXHAUSTED'
     # nothing was committed: the job queue's retry finishes it
     assert client.get('/uploads/' + session['upload_id'], headers=headers).json()['status'] == 'processing'
     monkeypatch.undo()
@@ -236,7 +240,7 @@ def test_unlock_rate_limit_is_per_ipv6_64(client, appdb):
 def test_anonymous_ip_cap_is_per_ipv6_64(client, appdb, monkeypatch):
     monkeypatch.setenv('LIMIT_ANONYMOUS_DAILY_BYTES', '3000')
     net = _v6_net()
-    for host in (1, 2):  # 992 bytes each, from two addresses (and fingerprints) in one /64
+    for host in (1, 2):  # 992 bytes each, from two addresses (and guests) in one /64
         upload(client, anonymous('{}::{:x}'.format(net, host)), content=uuid.uuid4().bytes * 62,
                turnstile_token=TURNSTILE_TOKEN)
     response = client.post('/files', headers=anonymous(net + '::3'),

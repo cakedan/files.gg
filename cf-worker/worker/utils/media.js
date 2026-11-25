@@ -8,7 +8,8 @@ import { uniqueNames } from './zip.js';
 
 
 // The fixed set of preview kinds (contract §3), each with its one extension and the type it is
-// served with when the stored row has none.
+// served with when the stored row has none. `document` (milestone-5.md §9.2: an Office document
+// rendered to PDF for the viewer's pdf.js) is always served as `application/pdf`, whatever the row says.
 export const PREVIEW_KINDS = Object.freeze({
   thumb: Object.freeze({ ext: 'webp', type: 'image/webp' }),
   'thumb-2x': Object.freeze({ ext: 'webp', type: 'image/webp' }),
@@ -18,6 +19,7 @@ export const PREVIEW_KINDS = Object.freeze({
   waveform: Object.freeze({ ext: 'webp', type: 'image/webp' }),
   peaks: Object.freeze({ ext: 'json', type: 'application/json' }),
   hover: Object.freeze({ ext: 'mp4', type: 'video/mp4' }),
+  document: Object.freeze({ ext: 'pdf', type: 'application/pdf', fixedType: true }),
 });
 // An album's own resources: `/albums/<resource>/<album vanity>.<ext>`.
 export const ALBUM_RESOURCES = Object.freeze({
@@ -141,8 +143,11 @@ export function parseAlbumPath(pathname) {
 
 
 // The type a preview is served with: the stored row's, unless it is missing or could render as a
-// page; then the fixed type for the kind.
+// page, or the kind's type is fixed; then the fixed type for the kind.
 export function previewContentType(kind, row) {
+  if (Object.hasOwn(PREVIEW_KINDS, kind) && PREVIEW_KINDS[kind].fixedType) {
+    return PREVIEW_KINDS[kind].type;
+  }
   const type = row && typeof(row.content_type) === 'string' ? row.content_type.trim() : '';
   if (!type || isForcedText(type) || /^text\/html/i.test(type)) {
     return (Object.hasOwn(PREVIEW_KINDS, kind) && PREVIEW_KINDS[kind].type) || 'application/octet-stream';

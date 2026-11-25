@@ -221,6 +221,28 @@ def scan_default(request):
     yield
 
 
+# --- Milestone 5 (§18): the rate limits are on the real Redis at REDIS_URL (docker-compose.test.yml), emptied before
+# every test so no window leaks from one test into another. Every request of the suite comes from this one machine,
+# so the global limit (50 a second per client, §18.2) is raised for the other suites' quick loops; every other limit
+# keeps its value, and tests/test_ratelimit.py checks the real ones. A test that sets RATE_LIMITS itself starts from
+# `SUITE_RATE_LIMITS`. ----------------------------------------------------------------------------------------------
+
+SUITE_RATE_LIMITS = {'global': '100000 per second'}
+
+
+def rate_limits_env(**values):
+    import json
+    return json.dumps(dict(SUITE_RATE_LIMITS, **values))
+
+
+@pytest.fixture(autouse=True)
+def redis_flushed(monkeypatch):
+    from utils import redis as redis_clients
+    monkeypatch.setenv('RATE_LIMITS', rate_limits_env())
+    redis_clients.get_sync().flushdb()
+    yield
+
+
 def s3_object(key):
     """The bytes of an object in the files bucket, or None."""
     try:

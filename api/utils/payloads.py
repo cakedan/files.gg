@@ -52,17 +52,21 @@ def preview_url(fobj, kind, version):
 
 
 def assets_dict(fobj, sign=None):
-    """{"thumb": {"url", "width", "height"}, "peaks": {"url"}, ...}: every ready preview."""
+    """{"thumb": {"url", "width", "height"}, "peaks": {"url"}, "document": {"url", "size", "pages"}, ...}: every
+    ready preview. Their version (?v=) is the hash's `derived_at`; a document's preview (milestone-5 §9.2), and the
+    thumbnails made from it, can exist without one (documents aren't derived), and then use their own time."""
     fhash = fobj.hash
-    if fhash is None or fhash.derived_at is None or not fhash.assets:
+    if fhash is None or not fhash.assets:
         return {}
-    version = epoch(fhash.derived_at)
     out = {}
     for asset in fhash.assets:
+        version = epoch(fhash.derived_at or asset.created_at)
         url = preview_url(fobj, asset.kind, version)
         entry = {'url': sign(url) if sign else url}
         if asset.width is not None and asset.height is not None:
             entry['width'], entry['height'] = asset.width, asset.height
+        if asset.kind == 'document':
+            entry['size'], entry['pages'] = asset.size, asset.pages
         out[asset.kind] = entry
     return out
 

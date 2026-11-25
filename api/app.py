@@ -4,12 +4,14 @@
 
 `create_app()` runs in the main process and in every worker process. Per
 worker (`before_server_start`): the psycopg pool, the Snowflake node lease
-(heartbeat as an asyncio task), the outbound httpx client and blob storage.
+(heartbeat as an asyncio task), the outbound httpx client, the Redis clients
+(milestone-5 §18) and blob storage.
 All of it is released in `after_server_stop`. Nothing is leased in the main
 process.
 """
 
 import logging
+import math
 import os
 
 
@@ -24,7 +26,7 @@ REQUIRED_SECRETS = (
 )
 # public, credential-less CORS only (milestone-6 §12): no origin gets credentials, and the CSRF header
 # (X-Filesgg-Csrf) is never allowed cross-origin
-CORS_ALLOW_HEADERS = 'Authorization, Content-Type, X-Fingerprint, X-Filesgg-Access'
+CORS_ALLOW_HEADERS = 'Authorization, Content-Type, X-Filesgg-Access'
 CORS_ALLOW_METHODS = 'DELETE, GET, HEAD, OPTIONS, PATCH, POST, PUT, TRACE'
 JSON = 'application/json'
 VERSION = '0.0.1'
@@ -56,6 +58,10 @@ def create_app(name='filesgg', database_url=None, storage=None):
     # milestone-6 §15: SESSION_COOKIE_INSECURE only with FILESGG_DEV_TOOLS, Discord's id and secret together
     from utils import account_settings as account_config
     account_config.check_api()
+    # milestone-5 §14: REDIS_URL is required, and RATE_LIMITS must parse
+    from utils import ratelimit, redis as redis_clients
+    redis_clients.url()
+    ratelimit.check_config()
 
     from sanic import Sanic
     from sanic.exceptions import MethodNotAllowed, SanicException
@@ -86,6 +92,7 @@ def create_app(name='filesgg', database_url=None, storage=None):
     from views.admin import admin
     from views.account import account
     from views.integrations import integrations
+    from views.conversions import conversions, my_conversions
 
     debug = truthy(os.getenv('DEBUG'))
     app = Sanic(name, strict_slashes=True)
@@ -155,7 +162,7 @@ def create_app(name='filesgg', database_url=None, storage=None):
     Snowflake.set_epoch(EPOCH)
 
     for blueprint in (auth, files, access_routes, health, me, mimetypes, users, uploads, internal, albums, reports,
-                      my_safety, admin, account, integrations):
+                      my_safety, admin, account, integrations, conversions, my_conversions):
         app.blueprint(blueprint)
 
     # --- per-worker resources ------------------------------------------------
@@ -169,6 +176,8 @@ def create_app(name='filesgg', database_url=None, storage=None):
         await lease.start(install=True)
         app.ctx.lease = lease
         app.ctx.http = http.open_client()
+        # milestone-5 §18: app.ctx.redis and app.ctx.redis_sync, as notsobot has them
+        redis_clients.open_clients(app)
         if app.ctx.storage is None:
             app.ctx.storage = await S3Storage().open()
             app.ctx.own_storage = True
@@ -184,6 +193,7 @@ def create_app(name='filesgg', database_url=None, storage=None):
             app.ctx.storage = None
             app.ctx.own_storage = False
         await http.close_client(getattr(app.ctx, 'http', None))
+        await redis_clients.close_clients(app)
         await db.close_pool(getattr(app.ctx, 'pool', None))
 
     # --- request / response handling -------------------------------------------
@@ -214,6 +224,9 @@ def create_app(name='filesgg', database_url=None, storage=None):
         """Milestone-6 §3.4, §3.6, §7.4: the session cookie (only via files.gg/api), upload keys (only on the
         upload endpoints) and CSRF. Leaves `request.ctx.auth`."""
         await auth_module.resolve(request)
+
+    # milestone-5 §18.1: the global limit and the route limits (priority 70, after the session and key lookups)
+    ratelimit.limiter.init_app(app)
 
     @app.on_request(priority=50)
     async def account_standing(request):
@@ -255,7 +268,12 @@ def create_app(name='filesgg', database_url=None, storage=None):
                 # never the exception's own text: it can carry internals
                 log.exception('unhandled error', exc_info=error)
                 error = ApiError(status=500)
-        return error.response
+        response = error.response
+        retry_after = error.data.get('retry_after')
+        if error.status == 429 and isinstance(retry_after, (int, float)):
+            # milestone-5 §18.1: every 429 carries `Retry-After`, in whole seconds and at least 1
+            response.headers['retry-after'] = str(max(math.ceil(retry_after), 1))
+        return response
 
     return app
 

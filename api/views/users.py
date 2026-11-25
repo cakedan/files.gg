@@ -1,15 +1,18 @@
 """`/users/<id>`: only `@me` exists (contract milestone-6 §8.1, decision 42: no public profiles).
 
     GET   /users/@me        the user object (§2.1)
-    PATCH /users/@me        { display_name?, settings?: { show_name_on_albums? } }
+    PATCH /users/@me        { display_name?, settings?: { show_name_on_albums?, upload_defaults? } }
     GET   /users/<id>       404
+
+`settings.upload_defaults` takes any of `expires_in`, `visibility` and `nsfw` (milestone-5 §21).
 """
 
+from psycopg.types.json import Jsonb
 from sanic import Blueprint
 from sanic.exceptions import NotFound
 
 import db
-from utils import accounts, errors, params, usernames
+from utils import accounts, errors, params, upload_defaults, usernames
 from utils.auth import require_session
 from utils.responses import ApiResponse
 from utils.wrappers import route
@@ -51,6 +54,8 @@ async def patch_user(request, user_id):
             if not isinstance(settings['show_name_on_albums'], bool):
                 raise errors.invalid_parameters({'settings.show_name_on_albums': 'Must be true or false'})
             changes['show_name_on_albums'] = settings['show_name_on_albums']
+        if 'upload_defaults' in settings:
+            changes['upload_defaults'] = Jsonb(upload_defaults.update(user, settings['upload_defaults']))
     async with db.connection() as conn:
         if changes:
             await conn.execute('UPDATE users SET {} WHERE id = %s'.format(

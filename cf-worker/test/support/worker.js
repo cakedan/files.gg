@@ -45,8 +45,8 @@ let nextId = 1000000000000000000n;
 export const PREVIEWS_VERSION = 1795600000;
 export const COLLAGE_VERSION = 1795600100;
 
-const PREVIEW_EXT = { peaks: 'json', hover: 'mp4' };
-const PREVIEW_TYPE = { json: 'application/json', mp4: 'video/mp4', webp: 'image/webp' };
+const PREVIEW_EXT = { peaks: 'json', hover: 'mp4', document: 'pdf' };
+const PREVIEW_TYPE = { json: 'application/json', mp4: 'video/mp4', webp: 'image/webp', pdf: 'application/pdf' };
 export const previewExt = (kind) => PREVIEW_EXT[kind] || 'webp';
 
 export const OK = Object.freeze({ state: 'ok', reason: null });
@@ -172,6 +172,13 @@ for (const vanity of ['mvid', 'mpw', 'mnsfw']) {
   files[vanity].file.thumbnail = { url: files[vanity].file.assets.poster.url, type: 'poster', width: 1280, height: 720 };
 }
 files.maudio.file.thumbnail = { url: files.maudio.file.assets.cover.url, type: 'cover', width: 1200, height: 1200 };
+// Milestone 5 §9: Office documents previewed as a PDF (the `document` asset), in each visibility.
+const docx = { kind: 'file', mimetype: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', size: 12 };
+addFile('mdoc', { ...docx, filename: 'report.docx', previews: { document: '%PDF-1.7 report', thumb: 'WEBP doc page1' } });
+addFile('mdocpw', { ...docx, visibility: 'password', accessVersion: 2, filename: 'secret.docx', previews: { document: '%PDF-1.7 secret' } });
+addFile('mdocpriv', { ...docx, visibility: 'private', filename: 'mine.docx', previews: { document: '%PDF-1.7 mine' } });
+// A stored row with a wrong type is still served as a PDF.
+addFile('mdocodd', { ...docx, filename: 'odd.docx', previews: { document: { body: '%PDF-1.7 odd', content_type: 'text/html' } } });
 // A vanity that is a preview kind, and multi-segment ones.
 addFile('thumb', { kind: 'image', filename: 'named-thumb.png', mimetype: 'image/png', size: 12, previews: { thumb: 'WEBP thumb of thumb' } });
 addFile('abcd/cover', { kind: 'audio', filename: 'deep.mp3', mimetype: 'audio/mpeg', size: 12, previews: { cover: 'WEBP deep cover' } });

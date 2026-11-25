@@ -1,4 +1,4 @@
-from utils.tokens import FingerprintToken
+from utils.tokens import GuestToken
 
 
 MIN_SNOWFLAKE = 0
@@ -31,8 +31,9 @@ def email(email):
     return email
 
 
-def fingerprint(fingerprint):
+def guest(token):
+    """The guest id a `GuestToken` names, or None when it isn't one of ours."""
     try:
-        return int(FingerprintToken.deconstruct(fingerprint))
+        return int(GuestToken.deconstruct(token))
     except:
         return None

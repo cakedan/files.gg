@@ -22,7 +22,7 @@ export function NsfwGate({ kind, onShow }: { kind: 'file' | 'album'; onShow: () 
         <h1 id={`${id}-title`} className="text-lg font-semibold">
           This {kind} may contain sensitive content
         </h1>
-        <p className="text-sm text-muted">It may include adult content (NSFW). Only continue if you're an adult and want to see it.</p>
+        <p className="text-sm text-muted">It may include adult content (NSFW). You must be 18 or older.</p>
         <label className="flex items-center gap-2 text-sm">
           <input
             type="checkbox"

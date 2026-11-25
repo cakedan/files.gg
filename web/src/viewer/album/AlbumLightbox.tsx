@@ -9,7 +9,7 @@ import { DownloadGuard } from '../components/DownloadGuard';
 import { RendererFallback } from '../components/RendererFallback';
 import { ReportButton } from '../components/ReportButton';
 import { fileReportTarget } from '../components/reportPath';
-import { getRenderer } from '../renderers';
+import { rendererFor } from '../renderers';
 import type { AlbumItem } from '../types';
 import { downloadUrl, shareUrl } from '../urls';
 import { stepIndex } from './albumUrl';
@@ -132,7 +132,7 @@ export function AlbumLightbox({ items, index, onGo, onClose }: AlbumLightboxProp
         <div className="relative flex min-h-0 flex-1 items-center justify-center px-2">
           <div key={index} className="flex max-h-full max-w-full items-center justify-center">
             <Suspense fallback={<RendererFallback file={item} />}>
-              {createElement(getRenderer(item.kind), { file: item, context: 'lightbox' })}
+              {createElement(rendererFor(item), { file: item, context: 'lightbox' })}
             </Suspense>
           </div>
           {index > 0 && (

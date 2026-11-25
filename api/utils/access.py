@@ -1,19 +1,16 @@
 """Who may see a file: visibility, owners, unlock tokens and their rate limits
-(contract §1 and §5, PLAN.md "Private and password-protected files")."""
+(contract §1 and §5, PLAN.md "Private and password-protected files"; the limits are on Redis, milestone-5 §18.3)."""
 
 import time
 
-from db import queries
 from db.models import epoch
-from utils import access_token, errors, view_hash
+from utils import access_token, view_hash
 from utils.helpers import client_ip
 
 # X-Filesgg-Access carries an unlock/owner token to /access/view; the middleware moves it
 # to request.ctx.access_token and removes the header, so it is never logged.
 ACCESS_HEADER = 'x-filesgg-access'
-UNLOCK_ATTEMPTS_PER_MINUTE = 5
-# /access/refresh and /access/view (no Turnstile): generous, but bounded
-ACCESS_REQUESTS_PER_MINUTE = 30
+# the network half of the `unlock` and `access` keys: the daily-rotating purpose hash, not the abuse IP hash
 RATE_PURPOSE = 'unlock'
 
 
@@ -28,10 +25,10 @@ async def optional_user(conn, request):
     return current.user if current.kind == 'session' else None
 
 
-def is_owner(fobj, user=None, fingerprint=None):
+def is_owner(fobj, user=None, guest_id=None):
     if user is not None and fobj.user_id == user.id:
         return True
-    return fobj.user_id is None and fingerprint is not None and fobj.fingerprint == fingerprint
+    return fobj.user_id is None and guest_id is not None and fobj.guest_id == guest_id
 
 
 def password_has_expired(fobj, at=None):
@@ -89,12 +86,10 @@ def mint(request, fobj, scope, unlocked_at, expires_at, kind='file'):
     return access_token.mint(claims, request.app.ctx.access_secret)
 
 
-async def rate_limit(conn, request, fobj, scope, limit, kind='file'):
+async def rate_limit(request, fobj, scope, kind='file'):
+    """`unlock` (5 a minute, closed) or `access` (token refresh and /view, 30 a minute, open) per file or album
+    and network (milestone-5 §18.3): 429 TOO_MANY_ATTEMPTS { retry_after }."""
+    from utils.ratelimit import limiter
     ip_hash = view_hash.purpose_hash(request.app.ctx.view_hash_secret, RATE_PURPOSE, view_hash.utc_today(),
                                      client_ip(request))
-    if kind == 'album':
-        count, retry_after = await queries.count_attempt(conn, None, scope, ip_hash, album_id=fobj.id)
-    else:
-        count, retry_after = await queries.count_attempt(conn, fobj.id, scope, ip_hash)
-    if count > limit:
-        raise errors.too_many_attempts(retry_after)
+    await limiter.hit(request, scope, '{}:{:x}:{}'.format(kind, fobj.id, ip_hash.hex()))

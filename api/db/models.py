@@ -52,6 +52,8 @@ class User:
     deletion_requested_at: Optional[datetime] = None
     deletion_scheduled_for: Optional[datetime] = None
     deleted_at: Optional[datetime] = None
+    # milestone-5 §21: what key uploads and conversions get when they don't say (utils/upload_defaults.py)
+    upload_defaults: Optional[dict] = None
     premium: bool = virtual(False)
     premium_expires_at: Optional[datetime] = virtual()
 
@@ -129,6 +131,8 @@ class FileHash:
     # migration 0004: scan jobs the sweeper found failed; held for staff (still pending) at the limit
     scan_failures: int = 0
     scan_stuck_at: Optional[datetime] = None
+    # Milestone 5 (§9.1): the document preview, none -> queued -> done / failed / skipped
+    preview_state: str = 'none'
     # file_hash_assets rows, when loaded (queries.attach_assets)
     assets: List['FileHashAsset'] = virtual(factory=list)
 
@@ -144,7 +148,7 @@ class File:
     filename: str
     hash_id: int
     user_id: Optional[int]
-    fingerprint: Optional[int]
+    guest_id: Optional[int]
     view_count: int
     size: Optional[int] = None
     expires_at: Optional[datetime] = None
@@ -174,6 +178,9 @@ class File:
     view_limit: Optional[int] = None
     view_limit_action: str = 'expire'
     views_used: int = 0
+    # Milestone 5 (§2.3): provenance of a conversion output
+    derived_from_file_id: Optional[int] = None
+    conversion_id: Optional[int] = None
     hash: Optional[FileHash] = virtual()
     user: Optional[User] = virtual()
     # [(album id, vanity, title)] for the owner's view, when loaded
@@ -203,7 +210,7 @@ class UploadSession:
 
     id: int
     owner_user_id: Optional[int]
-    owner_fingerprint: Optional[int]
+    owner_guest_id: Optional[int]
     owner_ip_hash: Optional[bytes]
     filename: str
     name: str
@@ -277,6 +284,8 @@ class FileHashAsset:
     width: Optional[int]
     height: Optional[int]
     created_at: datetime
+    # Milestone 5 (§9.2): the document preview's page count (only for `document`)
+    pages: Optional[int] = None
 
 
 @dataclass
@@ -286,7 +295,7 @@ class Album:
     id: int
     vanity: str
     owner_user_id: Optional[int]
-    owner_fingerprint: Optional[int]
+    owner_guest_id: Optional[int]
     title: Optional[str]
     description: Optional[str]
     cover_file_id: Optional[int]

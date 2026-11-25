@@ -30,7 +30,7 @@ export function isForcedText(mimetype) {
 
 // X-Filesgg-Access carries unlock tokens and owner passes for /access/view/files/<vanity> (contract §5,
 // milestone-6.md §20.1).
-export const CORS_ALLOW_HEADERS = 'Authorization, Content-Type, X-Fingerprint, X-Filesgg-Access';
+export const CORS_ALLOW_HEADERS = 'Authorization, Content-Type, X-Filesgg-Access';
 export const CORS_ALLOW_METHODS = 'DELETE, GET, HEAD, OPTIONS, PATCH, POST, PUT';
 
 // `mainOrigin` is the site allowed to frame CDN responses (MAIN_HOST; https://files.gg by default).

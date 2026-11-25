@@ -1,7 +1,7 @@
 /**
  * Sending reports (milestone-4 §7.3, milestone-6 §11.5). Signed in (the session cookie,
  * as `GET /auth/session` says): `POST /reports`. Signed out: `POST /reports/anonymous`
- * with a Turnstile token (action `report`) and the stored `X-Fingerprint`, if any.
+ * with a Turnstile token (action `report`) and the stored guest (`Authorization: Guest`), if any.
  *
  * Used by lazy report chunks only, so the API client never reaches the viewer's entry
  * bundle. The viewer's form has its own sender (src/viewer/report/send.ts) for custom

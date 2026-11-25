@@ -192,7 +192,7 @@ describe('view limits in the dashboard', () => {
   });
 
   it('anonymous: the limit shows, but it can only be set at upload', async () => {
-    localStorage.setItem('filesgg.fingerprint', 'fp1');
+    localStorage.setItem('filesgg.guest', 'fp1');
     setup({ client: createQueryClient() });
     const drawer = await openDrawer('limited.png');
     expect(within(drawer).getByRole('region', { name: 'View limit' })).toHaveTextContent('1 of 3 views used');

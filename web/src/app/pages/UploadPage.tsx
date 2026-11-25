@@ -1,11 +1,13 @@
 import { useQuery } from '@tanstack/react-query';
 import { Ban, FileUp, ShieldCheck, Upload } from 'lucide-react';
-import { Link } from 'react-router';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { Button } from '../../components/Button';
+import { InfoTip } from '../../components/InfoTip';
+import { AppLink } from '../components/AppLink';
+import { UploadAgreement } from '../../components/TermsAgreement';
 import { useTurnstile } from '../../components/useTurnstile';
-import { api, ensureFingerprint } from '../../lib/api';
+import { api, ensureGuest } from '../../lib/api';
 import { formatBytes } from '../../lib/format';
 import { queryKeys, useBadges, useMe } from '../../lib/queries';
 import { epochMs } from '../../lib/time';
@@ -18,11 +20,15 @@ import { UploadRow } from '../upload/UploadRow';
 import { useUploadAlbum } from '../upload/useUploadAlbum';
 import { useUploadQueue } from '../upload/useUploadQueue';
 
-/** PLAN.md Phase 3 "Upload": drop anywhere, paste or pick; chunked and resumable above 10 MiB. */
-export default function UploadPage() {
+/**
+ * PLAN.md Phase 3 "Upload": drop anywhere, paste or pick; chunked and resumable above 10 MiB. `embedded` is
+ * the home page's copy (outside the dashboard, under its own heading): no page title or heading of its own,
+ * and dashboard links become plain `/app/…` links (`AppLink`, with `InDashboardContext` false there).
+ */
+export default function UploadPage({ embedded = false }: { embedded?: boolean }) {
   useEffect(() => {
-    document.title = 'Upload · files.gg';
-  }, []);
+    if (!embedded) document.title = 'Upload · files.gg';
+  }, [embedded]);
 
   // The dashboard layout waits for the session, so this is already known.
   const me = useMe();
@@ -30,7 +36,7 @@ export default function UploadPage() {
   const limits = useQuery({
     queryKey: [...queryKeys.myLimits, anonymous ? 'anonymous' : 'user'],
     queryFn: async ({ signal }) => {
-      await ensureFingerprint();
+      await ensureGuest();
       return api.myLimits(signal);
     },
   });
@@ -43,10 +49,12 @@ export default function UploadPage() {
   );
   const restricted = restriction !== null;
 
-  const context: PickerContext = useMemo(() => ({ anonymous, limits: limits.data ?? null }), [anonymous, limits.data]);
+  // Signed in, the pickers start from the account's upload defaults (milestone-5 §21); the page sends what it shows.
+  const defaults = me.data?.settings.upload_defaults ?? null;
+  const context: PickerContext = useMemo(() => ({ anonymous, limits: limits.data ?? null, defaults }), [anonymous, limits.data, defaults]);
   const [pickers, setPickers] = useState<PickerState>(() => defaultPickerState({ anonymous: true }));
   const [touched, setTouched] = useState(false);
-  // Defaults follow sign-in state and limits until the user changes something.
+  // Defaults follow sign-in state, limits and the upload defaults until the user changes something.
   const [defaultsFor, setDefaultsFor] = useState<PickerContext | null>(null);
   if (!touched && defaultsFor !== context) {
     setDefaultsFor(context);
@@ -148,18 +156,28 @@ export default function UploadPage() {
   return (
     <section className="flex flex-col gap-5">
       <header className="flex flex-col gap-1">
-        <h1 className="text-2xl font-semibold tracking-tight">Upload</h1>
-        <p className="text-sm text-muted">
-          {anonymous ? 'Uploading without an account.' : `Uploading as ${me.data?.display_name || me.data?.username || 'you'}.`}
-          {limitsLine && ` ${limitsLine}.`}
-          {limits.data?.premium && ' Premium limits.'}
+        {!embedded && <h1 className="text-2xl font-semibold tracking-tight">Upload</h1>}
+        <p className="flex flex-wrap items-center gap-x-1 text-sm text-muted">
+          <span>
+            {anonymous && 'Uploading without an account. '}
+            {limitsLine && `${limitsLine}.`}
+            {limits.data?.premium && ' Premium limits.'}
+          </span>
+          {limits.data && (
+            <InfoTip label="About file size limits">
+              This page uploads big files in chunks, so each file can be up to {formatBytes(limits.data.max_file_size_chunked)}.{' '}
+              {anonymous
+                ? 'Create a free account for more space, files that never expire, and upload keys for ShareX and curl.'
+                : `ShareX and curl send each file in one request instead, which is capped at ${formatBytes(limits.data.max_file_size_single)}.`}
+            </InfoTip>
+          )}
         </p>
-        {!anonymous && limits.data && (
+        {!anonymous && (
           <p className="text-xs text-muted">
-            ShareX and curl send each file in one request, up to {formatBytes(limits.data.max_file_size_single)}.{' '}
-            <Link to="/integrations" className="text-gg hover:underline">
+            Using ShareX or curl?{' '}
+            <AppLink to="/integrations" className="text-gg hover:underline">
               Set up an upload key
-            </Link>
+            </AppLink>
           </p>
         )}
       </header>
@@ -174,9 +192,9 @@ export default function UploadPage() {
             <p className="text-muted">
               Your files, albums and links still work.{' '}
               {restriction.notice_id && (
-                <Link to={`/notices/${restriction.notice_id}`} className="font-medium text-gg hover:underline">
+                <AppLink to={`/notices/${restriction.notice_id}`} className="font-medium text-gg hover:underline">
                   See why
-                </Link>
+                </AppLink>
               )}
             </p>
           </div>
@@ -228,6 +246,7 @@ export default function UploadPage() {
             <span className="inline-flex items-center gap-1">
               <ShieldCheck aria-hidden className="size-3.5" /> Anonymous uploads are checked by Cloudflare Turnstile.
             </span>
+            <UploadAgreement />
             <div ref={turnstileMount} data-testid="turnstile" />
             {turnstileStatus === 'error' && (
               <button type="button" className="text-gg hover:underline" onClick={retryTurnstile}>

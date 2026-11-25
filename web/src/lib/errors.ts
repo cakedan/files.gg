@@ -1,4 +1,5 @@
 import { ApiError, CLIENT_ERROR, type UploadRejectionReason } from './api';
+import { conversionMessage, isConversionCode } from './conversionErrors';
 import { formatBytes } from './format';
 import { DISPLAY_NAME_REASON_TEXT, USERNAME_REASON_TEXT, type DisplayNameProblem, type UsernameReason } from './usernames';
 import { PASSWORD_PROBLEM_TEXT, type PasswordProblem } from './passwordStrength';
@@ -44,7 +45,9 @@ const duration = (seconds: number): string => {
   if (seconds >= 86400) return `${Math.round(seconds / 86400)} days`;
   if (seconds >= 3600) return `${Math.round(seconds / 3600)} hours`;
   if (seconds >= 60) return `${Math.round(seconds / 60)} minutes`;
-  return `${Math.max(1, Math.round(seconds))} seconds`;
+  // Waits (`retry_after`) can be fractional (milestone-5 §18.1): round up, never down to 0.
+  const whole = Math.max(1, Math.ceil(seconds));
+  return `${whole} ${whole === 1 ? 'second' : 'seconds'}`;
 };
 
 const day = (seconds: number): string =>
@@ -83,6 +86,11 @@ export function errorMessage(error: unknown): string {
   if (error instanceof DOMException && error.name === 'AbortError') return 'Cancelled.';
   if (!(error instanceof ApiError)) return 'Something went wrong. Try again.';
   const { body } = error;
+  // Milestone 5 (§12): conversions, and the Redis rate limits (§18).
+  if (isConversionCode(error.code)) {
+    const details = typeof body === 'object' && body !== null ? (body as Record<string, unknown>) : {};
+    return conversionMessage(error.code, details, { apiMessage: error.message }) ?? error.message;
+  }
   switch (error.code) {
     case 'FILE_TYPE_NOT_ALLOWED':
       return "This type of file can't be uploaded. Programs, installers and scripts aren't allowed.";

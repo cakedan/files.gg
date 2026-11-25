@@ -41,7 +41,7 @@ function renderRow(result: UploadedFile) {
 
 const uploaded = (state: OwnerSafety['state']) => ({ ...ownerFile({ id: '500', name: 'upload' }), safety: safety(state) }) as UploadedFile;
 
-beforeEach(() => localStorage.setItem('filesgg.fingerprint', 'fp1'));
+beforeEach(() => localStorage.setItem('filesgg.guest', 'fp1'));
 afterEach(() => localStorage.clear());
 
 describe('upload rows wait for the scan (milestone-4 §11.2)', () => {

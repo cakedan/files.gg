@@ -45,9 +45,9 @@ export function isDcvPath(pathname) {
 }
 
 // First path segments that are never served on a custom domain (§10.8 "anything else"): the
-// dashboard, the API passthrough, the converter, and everything under /.well-known/ but the DCV
-// paths (security.txt included).
-const NOT_SERVED = Object.freeze(['app', 'api', 'convert', '.well-known']);
+// dashboard, the API passthrough, the converter, the changelog and legal pages (milestone-5.md
+// §19.1: files.gg only), and everything under /.well-known/ but the DCV paths (security.txt included).
+const NOT_SERVED = Object.freeze(['app', 'api', 'convert', 'changelog', 'legal', '.well-known']);
 
 // Classifies a custom-domain path (§10.8 step 3):
 //   dcv | home | root-file | asset | cdn (with `parsed` and `kind`: file, preview, album) |

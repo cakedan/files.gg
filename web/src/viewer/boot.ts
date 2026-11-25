@@ -7,8 +7,7 @@
  * Precedence:
  *   1. data-page="home"           -> home (landing card)
  *   1b. data-page="domain-home"   -> domain-home (a custom domain's landing card, milestone-6 §10.8)
- *   2. data-page="convert"        -> convert (placeholder)
- *   2b. data-page="report"        -> report (milestone-4 §10.1), from #report-data
+ *   2. data-page="report"         -> report (milestone-4 §10.1), from #report-data
  *                                    `{ type: "any" | "file" | "album", vanity? }`; else missing
  *   3. data-state="unavailable"   -> unavailable (Retry button)
  *   4. data-state="missing"       -> missing (also CSAM-blocked and private files)
@@ -38,6 +37,7 @@ import {
   type AlbumItem,
   type AlbumLayout,
   type BootState,
+  type DocumentPreview,
   type FileAsset,
   type FileAssets,
   type FileData,
@@ -119,9 +119,17 @@ function parseAsset(value: unknown): FileAsset | undefined {
   return { url, width: positiveNumber(value.width), height: positiveNumber(value.height) };
 }
 
+/** Milestone 5 §9.2 `assets.document`: `{ url, size, pages }`, the preview PDF of a document. */
+export function parseDocumentPreview(value: unknown): DocumentPreview | undefined {
+  if (!isObject(value)) return undefined;
+  const url = nonEmptyString(value.url);
+  if (!url) return undefined;
+  return { url, size: positiveNumber(value.size), pages: positiveNumber(value.pages) };
+}
+
 /**
- * `assets` (contract §4): `{ "<kind>": { url, width?, height? } }`. Unknown kinds and
- * entries without a URL are dropped.
+ * `assets` (contract §4): `{ "<kind>": { url, width?, height? } }`, plus `document`
+ * (milestone-5 §9.2). Unknown kinds and entries without a URL are dropped.
  */
 export function parseAssets(value: unknown): FileAssets | undefined {
   if (!isObject(value)) return undefined;
@@ -130,6 +138,8 @@ export function parseAssets(value: unknown): FileAssets | undefined {
     const asset = parseAsset(value[kind]);
     if (asset) assets[kind] = asset;
   }
+  const document = parseDocumentPreview(value.document);
+  if (document) assets.document = document;
   return Object.keys(assets).length > 0 ? assets : undefined;
 }
 
@@ -350,9 +360,7 @@ export function parseReportTarget(value: unknown): ReportPageTarget | null {
 }
 
 export function parseBoot({ page, state, fileJson, albumJson, reportJson }: BootInput, now: number = Date.now()): BootState {
-  if (page === 'home') return { page: 'home' };
   if (page === 'domain-home') return { page: 'domain-home' };
-  if (page === 'convert') return { page: 'convert' };
   if (page === 'report') {
     const target = parseReportTarget(parseJson(reportJson));
     return target ? { page: 'report', target } : { page: 'missing' };

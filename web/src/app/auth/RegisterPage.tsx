@@ -2,9 +2,10 @@ import { useId, useState } from 'react';
 import { Link, Navigate, useNavigate } from 'react-router';
 
 import { Button } from '../../components/Button';
+import { SignUpAgreement } from '../../components/TermsAgreement';
 import { useTurnstile } from '../../components/useTurnstile';
 import { accountApi } from '../../lib/accountApi';
-import { FINGERPRINT_KEY } from '../../lib/api';
+import { GUEST_KEY } from '../../lib/api';
 import { fieldErrors } from '../../lib/errors';
 import { PASSWORD_PROBLEM_TEXT, passwordProblem } from '../../lib/passwordStrength';
 import { getItem } from '../../lib/storage';
@@ -35,7 +36,7 @@ export default function RegisterPage() {
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
   const turnstile = useTurnstile('register');
-  const hasFingerprint = Boolean(getItem(FINGERPRINT_KEY));
+  const hasGuest = Boolean(getItem(GUEST_KEY));
 
   if (signedInTarget && !leaving) return <Navigate to={signedInTarget} replace />;
 
@@ -59,7 +60,7 @@ export default function RegisterPage() {
       const token = await turnstile.take();
       const display = cleanDisplayName(displayName);
       const { user } = await accountApi.register({ email: email.trim(), username: name, password, ...(display ? { display_name: display } : {}), turnstile_token: token });
-      const toast = signedInToast(hasFingerprint, false) ?? 'Welcome to files.gg. Check your email to verify it.';
+      const toast = signedInToast(hasGuest, false) ?? 'Welcome to files.gg. Check your email to verify it.';
       setLeaving(true);
       completeSignIn(user);
       navigate(next ?? '/', { replace: true, state: { toast } });
@@ -146,6 +147,7 @@ export default function RegisterPage() {
         <Button type="submit" variant="primary" disabled={pending} className="w-full">
           {pending ? 'Creating your account…' : 'Create account'}
         </Button>
+        <SignUpAgreement />
         <TurnstileField mount={turnstile.mount} status={turnstile.status} retry={turnstile.retry} />
       </form>
       <DiscordButton next={next} />

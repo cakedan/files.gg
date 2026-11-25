@@ -2,7 +2,7 @@
  * The viewer's API calls for protected pages, on either host (milestone-6 §10.11, §13.4):
  * - on files.gg, lib/api's client (same-origin `/api`, the session cookie, CSRF);
  * - on a custom domain, `api_origin` (`https://api.files.gg`) cross-origin with
- *   `credentials: "omit"`: no cookie, no fingerprint, no CSRF header (which would need
+ *   `credentials: "omit"`: no cookie, no guest, no CSRF header (which would need
  *   a preflight the public routes don't allow), only `X-Filesgg-Access` where the call
  *   needs it. Every URL in the response is rehosted onto this domain (§10.9).
  *

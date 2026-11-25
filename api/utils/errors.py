@@ -99,6 +99,16 @@ def too_many_attempts(retry_after):
     return coded('TOO_MANY_ATTEMPTS', 429, 'Too many attempts. Try again later', retry_after=retry_after)
 
 
+def rate_limited(retry_after):
+    """The global and route limits (milestone-5 §18.1, §18.2); app.py adds `Retry-After`."""
+    return coded('RATE_LIMITED', 429, "You're doing that too fast", retry_after=retry_after)
+
+
+def rate_limit_unavailable():
+    """A fail-closed limit with Redis down (milestone-5 §18.1)."""
+    return coded('RATE_LIMIT_UNAVAILABLE', 503, 'Try again in a moment')
+
+
 def wrong_password():
     return coded('WRONG_PASSWORD', 401, 'Wrong password')
 
@@ -525,3 +535,78 @@ def domain_only_not_available():
 
 def domains_unavailable():
     return coded('DOMAINS_UNAVAILABLE', 503, "Custom domains aren't available right now. Try again later")
+
+
+# --- conversions (contract milestone-5 §12) ----------------------------------------------------------------------
+
+def unsupported_conversion(kind, target):
+    return coded('UNSUPPORTED_CONVERSION', 400, "This file can't be converted to that format", kind=kind,
+                 target=target)
+
+
+def invalid_option(option, reason):
+    return coded('INVALID_OPTION', 400, "That option isn't valid for this conversion", option=option, reason=reason)
+
+
+def target_size_too_small(minimum_mb):
+    return coded('TARGET_SIZE_TOO_SMALL', 400, 'That size is too small for this video', minimum_mb=minimum_mb)
+
+
+def conversion_too_large(limit, value, unit, sign_in=False):
+    details = {'limit': limit, 'value': value, 'unit': unit}
+    if sign_in:
+        details['sign_in'] = True
+    return coded('CONVERSION_TOO_LARGE', 413, 'This file is too big to convert', **details)
+
+
+def conversion_limit_reached(limit, retry_after, sign_in=False):
+    """`limit`: count, cpu (today's) or concurrent (at once)."""
+    message = 'Too many conversions at once' if limit == 'concurrent' else \
+        "You've reached your conversion limit for today"
+    details = {'limit': limit, 'retry_after': retry_after}
+    if sign_in:
+        details['sign_in'] = True
+    return coded('CONVERSION_LIMIT_REACHED', 429, message, **details)
+
+
+def conversion_requires_account(batch=False):
+    return coded('CONVERSION_REQUIRES_ACCOUNT', 403,
+                 'Sign in to convert in bulk' if batch else 'Sign in to convert documents', sign_in=True)
+
+
+def source_unavailable():
+    return coded('SOURCE_UNAVAILABLE', 404, "That file isn't available")
+
+
+def view_limited_source():
+    return coded('VIEW_LIMITED_SOURCE', 403, 'Files with a view limit can only be converted by their owner')
+
+
+def unknown_conversion():
+    return coded('UNKNOWN_CONVERSION', 404, 'Unknown conversion')
+
+
+# the conversion object's own errors (§12): saved as `conversions.error`, never an HTTP error of POST /conversions
+
+def converter_busy():
+    return coded('CONVERTER_BUSY', 503, 'Busy right now. Try again, or sign in to skip the queue', sign_in=True)
+
+
+def conversion_timeout(**metadata):
+    return coded('CONVERSION_TIMEOUT', 500, 'The conversion took too long', **metadata)
+
+
+CONVERSION_FAILURE_REASONS = ('unreadable_source', 'bad_output', 'empty_output', 'too_many_pages', 'target_size_missed',
+                              'internal')
+
+
+def conversion_failed(reason):
+    if reason not in CONVERSION_FAILURE_REASONS:
+        reason = 'internal'
+    return coded('CONVERSION_FAILED', 500, 'The conversion failed', reason=reason)
+
+
+def conversion_error(error):
+    """An ApiError as `conversions.error`: `{ code, message, metadata }` (§2.1)."""
+    metadata = {k: v for k, v in error.data.items() if k not in ('code', 'message', 'status')}
+    return {'code': error.code, 'message': error.message, 'metadata': metadata}

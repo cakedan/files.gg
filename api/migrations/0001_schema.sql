@@ -121,9 +121,9 @@ CREATE TABLE files (
     -- the name without the extension
     filename text NOT NULL CHECK (char_length(filename) <= 128),
     hash_id bigint NOT NULL REFERENCES file_hashes (id),
-    -- the owner: a user, or an anonymous uploader's fingerprint (claimed on sign-in)
+    -- the owner: a user, or a guest, the anonymous uploader (claimed on sign-in)
     user_id bigint REFERENCES users (id),
-    fingerprint bigint,
+    guest_id bigint,
     -- unique views per visitor per UTC day, summed (file_view_days)
     view_count bigint NOT NULL DEFAULT 0,
     -- the file's size, also for de-duplicated blobs (quotas and sorting)
@@ -149,7 +149,7 @@ CREATE INDEX files_hash_id ON files (hash_id);
 CREATE INDEX files_deleted_hash ON files (hash_id) WHERE deleted_at IS NULL;
 -- the owner's library: newest first, type and size filters, name sorts and search
 CREATE INDEX files_user_id_desc ON files (user_id, id DESC);
-CREATE INDEX files_fingerprint_id_desc ON files (fingerprint, id DESC);
+CREATE INDEX files_guest_id_desc ON files (guest_id, id DESC);
 CREATE INDEX files_user_mimetype ON files (user_id, mimetype_id);
 CREATE INDEX files_user_size ON files (user_id, size);
 CREATE INDEX files_user_filename ON files (user_id, lower(filename));
@@ -185,9 +185,9 @@ CREATE INDEX file_view_seen_day ON file_view_seen (day);
 CREATE TABLE albums (
     id bigint PRIMARY KEY,
     vanity text NOT NULL UNIQUE,
-    -- a user, or an anonymous fingerprint
+    -- a user, or a guest
     owner_user_id bigint REFERENCES users (id) ON DELETE CASCADE,
-    owner_fingerprint bigint,
+    owner_guest_id bigint,
     title text CHECK (char_length(title) <= 100),
     description text CHECK (char_length(description) <= 2000),
     -- NULL = automatic; a deleted file stops being a cover (jobs/gc.py)
@@ -213,12 +213,12 @@ CREATE TABLE albums (
     collage_version bigint,
     -- set by the album reaper while the album has no live items; soft-deleted after 7 days
     empty_since timestamptz,
-    CHECK (num_nonnulls(owner_user_id, owner_fingerprint) = 1)
+    CHECK (num_nonnulls(owner_user_id, owner_guest_id) = 1)
 );
 CREATE INDEX albums_owner_user ON albums (owner_user_id, id DESC)
     WHERE owner_user_id IS NOT NULL AND deleted_at IS NULL;
-CREATE INDEX albums_owner_fingerprint ON albums (owner_fingerprint, id DESC)
-    WHERE owner_fingerprint IS NOT NULL AND deleted_at IS NULL;
+CREATE INDEX albums_owner_guest_id ON albums (owner_guest_id, id DESC)
+    WHERE owner_guest_id IS NOT NULL AND deleted_at IS NULL;
 CREATE INDEX albums_expires_at ON albums (expires_at) WHERE expires_at IS NOT NULL AND deleted_at IS NULL;
 CREATE INDEX albums_cover_file ON albums (cover_file_id) WHERE cover_file_id IS NOT NULL;
 
@@ -244,7 +244,7 @@ CREATE INDEX album_files_album_position ON album_files (album_id, position);
 CREATE TABLE upload_sessions (
     id bigint PRIMARY KEY,
     owner_user_id bigint REFERENCES users (id) ON DELETE CASCADE,
-    owner_fingerprint bigint,
+    owner_guest_id bigint,
     owner_ip_hash bytea,
     -- the name as sent, then as resolved (utils/uploading.py resolve_name)
     filename text NOT NULL,
@@ -270,11 +270,11 @@ CREATE TABLE upload_sessions (
     expires_at timestamptz NOT NULL,
     -- `album=<vanity>` on POST /uploads: the file joins it when finalized
     album_id bigint REFERENCES albums (id) ON DELETE SET NULL,
-    CHECK (num_nonnulls(owner_user_id, owner_fingerprint) = 1)
+    CHECK (num_nonnulls(owner_user_id, owner_guest_id) = 1)
 );
 CREATE INDEX upload_sessions_owner_user ON upload_sessions (owner_user_id) WHERE owner_user_id IS NOT NULL;
-CREATE INDEX upload_sessions_owner_fingerprint ON upload_sessions (owner_fingerprint)
-    WHERE owner_fingerprint IS NOT NULL;
+CREATE INDEX upload_sessions_owner_guest_id ON upload_sessions (owner_guest_id)
+    WHERE owner_guest_id IS NOT NULL;
 CREATE INDEX upload_sessions_owner_ip ON upload_sessions (owner_ip_hash) WHERE owner_ip_hash IS NOT NULL;
 CREATE INDEX upload_sessions_expires ON upload_sessions (expires_at);
 

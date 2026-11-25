@@ -42,7 +42,7 @@ const listCalls = () =>
     .filter((url) => url.pathname === '/users/@me/files');
 
 beforeEach(() => {
-  library = ['alpha', 'bravo', 'charlie', 'delta', 'echo'].map((name, i) => ownerFile({ id: String(i + 1), name, size: 1024 * (i + 1) }));
+  library = ['alpha', 'bravo', 'charlie', 'delta', 'echo'].map((name, i) => ownerFile({ id: String(i + 1), name, size: 1000 * (i + 1) }));
   deleteResponse = async () => json({ deleted: [] });
   vi.stubGlobal(
     'fetch',

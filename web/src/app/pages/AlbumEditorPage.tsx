@@ -1,8 +1,9 @@
-import { ArrowLeft, EyeOff, ExternalLink, ImagePlus, KeyRound, Link2, Lock, Plus, Trash2 } from 'lucide-react';
+import { ArrowLeft, EyeOff, ExternalLink, ImagePlus, KeyRound, Link2, Lock, Plus, Trash2, Wand2 } from 'lucide-react';
 import { useEffect, useId, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router';
 
 import { Button } from '../../components/Button';
+import { buttonClass } from '../../components/buttonClass';
 import { api, type AlbumLayout, type OwnerAlbum } from '../../lib/api';
 import { copyText } from '../../lib/clipboard';
 import { errorMessage } from '../../lib/errors';
@@ -159,6 +160,13 @@ function Editor({ album }: { album: OwnerAlbum }) {
                 <Lock aria-hidden className="size-4" />
                 Change access…
               </Button>
+              {/* Milestone 5 §13.2: every item, as a batch, or its images as one PDF. */}
+              {album.items.length > 0 && (
+                <Link to={`/convert?album=${encodeURIComponent(album.id)}`} className={buttonClass('secondary')}>
+                  <Wand2 aria-hidden className="size-4" />
+                  Convert all
+                </Link>
+              )}
               <Button variant="danger" onClick={() => setDialog('delete')}>
                 <Trash2 aria-hidden className="size-4" />
                 Delete album

@@ -34,9 +34,9 @@ afterEach(() => {
 });
 
 describe('viewerApi on a custom host (milestone-6 §10.11)', () => {
-  it('unlock: POST api.files.gg without credentials, cookie, fingerprint or CSRF header', async () => {
+  it('unlock: POST api.files.gg without credentials, cookie, guest or CSRF header', async () => {
     enterCustomHost();
-    localStorage.setItem('filesgg.fingerprint', '42');
+    localStorage.setItem('filesgg.guest', '42');
     localStorage.setItem('filesgg.token', 'legacy');
     const fetch = mockFetch(() => json({ token: 't', expires_at: 1, file }));
     await viewerApi.unlock('file', 'abc123', 'pw', 'XXXX.DUMMY.TOKEN.XXXX');

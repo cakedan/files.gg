@@ -9,7 +9,7 @@
 import { useQuery, useQueryClient, type QueryClient } from '@tanstack/react-query';
 import { useCallback, useEffect } from 'react';
 
-import { fetchSession, FINGERPRINT_KEY, setSignedInState, type User } from './api';
+import { fetchSession, GUEST_KEY, setSignedInState, type User } from './api';
 import { removeItem } from './storage';
 
 export const SESSION_QUERY_KEY = ['auth', 'session'] as const;
@@ -77,14 +77,14 @@ export function useSessionSync(): void {
 
 /**
  * After any successful sign-in (password, register, reset, Discord): the anonymous
- * fingerprint is gone (its uploads were claimed, §4.2), the cache belonged to someone
+ * guest is gone (its uploads were claimed, §4.2), the cache belonged to someone
  * else, and the other tabs need to know.
  */
 export function useCompleteSignIn() {
   const client = useQueryClient();
   return useCallback(
     (user: User) => {
-      removeItem(FINGERPRINT_KEY);
+      removeItem(GUEST_KEY);
       resetAccountCache(client);
       setSessionUser(client, user);
       broadcastSessionChange();

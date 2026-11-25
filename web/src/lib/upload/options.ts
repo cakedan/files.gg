@@ -3,7 +3,7 @@
  * Pure rules, so the UI can't offer a choice the API would reject.
  */
 
-import type { MyLimitsResponse, UnlockTtl, UploadParams, ViewLimitAction, Visibility } from '../api';
+import type { MyLimitsResponse, UnlockTtl, UploadDefaults, UploadParams, ViewLimitAction, Visibility } from '../api';
 
 const HOUR = 3600;
 const DAY = 24 * HOUR;
@@ -23,6 +23,8 @@ export interface PickerContext {
   anonymous: boolean;
   /** From `/users/@me/limits`; null while loading or unavailable. */
   limits?: Pick<MyLimitsResponse, 'max_expiry' | 'allow_no_expiry' | 'nsfw_allowed'> | null;
+  /** Milestone 5 §21: the account's upload defaults (`user.settings.upload_defaults`), where the pickers start. */
+  defaults?: UploadDefaults | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -67,6 +69,20 @@ export function defaultExpiry(context: PickerContext): ExpiryValue {
   if (canNeverExpire(context)) return 'never';
   const choices = expiryChoices(context).filter((choice): choice is Choice<number> => typeof choice.value === 'number');
   return choices.at(-1)?.value ?? HOUR;
+}
+
+/** Seconds as a picker value: a preset, else a custom date that far from now. */
+export function expiryPick(seconds: number | null, nowMs: number = Date.now()): Pick<PickerState, 'expiry' | 'expiryCustomAt'> {
+  if (seconds === null) return { expiry: 'never', expiryCustomAt: null };
+  if (EXPIRY_PRESETS.some((preset) => preset.value === seconds)) return { expiry: seconds, expiryCustomAt: null };
+  return { expiry: 'custom', expiryCustomAt: nowMs + seconds * 1000 };
+}
+
+/** Whether an expiry (seconds, or null for never) is one these limits allow (§21: re-checked when used). */
+export function expiryAllowed(seconds: number | null, context: PickerContext): boolean {
+  if (seconds === null) return canNeverExpire(context);
+  const max = maxExpiry(context);
+  return seconds >= HOUR && (max === null || seconds <= max);
 }
 
 /** Seconds for the selected expiry (custom: until the picked date), or null for never. */
@@ -187,17 +203,23 @@ export interface PickerState {
   viewLimitAction: ViewLimitAction;
 }
 
-export function defaultPickerState(context: PickerContext): PickerState {
+/**
+ * Where the pickers start: signed in, the account's upload defaults (§21), each one the limits still allow
+ * ("Password" is a generated one per file); otherwise link, and the longest expiry allowed.
+ */
+export function defaultPickerState(context: PickerContext, nowMs: number = Date.now()): PickerState {
+  const defaults = context.anonymous ? null : (context.defaults ?? null);
+  const expiry = defaults && expiryAllowed(defaults.expires_in, context) ? expiryPick(defaults.expires_in, nowMs) : { expiry: defaultExpiry(context), expiryCustomAt: null };
+  const visibility = defaults?.visibility ?? 'link';
   return {
-    expiry: defaultExpiry(context),
-    expiryCustomAt: null,
-    visibility: 'link',
+    ...expiry,
+    visibility,
     password: '',
-    generatePassword: false,
+    generatePassword: visibility === 'password',
     unlockTtl: DEFAULT_UNLOCK_TTL,
     passwordExpiry: 'never',
     passwordExpiryCustomAt: null,
-    nsfw: false,
+    nsfw: Boolean(defaults?.nsfw) && canMarkNsfw(context),
     viewLimit: '',
     viewLimitAction: 'expire',
   };

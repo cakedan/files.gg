@@ -41,6 +41,8 @@ NOTICES = {
 REVERSALS = {'hide': 'unhide', 'remove': 'restore', 'mark_nsfw': 'unmark_nsfw', 'auto_nsfw': 'unmark_nsfw',
              'block_hash': 'unblock_hash', 'scan_block': 'unblock_hash', 'restrict_uploads': 'unrestrict_uploads',
              'suspend_user': 'unsuspend_user', 'auto_hide': 'unhide', 'disable_domain': 'enable_domain'}
+# milestone-5 §5.4: the moderation cascade a file action starts on the file's conversion outputs
+CASCADES = {'hide': 'hide', 'unhide': 'unhide', 'remove': 'remove'}
 BLOCK_REASONS = {'ncii': 'ncii', 'violence': 'terrorism', 'malware': 'malware', 'phishing': 'malware'}
 MODERATOR_MAX_DAYS = 30
 
@@ -88,12 +90,12 @@ def _id(value):
 
 
 def load_file(conn, file_id, lock=True):
-    row = core.one(conn, 'SELECT f.id, f.user_id, f.fingerprint, f.hash_id, f.moderation_state, f.deleted_at, '
+    row = core.one(conn, 'SELECT f.id, f.user_id, f.guest_id, f.hash_id, f.moderation_state, f.deleted_at, '
                          'h.scan_state, h.scan_reason, f.moderation_rule FROM files f JOIN file_hashes h '
                          'ON h.id = f.hash_id WHERE f.id = %s{}'.format(' FOR UPDATE OF f' if lock else ''), (file_id,))
     if row is None:
         raise errors.unknown_file()
-    keys = ('id', 'user_id', 'fingerprint', 'hash_id', 'moderation_state', 'deleted_at', 'scan_state', 'scan_reason',
+    keys = ('id', 'user_id', 'guest_id', 'hash_id', 'moderation_state', 'deleted_at', 'scan_state', 'scan_reason',
             'moderation_rule')
     return dict(zip(keys, row))
 
@@ -284,6 +286,10 @@ def set_state(ctx, kind, target_id, body, state, action):
         if state == 'visible' and file['moderation_rule'] == 'csam' and not ctx.staff.child_safety:
             raise errors.forbidden()
         core.set_file_state(conn, [target_id], state, ctx.rule)
+        if action in CASCADES:
+            # milestone-5 §5.4: the file's conversion outputs follow it
+            from safety import cascade
+            cascade.queue(conn, CASCADES[action], [target_id])
         action_id = ctx.log(action, file_id=target_id, user_id=file['user_id'])
         ctx.notice(action, file['user_id'], core.file_target(conn, target_id), action_id)
         if state == 'visible':
@@ -365,6 +371,8 @@ def delete(ctx, kind, target_id, body):
                                     storage_module.blob_key(file['hash_id']), core.utcnow() + timedelta(days=hold_days),
                                     json.dumps({'file': target, 'action_id': action_id})))
         core.soft_delete_files(conn, [target_id], 'moderator')
+        from safety import cascade
+        cascade.queue(conn, 'delete', [target_id])
         ctx.notice('delete', file['user_id'], target, action_id)
         return action_id
     album = load_album(conn, target_id)
@@ -401,6 +409,9 @@ def block_hash(ctx, kind, target_id, body):
     was_public = h['scan_state'] in ('passed', 'flagged')
     conn.execute("UPDATE file_hashes SET scan_state = 'blocked', scan_reason = 'hash_list', next_rescan_at = NULL "
                  'WHERE id = %s', (h['id'],))
+    # milestone-5 §5.4: conversion outputs of the hash's files are removed
+    from safety import cascade
+    cascade.queue(conn, 'remove', hash_id=h['id'])
     action_id = ctx.log('block_hash', hash_id=h['id'], file_id=target_id if kind == 'file' else None)
     conn.execute('UPDATE blocked_hashes SET action_id = %s WHERE id = %s', (action_id, entry[0]))
     if was_public:
@@ -429,6 +440,7 @@ def unblock_hash(ctx, kind, target_id, body):
                  'WHERE id = %s', (json.dumps(document), h['id']))
     core.queue_probe(conn, h['id'])
     _requeue_collages(conn, h['id'])
+    _queue_preview(conn, h['id'])
     return ctx.log('unblock_hash', hash_id=h['id'])
 
 
@@ -454,6 +466,7 @@ def clear_flag(ctx, kind, target_id, body):
     conn.execute('UPDATE content_flags SET resolved_at = now() WHERE hash_id = %s AND resolved_at IS NULL', (h['id'],))
     core.queue_probe(conn, h['id'])
     _requeue_collages(conn, h['id'])
+    _queue_preview(conn, h['id'])
     return ctx.log('clear_flag', hash_id=h['id'])
 
 
@@ -471,6 +484,12 @@ def retry_scan(ctx, kind, target_id, body):
     conn.execute("UPDATE content_flags SET resolved_at = now() WHERE hash_id = %s AND reason = 'scan_failing' "
                  'AND resolved_at IS NULL', (h['id'],))
     return ctx.log('retry_scan', hash_id=h['id'])
+
+
+def _queue_preview(conn, hash_id):
+    """Milestone-5 §9.1: a document hash that's public again gets its preview (`queued`; the sweeper enqueues it)."""
+    from utils import document_previews
+    document_previews.mark(conn, [hash_id])
 
 
 def _requeue_collages(conn, hash_id):

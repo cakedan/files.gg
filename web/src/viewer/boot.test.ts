@@ -21,10 +21,6 @@ describe('parseBoot', () => {
     expect(parseBoot({ page: 'domain-home', state: 'missing' })).toEqual({ page: 'domain-home' });
   });
 
-  it('shows the home card for data-page="home", even with other data present', () => {
-    expect(parseBoot({ page: 'home', state: 'unavailable', fileJson: JSON.stringify(file) })).toEqual({ page: 'home' });
-  });
-
   it('shows unavailable for data-state="unavailable"', () => {
     expect(parseBoot({ page: 'file', state: 'unavailable', fileJson: null })).toEqual({ page: 'unavailable' });
   });
@@ -139,7 +135,7 @@ describe('readBootInput', () => {
   });
 });
 
-describe('parseBoot: convert and album pages', () => {
+describe('parseBoot: album pages', () => {
   /** ms; payload times are seconds. */
   const NOW = 1_800_000_000_000;
   const NOW_S = NOW / 1000;
@@ -156,10 +152,6 @@ describe('parseBoot: convert and album pages', () => {
       { ...file, filename: 'a.png', position: 0, caption: 'first' },
     ],
   };
-
-  it('shows the convert placeholder for data-page="convert"', () => {
-    expect(parseBoot({ page: 'convert' })).toEqual({ page: 'convert' });
-  });
 
   it('boots an album from #album-data', () => {
     const state = parseBoot({ page: 'album', albumJson: JSON.stringify(album) }, NOW);

@@ -118,6 +118,8 @@ describe('NSFW interstitial for files (milestone-4 §4.6)', () => {
   it('mounts nothing of the file before Show', async () => {
     render(<ViewerApp state={{ page: 'file', file: { ...image, nsfw: true } }} />);
     expect(await screen.findByRole('heading', { name: 'This file may contain sensitive content' })).toBeInTheDocument();
+    // milestone-5 §19.2: the age rule for viewing adult content.
+    expect(screen.getByText(/You must be 18 or older\./)).toBeInTheDocument();
     expect(document.querySelector('img')).toBeNull();
     expect(screen.queryByRole('link', { name: 'Download' })).not.toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'Leave' })).toHaveAttribute('href', '/');

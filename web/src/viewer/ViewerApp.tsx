@@ -3,7 +3,7 @@ import { lazy, Suspense, useEffect } from 'react';
 import type { FragmentSecrets } from '../lib/access';
 import { targetFromPath } from '../lib/access';
 import { FileView } from './components/FileView';
-import { ConvertCard, HomeCard, MissingCard, UnavailableCard } from './components/StateCards';
+import { MissingCard, UnavailableCard } from './components/StateCards';
 import { siteName } from './host/context';
 import type { BootState } from './types';
 
@@ -24,7 +24,6 @@ const DomainHomeCard = lazy(() => import('./host/DomainHomeCard'));
 /** The page title. On a custom domain the suffix is the domain, not files.gg (milestone-6 §13.4). */
 function documentTitle(state: BootState, site: string = siteName()): string {
   if (state.page === 'file') return `${state.file.filename} · ${site}`;
-  if (state.page === 'convert') return `Convert · ${site}`;
   if (state.page === 'locked') return `Password-protected ${state.target.kind} · ${site}`;
   // Milestone 6 §19.5: the shell's og:title, never the name.
   if (state.page === 'limited') return `View-limited file · ${site}`;
@@ -103,8 +102,6 @@ export function ViewerApp({ state, secrets = { rest: '' } }: { state: BootState;
 
   return (
     <main className="flex min-h-dvh items-center justify-center px-3 py-6">
-      {state.page === 'home' && <HomeCard />}
-      {state.page === 'convert' && <ConvertCard />}
       {state.page === 'unavailable' && <UnavailableCard />}
       {/* Missing also covers CSAM-blocked and private files: the shell can't tell them apart. */}
       {state.page === 'missing' && <MissingCard />}

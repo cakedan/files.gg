@@ -4,7 +4,7 @@ import { useEffect } from 'react';
 import { Link } from 'react-router';
 
 import { buttonClass } from '../../components/buttonClass';
-import { api, ensureFingerprint, FILE_TYPE_FILTERS, type FileTypeFilter, type MyLimitsResponse, type User } from '../../lib/api';
+import { api, ensureGuest, FILE_TYPE_FILTERS, type FileTypeFilter, type MyLimitsResponse, type User } from '../../lib/api';
 import { errorMessage } from '../../lib/errors';
 import { formatBytes } from '../../lib/format';
 import { queryKeys, useMe, useMyFiles, useMyLimits } from '../../lib/queries';
@@ -107,7 +107,7 @@ export default function OverviewPage() {
     queries: FILE_TYPE_FILTERS.map((type) => ({
       queryKey: queryKeys.myFiles({ type, limit: 1 }),
       queryFn: async ({ signal }: { signal: AbortSignal }) => {
-        await ensureFingerprint();
+        await ensureGuest();
         return api.myFiles({ type, limit: 1 }, signal);
       },
     })),

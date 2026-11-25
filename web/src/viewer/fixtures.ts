@@ -34,8 +34,6 @@ export const FIXTURE_NAMES = [
   'pdf-password',
   'missing',
   'unavailable',
-  'home',
-  'convert',
   'album-grid',
   'album-list',
   'album-tracklist',
@@ -44,6 +42,9 @@ export const FIXTURE_NAMES = [
   'locked-expired',
   'locked-album',
   'private',
+  // Milestone 5 (§9.2): a document with its preview PDF, and one without
+  'document',
+  'document-no-preview',
   // Milestone 3
   'video',
   'video-unplayable',
@@ -427,8 +428,40 @@ function fixtures(now: number, media: FixtureMedia): Record<FixtureName, Fixture
     },
     missing: { page: 'file', file: null },
     unavailable: { page: 'file', state: 'unavailable' },
-    home: { page: 'home' },
-    convert: { page: 'convert' },
+    document: {
+      page: 'file',
+      state: 'file',
+      file: {
+        ...pdf,
+        kind: 'file',
+        filename: 'quarterly-report.docx',
+        mimetype: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        extension: 'docx',
+        size: 48_210,
+        vanity: 'docx1234',
+        url: 'https://files.gg/docx1234.docx',
+        cdn_url: fx('archive.zip'),
+        media: {},
+        assets: { document: { url: fx('sample.pdf'), size: 17_113, pages: 8 } },
+      },
+    },
+    'document-no-preview': {
+      page: 'file',
+      state: 'file',
+      file: {
+        ...pdf,
+        kind: 'file',
+        filename: 'budget.xlsx',
+        mimetype: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        extension: 'xlsx',
+        size: 9_800,
+        vanity: 'xlsx1234',
+        url: 'https://files.gg/xlsx1234.xlsx',
+        cdn_url: fx('archive.zip'),
+        media: {},
+        thumbnail: undefined,
+      },
+    },
     'album-grid': {
       page: 'album',
       state: 'album',
@@ -636,7 +669,6 @@ export function isFixtureName(value: string | null): value is FixtureName {
  * `/a/<vanity>` with the lightbox item as `?item=<n>`).
  */
 export function fixtureForPath(pathname: string): FixtureName | null {
-  if (pathname === '/convert') return 'convert';
   if (pathname === '/report' || pathname === '/report/') return 'report';
   if (/^\/report\/a\/[^/]+\/?$/.test(pathname)) return 'report-album';
   if (pathname.startsWith('/report/')) return 'report-file';

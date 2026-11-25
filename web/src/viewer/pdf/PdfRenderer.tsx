@@ -79,13 +79,18 @@ function PasswordPrompt({ incorrect, onSubmit, onCancel }: { incorrect: boolean;
   );
 }
 
-/** `kind: "pdf"` renderer (lazy chunk): pdf.js, range-loaded from the CDN. */
+/**
+ * `kind: "pdf"` renderer (lazy chunk): pdf.js, range-loaded from the CDN. A document's
+ * preview PDF (milestone-5 §9.2, `assets.document`) opens the same way; Download and Raw
+ * still give the original file.
+ */
 export default function PdfRenderer({ file, context = 'card' }: RendererProps) {
   const [state, setState] = useState<LoadState>({ status: 'loading', progress: null });
+  const source = file.assets?.document?.url ?? file.cdn_url;
 
   useEffect(() => {
     let cancelled = false;
-    const task = openDocument(file.cdn_url);
+    const task = openDocument(source);
     task.onPassword = (update: (password: string) => void, reason: number) => {
       if (cancelled) return;
       setState({
@@ -119,7 +124,7 @@ export default function PdfRenderer({ file, context = 'card' }: RendererProps) {
       cancelled = true;
       void task.destroy();
     };
-  }, [file.cdn_url]);
+  }, [source]);
 
   switch (state.status) {
     case 'loading':

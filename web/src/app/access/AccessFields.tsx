@@ -109,6 +109,8 @@ interface PasswordFieldsProps {
   /** Hint while typing. */
   passwordHint?: string;
   placeholder?: string;
+  /** "Stay unlocked for" and "Password works until"; off for conversion outputs (milestone-5 §10.3 takes neither). */
+  timing?: boolean;
 }
 
 export function PasswordFields({
@@ -122,6 +124,7 @@ export function PasswordFields({
   generateHint,
   passwordHint = '6–128 characters.',
   placeholder = '',
+  timing: showTiming = true,
 }: PasswordFieldsProps) {
   const [reveal, setReveal] = useState(false);
   const timing = (patch: Partial<PasswordFieldsState>) => {
@@ -130,7 +133,7 @@ export function PasswordFields({
   };
 
   return (
-    <div className="grid gap-4 border-t border-line pt-4 sm:grid-cols-3">
+    <div className={`grid gap-4 border-t border-line pt-4 ${showTiming ? 'sm:grid-cols-3' : 'sm:grid-cols-2'}`}>
       <Field label="Password" htmlFor={`${id}-password`} error={errors.password} hint={state.generatePassword ? generateHint : passwordHint}>
         <div className="flex gap-1">
           <input
@@ -164,44 +167,48 @@ export function PasswordFields({
         </button>
       </Field>
 
-      <Field label="Stay unlocked for" htmlFor={`${id}-ttl`} error={errors.unlockTtl} hint="How long a visitor stays in after entering it.">
-        <select
-          id={`${id}-ttl`}
-          value={String(state.unlockTtl)}
-          onChange={(event) => timing({ unlockTtl: Number(event.target.value) as UnlockTtl })}
-          className={fieldClass}
-        >
-          {unlockChoices.map((choice) => (
-            <option key={choice.value} value={String(choice.value)} disabled={choice.disabled}>
-              {choice.label}
-            </option>
-          ))}
-        </select>
-      </Field>
+      {showTiming && (
+        <>
+          <Field label="Stay unlocked for" htmlFor={`${id}-ttl`} error={errors.unlockTtl} hint="How long a visitor stays in after entering it.">
+            <select
+              id={`${id}-ttl`}
+              value={String(state.unlockTtl)}
+              onChange={(event) => timing({ unlockTtl: Number(event.target.value) as UnlockTtl })}
+              className={fieldClass}
+            >
+              {unlockChoices.map((choice) => (
+                <option key={choice.value} value={String(choice.value)} disabled={choice.disabled}>
+                  {choice.label}
+                </option>
+              ))}
+            </select>
+          </Field>
 
-      <Field label="Password works until" htmlFor={`${id}-pwexp`} error={errors.passwordExpiry} hint="The file stays; only the password stops working.">
-        <select
-          id={`${id}-pwexp`}
-          value={encodeChoice(state.passwordExpiry)}
-          onChange={(event) => timing({ passwordExpiry: decodeChoice(event.target.value) })}
-          className={fieldClass}
-        >
-          {passwordExpiryChoices.map((choice) => (
-            <option key={encodeChoice(choice.value)} value={encodeChoice(choice.value)}>
-              {choice.label}
-            </option>
-          ))}
-        </select>
-        {state.passwordExpiry === 'custom' && (
-          <input
-            type="datetime-local"
-            aria-label="Password expiry date and time"
-            value={toLocalInput(state.passwordExpiryCustomAt)}
-            onChange={(event) => timing({ passwordExpiryCustomAt: parseLocalDateTime(event.target.value) })}
-            className={fieldClass}
-          />
-        )}
-      </Field>
+          <Field label="Password works until" htmlFor={`${id}-pwexp`} error={errors.passwordExpiry} hint="The file stays; only the password stops working.">
+            <select
+              id={`${id}-pwexp`}
+              value={encodeChoice(state.passwordExpiry)}
+              onChange={(event) => timing({ passwordExpiry: decodeChoice(event.target.value) })}
+              className={fieldClass}
+            >
+              {passwordExpiryChoices.map((choice) => (
+                <option key={encodeChoice(choice.value)} value={encodeChoice(choice.value)}>
+                  {choice.label}
+                </option>
+              ))}
+            </select>
+            {state.passwordExpiry === 'custom' && (
+              <input
+                type="datetime-local"
+                aria-label="Password expiry date and time"
+                value={toLocalInput(state.passwordExpiryCustomAt)}
+                onChange={(event) => timing({ passwordExpiryCustomAt: parseLocalDateTime(event.target.value) })}
+                className={fieldClass}
+              />
+            )}
+          </Field>
+        </>
+      )}
     </div>
   );
 }

@@ -1,6 +1,7 @@
-import { Clock, Eye, EyeOff, ExternalLink, Gauge, Globe, Images, Infinity as InfinityIcon, KeyRound, Link, Link2, Lock, MessageSquareWarning, Pencil, Trash2 } from 'lucide-react';
+import { Clock, Eye, EyeOff, ExternalLink, Gauge, Globe, Images, Infinity as InfinityIcon, KeyRound, Link, Link2, Lock, MessageSquareWarning, Pencil, Trash2, Wand2 } from 'lucide-react';
 
 import type { OwnerFile } from '../../lib/api';
+import { sourceKindOf } from '../../lib/convertKinds';
 import type { MenuItem } from '../components/Menu';
 
 export interface FileHandlers {
@@ -25,7 +26,12 @@ export interface FileHandlers {
   editViewLimit?: ((file: OwnerFile) => void) | undefined;
   /** Removes the limit at once (`PATCH { view_limit: null }`). */
   removeViewLimit?: ((file: OwnerFile) => void) | undefined;
+  /** Milestone 5 §13.2: "Convert…", one file or a batch, on the Convert page. */
+  convert?: ((files: OwnerFile[]) => void) | undefined;
 }
+
+/** A file the Convert page can take (§1.1): a kind with targets, and scanned. */
+export const canConvert = (file: OwnerFile) => sourceKindOf(file) !== null && (file.safety?.state ?? 'ok') !== 'pending';
 
 /** Why Unmark is disabled (§4.5, §11.2). */
 export const NSFW_LOCKED_HINT = 'Marked by files.gg. Ask for a review instead.';
@@ -57,6 +63,7 @@ export function fileMenuItems(file: OwnerFile, handlers: FileHandlers): MenuItem
     { label: 'Change access…', icon: Lock, onSelect: () => handlers.changeAccess([file]) },
     { label: 'View limit…', icon: Gauge, onSelect: () => handlers.editViewLimit?.(file), hidden: !handlers.editViewLimit },
     { label: 'Add to album…', icon: Images, onSelect: () => handlers.addToAlbum([file]) },
+    { label: 'Convert…', icon: Wand2, onSelect: () => handlers.convert?.([file]), hidden: !handlers.convert || !canConvert(file) },
     { label: 'Mark as sensitive', icon: EyeOff, onSelect: () => handlers.setSensitive?.([file], true), hidden: !handlers.setSensitive || Boolean(file.nsfw) },
     {
       label: 'Unmark as sensitive',

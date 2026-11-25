@@ -1,6 +1,6 @@
 import { FileUp } from 'lucide-react';
 import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from 'react';
-import { Link, useSearchParams } from 'react-router';
+import { Link, useNavigate, useSearchParams } from 'react-router';
 
 import { Button } from '../../components/Button';
 import { buttonClass } from '../../components/buttonClass';
@@ -63,6 +63,7 @@ export default function FilesPage() {
   const now = useNow(RELATIVE_REFRESH_MS);
   const narrow = useIsNarrow();
   const notify = useToast();
+  const navigate = useNavigate();
 
   const update = useCallback(
     (patch: Partial<FilesUrlState>) => setParams(filesSearchParams(patchFilesState(state, patch)), { replace: patch.query !== undefined }),
@@ -137,6 +138,11 @@ export default function FilesPage() {
       askReview: anonymous ? undefined : (file) => setDialog({ type: 'review', files: [file] }),
       // Milestone 6 §19.3: anonymous uploaders set a view limit only at upload.
       editViewLimit: anonymous ? undefined : (file) => setDialog({ type: 'viewLimit', files: [file] }),
+      // Milestone 5 §13.2: one file opens the Convert page on it, several start a batch.
+      convert: (list) => {
+        if (list.length === 0) return;
+        navigate(list.length === 1 ? `/convert?source=${encodeURIComponent(list[0]!.vanity)}` : '/convert', { state: { files: list } });
+      },
       removeViewLimit: anonymous
         ? undefined
         : (file) =>
@@ -145,7 +151,7 @@ export default function FilesPage() {
               { onSuccess: () => notify('View limit removed.'), onError: (error) => notify(errorMessage(error), 'error') },
             ),
     }),
-    [actions, anonymous, expiry, notify, sensitive, viewLimit, linkDomain],
+    [actions, anonymous, expiry, notify, sensitive, viewLimit, linkDomain, navigate],
   );
 
   const confirmDelete = (list: OwnerFile[]) => {

@@ -174,7 +174,7 @@ LIVE_ALBUM = '(deleted_at IS NULL AND (expires_at IS NULL OR expires_at > now())
 
 
 def resolve(conn, target, reporter):
-    """(kind, id, vanity, owner {user_id, fingerprint}) of a report target. Private files and
+    """(kind, id, vanity, owner {user_id, guest_id}) of a report target. Private files and
     albums are unknown to everyone but their owner (who can't report them anyway)."""
     if not isinstance(target, dict):
         raise errors.invalid_report_target()
@@ -208,20 +208,20 @@ def resolve(conn, target, reporter):
         raise errors.invalid_report_target()
     vanity = vanity.strip()
     if kind == 'file':
-        row = core.one(conn, 'SELECT id, vanity, user_id, fingerprint, visibility FROM files WHERE vanity = %s AND '
+        row = core.one(conn, 'SELECT id, vanity, user_id, guest_id, visibility FROM files WHERE vanity = %s AND '
                        + LIVE_FILE, (vanity.split('.', 1)[0],))
         if row is None:
             raise errors.unknown_file()
-        owner = {'user_id': row[2], 'fingerprint': row[3] if row[2] is None else None}
+        owner = {'user_id': row[2], 'guest_id': row[3] if row[2] is None else None}
         if row[4] == 'private' and not is_owner(owner, reporter):
             raise errors.unknown_file()
         return 'file', row[0], row[1], owner
     if kind == 'album':
-        row = core.one(conn, 'SELECT id, vanity, owner_user_id, owner_fingerprint, visibility, access_version '
+        row = core.one(conn, 'SELECT id, vanity, owner_user_id, owner_guest_id, visibility, access_version '
                              'FROM albums WHERE vanity = %s AND ' + LIVE_ALBUM, (vanity,))
         if row is None:
             raise errors.unknown_album()
-        owner = {'user_id': row[2], 'fingerprint': row[3]}
+        owner = {'user_id': row[2], 'guest_id': row[3]}
         if row[4] == 'private' and not is_owner(owner, reporter):
             raise errors.unknown_album()
         item = target.get('item')
@@ -235,7 +235,7 @@ def resolve(conn, target, reporter):
                 raise errors.invalid_report_target('Unlock the album to report one of its items')
             from safety.states import SHOWN_SQL_SUB
             file_row = core.one(conn, (
-                'SELECT f.id, f.vanity, f.user_id, f.fingerprint FROM album_files af JOIN files f ON f.id = af.file_id '
+                'SELECT f.id, f.vanity, f.user_id, f.guest_id FROM album_files af JOIN files f ON f.id = af.file_id '
                 'JOIN albums al ON al.id = af.album_id WHERE af.album_id = %s AND f.deleted_at IS NULL AND '
                 "(al.visibility <> 'link' OR f.visibility = 'link') AND f.view_limit IS NULL AND " + SHOWN_SQL_SUB +
                 ' ORDER BY af.position, af.file_id OFFSET %s LIMIT 1'), (row[0], item - 1))
@@ -243,7 +243,7 @@ def resolve(conn, target, reporter):
                 raise errors.unknown_file()
             # the reporter's view names the album and the position, never the item's own vanity
             return 'file', file_row[0], item_vanity(row[1], item), {
-                'user_id': file_row[2], 'fingerprint': file_row[3] if file_row[2] is None else None}
+                'user_id': file_row[2], 'guest_id': file_row[3] if file_row[2] is None else None}
         return 'album', row[0], row[1], owner
     raise errors.invalid_report_target()
 
@@ -266,58 +266,45 @@ def album_token_valid(claims, album_id, access_version):
 def is_owner(owner, reporter):
     if reporter['user_id'] is not None and owner.get('user_id') == reporter['user_id']:
         return True
-    return owner.get('user_id') is None and reporter['fingerprint'] is not None \
-        and owner.get('fingerprint') == reporter['fingerprint']
+    return owner.get('user_id') is None and reporter['guest_id'] is not None \
+        and owner.get('guest_id') == reporter['guest_id']
 
 
-# --- rate limits (§7.7) -------------------------------------------------------------------------------------
-
-def count_rate(conn, scope, key, limit):
-    """Count one in the current 1-hour window; (over the limit, seconds left)."""
-    row = core.one(conn, (
-        'INSERT INTO safety_rate_limits AS r (scope, key, window_start, count) '
-        "VALUES (%s, %s, date_trunc('hour', now()), 1) "
-        'ON CONFLICT (scope, key, window_start) DO UPDATE SET count = r.count + 1 '
-        "RETURNING count, ceil(extract(epoch FROM (window_start + interval '1 hour' - now())))::int"),
-        (scope, key, ))
-    return row[0] > limit, max(1, row[1])
-
+# --- rate limits (§7.7), on Redis (milestone-5 §18.3) ----------------------------------------------------------
 
 def rate_keys(reporter):
     if reporter['user_id'] is not None:
         return ['user:{}'.format(reporter['user_id'])]
     keys = []
-    if reporter['fingerprint'] is not None:
-        keys.append('fp:{:x}'.format(reporter['fingerprint']))
+    if reporter['guest_id'] is not None:
+        keys.append('guest:{:x}'.format(reporter['guest_id']))
     if reporter['ip_hash']:
         keys.append('ip:' + reporter['ip_hash'].hex())
     return keys
 
 
-def check_report_rate(conn, reporter, reason, settings):
-    """10 reports an hour per account, fingerprint and IP hash. CSAM reports aren't limited
-    (anonymous ones only by Turnstile)."""
+def check_report_rate(reporter, reason):
+    """REPORT_RATE_PER_HOUR (10) an hour per account, guest and IP hash, closed: 429 MAX_REPORTS. CSAM
+    reports aren't limited (anonymous ones only by Turnstile)."""
+    from utils import ratelimit_sync
     if reason == 'csam':
         return
-    for key in rate_keys(reporter):
-        over, retry_after = count_rate(conn, 'report', key, settings.report_rate_per_hour)
-        if over:
-            raise errors.max_reports(retry_after)
+    ratelimit_sync.hit_many([('report', key) for key in rate_keys(reporter)])
 
 
 # --- distinct reporters and automatic effects (§7.4) ---------------------------------------------------------
 
-def reporter_key(user_id, fingerprint):
+def reporter_key(user_id, guest_id):
     if user_id is not None:
         return 'user:{}'.format(user_id)
-    return 'anon:{}'.format(fingerprint if fingerprint is not None else 'none')
+    return 'anon:{}'.format(guest_id if guest_id is not None else 'none')
 
 
 def distinct_reporters(rows):
     """Reports count as distinct when their reporter keys differ and they don't share an IP hash."""
     keys, ips, count = set(), set(), 0
-    for user_id, fingerprint, ip_hash in rows:
-        key = reporter_key(user_id, fingerprint)
+    for user_id, guest_id, ip_hash in rows:
+        key = reporter_key(user_id, guest_id)
         ip = bytes(ip_hash) if ip_hash else None
         if key in keys or (ip is not None and ip in ips):
             continue
@@ -333,7 +320,7 @@ def target_column(kind):
 
 
 def reporters_for(conn, kind, target_id, reason):
-    return core.all_rows(conn, "SELECT reporter_user_id, reporter_fingerprint, reporter_abuse_ip_hash FROM reports "
+    return core.all_rows(conn, "SELECT reporter_user_id, reporter_guest_id, reporter_abuse_ip_hash FROM reports "
                                "WHERE {} = %s AND reason = %s AND status = 'open' ORDER BY id".format(
                                    target_column(kind)), (target_id, reason))
 
@@ -378,6 +365,9 @@ def auto_hide(conn, kind, target_id, reason, case_id):
         if row is None or row[0] != 'visible':
             return None
         core.set_file_state(conn, [target_id], 'hidden', reason, auto=True)
+        # milestone-5 §5.4: the file's conversion outputs are hidden with it
+        from safety import cascade
+        cascade.queue(conn, 'hide', [target_id])
         action_id = core.log_action(conn, core.SYSTEM, 'auto_hide', rule=reason, file_id=target_id, case_id=case_id,
                                     child_safety=csam)
         if not csam:
@@ -394,6 +384,8 @@ def auto_hide(conn, kind, target_id, reason, case_id):
                                                    "WHERE af.album_id = %s AND f.moderation_state = 'visible'",
                                              (target_id,))]
         core.set_file_state(conn, items, 'hidden', reason, auto=True)
+        from safety import cascade
+        cascade.queue(conn, 'hide', items)
     action_id = core.log_action(conn, core.SYSTEM, 'auto_hide', rule=reason, album_id=target_id, case_id=case_id,
                                 child_safety=csam, details={'files': [str(i) for i in items]} if items else None)
     if not csam:
@@ -424,14 +416,14 @@ def auto_nsfw(conn, kind, target_id, case_id):
 # --- submitting (§7.3, §7.4) ------------------------------------------------------------------------------------
 
 def submit(conn, reporter, body, settings=None):
-    """`reporter`: {user_id, fingerprint, ip_hash}. Returns (status, response)."""
+    """`reporter`: {user_id, guest_id, ip_hash}. Returns (status, response)."""
     settings = settings or safety_settings()
     if not isinstance(body, dict):
         raise errors.invalid_report_target()
     reason = body.get('reason')
     if reason not in REASONS:
         raise errors.invalid_parameters({'reason': 'Pick a reason'})
-    check_report_rate(conn, reporter, reason, settings)
+    check_report_rate(reporter, reason)
     target = body.get('target')
     details = clean_text(body.get('details'))
     if reason in DETAILS_REQUIRED and not details:
@@ -487,7 +479,7 @@ def submit(conn, reporter, body, settings=None):
 
 
 REPORT_COLUMNS = ('id', 'kind', 'file_id', 'album_id', 'user_id', 'target_vanity', 'album_part', 'reason', 'priority',
-                  'status', 'reporter_user_id', 'reporter_fingerprint', 'details', 'case_id', 'reopen_count',
+                  'status', 'reporter_user_id', 'reporter_guest_id', 'details', 'case_id', 'reopen_count',
                   'created_at', 'updated_at', 'resolved_at', 'reopened_at', 'closed_at')
 
 
@@ -519,9 +511,9 @@ def store(conn, reporter, kind, target_id, vanity, part, reason, details, contac
                 return get_report(conn, existing[0]), True
         else:
             clauses, params = [], []
-            if reporter['fingerprint'] is not None:
-                clauses.append('reporter_fingerprint = %s')
-                params.append(reporter['fingerprint'])
+            if reporter['guest_id'] is not None:
+                clauses.append('reporter_guest_id = %s')
+                params.append(reporter['guest_id'])
             if reporter['ip_hash']:
                 clauses.append('reporter_abuse_ip_hash = %s')
                 params.append(reporter['ip_hash'])
@@ -540,11 +532,12 @@ def store(conn, reporter, kind, target_id, vanity, part, reason, details, contac
     report_id = Snowflake.generate()
     conn.execute(
         'INSERT INTO reports (id, kind, file_id, album_id, user_id, target_vanity, album_part, reason, priority, '
-        'reporter_user_id, reporter_fingerprint, reporter_abuse_ip_hash, contact_email, details, dmca, case_id, domain_id) '
+        'reporter_user_id, reporter_guest_id, reporter_abuse_ip_hash, contact_email, details, dmca, case_id, '
+        'domain_id) '
         'VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb, %s, %s)',
         (report_id, kind, target_id if kind == 'file' else None, target_id if kind == 'album' else None,
          target_id if kind == 'user' else None, vanity, part if kind == 'album' else None, reason, priority,
-         reporter['user_id'], reporter['fingerprint'] if reporter['user_id'] is None else None, reporter['ip_hash'],
+         reporter['user_id'], reporter['guest_id'] if reporter['user_id'] is None else None, reporter['ip_hash'],
          contact_email, details, json.dumps(dmca) if dmca else None, case_id, target_id if kind == 'domain' else None))
     automatic_effects(conn, kind, target_id, reason, case_id, settings, part)
     return get_report(conn, report_id), False
@@ -642,18 +635,16 @@ def messages(conn, report, user_id):
                        'created_at': epoch(r[3])} for r in rows]}
 
 
-def add_message(conn, report, user_id, body, settings=None):
+def add_message(conn, report, user_id, body):
     from db.models import epoch
-    settings = settings or safety_settings()
+    from utils import ratelimit_sync
     if report['closed_at'] is not None:
         raise errors.report_closed()
     body = clean_text(body, field='body')
     if not body:
         raise errors.invalid_parameters({'body': 'Write a message'})
-    over, retry_after = count_rate(conn, 'report_message', 'user:{}'.format(user_id),
-                                   settings.report_message_rate_per_hour)
-    if over:
-        raise errors.max_messages(retry_after)
+    # REPORT_MESSAGE_RATE_PER_HOUR (30) an hour per account, closed (milestone-5 §18.3): 429 MAX_MESSAGES
+    ratelimit_sync.hit('report_message', 'user:{}'.format(user_id))
     row = core.one(conn, 'INSERT INTO report_messages (report_id, author_user_id, is_staff, body) VALUES '
                          '(%s, %s, false, %s) RETURNING id, created_at', (report['id'], user_id, body))
     conn.execute('UPDATE reports SET updated_at = now() WHERE id = %s', (report['id'],))

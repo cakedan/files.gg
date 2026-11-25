@@ -8,6 +8,7 @@ The contracts it implements:
 - `docs/redesign/contracts/milestone-2.md`: storage and the locked states;
 - `docs/redesign/contracts/milestone-4.md` §10 (with §2.3, §2.4, §4.6, §6.3, §14.1): the scanning and moderation states, NSFW, the report routes, the staff grant and `security.txt`;
 - `docs/redesign/contracts/milestone-6.md` §12 (with §3, §6, §8.8, §10, §16.5, §16.10, §16.11): the session cookie's routing, CORS without credentials, the auth redirects and reserved segments, `files.gg/challenge`, custom domains, domain-only mode and pending account deletions;
+- `docs/redesign/contracts/milestone-5.md` §9.2, §11 and §19.1: the `document` preview kind, and the public pages of `app.html` (Convert, the changelog, the Terms and the Privacy Policy);
 - `docs/redesign/PLAN.md`, "Hardening cdn.files.gg".
 
 There is no backward compatibility (milestone-3.md §0): the old Mithril frontend, the CDN's raw GCS route, the GCS fallback and `?t=` tokens are gone.
@@ -37,7 +38,8 @@ The web session is the HttpOnly cookie `__Host-filesgg_session` (`SESSION_COOKIE
 2. **Root files** (`/favicon.ico`, `/favicon.svg`, `/favicon-{16,32,48}.png`, `/apple-touch-icon.png`, `/icon-{192,512}.png`, `/og-image.png`) come from `web/dist`, cached for a day. They are exact paths, so they never reach the vanity lookup.
 3. **`/assets/*`** comes from `web/dist`, cached as immutable for a year. `.mjs` and `.js` are served as `text/javascript`, and `.wasm` as `application/wasm`. A path missing from `web/dist` is a 404.
 4. **`/app` and `/app/*`** serve `app.html` with `Cache-Control: no-cache`.
-5. **`/`** is the `home` page, and **`/convert`** is the `convert` page.
+5. **`/`** is the `home` page.
+   - **`/convert`, `/changelog`, `/legal/terms` and `/legal/privacy`** (trailing slash allowed; milestone-5.md §11, §19.1): `app.html`, served like `/app` but with the page's own `<title>`, description and OpenGraph tags in place of the dashboard's, and without its `robots: noindex` (`worker/utils/viewer.js` `publicPageHead`). The app's router picks the page from the path. **`/legal`, `/legal/`** → `302` to `/legal/terms`, query kept. Only on `MAIN_HOST` (and its `www.`): never on the CDN, the API host or custom domains.
    - **`/login`, `/login/`** → `308` to `/app/login`; **`/register`, `/register/`, `/signup`, `/signup/`** → `308` to `/app/register`, with the query kept (milestone-6.md §6.2). `GET` and `HEAD` only.
    - **`/challenge?host=<custom hostname>&action=unlock|report|view`** (milestone-6.md §10.10; `view` opens a view-limited file, §19.7), on `MAIN_HOST` itself only (not `www.`): `web/dist/challenge.html` with `<script id="challenge-data">{"host","action"}</script>` as the first child of `<body>`, `Cache-Control: no-store` and `Content-Security-Policy: default-src 'none'; script-src 'self' https://challenges.cloudflare.com; frame-src https://challenges.cloudflare.com; style-src 'self' 'unsafe-inline'; base-uri 'none'; frame-ancestors https://<host>`. `404` (`no-store`) unless `host` is a serving custom domain (domain lookup) and `action` is `unlock`, `report` or `view`; `503` while the API is down.
 6. **Report pages** (milestone-4.md §10.1), always 200 with `Cache-Control: no-cache`, the default meta tags, and no lookup (they never say whether the target exists):
@@ -48,7 +50,7 @@ The web session is the HttpOnly cookie `__Host-filesgg_session` (`SESSION_COOKIE
    The vanity is always the last path segment (milestone-6.md §20.2): the old `/<vanity>/report`, `/a/<vanity>/report` and `/a/<vanity>/<n>` are gone (`missing`, 404, without a lookup).
 7. **`/.well-known/security.txt`** from `web/dist`, as `text/plain; charset=utf-8`, cached for a day.
 8. **`/a/<vanity>`** is an album, whatever its query: the lightbox item is `?item=<n>`, which the viewer reads and keeps in sync (milestone-6.md §20.2). `/a/<vanity>/<anything>` is `missing` without a lookup.
-9. **`/<vanity>` and `/<vanity>.<anything>`** are files, multi-segment vanities included. The old frontend's paths (`/auth`, `/dashboard`, `/details`, `/legal`, `/options`) are ordinary vanity lookups now. `report`, `login`, `register`, `signup`, `challenge`, `files`, `previews` and `albums` are reserved segments (the API's `blacklisted_ids`, case-insensitive; milestone-6.md §6.3), so a vanity containing one (`/report.png`, `/x/report/y`, `/files/abc.png`) is `missing` without a lookup.
+9. **`/<vanity>` and `/<vanity>.<anything>`** are files, multi-segment vanities included. The old frontend's paths (`/auth`, `/dashboard`, `/details`, `/options`) are ordinary vanity lookups now. `report`, `login`, `register`, `signup`, `challenge`, `files`, `previews`, `albums`, `convert`, `legal` and `changelog` are reserved segments (the API's `blacklisted_ids`, case-insensitive; milestone-6.md §6.3), so a vanity containing one (`/report.png`, `/x/report/y`, `/files/abc.png`) is `missing` without a lookup.
 
 ### The viewer shell
 
@@ -82,7 +84,7 @@ The rules live in `worker/utils/viewer.js`:
 - **States** come from the lookup's `safety` (`worker/utils/safety.js`). A lookup without `safety`, or with a state the Worker doesn't know, is `pending` (fail closed). Unknown public reasons become `review` (hidden) or `terms` (removed).
 - **`serve_inline: false`** (or missing): the boot payload gets `kind: "file"` and loses `assets`, `thumbnail` and `hover_url`, since the CDN won't serve them.
 
-- **Meta tags:** locked pages get generic ones ("Password-protected file · files.gg"), with no name, image or video; so do `pending` ("Checking this file · files.gg", or "this album") and `removed` ("This file was removed · files.gg", "This album was removed · files.gg"). Report pages keep `viewer.html`'s defaults. Home, convert, missing and unavailable pages keep `viewer.html`'s defaults. Otherwise (milestone 3), with URLs exactly as the API wrote them in `cdn_url`, `assets`, `thumbnail`, `cover` and `collage` (payloads are snake_case, times in epoch seconds):
+- **Meta tags:** locked pages get generic ones ("Password-protected file · files.gg"), with no name, image or video; so do `pending` ("Checking this file · files.gg", or "this album") and `removed` ("This file was removed · files.gg", "This album was removed · files.gg"). Report pages keep `viewer.html`'s defaults. Home, missing and unavailable pages keep `viewer.html`'s defaults. Otherwise (milestone 3), with URLs exactly as the API wrote them in `cdn_url`, `assets`, `thumbnail`, `cover` and `collage` (payloads are snake_case, times in epoch seconds):
   - image: the file itself (`cdn_url`), or `assets.display` for a non-browser image (HEIC, TIFF…);
   - video: `og:image` = the poster with its dimensions, plus `og:video` with the video's (only when `media.playable` isn't `false`);
   - audio: `og:audio`, and `og:image` = the cover, else the waveform;
@@ -116,7 +118,7 @@ Per request (milestone-4.md §10.2, milestone-6.md §10.8): **parse → lookup (
 | `/albums/collage/<album vanity>.webp?v=<ver>` | An album's collage. |
 | `/albums/download/<album vanity>.zip` | An album's "Download all". |
 
-- **Parsing** (`worker/utils/media.js`): the preview kind is the first segment after `/previews/` and must be one of `thumb`, `thumb-2x`, `display`, `poster`, `cover`, `waveform` (all `webp`), `peaks` (`json`) or `hover` (`mp4`). Everything after it, minus the kind's extension, is the vanity, so `/previews/thumb/abcd/xyz.webp` is vanity `abcd/xyz` and a vanity named `thumb` can't be misread. A wrong extension for the kind is a 404. Albums work the same way with `collage` or `download` first; album vanities are one segment. Empty segments, malformed escapes, an encoded `/`, and a `.` inside a vanity are 404s.
+- **Parsing** (`worker/utils/media.js`): the preview kind is the first segment after `/previews/` and must be one of `thumb`, `thumb-2x`, `display`, `poster`, `cover`, `waveform` (all `webp`), `peaks` (`json`), `hover` (`mp4`) or `document` (`pdf`: an Office document's preview, milestone-5.md §9.2, always served as `application/pdf`, `inline`, with the same signing and protected-file rules as every preview). Everything after it, minus the kind's extension, is the vanity, so `/previews/thumb/abcd/xyz.webp` is vanity `abcd/xyz` and a vanity named `thumb` can't be misread. A wrong extension for the kind is a 404. Albums work the same way with `collage` or `download` first; album vanities are one segment. Empty segments, malformed escapes, an encoded `/`, and a `.` inside a vanity are 404s.
 - **`?v=`** is never checked: it only gives regenerated previews and collages a new URL.
 
 #### Access: signed URLs (`worker/utils/signing.js`)
@@ -172,7 +174,7 @@ grant = "staff:" + <staff user id> + ":" + <file id from the lookup>
 Every hostname that isn't `MAIN_HOST` (or `www.`), `CDN_HOST` or `API_HOST`. Per request:
 1. `/.well-known/acme-challenge/*`, `/.well-known/pki-validation/*` and `/.well-known/cf-custom-hostname-challenge/*` go straight to the origin (`fetch(request)`, without the client's cookies), before any lookup.
 2. The domain lookup (5 s cache). Not a valid hostname, under `MAIN_HOST`, unknown, `serving` not `true`, or a lookup for another hostname: a minimal page, `404`, `Cache-Control: no-cache`, "This domain isn't connected to files.gg right now.". The API down: the same kind of page, `503`.
-3. The path (`worker/utils/domains.js` `classifyCustomPath`): `/` is the landing card (`data-page="domain-home"`); `/<vanity>[.<ext>]` and `/a/<vanity>` the shells (bot redirects go to `https://<host>/files/<vanity>.<ext>`); the report pages; `/files/…`, `/previews/…` and `/albums/…` the CDN paths with every `cdn.files.gg` rule; `/assets/*` and the root files from `web/dist`. Everything else (`/app`, `/api`, `/convert`, `/challenge`, `/login`, `/.well-known/security.txt`…) is a 404, and nothing is ever passed to the API.
+3. The path (`worker/utils/domains.js` `classifyCustomPath`): `/` is the landing card (`data-page="domain-home"`); `/<vanity>[.<ext>]` and `/a/<vanity>` the shells (bot redirects go to `https://<host>/files/<vanity>.<ext>`); the report pages; `/files/…`, `/previews/…` and `/albums/…` the CDN paths with every `cdn.files.gg` rule; `/assets/*` and the root files from `web/dist`. Everything else (`/app`, `/api`, `/convert`, `/changelog`, `/legal/…`, `/challenge`, `/login`, `/.well-known/security.txt`…) is a 404, and nothing is ever passed to the API.
 4. The domain's scope: with `scope` other than `any`, the lookup's `owner_user_id` must equal the domain's `user_id` (anonymous content never matches), else missing (shell 404, CDN 404).
 5. `owner_state` not `active` → missing. `served_on` is ignored.
 6. Then the `files.gg` shell order and the CDN order. Staff URLs are refused.

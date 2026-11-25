@@ -3,7 +3,7 @@ import { useCallback } from 'react';
 
 import {
   api,
-  ensureFingerprint,
+  ensureGuest,
   type AccessParams,
   type AppealBody,
   type CreateAlbumBody,
@@ -61,9 +61,9 @@ export function useSignedIn(): boolean {
   return Boolean(useSession().data);
 }
 
-/** Anonymous owners (X-Fingerprint) need a fingerprint before their first call. */
-async function withFingerprint<T>(call: () => Promise<T>): Promise<T> {
-  await ensureFingerprint();
+/** Anonymous owners (`Authorization: Guest`) need a guest token before their first call. */
+async function withGuest<T>(call: () => Promise<T>): Promise<T> {
+  await ensureGuest();
   return call();
 }
 
@@ -82,7 +82,7 @@ const ownerUrlQueryOptions = {
 export function useMyFiles(params: MyFilesParams = {}, enabled = true) {
   return useQuery({
     queryKey: queryKeys.myFiles(params),
-    queryFn: ({ signal }) => withFingerprint(() => api.myFiles(params, signal)),
+    queryFn: ({ signal }) => withGuest(() => api.myFiles(params, signal)),
     placeholderData: keepPreviousData,
     enabled,
     ...ownerUrlQueryOptions,
@@ -90,13 +90,13 @@ export function useMyFiles(params: MyFilesParams = {}, enabled = true) {
 }
 
 export function useMyLimits() {
-  return useQuery({ queryKey: queryKeys.myLimits, queryFn: ({ signal }) => withFingerprint(() => api.myLimits(signal)) });
+  return useQuery({ queryKey: queryKeys.myLimits, queryFn: ({ signal }) => withGuest(() => api.myLimits(signal)) });
 }
 
 export function useMyAlbums(params: MyAlbumsParams = {}, enabled = true) {
   return useQuery({
     queryKey: queryKeys.myAlbums(params),
-    queryFn: ({ signal }) => withFingerprint(() => api.myAlbums(params, signal)),
+    queryFn: ({ signal }) => withGuest(() => api.myAlbums(params, signal)),
     placeholderData: keepPreviousData,
     enabled,
     ...ownerUrlQueryOptions,
@@ -457,7 +457,7 @@ export function useDeleteAlbum() {
 export function useCreateAlbum() {
   const client = useQueryClient();
   return useMutation({
-    mutationFn: (body: CreateAlbumBody) => withFingerprint(() => api.createAlbum(body)),
+    mutationFn: (body: CreateAlbumBody) => withGuest(() => api.createAlbum(body)),
     onSuccess: (album) => client.setQueryData(queryKeys.album(album.id), album),
     onSettled: () => void client.invalidateQueries({ queryKey: queryKeys.myAlbumsAll }),
   });

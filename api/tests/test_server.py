@@ -47,7 +47,10 @@ def test_three_workers_lease_three_node_ids_and_release_them(migrated_db):
     assert live_leases(migrated_db) == [], output
 
 
-async def test_200_concurrent_requests(migrated_db):
+async def test_200_concurrent_requests(migrated_db, monkeypatch):
+    from tests.conftest import rate_limits_env
+    # 200 at once from one client: over the global limit and POST /files' 60 a minute (milestone-5 §18.2)
+    monkeypatch.setenv('RATE_LIMITS', rate_limits_env(file_upload='1000 per minute'))
     token = signed_in(migrated_db)
     server = ServerProcess(migrated_db, '--workers', '2').wait_ready()
     try:

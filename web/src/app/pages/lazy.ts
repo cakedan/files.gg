@@ -6,6 +6,9 @@ export const OverviewPage = lazy(() => import('./OverviewPage'));
 export const FilesPage = lazy(() => import('./FilesPage'));
 export const UploadPage = lazy(() => import('./UploadPage'));
 export const ConvertPage = lazy(() => import('./ConvertPage'));
+/** The public `files.gg/convert` (milestone-5 §13.1), in the same chunk. */
+export const HomePage = lazy(() => import('./HomePage'));
+export const PublicConvertPage = lazy(() => import('./ConvertPage').then((m) => ({ default: m.PublicConvertPage })));
 export const AlbumsPage = lazy(() => import('./AlbumsPage'));
 export const AlbumEditorPage = lazy(() => import('./AlbumEditorPage'));
 export const IntegrationsPage = lazy(() => import('./IntegrationsPage'));

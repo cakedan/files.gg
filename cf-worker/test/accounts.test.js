@@ -176,7 +176,7 @@ describe('files.gg routing (§6.2, §6.3)', () => {
       '/signup': '/app/register', '/signup/': '/app/register',
     });
     for (const [path, location] of Object.entries(AUTH_REDIRECTS)) {
-      assert.deepEqual(classifyStablePath(path), { route: 'redirect', location }, path);
+      assert.deepEqual(classifyStablePath(path), { route: 'redirect', location, status: 308 }, path);
     }
   });
 
@@ -186,8 +186,10 @@ describe('files.gg routing (§6.2, §6.3)', () => {
     assert.equal(classifyStablePath('/challenge.html').route, 'missing');
   });
 
-  it('reserves login, register, signup, challenge, files, previews and albums', () => {
-    assert.deepEqual([...RESERVED_SEGMENTS], ['report', 'login', 'register', 'signup', 'challenge', 'files', 'previews', 'albums']);
+  it('reserves login, register, signup, challenge, files, previews, albums, convert, legal and changelog', () => {
+    assert.deepEqual([...RESERVED_SEGMENTS], [
+      'report', 'login', 'register', 'signup', 'challenge', 'files', 'previews', 'albums', 'convert', 'legal', 'changelog',
+    ]);
     for (const segment of RESERVED_SEGMENTS) {
       assert.ok(hasReservedSegment(segment), segment);
       assert.ok(hasReservedSegment(segment.toUpperCase()), segment);
@@ -351,6 +353,8 @@ describe('custom-domain routing (§10.8)', () => {
       '/files/abc123.png': 'cdn', '/previews/thumb/abc123.webp': 'cdn', '/albums/collage/x.webp': 'cdn', '/albums/download/x.zip': 'cdn',
       '/files/': 'cdn', '/files/x': 'cdn', '/previews/nope/x.webp': 'cdn',
       '/app': 'not-found', '/app/login': 'not-found', '/api': 'not-found', '/api/users/@me': 'not-found', '/convert': 'not-found',
+      // milestone-5.md §19.1: the changelog and legal pages are files.gg's only.
+      '/changelog': 'not-found', '/legal': 'not-found', '/legal/terms': 'not-found', '/legal/privacy': 'not-found',
       '/.well-known/security.txt': 'not-found', '/.well-known/x': 'not-found',
       '/login': 'missing', '/register': 'missing', '/signup': 'missing', '/challenge': 'missing', '/files': 'cdn',
     };

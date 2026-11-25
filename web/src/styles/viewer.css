@@ -95,3 +95,60 @@
     background: repeating-conic-gradient(#26282c 0 25%, #1e2023 0 50%) 0 0 / 16px 16px;
   }
 }
+
+/* The corner grip (ResizeGrip): a width the visitor dragged. Unlayered, so it beats the renderers'
+   own width utilities, but only while the card has `data-resized`. The media fills the card and still
+   never gets taller than --media-max-height; the card never gets wider than --media-max-width. */
+.viewer-card[data-resized] {
+  width: min(var(--viewer-user-width), var(--media-max-width));
+  max-width: var(--media-max-width);
+}
+.viewer-card[data-resized] .viewer-well {
+  width: 100%;
+}
+.viewer-card[data-resized] .viewer-media-sized {
+  width: min(100%, calc(var(--media-max-height) * var(--media-w) / var(--media-h)));
+  margin-inline: auto;
+}
+.viewer-card[data-resized] .viewer-media-free {
+  width: 100%;
+  max-width: 100%;
+  height: auto;
+}
+
+/* Only with a mouse or trackpad, like the old viewer (off on phones and tablets), and never in print. */
+.viewer-grip {
+  display: none;
+}
+@media (hover: hover) and (pointer: fine) {
+  .viewer-grip {
+    position: absolute;
+    right: 2px;
+    bottom: 2px;
+    z-index: 10;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 1.25rem;
+    height: 1.25rem;
+    border-radius: 4px;
+    color: var(--muted);
+    opacity: 0.45;
+    cursor: nwse-resize;
+    touch-action: none;
+    transition: opacity 120ms;
+  }
+  .viewer-card:hover .viewer-grip,
+  .viewer-grip:focus-visible {
+    opacity: 1;
+  }
+  .viewer-grip:focus-visible {
+    outline: 2px solid var(--gg);
+    outline-offset: 1px;
+  }
+}
+@media print {
+  .viewer-grip {
+    display: none;
+  }
+}

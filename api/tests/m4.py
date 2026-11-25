@@ -323,6 +323,11 @@ def pdf(objects_extra='', catalog_extra='', text='Hello'):
     return out.getvalue()
 
 
+def pdf_open_at_fit():
+    """What LibreOffice exports: an /OpenAction that only opens the first page at "fit" (a destination, no action)."""
+    return pdf(catalog_extra='/OpenAction [3 0 R /Fit]')
+
+
 def pdf_javascript():
     return pdf(objects_extra="<< /S /JavaScript /JS (app.alert('x')) >>", catalog_extra='/OpenAction 6 0 R')
 

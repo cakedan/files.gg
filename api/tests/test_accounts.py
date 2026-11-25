@@ -16,7 +16,7 @@ from tests.conftest import (
 )
 from utils import credentials
 from utils.generators import Snowflake
-from utils.tokens import FingerprintToken
+from utils.tokens import GuestToken
 
 RESET_TOKEN = turnstile_token('reset')
 FORGOT_TOKEN = turnstile_token('forgot')
@@ -297,9 +297,9 @@ def test_dead_cookies_are_cleared(client, appdb):
         response = client.get('/auth/session', headers=cookie_headers(value))
         assert response.status_code == 200 and response.json() == {'user': None}
         assert 'Max-Age=0' in response.headers['set-cookie']
-        # a dead cookie never falls back to the fingerprint
+        # a dead cookie never falls back to the guest
         response = client.get('/users/@me/files', headers=dict(cookie_headers(value), **{
-            'X-Fingerprint': FingerprintToken.generate(Snowflake.generate())}))
+            'Authorization': 'Guest ' + GuestToken.generate(Snowflake.generate())}))
         assert response.status_code == 401
 
 
@@ -411,11 +411,11 @@ def test_register_is_rate_limited_and_refused_to_bans(client, appdb, mx):
         'email': username + '@example.com', 'username': username, 'password': 'correct-horse',
         'turnstile_token': REGISTER_TOKEN})
     assert (response.status_code, response.json()['code']) == (403, 'BANNED')
-    fingerprint = Snowflake.generate()
-    appdb.execute("INSERT INTO bans (fingerprint, rule) VALUES (%s, 'spam')", (fingerprint,))
+    guest = Snowflake.generate()
+    appdb.execute("INSERT INTO bans (guest_id, rule) VALUES (%s, 'spam')", (guest,))
     response = post(client, '/auth/register', {'email': username + '@example.com', 'username': username,
                                                'password': 'correct-horse', 'turnstile_token': REGISTER_TOKEN},
-                    headers={'X-Fingerprint': FingerprintToken.generate(fingerprint)})
+                    headers={'Authorization': 'Guest ' + GuestToken.generate(guest)})
     assert (response.status_code, response.json()['code']) == (403, 'BANNED')
 
 
@@ -423,20 +423,20 @@ def test_login_claims_files_and_albums_and_replaces_the_session(client, appdb, m
     username = name()
     created = register(client, username=username)
     old = cookie_of(created)
-    fingerprint_id = Snowflake.generate()
-    fingerprint = {'X-Fingerprint': FingerprintToken.generate(fingerprint_id)}
-    response = client.post('/files', headers=fingerprint, files={'file': ('a.txt', uuid.uuid4().bytes, 'text/plain')},
+    guest_id = Snowflake.generate()
+    guest = {'Authorization': 'Guest ' + GuestToken.generate(guest_id)}
+    response = client.post('/files', headers=guest, files={'file': ('a.txt', uuid.uuid4().bytes, 'text/plain')},
                            data={'turnstile_token': TURNSTILE_TOKEN})
     file_id = int(response.json()['id'])
     album_id = Snowflake.generate()
-    appdb.execute("INSERT INTO albums (id, vanity, owner_fingerprint) VALUES (%s, %s, %s)",
-                  (album_id, 'al' + uuid.uuid4().hex[:8], fingerprint_id))
-    response = client.post('/auth/login', headers=net(dict(cookie_headers(old), **fingerprint)), json={
+    appdb.execute("INSERT INTO albums (id, vanity, owner_guest_id) VALUES (%s, %s, %s)",
+                  (album_id, 'al' + uuid.uuid4().hex[:8], guest_id))
+    response = client.post('/auth/login', headers=net(dict(cookie_headers(old), **guest)), json={
         'email': username.upper() + '@EXAMPLE.COM', 'password': 'correct-horse', 'turnstile_token': LOGIN_TOKEN})
     assert response.status_code == 200, response.text
     user_id = int(response.json()['user']['id'])
-    assert appdb.fetchone('SELECT user_id, fingerprint FROM files WHERE id = %s', (file_id,)) == (user_id, None)
-    assert appdb.fetchone('SELECT owner_user_id, owner_fingerprint FROM albums WHERE id = %s', (album_id,)) == \
+    assert appdb.fetchone('SELECT user_id, guest_id FROM files WHERE id = %s', (file_id,)) == (user_id, None)
+    assert appdb.fetchone('SELECT owner_user_id, owner_guest_id FROM albums WHERE id = %s', (album_id,)) == \
         (user_id, None)
     # one browser, one session: the old cookie's session ended
     assert client.get('/auth/session', headers=cookie_headers(old)).json() == {'user': None}

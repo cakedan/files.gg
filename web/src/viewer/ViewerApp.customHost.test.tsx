@@ -189,7 +189,7 @@ describe('custom host: reports', () => {
   });
 
   it('a file report never asks for the session, and falls back to files.gg\'s report page if the frame fails', async () => {
-    localStorage.setItem('filesgg.fingerprint', '42');
+    localStorage.setItem('filesgg.guest', '42');
     const fetch = mockFetch(() => json({ id: '9', status: 'open' }, 201));
     render(<ViewerApp state={{ page: 'report', target: { type: 'file', vanity: 'abc' } }} />);
     expect(await screen.findByRole('heading', { name: 'Report this file' })).toBeInTheDocument();

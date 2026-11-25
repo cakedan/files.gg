@@ -9,11 +9,11 @@ afterEach(() => {
 
 describe('storage', () => {
   it('round-trips plain strings', () => {
-    expect(setItem('filesgg.fingerprint', 'abc')).toBe(true);
-    expect(localStorage.getItem('filesgg.fingerprint')).toBe('abc');
-    expect(getItem('filesgg.fingerprint')).toBe('abc');
-    removeItem('filesgg.fingerprint');
-    expect(getItem('filesgg.fingerprint')).toBeNull();
+    expect(setItem('filesgg.guest', 'abc')).toBe(true);
+    expect(localStorage.getItem('filesgg.guest')).toBe('abc');
+    expect(getItem('filesgg.guest')).toBe('abc');
+    removeItem('filesgg.guest');
+    expect(getItem('filesgg.guest')).toBeNull();
   });
 
   it('round-trips sessionStorage too', () => {
@@ -31,9 +31,9 @@ describe('storage', () => {
     vi.spyOn(Storage.prototype, 'getItem').mockImplementation(error);
     vi.spyOn(Storage.prototype, 'setItem').mockImplementation(error);
     vi.spyOn(Storage.prototype, 'removeItem').mockImplementation(error);
-    expect(getItem('filesgg.fingerprint')).toBeNull();
-    expect(setItem('filesgg.fingerprint', 'x')).toBe(false);
-    expect(() => removeItem('filesgg.fingerprint')).not.toThrow();
+    expect(getItem('filesgg.guest')).toBeNull();
+    expect(setItem('filesgg.guest', 'x')).toBe(false);
+    expect(() => removeItem('filesgg.guest')).not.toThrow();
     expect(getSessionItem('filesgg.oauth')).toBeNull();
     expect(setSessionItem('filesgg.oauth', 'x')).toBe(false);
     expect(() => removeSessionItem('filesgg.oauth')).not.toThrow();

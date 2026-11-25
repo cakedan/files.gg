@@ -166,8 +166,8 @@ def test_distinct_reporters():
     assert distinct_reporters([(1, None, a), (2, None, b)]) == 2
     assert distinct_reporters([(1, None, a), (2, None, a)]) == 1  # same network
     assert distinct_reporters([(1, None, a), (1, None, b)]) == 1  # same account
-    assert distinct_reporters([(None, 5, a), (None, 6, b)]) == 2  # different fingerprints
-    assert distinct_reporters([(None, None, a), (None, None, b)]) == 1  # anonymous without fingerprints
+    assert distinct_reporters([(None, 5, a), (None, 6, b)]) == 2  # different guests
+    assert distinct_reporters([(None, None, a), (None, None, b)]) == 1  # anonymous without guests
     assert distinct_reporters([(None, 5, None), (1, None, None)]) == 2
 
 

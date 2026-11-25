@@ -8,7 +8,7 @@
 
 import { lazy } from 'react';
 
-import type { FileKind } from '../types';
+import type { FileData, FileKind } from '../types';
 import { GenericRenderer } from './GenericRenderer';
 import { ImageRenderer } from './ImageRenderer';
 import type { Renderer } from './types';
@@ -25,6 +25,14 @@ export const renderers: Partial<Record<FileKind, Renderer>> = {
 
 export function getRenderer(kind: FileKind): Renderer {
   return renderers[kind] ?? GenericRenderer;
+}
+
+/**
+ * The renderer for a file: its kind's, except a document with a preview PDF
+ * (milestone-5 §9.2, `assets.document`), which the PDF renderer shows.
+ */
+export function rendererFor(file: Pick<FileData, 'kind' | 'assets'>): Renderer {
+  return file.assets?.document ? (renderers.pdf ?? GenericRenderer) : getRenderer(file.kind);
 }
 
 export type { Renderer, RenderContext, RendererProps } from './types';

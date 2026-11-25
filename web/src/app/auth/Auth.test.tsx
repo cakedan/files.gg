@@ -1,4 +1,4 @@
-import { act, fireEvent, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { browser, OAUTH_KEY, pkceChallenge } from '../../lib/discord';
@@ -16,6 +16,14 @@ const shared = {
   'GET /users/@me/files': () => ({ count: 0, items: [], size: 0, total: { count: 0, size: 0 } }),
   'GET /users/@me/warnings': () => ({ count: 0, unacknowledged: 0, items: [] }),
 };
+
+/** milestone-5 §19.2: the line under Create account, with the Terms and the Privacy Policy. */
+function expectSignUpAgreement() {
+  const line = screen.getByText(/By creating an account, you agree to the/);
+  expect(line).toHaveTextContent('By creating an account, you agree to the Terms and the Privacy Policy, and confirm you’re 13 or older.');
+  expect(within(line).getByRole('link', { name: 'Terms' })).toHaveAttribute('href', '/legal/terms');
+  expect(within(line).getByRole('link', { name: 'Privacy Policy' })).toHaveAttribute('href', '/legal/privacy');
+}
 
 /** Puts a URL in the real address bar (fragments and the Discord query are read from it). */
 const visit = (url: string) => window.history.replaceState(null, '', url);
@@ -35,7 +43,7 @@ afterEach(() => {
 
 describe('sign in (milestone-6 §4.1, §13.2)', () => {
   it('signs in by email with Turnstile and the CSRF header, claims this browser’s uploads, and goes to next', async () => {
-    localStorage.setItem('filesgg.fingerprint', '777');
+    localStorage.setItem('filesgg.guest', '777');
     let signedIn = false;
     const fetchMock = stubApi({
       ...shared,
@@ -55,9 +63,9 @@ describe('sign in (milestone-6 §4.1, §13.2)', () => {
     const login = calls(fetchMock).find((call) => call.path === '/auth/login')!;
     expect(login.body).toEqual({ email: 'dan@example.com', password: 'hunter2hunter2', turnstile_token: TOKEN });
     expect(login.headers.get('X-Filesgg-Csrf')).toBe('1');
-    expect(login.headers.get('X-Fingerprint')).toBe('777');
+    expect(login.headers.get('Authorization')).toBe('Guest 777');
     expect(login.credentials).toBe('same-origin');
-    expect(localStorage.getItem('filesgg.fingerprint')).toBeNull();
+    expect(localStorage.getItem('filesgg.guest')).toBeNull();
     expect(await screen.findByText('Signed in. Files you uploaded from this browser are now in your account.')).toBeInTheDocument();
   });
 
@@ -93,6 +101,7 @@ describe('create account (§4.3, §13.2)', () => {
     });
     renderDashboard('/register');
     fireEvent.change(await screen.findByLabelText('Username'), { target: { value: 'Dan.W' } });
+    expectSignUpAgreement();
     expect(screen.getByLabelText('Username')).toHaveValue('dan.w');
     expect(await screen.findByText('That username is taken.', {}, { timeout: 2000 })).toBeInTheDocument();
     expect(calls(fetchMock).filter((call) => call.path === '/users/@me/username/check')).toHaveLength(1);
@@ -248,6 +257,7 @@ describe('Discord (§5.2–§5.5)', () => {
     expect(screen.getByLabelText('Username')).toHaveValue('danw');
     expect(screen.getByLabelText(/Display name/)).toHaveValue('Dan W');
     expect(screen.getByText('We’ll use dan@example.com from Discord.')).toBeInTheDocument();
+    expectSignUpAgreement();
     fireEvent.click(screen.getByRole('button', { name: 'Create account' }));
     await waitFor(() => expect(router.state.location.pathname).toBe('/'));
     expect(calls(fetchMock).find((call) => call.path === '/auth/discord/signup')!.body).toEqual({ signup_token: 'sut', username: 'danw', display_name: 'Dan W', turnstile_token: TOKEN });

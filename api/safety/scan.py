@@ -27,7 +27,7 @@ from jobs.queue import register
 from media import sandbox
 from safety import core, csam
 from safety.settings import safety_settings
-from utils import storage as storage_module
+from utils import document_previews, storage as storage_module
 
 log = logging.getLogger(__name__)
 
@@ -443,6 +443,7 @@ def scan(hash_id, job=None, client=None):
     # a re-scan of content already listed keeps its entry; a new match records the matcher
     csam_source = extra['csam'].matcher if extra['csam'] else 'staff'
     handle_job = None
+    previews = []
     with db.connect() as conn:
         with conn.transaction():
             updated = conn.execute(
@@ -456,9 +457,13 @@ def scan(hash_id, job=None, client=None):
             store_pdq(conn, hash_id, extra['pdq'] or [])
             apply_outcome(conn, hash_id, state, reason, findings, warnings, nsfw_auto, extra, source='scan',
                           public_before=False)
+            if state in ('passed', 'flagged'):
+                # milestone-5 §9.1: a document a user uploaded gets its preview, enqueued once this commits
+                previews = document_previews.mark(conn, [hash_id])
             if matched_csam:
                 # committed with the match, so §3.6 runs even if this process dies or the steps fail
                 handle_job = csam.queue_handle(conn, hash_id, csam_source, extra['csam'])
+    document_previews.enqueue(previews)
     if matched_csam:
         csam.handle_now(hash_id, csam_source, extra['csam'], handle_job, client=client)
     log.info('scanned hash %s: %s %s', hash_id, state, reason or '')
@@ -475,7 +480,7 @@ def store_pdq(conn, hash_id, hashes):
 
 def apply_outcome(conn, hash_id, state, reason, findings, warnings, nsfw_auto, extra, source, public_before):
     """What a scan result does to the hash's files (§2.5, §2.7, §8.1), in the result's transaction."""
-    files = conn.execute('SELECT id, user_id, fingerprint, nsfw_marked, nsfw_override FROM files WHERE hash_id = %s '
+    files = conn.execute('SELECT id, user_id, guest_id, nsfw_marked, nsfw_override FROM files WHERE hash_id = %s '
                          'AND deleted_at IS NULL ORDER BY id', (hash_id,)).fetchall()
     csam = reason == 'csam_match' or (reason == 'hash_list' and (extra.get('hash_list') or {}).get('reason') == 'csam')
     if state in ('passed', 'flagged'):
@@ -512,6 +517,9 @@ def apply_outcome(conn, hash_id, state, reason, findings, warnings, nsfw_auto, e
         if public_before:
             core.invalidate_collages(conn, core.albums_of_hash(conn, hash_id))
             delete_assets_later(conn, hash_id)
+            # milestone-5 §5.4: conversion outputs of the hash's files are removed
+            from safety import cascade
+            cascade.queue(conn, 'remove', hash_id=hash_id)
     # rejections after the fact (§2.5): anonymous files
     anonymous = [f[0] for f in files if f[1] is None]
     if anonymous:
@@ -559,7 +567,9 @@ def delete_assets_later(conn, hash_id):
     objects through `delete_assets`."""
     keys = [r[0] for r in conn.execute('DELETE FROM file_hash_assets WHERE hash_id = %s RETURNING storage_key',
                                        (hash_id,)).fetchall()]
-    conn.execute("UPDATE file_hashes SET processing_state = 'skipped', derived_at = NULL WHERE id = %s", (hash_id,))
+    # milestone-5 §9: the document preview went with them; it's made again if the hash is cleared
+    conn.execute("UPDATE file_hashes SET processing_state = 'skipped', derived_at = NULL, preview_state = 'none' "
+                 'WHERE id = %s', (hash_id,))
     if keys:
         conn.execute("INSERT INTO jobs (kind, payload, queue, max_attempts) VALUES ('delete_objects', %s::jsonb, "
                      "'default', 5)", (json.dumps({'keys': keys}),))

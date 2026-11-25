@@ -14,7 +14,7 @@ from tests.conftest import make_user as make_account
 
 from db.models import File, FileHash
 from utils.generators import Snowflake
-from utils.tokens import FingerprintToken
+from utils.tokens import GuestToken
 
 
 @pytest.fixture(scope='module')
@@ -43,7 +43,7 @@ def make_file(appdb, extension):
         'VALUES (%s, %s, %s, %s, %s, %s, 5)',
         (file_id, vanity, 'application/x-thing' if extension is None else 'text/plain', extension, 'thing', hash_id))
     return File(id=file_id, vanity=vanity, mimetype_id='application/x-thing' if extension is None else 'text/plain',
-                extension=extension, filename='thing', hash_id=hash_id, user_id=None, fingerprint=None,
+                extension=extension, filename='thing', hash_id=hash_id, user_id=None, guest_id=None,
                 view_count=0, size=5, hash=FileHash(hash_id, content, content[:40], content[:32], 5))
 
 
@@ -115,7 +115,7 @@ def test_cors_is_public_and_never_credentialed(client, origin):
         assert response.headers['access-control-allow-origin'] == '*'
         assert 'access-control-allow-credentials' not in response.headers
         assert response.headers['access-control-allow-headers'] == \
-            'Authorization, Content-Type, X-Fingerprint, X-Filesgg-Access'
+            'Authorization, Content-Type, X-Filesgg-Access'
         assert 'x-filesgg-csrf' not in response.headers['access-control-allow-headers'].lower()
         assert 'Origin' in response.headers.get('vary', '')
 
@@ -339,10 +339,10 @@ def stored_blobs():
     return s3_keys('files/')
 
 
-def test_fingerprint_and_upload_flow(client, appdb):
+def test_guest_and_upload_flow(client, appdb):
     seed_mimetypes(appdb)
-    fingerprint = client.get('/auth/fingerprint').json()['fingerprint']
-    headers = {'X-Fingerprint': fingerprint}
+    guest = client.get('/auth/guest').json()['guest']
+    headers = {'Authorization': 'Guest ' + guest}
     before = len(stored_blobs())
 
     payload = uuid.uuid4().bytes
@@ -376,9 +376,26 @@ def test_fingerprint_and_upload_flow(client, appdb):
     assert listing.json()['total']['count'] == 3
 
 
+def test_authorization_guest_only_names_a_guest(client):
+    """milestone-5 §20.1: `Authorization: Guest` names the guest and never a user; an invalid token is ignored;
+    `Key` and `Guest` never come together; any other scheme stays 401."""
+    guest = client.get('/auth/guest').json()['guest']
+    headers = {'Authorization': 'Guest ' + guest}
+    again = client.get('/auth/guest', headers=headers).json()['guest']
+    assert GuestToken.deconstruct(again) == GuestToken.deconstruct(guest)
+    assert client.get('/users/@me/files', headers=headers).status_code == 200
+    assert client.get('/users/@me', headers=headers).status_code == 401
+    for authorization in ('Guest nope', 'Guest', 'Bearer ' + guest):
+        response = client.get('/users/@me/files', headers={'Authorization': authorization})
+        assert (response.status_code, response.json()['code']) == (401, 'UNAUTHORIZED'), authorization
+    both = [('Authorization', 'Guest ' + guest), ('Authorization', 'Key fgg_nope')]
+    response = client.post('/uploads', headers=both, json={'filename': 'a.bin', 'size': 10})
+    assert (response.status_code, response.json()['code']) == (401, 'UNAUTHORIZED')
+
+
 def test_login_and_register_claim_anonymous_files(client, appdb, monkeypatch, outbox):
-    """Rewritten for milestone-6 §4.2: a new account gets a fresh Snowflake id (never the fingerprint's), and
-    register and login claim the fingerprint's files and albums."""
+    """Rewritten for milestone-6 §4.2: a new account gets a fresh Snowflake id (never the guest's), and
+    register and login claim the guest's files and albums."""
     import views.auth
 
     async def domain_accepts_mail(address):
@@ -387,33 +404,33 @@ def test_login_and_register_claim_anonymous_files(client, appdb, monkeypatch, ou
     monkeypatch.setattr(views.auth, 'domain_accepts_mail', domain_accepts_mail)
     seed_mimetypes(appdb)
 
-    def upload(fingerprint):
-        response = client.post('/files', headers={'X-Fingerprint': fingerprint},
+    def upload(guest):
+        response = client.post('/files', headers={'Authorization': 'Guest ' + guest},
                                files={'file': ('a.txt', uuid.uuid4().bytes, 'text/plain')},
                                data={'turnstile_token': TURNSTILE_TOKEN})
         assert response.status_code == 200
         return response.json()['id']
 
-    fingerprint_id = Snowflake.generate()
-    fingerprint = FingerprintToken.generate(fingerprint_id)
-    file_id = upload(fingerprint)
+    guest_id = Snowflake.generate()
+    guest = GuestToken.generate(guest_id)
+    file_id = upload(guest)
     username = 'reg' + uuid.uuid4().hex[:8]
     email = username + '@example.com'
-    response = client.post('/auth/register', headers=dict(VIA_MAIN, **{'X-Fingerprint': fingerprint}),
+    response = client.post('/auth/register', headers=dict(VIA_MAIN, **{'Authorization': 'Guest ' + guest}),
                            json={'email': email, 'username': username, 'password': 'hunter22',
                                  'turnstile_token': REGISTER_TOKEN})
     assert response.status_code == 201, response.text
     me = response.json()['user']
-    assert me['id'] != str(fingerprint_id) and me['email_verified'] is False and 'token' not in response.json()
+    assert me['id'] != str(guest_id) and me['email_verified'] is False and 'token' not in response.json()
     user_id = int(me['id'])
-    assert appdb.fetchone('SELECT user_id, fingerprint FROM files WHERE id = %s', (int(file_id),)) == (user_id, None)
+    assert appdb.fetchone('SELECT user_id, guest_id FROM files WHERE id = %s', (int(file_id),)) == (user_id, None)
     assert outbox and outbox[0]['to'] == email and outbox[0]['to_name'] == username
     assert outbox[0]['tag'] == 'auth-verify' and '/app/verify#token=' in outbox[0]['text']
     assert appdb.fetchone('SELECT password_hash FROM users WHERE id = %s', (user_id,))[0].startswith('$argon2id$')
 
-    other = FingerprintToken.generate(Snowflake.generate())
+    other = GuestToken.generate(Snowflake.generate())
     other_file = upload(other)
-    response = client.post('/auth/login', headers=dict(VIA_MAIN, **{'X-Fingerprint': other}),
+    response = client.post('/auth/login', headers=dict(VIA_MAIN, **{'Authorization': 'Guest ' + other}),
                            data={'email': email, 'password': 'hunter22', 'turnstile_token': LOGIN_TOKEN})
     assert response.status_code == 200, response.text
     assert appdb.fetchone('SELECT user_id FROM files WHERE id = %s', (int(other_file),))[0] == user_id
@@ -424,8 +441,8 @@ def test_login_and_register_claim_anonymous_files(client, appdb, monkeypatch, ou
 
 
 def test_validation_errors(client):
-    fingerprint = FingerprintToken.generate(Snowflake.generate())
-    response = client.get('/users/@me/files?limit=0', headers={'X-Fingerprint': fingerprint})
+    guest = GuestToken.generate(Snowflake.generate())
+    response = client.get('/users/@me/files?limit=0', headers={'Authorization': 'Guest ' + guest})
     assert response.status_code == 400
     assert response.json() == {'errors': {'limit': 'Must be at least or in between 1 and 100'},
                                'code': 'INVALID_PARAMETERS', 'message': 'Some fields are invalid', 'status': 400}
@@ -453,7 +470,7 @@ def test_every_error_has_a_string_code(client):
     assert client.get('/mimetypes/nope').json()['code'] == 'UNKNOWN_TYPE'
     assert client.get('/mimetypes/nope/nope').json()['code'] == 'UNKNOWN_MIMETYPE'
     assert client.get('/users/@me').json()['code'] == 'UNAUTHORIZED'
-    response = client.post('/files', headers={'X-Fingerprint': FingerprintToken.generate(Snowflake.generate())},
+    response = client.post('/files', headers={'Authorization': 'Guest ' + GuestToken.generate(Snowflake.generate())},
                            data={'vanity': '200', 'turnstile_token': TURNSTILE_TOKEN},
                            files={'file': ('a.txt', b'hi', 'text/plain')})
     assert (response.status_code, response.json()['code']) == (400, 'INVALID_VANITY')

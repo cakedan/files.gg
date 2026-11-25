@@ -1,4 +1,4 @@
-import { fireEvent, screen } from '@testing-library/react';
+import { fireEvent, screen, within } from '@testing-library/react';
 import { afterEach, describe, expect, it } from 'vitest';
 
 import { ME, NO_BADGES, renderDashboard, stubApi, signIn } from '../../test/apiStub';
@@ -6,8 +6,8 @@ import { installTurnstile } from '../../test/turnstile';
 
 const limits = (anonymous: boolean, extra: object = {}) => ({
   storage: { used: 0, limit: anonymous ? null : 1e10 },
-  max_file_size_single: 25 * 1024 * 1024,
-  max_file_size_chunked: 25 * 1024 * 1024,
+  max_file_size_single: 25_000_000,
+  max_file_size_chunked: 25_000_000,
   max_expiry: anonymous ? 21 * 86400 : null,
   allow_no_expiry: !anonymous,
   anonymous,
@@ -29,16 +29,23 @@ describe('Upload page safety (milestone-4 §4.3, §11.2)', () => {
     expect(box).not.toBeChecked();
     fireEvent.click(box);
     expect(box).toBeChecked();
+    expect(screen.getByText(/you must be 18 or older/)).toBeInTheDocument();
     expect(screen.queryByText('Sign in to upload sensitive media.')).not.toBeInTheDocument();
+    // milestone-5 §19.2: the Terms line is for anonymous uploads only.
+    expect(screen.queryByText(/By uploading, you agree to the/)).not.toBeInTheDocument();
   });
 
   it('signed out: no checkbox, and the hint to sign in', async () => {
     installTurnstile();
-    localStorage.setItem('filesgg.fingerprint', 'fp1');
+    localStorage.setItem('filesgg.guest', 'fp1');
     stubApi({ 'GET /users/@me/limits': () => limits(true) });
     renderDashboard('/upload');
     expect(await screen.findByText('Sign in to upload sensitive media.')).toBeInTheDocument();
     expect(screen.queryByRole('checkbox', { name: /Adult content/ })).not.toBeInTheDocument();
+    // milestone-5 §19.2: under the button, for anonymous uploads.
+    const terms = screen.getByText(/By uploading, you agree to the/);
+    expect(terms).toHaveTextContent('By uploading, you agree to the Terms.');
+    expect(within(terms).getByRole('link', { name: 'Terms' })).toHaveAttribute('href', '/legal/terms');
   });
 
   it('restricted: explains until when and disables the dropzone', async () => {

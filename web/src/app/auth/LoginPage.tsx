@@ -4,7 +4,7 @@ import { Link, Navigate, useNavigate } from 'react-router';
 import { Button } from '../../components/Button';
 import { useTurnstile } from '../../components/useTurnstile';
 import { accountApi } from '../../lib/accountApi';
-import { FINGERPRINT_KEY } from '../../lib/api';
+import { GUEST_KEY } from '../../lib/api';
 import { getItem } from '../../lib/storage';
 import { useCompleteSignIn } from '../../lib/session';
 import { fieldClass } from '../access/fieldUtils';
@@ -28,7 +28,7 @@ export default function LoginPage() {
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
   const turnstile = useTurnstile('login');
-  const hasFingerprint = Boolean(getItem(FINGERPRINT_KEY));
+  const hasGuest = Boolean(getItem(GUEST_KEY));
 
   if (signedInTarget && !leaving) return <Navigate to={signedInTarget} replace />;
 
@@ -40,7 +40,7 @@ export default function LoginPage() {
     try {
       const token = await turnstile.take();
       const { user } = await accountApi.login({ email: email.trim(), password, turnstile_token: token });
-      const toast = signedInToast(hasFingerprint, user.deletion !== null);
+      const toast = signedInToast(hasGuest, user.deletion !== null);
       setLeaving(true);
       completeSignIn(user);
       navigate(next ?? '/', { replace: true, state: toast ? { toast } : null });
@@ -89,7 +89,7 @@ export default function LoginPage() {
           </div>
           <PasswordInput id={`${id}-password`} autoComplete="current-password" required value={password} onChange={(event) => setPassword(event.target.value)} />
         </div>
-        {hasFingerprint && <p className="text-xs text-muted">Files you uploaded from this browser will move to your account.</p>}
+        {hasGuest && <p className="text-xs text-muted">Files you uploaded from this browser will move to your account.</p>}
         <FormError>{error}</FormError>
         <Button type="submit" variant="primary" disabled={pending || !email.trim() || !password} className="w-full">
           {pending ? 'Signing in…' : 'Sign in'}

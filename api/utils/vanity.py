@@ -47,6 +47,8 @@ blacklisted_ids = (
     'files',
     'previews',
     'albums',
+    # milestone-5 §19.1: the changelog page (`legal` is above)
+    'changelog',
 )
 
 

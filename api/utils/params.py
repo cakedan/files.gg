@@ -5,8 +5,7 @@ A model declares one field per argument:
 
     class LoginArgs(Args):
         email: Annotated[str, Arg(type=parameters.email)]
-        fingerprint: Annotated[Optional[int], Arg('x-fingerprint', location='headers',
-                                                  type=parameters.fingerprint)] = None
+        user_agent: Annotated[Optional[str], Arg('user-agent', location='headers')] = None
 
 `Arg` says where the value comes from (`name`, `location`) and how it is
 converted (`type`, `choices`, `help`, whitespace trimming). The adapter in

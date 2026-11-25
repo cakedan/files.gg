@@ -203,12 +203,22 @@ def snowflake_since(seconds):
     return max(0, int(time.time() * 1000) - EPOCH - seconds * 1000) << 22
 
 
-class Owner:
-    """Who an upload counts against: a user, or a fingerprint and IP."""
+def quota_lock_keys(user_id, guest_id, ip_hash):
+    """The quota lock keys of an owner (shared with conversion outputs, which lock the same quotas)."""
+    if user_id is not None:
+        return ['user:{}'.format(user_id)]
+    keys = ['ip:' + ip_hash.hex()] if ip_hash is not None else []
+    if guest_id is not None:
+        keys.append('guest:{}'.format(guest_id))
+    return keys
 
-    def __init__(self, user, fingerprint, ip, secret):
+
+class Owner:
+    """Who an upload counts against: a user, or a guest and IP."""
+
+    def __init__(self, user, guest_id, ip, secret):
         self.user = user
-        self.fingerprint = None if user is not None else fingerprint
+        self.guest_id = None if user is not None else guest_id
         self.limits = limits_module.get_limits(user)
         self.ip_hashes = [] if user is not None else view_hash.recent_hashes(secret, IP_PURPOSE, ip)
 
@@ -217,19 +227,14 @@ class Owner:
         return self.ip_hashes[0] if self.ip_hashes else None
 
     def lock_keys(self):
-        if self.user is not None:
-            return ['user:{}'.format(self.user.id)]
-        keys = ['ip:' + self.ip_hash.hex()]
-        if self.fingerprint is not None:
-            keys.append('fingerprint:{}'.format(self.fingerprint))
-        return keys
+        return quota_lock_keys(self.user.id if self.user is not None else None, self.guest_id, self.ip_hash)
 
     async def usage(self, conn):
         if self.user is not None:
             return await queries.user_usage(conn, self.user.id)
-        by_fingerprint, by_ip = await queries.anonymous_usage(
-            conn, self.fingerprint, self.ip_hashes, snowflake_since(ROLLING_WINDOW))
-        return max(by_fingerprint, by_ip)
+        by_guest, by_ip = await queries.anonymous_usage(
+            conn, self.guest_id, self.ip_hashes, snowflake_since(ROLLING_WINDOW))
+        return max(by_guest, by_ip)
 
     async def check(self, conn, adding, lock=False):
         """Raise STORAGE_LIMIT_REACHED if `adding` more bytes would exceed the

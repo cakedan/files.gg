@@ -47,7 +47,7 @@ function caseSummary(overrides: Partial<CaseSummary> = {}): CaseSummary {
 function fileDetail(overrides: Partial<AdminFileDetail> = {}): AdminFileDetail {
   return {
     file: ownerFile({ id: 'f1', name: 'free-robux', extension: 'png', safety: { state: 'flagged', reason: 'unwanted_software', notice_id: null, nsfw_source: null, nsfw_locked: false, nsfw_review: 'none' } }),
-    owner: { user_id: '77', username: 'tracker99', fingerprint: null, account_created_at: now - 86400, anonymous: false },
+    owner: { user_id: '77', username: 'tracker99', guest_id: null, account_created_at: now - 86400, anonymous: false },
     moderation_state: 'visible',
     moderation_rule: null,
     scan_state: 'flagged',

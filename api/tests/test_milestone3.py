@@ -315,33 +315,33 @@ def test_album_limits(client, media_db, monkeypatch):
 
 def test_anonymous_albums(client, media_db, monkeypatch):
     from views import me as me_views
-    fingerprint = anonymous()
-    files = [text_file(client, fingerprint, turnstile_token=TURNSTILE_TOKEN) for _ in range(2)]
-    album = make_album(client, fingerprint, ids(files), title='Batch')
+    guest = anonymous()
+    files = [text_file(client, guest, turnstile_token=TURNSTILE_TOKEN) for _ in range(2)]
+    album = make_album(client, guest, ids(files), title='Batch')
     expiries = [f['expires_at'] for f in files]
     assert album['expires_at'] == max(expiries) and 'expiresAt' not in album
     assert client.get('/albums/' + album['vanity']).json()['count'] == 2
-    assert client.get('/users/@me/albums', headers=fingerprint).json()['count'] == 1
+    assert client.get('/users/@me/albums', headers=guest).json()['count'] == 1
     # can't edit it afterwards
     for method, path, body in (('PATCH', '', {'title': 'x'}), ('PUT', '/files', {'file_ids': ids(files)}),
                                ('POST', '/files', {'file_ids': ids(files)}), ('DELETE', '', None)):
-        response = client.request(method, '/users/@me/albums/{}{}'.format(album['id'], path), headers=fingerprint,
+        response = client.request(method, '/users/@me/albums/{}{}'.format(album['id'], path), headers=guest,
                                   json=body)
         assert (response.status_code, response.json()['code']) == (403, 'ANONYMOUS_ALBUM_NOT_ALLOWED')
     # no files, too many files, someone else's files, or older ones
     other = text_file(client, anonymous(), turnstile_token=TURNSTILE_TOKEN)
     for file_ids in ([], ids(files) + [other['id']]):
-        response = client.post('/users/@me/albums', headers=fingerprint, json={'file_ids': file_ids})
+        response = client.post('/users/@me/albums', headers=guest, json={'file_ids': file_ids})
         assert (response.status_code, response.json()['code']) == (403, 'ANONYMOUS_ALBUM_NOT_ALLOWED')
     monkeypatch.setenv('LIMIT_ANONYMOUS_ALBUM_FILES', '1')
-    response = client.post('/users/@me/albums', headers=fingerprint, json={'file_ids': ids(files)})
+    response = client.post('/users/@me/albums', headers=guest, json={'file_ids': ids(files)})
     assert response.json()['code'] == 'ANONYMOUS_ALBUM_NOT_ALLOWED'
     monkeypatch.delenv('LIMIT_ANONYMOUS_ALBUM_FILES')
     monkeypatch.setattr(me_views, 'ANONYMOUS_ALBUM_WINDOW', -60)  # every file is "older than the window"
-    response = client.post('/users/@me/albums', headers=fingerprint, json={'file_ids': ids(files)})
+    response = client.post('/users/@me/albums', headers=guest, json={'file_ids': ids(files)})
     assert response.json()['code'] == 'ANONYMOUS_ALBUM_NOT_ALLOWED'
     # anonymous album limits
-    body = client.get('/users/@me/limits', headers=fingerprint).json()
+    body = client.get('/users/@me/limits', headers=guest).json()
     assert body['album_max_files'] == 50 and body['albums_max'] is None
 
 
@@ -426,7 +426,10 @@ def test_delete_album_with_and_without_files(client, media_db):
     assert client.get('/files/' + b['vanity']).status_code == 404
 
 
-def test_pagination(client, media_db):
+def test_pagination(client, media_db, monkeypatch):
+    from tests.conftest import rate_limits_env
+    # 102 uploads in a few seconds: over POST /files' 60 a minute (milestone-5 §18.2)
+    monkeypatch.setenv('RATE_LIMITS', rate_limits_env(file_upload='1000 per minute'))
     _, owner = new_user(media_db)
     files = [text_file(client, owner) for _ in range(102)]
     album = make_album(client, owner, ids(files))
@@ -520,9 +523,9 @@ def test_album_reaper(client, media_db):
     assert media_db.fetchone('SELECT deleted_at IS NOT NULL FROM albums WHERE id = %s', (int(empty['id']),))[0]
     assert media_db.fetchone('SELECT deleted_at IS NULL FROM albums WHERE id = %s', (int(full['id']),))[0]
     # an anonymous album goes with its last file
-    fingerprint = anonymous()
-    f = text_file(client, fingerprint, turnstile_token=TURNSTILE_TOKEN)
-    anon = make_album(client, fingerprint, [f['id']])
+    guest = anonymous()
+    f = text_file(client, guest, turnstile_token=TURNSTILE_TOKEN)
+    anon = make_album(client, guest, [f['id']])
     media_db.execute("UPDATE files SET expires_at = now() - interval '1 second' WHERE id = %s", (int(f['id']),))
     media_db.execute("UPDATE albums SET expires_at = now() - interval '1 second' WHERE id = %s", (int(anon['id']),))
     assert client.get('/albums/' + anon['vanity']).status_code == 404
@@ -570,9 +573,9 @@ def test_library_list_filters_and_totals(client, media_db):
         assert client.get('/users/@me/files' + bad, headers=owner).status_code == 400
     assert client.get('/users/@me/files').status_code == 401
     # anonymous callers get their own anonymous files
-    fingerprint = anonymous()
-    mine = text_file(client, fingerprint, turnstile_token=TURNSTILE_TOKEN)
-    assert ids(client.get('/users/@me/files', headers=fingerprint).json()['items']) == [mine['id']]
+    guest = anonymous()
+    mine = text_file(client, guest, turnstile_token=TURNSTILE_TOKEN)
+    assert ids(client.get('/users/@me/files', headers=guest).json()['items']) == [mine['id']]
 
 
 def test_rename_and_owner_file_shape(client, media_db):
@@ -591,12 +594,12 @@ def test_rename_and_owner_file_shape(client, media_db):
     response = client.request('PATCH', url, headers=owner, json={'filename': 'x' * 129})
     assert response.status_code == 400
     # anonymous owners can manage their own files too
-    fingerprint = anonymous()
-    anon = text_file(client, fingerprint, turnstile_token=TURNSTILE_TOKEN)
-    body = client.request('PATCH', '/users/@me/files/' + anon['id'], headers=fingerprint,
+    guest = anonymous()
+    anon = text_file(client, guest, turnstile_token=TURNSTILE_TOKEN)
+    body = client.request('PATCH', '/users/@me/files/' + anon['id'], headers=guest,
                           json={'filename': 'mine'}).json()
     assert body['filename'] == 'mine.txt'
-    response = client.request('PATCH', '/users/@me/files/' + anon['id'], headers=fingerprint,
+    response = client.request('PATCH', '/users/@me/files/' + anon['id'], headers=guest,
                               json={'visibility': 'private'})
     assert response.json()['code'] == 'PRIVATE_REQUIRES_ACCOUNT'
     response = client.request('PATCH', '/users/@me/files/' + anon['id'], headers=anonymous(), json={'filename': 'x'})
@@ -734,13 +737,13 @@ def test_bulk_expiry(client, media_db):
     assert response.json()['code'] == 'EXPIRY_NOT_ALLOWED'
     response = client.post('/users/@me/files/expiry', headers=owner, json={'file_ids': [a['id']]})
     assert response.status_code == 400  # expires_in is required (null means forever)
-    fingerprint = anonymous()
-    anon = text_file(client, fingerprint, turnstile_token=TURNSTILE_TOKEN)
-    response = client.post('/users/@me/files/expiry', headers=fingerprint,
+    guest = anonymous()
+    anon = text_file(client, guest, turnstile_token=TURNSTILE_TOKEN)
+    response = client.post('/users/@me/files/expiry', headers=guest,
                            json={'file_ids': [anon['id']], 'expires_in': None})
     assert response.json()['code'] == 'EXPIRY_NOT_ALLOWED'
-    album = make_album(client, fingerprint, [anon['id']])
-    client.post('/users/@me/files/expiry', headers=fingerprint, json={'file_ids': [anon['id']], 'expires_in': 7200})
+    album = make_album(client, guest, [anon['id']])
+    client.post('/users/@me/files/expiry', headers=guest, json={'file_ids': [anon['id']], 'expires_in': 7200})
     # an anonymous album follows its files' expiry
     assert abs(client.get('/albums/' + album['vanity']).json()['expires_at'] - time.time() - 7200) < 10
 

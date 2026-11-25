@@ -117,6 +117,92 @@ function call(method: string, path: string, body?: unknown, headers: Record<stri
   });
 }
 
+// ---------------------------------------------------------------------------
+// Milestone 5: conversions (milestone-5 §7, §8, §10)
+// ---------------------------------------------------------------------------
+
+describe('mock API: conversions (milestone-5 §10)', () => {
+  /** A seeded file by name (these tests run before the ones that rename and delete seeded files). */
+  const vanityOf = async (name: string) => {
+    const { body } = await call('GET', '/users/@me/files?limit=100');
+    const items = body.items as Array<{ vanity: string; name: string; extension: string }>;
+    return (items.find((file) => file.name === name) ?? items.find((file) => file.extension === name))!.vanity;
+  };
+  const ANON = { authorization: 'Guest g-convert' };
+
+  it('serves the formats document, every option type included', async () => {
+    const { status, body } = await call('GET', '/conversions/formats');
+    expect(status).toBe(200);
+    expect(Object.keys(body.kinds).sort()).toEqual(['animated', 'audio', 'document', 'image', 'images', 'pdf', 'video']);
+    const types = new Set(Object.values(body.kinds as Record<string, { targets: Array<{ options: Array<{ type: string }> }> }>).flatMap((kind) => kind.targets.flatMap((target) => target.options.map((option) => option.type))));
+    expect([...types].sort()).toEqual(['bool', 'color', 'enum', 'int', 'number', 'pages', 'size']);
+    expect(body.presets.map((preset: { id: string }) => preset.id)).toEqual(['play_everywhere', 'discord', 'extract_audio', 'gif_to_mp4', 'remove_location']);
+    expect(body.kinds.document.targets[0].anonymous).toBe(false);
+  });
+
+  it('finishes a quick image in the brief wait (200), and serves the same recipe from the cache', async () => {
+    const source = await vanityOf('pastel-de-nata');
+    const first = await call('POST', '/conversions', { source, target: 'jpg', options: { quality: 70 } });
+    expect(first.status).toBe(200);
+    expect(first.body).toMatchObject({ status: 'succeeded', target: 'jpg', cached: false, progress: 1, error: null });
+    expect(first.body.output.file).toMatchObject({ filename: 'pastel-de-nata.jpg', safety: { state: 'pending' } });
+    const again = await call('POST', '/conversions', { source, target: 'jpg', options: { quality: 70 } });
+    expect(again.status).toBe(200);
+    expect(again.body.cached).toBe(true);
+  });
+
+  it('answers 202 while queued, then polls running and finished; DELETE cancels or forgets', async () => {
+    const source = await vanityOf('voice-memo');
+    const { status, body } = await call('POST', '/conversions', { source, target: 'mp3', options: { normalize: true } });
+    expect(status).toBe(202);
+    expect(['queued', 'running']).toContain(body.status);
+    expect(body.queue).toBe('member');
+    const cancelled = await call('DELETE', `/conversions/${body.id}`);
+    expect(cancelled.body.status).toBe('cancelled');
+    expect((await call('DELETE', `/conversions/${body.id}`)).status).toBe(204);
+    expect((await call('GET', `/conversions/${body.id}`)).status).toBe(404);
+  });
+
+  it('checks §7.2 in order for anonymous callers', async () => {
+    const doc = await vanityOf('quarterly-report');
+    expect((await call('POST', '/conversions', { source: doc, target: 'pdf' }, ANON)).body.code).toBe('CAPTCHA_INVALID');
+    const refused = await call('POST', '/conversions', { source: doc, target: 'pdf', turnstile_token: 'XXXX.DUMMY.TOKEN.XXXX' }, ANON);
+    expect(refused.status).toBe(403);
+    expect(refused.body).toMatchObject({ code: 'CONVERSION_REQUIRES_ACCOUNT', sign_in: true });
+    const batch = await call('POST', '/conversions/batch', { files: [doc], target: 'pdf' }, ANON);
+    expect(batch.body.code).toBe('CONVERSION_REQUIRES_ACCOUNT');
+    const big = await call('POST', '/conversions', { source: await vanityOf('sunset-timelapse'), target: 'mp4', turnstile_token: 'XXXX.DUMMY.TOKEN.XXXX' }, ANON);
+    expect(big.body).toMatchObject({ code: 'CONVERSION_TOO_LARGE', unit: 'bytes', sign_in: true });
+  });
+
+  it('refuses unknown or out-of-range options and unsupported targets', async () => {
+    const source = await vanityOf('lisbon-tram');
+    expect((await call('POST', '/conversions', { source, target: 'jpg', options: { quality: 101 } })).body).toMatchObject({ code: 'INVALID_OPTION', option: 'quality' });
+    expect((await call('POST', '/conversions', { source, target: 'png', options: { fps: 3 } })).body).toMatchObject({ code: 'INVALID_OPTION', reason: 'unknown' });
+    expect((await call('POST', '/conversions', { source, target: 'mp3' })).body.code).toBe('UNSUPPORTED_CONVERSION');
+  });
+
+  it('runs a batch, skips what can’t be converted, and lists it by batch id and in the history', async () => {
+    const files = [await vanityOf('lisbon-tram'), await vanityOf('alfama-stairs'), await vanityOf('README')];
+    const { status, body } = await call('POST', '/conversions/batch', { files, target: 'webp' });
+    expect(status).toBe(202);
+    expect(body.items).toHaveLength(2);
+    expect(body.skipped).toEqual([{ source: files[2], code: 'UNSUPPORTED_CONVERSION' }]);
+    const list = await call('GET', `/conversions?batch=${body.batch_id}`);
+    expect(list.body.items.map((item: { id: string }) => item.id).sort()).toEqual(body.items.map((item: { id: string }) => item.id).sort());
+    const history = await call('GET', '/users/@me/conversions?limit=100');
+    expect(history.body.items.length).toBeGreaterThanOrEqual(2);
+  });
+
+  it('GET /files/<vanity>: the payload, a locked stub for a password file, and the document preview asset', async () => {
+    const doc = await call('GET', `/files/${await vanityOf('quarterly-report')}`, undefined, {});
+    expect(doc.body.assets.document).toMatchObject({ size: 17_113, pages: 8 });
+    const locked = await call('GET', `/files/${await vanityOf('belem-tower')}`, undefined, {});
+    expect(locked.body).toMatchObject({ protected: 'password' });
+    expect(locked.body.cdn_url).toBeUndefined();
+  });
+});
+
 describe('mock API: owner library (milestone-3 §6)', () => {
   it('lists the seeded library with filters, sort, pagination and totals', async () => {
     const all = await call('GET', '/users/@me/files?limit=100');
@@ -287,7 +373,7 @@ describe('mock API: albums (milestone-3 §6)', () => {
   });
 
   it('lets anonymous callers make an album only from their own recent uploads', async () => {
-    const anon = { 'x-fingerprint': 'fp-test' };
+    const anon = { authorization: 'Guest g-test' };
     const seeded = await call('GET', '/users/@me/files?limit=1');
     const denied = await call('POST', '/users/@me/albums', { file_ids: [seeded.body.items[0].id] }, anon);
     expect(denied).toMatchObject({ status: 403, body: { code: 'ANONYMOUS_ALBUM_NOT_ALLOWED' } });
@@ -363,7 +449,7 @@ describe('mock API: owner safety and NSFW (milestone-4 §4, §6)', () => {
   it('rejects anonymous sensitive uploads, then answers 410 UPLOAD_REJECTED once the scan finishes', async () => {
     process.env.MOCK_SCAN_MS = '0';
     try {
-      const anon = { 'x-fingerprint': 'fp-reject' };
+      const anon = { authorization: 'Guest g-reject' };
       const upfront = await call('POST', '/uploads', { filename: 'a.png', size: 10, nsfw: true, turnstile_token: 'XXXX.DUMMY.TOKEN.XXXX' }, anon);
       expect(upfront.body.code).toBe('NSFW_REQUIRES_ACCOUNT');
       const session = await call('POST', '/uploads', { filename: 'nsfw-photo.png', size: 10, turnstile_token: 'XXXX.DUMMY.TOKEN.XXXX' }, anon);
@@ -439,7 +525,7 @@ describe('mock API: reports, notices and badges (milestone-4 §7, §8)', () => {
     expect((await call('POST', '/reports', { target: { type: 'bug' }, reason: 'spam' }, MEMBER)).body.code).toBe('INVALID_REPORT_TARGET');
     const duplicate = await call('POST', '/reports', { target: { type: 'url', url: own.url }, reason: 'spam', details: 'Again.' }, MEMBER);
     expect(duplicate).toMatchObject({ status: 200, body: { duplicate: true } });
-    const anon = await call('POST', '/reports/anonymous', { target: { type: 'file', vanity: own.vanity }, reason: 'csam', turnstile_token: 'XXXX.DUMMY.TOKEN.XXXX' }, { 'x-fingerprint': 'fp-r' });
+    const anon = await call('POST', '/reports/anonymous', { target: { type: 'file', vanity: own.vanity }, reason: 'csam', turnstile_token: 'XXXX.DUMMY.TOKEN.XXXX' }, { authorization: 'Guest g-r' });
     expect(anon).toMatchObject({ status: 201, body: { status: 'open', escalated: true } });
     // A CSAM report hides the file at once and sends the owner nothing (§7.4, §8.1).
     const after = (await call('GET', `/users/@me/files/${own.id}`)).body.safety;
@@ -548,10 +634,10 @@ describe('mock API: admin (milestone-4 §9)', () => {
     const user = await call('GET', '/admin/users/77');
     expect(user.body).toMatchObject({ user: { username: 'tracker99' }, counts: { files: expect.any(Number) } });
 
-    expect((await call('POST', '/admin/bans', { kind: 'fingerprint', from: { fingerprint: '999' }, rule: 'spam' }, MODERATOR)).body.code).toBe('FORBIDDEN');
-    const ban = await call('POST', '/admin/bans', { kind: 'fingerprint', from: { fingerprint: '999' }, rule: 'spam', duration: 86400 }, MODERATOR);
-    expect(ban).toMatchObject({ status: 201, body: { kind: 'fingerprint', expires_at: expect.any(Number) } });
-    const banned = await call('POST', '/uploads', { filename: 'a.png', size: 10, turnstile_token: 'XXXX.DUMMY.TOKEN.XXXX' }, { 'x-fingerprint': '999' });
+    expect((await call('POST', '/admin/bans', { kind: 'guest', from: { guest_id: '999' }, rule: 'spam' }, MODERATOR)).body.code).toBe('FORBIDDEN');
+    const ban = await call('POST', '/admin/bans', { kind: 'guest', from: { guest_id: '999' }, rule: 'spam', duration: 86400 }, MODERATOR);
+    expect(ban).toMatchObject({ status: 201, body: { kind: 'guest', expires_at: expect.any(Number) } });
+    const banned = await call('POST', '/uploads', { filename: 'a.png', size: 10, turnstile_token: 'XXXX.DUMMY.TOKEN.XXXX' }, { authorization: 'Guest 999' });
     expect(banned.body.code).toBe('BANNED');
     expect((await call('DELETE', `/admin/bans/${ban.body.id}`, undefined, MODERATOR)).body.code).toBe('FORBIDDEN');
     expect((await call('DELETE', `/admin/bans/${ban.body.id}`)).body.lifted_at).toEqual(expect.any(Number));
@@ -706,7 +792,7 @@ describe('mock API: sessions, CSRF and sign-in (milestone-6 §3, §4)', () => {
   });
 
   it('claims files uploaded from this browser on sign-in', async () => {
-    const anon = { 'x-fingerprint': 'fp-claim' };
+    const anon = { authorization: 'Guest g-claim' };
     const upload = multipart('claim-me.png', { turnstile_token: TURNSTILE });
     const sent = await call('POST', '/files', upload.body, { ...anon, ...upload.headers });
     expect(sent.status).toBe(200);
@@ -744,6 +830,36 @@ describe('mock API: settings (milestone-6 §2, §8)', () => {
     expect(patched.body).toMatchObject({ code: 'DISPLAY_NAME_INVALID', reason: 'reserved' });
     const ok = await call('PATCH', '/users/@me', { display_name: '', settings: { show_name_on_albums: true } }, member);
     expect(ok.body).toMatchObject({ display_name: null, settings: { show_name_on_albums: true } });
+  });
+
+  it('keeps upload defaults (milestone-5 §21) for key uploads and conversions, never for website uploads', async () => {
+    const member = await signInAs('modmary@example.com');
+    expect((await call('GET', '/users/@me', undefined, member)).body.settings.upload_defaults).toEqual({ expires_in: null, visibility: 'link', nsfw: false });
+    const refused = await call('PATCH', '/users/@me', { settings: { upload_defaults: { expires_in: 60, colour: 'red' } } }, member);
+    expect(refused).toMatchObject({ status: 400, body: { code: 'INVALID_PARAMETERS', errors: { 'settings.upload_defaults.expires_in': 'Must be at least an hour', 'settings.upload_defaults.colour': 'Unknown setting' } } });
+    const saved = await call('PATCH', '/users/@me', { settings: { upload_defaults: { expires_in: 86400, visibility: 'password' } } }, member);
+    expect(saved.body.settings.upload_defaults).toEqual({ expires_in: 86400, visibility: 'password', nsfw: false });
+
+    const created = await call('POST', '/users/@me/upload-keys', { name: 'Defaults' }, member);
+    expect(created.body.sharex.URL).toBe('{json:url_with_password}');
+    const upload = multipart('defaults.png');
+    const keyed = await call('POST', '/files', upload.body, { authorization: `Key ${created.body.secret}`, ...upload.headers });
+    expect(keyed.body).toMatchObject({ visibility: 'password', password: expect.any(String), url_with_password: expect.stringContaining('#pw=') });
+    expect(keyed.body.expires_at - Math.floor(Date.now() / 1000)).toBeGreaterThan(86000);
+    const linked = multipart('linked.png', { visibility: 'link' });
+    const plain = await call('POST', '/files', linked.body, { authorization: `Key ${created.body.secret}`, ...linked.headers });
+    expect(plain.body).toMatchObject({ visibility: 'link', url_with_password: plain.body.url });
+    const website = await call('POST', '/files', upload.body, { ...member, ...upload.headers });
+    expect(website.body).toMatchObject({ visibility: 'link', expires_at: null });
+    expect(website.body).not.toHaveProperty('password');
+
+    // a seeded link image (a new upload is still being scanned)
+    const library = (await call('GET', '/users/@me/files?limit=100')).body.items as Array<{ vanity: string; kind: string; visibility: string }>;
+    const source = library.find((file) => file.kind === 'image' && file.visibility === 'link')!.vanity;
+    const converted = await call('POST', '/conversions', { source, target: 'jpg', options: { quality: 61 } }, member);
+    expect(converted.body.output.password).toEqual(expect.any(String));
+    const chosen = await call('POST', '/conversions', { source, target: 'jpg', options: { quality: 62 }, visibility: 'link', expires_in: null }, member);
+    expect(chosen.body.output.password).toBeUndefined();
   });
 
   it('needs a fresh session for sensitive changes, and re-auth makes it fresh', async () => {
@@ -875,9 +991,9 @@ describe('mock API: upload keys (milestone-6 §7)', () => {
 
   it('asks tools without any credential for a key', async () => {
     const upload = multipart('anon.png');
-    expect((await call('POST', '/files', upload.body, { 'x-fingerprint': 'fp-tool', ...upload.headers })).body.code).toBe('UPLOAD_KEY_REQUIRED');
-    expect((await call('POST', '/uploads', { filename: 'a.png', size: 10 }, { 'x-fingerprint': 'fp-tool' })).status).toBe(401);
-    expect((await call('POST', '/uploads', { filename: 'a.png', size: 10, turnstile_token: 'bad' }, { 'x-fingerprint': 'fp-tool' })).body.code).toBe('CAPTCHA_INVALID');
+    expect((await call('POST', '/files', upload.body, { authorization: 'Guest g-tool', ...upload.headers })).body.code).toBe('UPLOAD_KEY_REQUIRED');
+    expect((await call('POST', '/uploads', { filename: 'a.png', size: 10 }, { authorization: 'Guest g-tool' })).status).toBe(401);
+    expect((await call('POST', '/uploads', { filename: 'a.png', size: 10, turnstile_token: 'bad' }, { authorization: 'Guest g-tool' })).body.code).toBe('CAPTCHA_INVALID');
   });
 });
 
@@ -962,15 +1078,16 @@ describe('mock API: premium and domains (milestone-6 §9, §10)', () => {
     const limits = await call('GET', '/users/@me/limits', undefined, PRIYA);
     expect(limits.body).toMatchObject({
       premium: true,
-      storage: { limit: 107374182400 },
-      max_file_size_chunked: 5368709120,
-      max_file_size_single: 100_000_000 - 1048576,
-      max_file_size_single_configured: 524288000,
+      storage: { limit: 100_000_000_000 },
+      max_file_size_chunked: 5_000_000_000,
+      // 100 MB for tools, premium too (api/utils/limits.py)
+      max_file_size_single: 100_000_000,
+      max_file_size_single_configured: 100_000_000,
       custom_domains: { used: 5, limit: 5 },
       upload_keys: { used: 0, limit: 20 },
     });
     const free = await call('GET', '/users/@me/limits');
-    expect(free.body).toMatchObject({ premium: false, storage: { limit: 10737418240 }, max_file_size_chunked: 1073741824, custom_domains: { limit: 0 } });
+    expect(free.body).toMatchObject({ premium: false, storage: { limit: 10_000_000_000 }, max_file_size_chunked: 1_000_000_000, custom_domains: { limit: 0 } });
   });
 
   it('lists domains in every status, with records and serving', async () => {
@@ -1230,7 +1347,7 @@ describe('mock API: view limits (milestone-6 §19)', () => {
     expect(sent.status).toBe(200);
     expect((await ownFile('limited-upload')).view_limit).toBe(4);
 
-    const anon = { 'x-fingerprint': 'fp-view-limit' };
+    const anon = { authorization: 'Guest g-view-limit' };
     const refused = multipart('anon-limit.png', { turnstile_token: TURNSTILE, view_limit: '2', view_limit_action: 'private' });
     expect((await call('POST', '/files', refused.body, { ...anon, ...refused.headers })).body.code).toBe('PRIVATE_REQUIRES_ACCOUNT');
     const allowed = multipart('anon-limit.png', { turnstile_token: TURNSTILE, view_limit: '2' });

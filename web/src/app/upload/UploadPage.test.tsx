@@ -3,6 +3,7 @@ import { fireEvent, render, screen, waitFor, within } from '@testing-library/rea
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { createQueryClient } from '../../lib/queryClient';
+import { ME, NO_BADGES, renderDashboard, signIn, stubApi } from '../../test/apiStub';
 import { installTurnstile } from '../../test/turnstile';
 import UploadPage from '../pages/UploadPage';
 
@@ -11,8 +12,8 @@ const json = (body: unknown, status = 200) =>
 
 const anonymousLimits = {
   storage: { used: 0, limit: null },
-  max_file_size_single: 25 * 1024 * 1024,
-  max_file_size_chunked: 25 * 1024 * 1024,
+  max_file_size_single: 25_000_000,
+  max_file_size_chunked: 25_000_000,
   max_expiry: 21 * 86400,
   allow_no_expiry: false,
   anonymous: true,
@@ -28,7 +29,7 @@ function renderPage() {
 
 beforeEach(() => {
   installTurnstile();
-  localStorage.setItem('filesgg.fingerprint', 'fp1');
+  localStorage.setItem('filesgg.guest', 'fp1');
   vi.stubGlobal(
     'fetch',
     vi.fn(async (url: string) => (String(url).endsWith('/users/@me/limits') ? json(anonymousLimits) : json({}, 404))),
@@ -53,7 +54,7 @@ describe('UploadPage (anonymous)', () => {
     renderPage();
     await screen.findByText(/Up to 25 MB per file/);
     const big = new File(['x'], 'huge.bin');
-    Object.defineProperty(big, 'size', { value: 30 * 1024 * 1024 });
+    Object.defineProperty(big, 'size', { value: 30_000_000 });
     fireEvent.change(screen.getByLabelText('Choose files to upload'), { target: { files: [big] } });
     expect(await screen.findByText('This file is too large. The limit is 25 MB.')).toBeInTheDocument();
     expect(vi.mocked(fetch).mock.calls.some(([url]) => /\/files$|\/uploads$/.test(String(url)))).toBe(false);
@@ -66,5 +67,21 @@ describe('UploadPage (anonymous)', () => {
     expect(screen.getByLabelText('Password works until')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Generate' }));
     expect(screen.getByText('Each file gets its own generated password, shown once.')).toBeInTheDocument();
+  });
+});
+
+describe('UploadPage (signed in, milestone-5 §21)', () => {
+  it('starts from the account’s upload defaults', async () => {
+    signIn({ ...ME, settings: { ...ME.settings, upload_defaults: { expires_in: 7 * 86400, visibility: 'password', nsfw: true } } });
+    stubApi({
+      'GET /users/@me/limits': () => ({ ...anonymousLimits, anonymous: false, max_expiry: null, allow_no_expiry: true, nsfw_allowed: true }),
+      'GET /users/@me/badges': () => NO_BADGES,
+    });
+    renderDashboard('/upload');
+    const options = await screen.findByRole('region', { name: 'Upload options' });
+    await waitFor(() => expect(within(options).getByLabelText('Adult content (NSFW)', { exact: false })).toBeChecked());
+    expect(within(options).getByLabelText('Expires')).toHaveValue(String(7 * 86400));
+    expect(within(options).getByRole('radio', { name: /password/i })).toBeChecked();
+    expect(within(options).getByRole('button', { name: 'Type my own instead' })).toHaveAttribute('aria-pressed', 'true');
   });
 });

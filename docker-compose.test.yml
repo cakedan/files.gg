@@ -58,6 +58,71 @@ services:
       timeout: 5s
       retries: 60
 
+  # milestone-5 §3.1, §14: a real Redis (RQ forks its work horses, which fakeredis can't follow), the same image as
+  # docker-compose.yml, in memory only
+  redis:
+    image: redis:8.10.3-alpine@sha256:7958cfbb9d152f87dadfbc89f1b0b15938f0b81ff8982feb327476f4911935c3
+    command: ["redis-server", "--requirepass", "filesgg-test-redis", "--appendonly", "no", "--save", ""]
+    environment:
+      REDISCLI_AUTH: filesgg-test-redis
+    tmpfs:
+      - /data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 1s
+      timeout: 3s
+      retries: 30
+
+  # milestone-5 §3.2: LibreOffice in its own container with no network at all, as in docker-compose.yml, fed through
+  # the tmpfs spool the tests share. Before the daemon starts, the command writes what network the container has to
+  # /spool/network.txt (the interfaces that are up, its routes, and what connecting out gives) for test_office.py;
+  # the rest is the real service's configuration.
+  office:
+    build:
+      context: ./api
+      target: office
+    network_mode: none
+    read_only: true
+    tmpfs:
+      - /tmp:size=1g,mode=1777
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    pids_limit: 512
+    mem_limit: 2g
+    environment:
+      OFFICE_PROCESSES: "2"
+    volumes:
+      - office-spool:/spool
+    command:
+      - python3
+      - -c
+      - |
+        import os, socket
+        up = []
+        for name in sorted(os.listdir('/sys/class/net')):
+            try:
+                with open('/sys/class/net/{}/flags'.format(name)) as handle:
+                    if int(handle.read(), 16) & 0x1:
+                        up.append(name)
+            except (OSError, ValueError):
+                pass
+        with open('/proc/net/route') as handle:
+            routes = len(handle.read().splitlines()) - 1
+        lines = ['up=' + ','.join(up), 'routes={}'.format(routes)]
+        try:
+            socket.create_connection(('1.1.1.1', 80), 3).close()
+            lines.append('connect=ok')
+        except OSError as error:
+            lines.append('connect=' + type(error).__name__)
+        with open('/spool/network.txt', 'w') as handle:
+            handle.write('\n'.join(lines) + '\n')
+        os.execvp('python3', ['python3', '/office/daemon.py'])
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import os, sys; sys.exit(0 if os.path.isdir('/spool/done') else 1)"]
+      interval: 1s
+      timeout: 3s
+      retries: 60
+
   tests:
     build:
       context: ./api
@@ -68,6 +133,10 @@ services:
       minio:
         condition: service_started
       clamav:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      office:
         condition: service_healthy
     environment:
       TEST_DATABASE_ADMIN_URL: postgresql://postgres:postgres@postgres:5432/postgres
@@ -84,3 +153,17 @@ services:
       # milestone-4: clamd above; the matcher, the evidence bucket and the test keys are set by tests/conftest.py
       CLAMAV_HOST: clamav
       CLAMAV_PORT: "3310"
+      # milestone-5 §3.1: the RQ queues and the rate limits
+      REDIS_URL: redis://:filesgg-test-redis@redis:6379/0
+      # milestone-5 §3.2: the office service's spool
+      OFFICE_SPOOL_DIR: /spool
+    volumes:
+      - office-spool:/spool
+
+volumes:
+  # milestone-5 §3.2: tmpfs, shared by the tests (the converter's side) and office only
+  office-spool:
+    driver_opts:
+      type: tmpfs
+      device: tmpfs
+      o: size=512m,uid=10001,mode=0770

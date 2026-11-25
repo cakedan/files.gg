@@ -30,10 +30,10 @@ describe('ShareX .sxcu (milestone-6 §7.7)', () => {
 }`);
   });
 
-  it('omits Arguments when nothing was picked, and uses {json:url} without a generated password', () => {
+  it('omits Arguments when nothing was picked, and still copies {json:url_with_password} (the account defaults may generate one)', () => {
     const config = buildSharexConfig({ keyName: 'k', secret: KEY, args: sharexArguments(NO_SHAREX_DEFAULTS, false) });
     expect(Object.keys(config)).toEqual(['Version', 'Name', 'DestinationType', 'RequestMethod', 'RequestURL', 'Headers', 'Body', 'FileFormName', 'URL', 'ErrorMessage']);
-    expect(config.URL).toBe('{json:url}');
+    expect(config.URL).toBe('{json:url_with_password}');
     expect(config).not.toHaveProperty('DeletionURL');
     expect(config).not.toHaveProperty('ThumbnailURL');
   });

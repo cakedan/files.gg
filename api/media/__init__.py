@@ -13,6 +13,8 @@ PREVIEW_KINDS = {
     'waveform': ('webp', 'image/webp'),
     'peaks': ('json', 'application/json'),
     'hover': ('mp4', 'video/mp4'),
+    # milestone-5 §9: an Office document's preview, the PDF LibreOffice made (written by jobs.convert.preview)
+    'document': ('pdf', 'application/pdf'),
 }
 
 

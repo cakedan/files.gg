@@ -70,8 +70,8 @@ describe('ReportForm: signed out', () => {
     expect(calls(fetch)).toHaveLength(0);
   });
 
-  it('sends POST /reports/anonymous with the Turnstile token, the fingerprint and the contact email', async () => {
-    localStorage.setItem('filesgg.fingerprint', '42');
+  it('sends POST /reports/anonymous with the Turnstile token, the guest and the contact email', async () => {
+    localStorage.setItem('filesgg.guest', '42');
     const fetch = mockFetch(json({ id: '9', status: 'open' }, 201));
     render(<ReportForm target={{ type: 'file', vanity: 'abc' }} />);
     choose('Spam');
@@ -81,8 +81,7 @@ describe('ReportForm: signed out', () => {
     expect(screen.getByRole('link', { name: 'Sign in to hear back' })).toHaveAttribute('href', '/app');
     const request = sent(fetch);
     expect(request.url).toMatch(/\/reports\/anonymous$/);
-    expect(request.headers['X-Fingerprint']).toBe('42');
-    expect(request.headers.Authorization).toBeUndefined();
+    expect(request.headers.Authorization).toBe('Guest 42');
     expect(request.body).toEqual({
       target: { type: 'file', vanity: 'abc' },
       reason: 'spam',

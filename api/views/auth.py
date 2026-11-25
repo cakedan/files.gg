@@ -3,7 +3,7 @@ a successful sign-in sets the HttpOnly session cookie and never returns the toke
 the CSRF header (utils/auth.py).
 
     GET  /auth/config                 { discord }
-    GET  /auth/fingerprint            an anonymous fingerprint token
+    GET  /auth/guest                  { guest }: an anonymous guest token
     GET  /auth/session                { user | null }, never 401
     POST /auth/login                  { email, password, turnstile_token }
     POST /auth/register               { email, username, password, display_name?, turnstile_token }
@@ -33,8 +33,9 @@ from utils.account_settings import account_settings
 from utils.email_domain import domain_accepts_mail
 from utils.generators import Snowflake
 from utils.helpers import client_ip
+from utils.ratelimit import email_key, ip_hash, ip_key, limiter, user_key
 from utils.responses import ApiResponse
-from utils.tokens import FingerprintToken
+from utils.tokens import GuestToken
 from utils.turnstile import Turnstile
 from utils.wrappers import route
 
@@ -60,11 +61,6 @@ def text(body, name):
     return value if isinstance(value, str) else None
 
 
-def fingerprint_of(request):
-    raw = request.headers.get('x-fingerprint')
-    return parameters.fingerprint(raw) if raw else None
-
-
 async def verify_captcha(request, token, action):
     if not await Turnstile.verify(token, action, client_ip(request)):
         raise errors.captcha_invalid()
@@ -78,21 +74,22 @@ def check_email_syntax(value):
     return email.strip(), None
 
 
-# --- config, fingerprint, session ---------------------------------------------------------------------------
+# --- config, guest, session ---------------------------------------------------------------------------------
 
 @route(auth, '/config', ['GET'])
 async def auth_config(request):
     return ApiResponse({'discord': account_settings().discord_enabled})
 
 
-@route(auth, '/fingerprint', ['GET'])
-async def auth_fingerprint(request):
-    """A fingerprint for anonymous uploads. A user id is never a fingerprint (§4.2): ids and fingerprints
-    are separate Snowflakes, so there's nothing to check."""
-    fingerprint = fingerprint_of(request)
-    if fingerprint is None:
-        fingerprint = Snowflake.generate()
-    return ApiResponse({'fingerprint': FingerprintToken.generate(fingerprint)})
+@route(auth, '/guest', ['GET'])
+@limiter.limit('30 per minute', scope='guest', key=ip_key)
+async def auth_guest(request):
+    """A guest token for anonymous uploads (milestone-5 §20.1): the caller's own re-signed, or a new id. A user id
+    is never a guest id (milestone-6 §4.2): ids and guest ids are separate Snowflakes, so there's nothing to check."""
+    guest_id = auth_module.guest_of(request)
+    if guest_id is None:
+        guest_id = Snowflake.generate()
+    return ApiResponse({'guest': GuestToken.generate(guest_id)})
 
 
 @route(auth, '/session', ['GET'])
@@ -126,21 +123,15 @@ async def auth_login(request):
     if problems:
         raise errors.invalid_parameters(problems)
     settings = account_settings()
-    ip, _ = accounts.ip_key(request)
-    acct = accounts.email_key(email)
-    async with db.connection() as conn:
-        for scope, key in (('login_ip', ip), ('login_account', acct)):
-            count, retry_after = await accounts.rate_peek(conn, scope, key)
-            if count >= settings.rate(scope):
-                raise errors.too_many_attempts(retry_after)
+    # milestone-5 §18.3: failures only, per network and per account (closed): checked first, recorded on failure
+    limits = (('login_ip', ip_key(request)), ('login_account', email_key(email)))
+    await limiter.hit_many(request, limits, record=False)
     await verify_captcha(request, text(body, 'turnstile_token'), 'login')
     async with db.connection() as conn:
         user = await accounts.user_by_email(conn, email.strip())
     ok = await passwords.verify_account(user.password_hash if user else None, password)
     if not ok or user is None:
-        async with db.connection() as conn:
-            await accounts.rate_hit(conn, 'login_ip', ip)
-            await accounts.rate_hit(conn, 'login_account', acct)
+        await limiter.hit_many(request, limits, quiet=True)
         raise errors.invalid_credentials()
     new_hash = None
     if passwords.needs_rehash(user.password_hash):
@@ -150,7 +141,7 @@ async def auth_login(request):
             if new_hash:
                 await conn.execute('UPDATE users SET password_hash = %s WHERE id = %s', (new_hash, user.id))
             await end_current_session(conn, request)
-            await accounts.claim_fingerprint(conn, user, fingerprint_of(request))
+            await accounts.claim_guest(conn, user, auth_module.guest_of(request))
             expires_at = await accounts.create_session(conn, request, user.id, 'password', settings)
         return ApiResponse(await accounts.signed_in_body(conn, user.id, expires_at))
 
@@ -187,9 +178,8 @@ def validate_new_account(body, need_email=True):
 
 
 async def check_bans(conn, request):
-    """§11.3: a banned fingerprint or IP can't create an account."""
-    _, ip_hash = accounts.ip_key(request)
-    if await standing.banned(conn, fingerprint_of(request), ip_hash):
+    """§11.3: a banned guest or IP can't create an account."""
+    if await standing.banned(conn, auth_module.guest_of(request), ip_hash(request)):
         raise errors.banned()
 
 
@@ -197,9 +187,8 @@ async def check_bans(conn, request):
 async def auth_register(request):
     body = body_of(request)
     settings = account_settings()
-    ip, _ = accounts.ip_key(request)
+    await limiter.hit(request, 'register', ip_key(request))
     async with db.connection() as conn:
-        await accounts.rate_limited(conn, 'register', ip, settings.rate('register'))
         await check_bans(conn, request)
     email, username, display_name = validate_new_account(body)
     await verify_captcha(request, text(body, 'turnstile_token'), 'register')
@@ -219,7 +208,7 @@ async def auth_register(request):
                     'INSERT INTO users (id, email, username, display_name, password_hash) VALUES (%s, %s, %s, %s, %s)',
                     (user_id, email, username, display_name, password_hash))
                 user = await accounts.load_user(conn, user_id)
-                await accounts.claim_fingerprint(conn, user, fingerprint_of(request))
+                await accounts.claim_guest(conn, user, auth_module.guest_of(request))
                 expires_at = await accounts.create_session(conn, request, user_id, 'register', settings)
                 token = await accounts.create_account_token(conn, user_id, 'verify_email', email,
                                                             timedelta(hours=settings.verify_token_hours))
@@ -285,8 +274,8 @@ async def auth_verify_resend(request):
     address = user.pending_email or (user.email if user.email and not user.email_verified else None)
     if address is None:
         raise errors.nothing_to_verify()
+    await limiter.hit(request, 'verify_resend', user_key(user.id))
     async with db.connection() as conn:
-        await accounts.rate_limited(conn, 'verify_resend', 'user:{:x}'.format(user.id), settings.rate('verify_resend'))
         token = await accounts.create_account_token(conn, user.id, 'verify_email', address,
                                                     timedelta(hours=settings.verify_token_hours))
     await mail.send([mail.verify_email(address, user.username, token)], raise_errors=True)
@@ -302,13 +291,12 @@ async def auth_forgot(request):
     settings = account_settings()
     sent = []
     if email:
-        ip, _ = accounts.ip_key(request)
+        # milestone-5 §18.3: closed, and silent: over either limit sends nothing, with the same answer
+        hits = await limiter.hit_many(request, (('forgot_ip', ip_key(request)), ('forgot_account', email_key(email))),
+                                      quiet=True)
         async with db.connection() as conn:
-            ip_count, _ = await accounts.rate_hit(conn, 'forgot_ip', ip)
-            account_count, _ = await accounts.rate_hit(conn, 'forgot_account', accounts.email_key(email))
             user = await accounts.user_by_email(conn, email)
-            if user is not None and ip_count <= settings.rate('forgot_ip') \
-                    and account_count <= settings.rate('forgot_account'):
+            if user is not None and all(hit.allowed for hit in hits):
                 token = await accounts.create_account_token(conn, user.id, 'reset_password', user.email,
                                                             timedelta(minutes=settings.reset_token_minutes))
                 sent.append(mail.reset_password(user.email, user.username, token))
@@ -349,16 +337,11 @@ async def auth_forgot_reset(request):
 @route(auth, '/reauth', ['POST'])
 async def auth_reauth(request):
     user, session = auth_module.require_session(request)
-    settings = account_settings()
-    key = 'user:{:x}'.format(user.id)
-    async with db.connection() as conn:
-        count, retry_after = await accounts.rate_peek(conn, 'reauth', key)
-        if count >= settings.rate('reauth'):
-            raise errors.too_many_attempts(retry_after)
+    # milestone-5 §18.3: failures only (closed): checked first, recorded on failure
+    await limiter.peek(request, 'reauth', user_key(user.id))
     if not user.password_hash or not await passwords.verify_account(user.password_hash,
                                                                      text(body_of(request), 'password')):
-        async with db.connection() as conn:
-            await accounts.rate_hit(conn, 'reauth', key)
+        await limiter.hit_many(request, (('reauth', user_key(user.id)),), quiet=True)
         raise errors.invalid_credentials()
     async with db.connection() as conn:
         await conn.execute('UPDATE sessions SET authenticated_at = now() WHERE id = %s', (session.id,))
@@ -431,9 +414,7 @@ async def suggested_username(conn, discord_username):
 async def discord_callback(request):
     settings = require_discord()
     body = body_of(request)
-    ip, _ = accounts.ip_key(request)
-    async with db.connection() as conn:
-        await accounts.rate_limited(conn, 'discord', ip, settings.rate('discord'))
+    await limiter.hit(request, 'discord', ip_key(request))
     claims = check_state(request, text(body, 'state'), text(body, 'code_verifier'))
     purpose = claims['p']
     if purpose == 'login':
@@ -476,7 +457,7 @@ async def discord_login(request, me, settings):
                     "WHERE provider = 'discord' AND provider_user_id = %s",
                     (me['username'], me['global_name'], me['avatar'], me['id']))
                 await end_current_session(conn, request)
-                await accounts.claim_fingerprint(conn, user, fingerprint_of(request))
+                await accounts.claim_guest(conn, user, auth_module.guest_of(request))
                 expires_at = await accounts.create_session(conn, request, user.id, 'discord', settings)
             body = await accounts.signed_in_body(conn, user.id, expires_at)
             return ApiResponse(dict(body, status='signed_in'))
@@ -538,9 +519,8 @@ async def discord_signup(request):
     settings = require_discord()
     body = body_of(request)
     await verify_captcha(request, text(body, 'turnstile_token'), 'register')
-    ip, _ = accounts.ip_key(request)
+    await limiter.hit(request, 'register', ip_key(request))
     async with db.connection() as conn:
-        await accounts.rate_limited(conn, 'register', ip, settings.rate('register'))
         await check_bans(conn, request)
     claims = credentials.unsign(text(body, 'signup_token'), credentials.SIGNUP_LABEL, request.app.ctx.access_secret)
     if claims is None or not isinstance(claims.get('d'), str):
@@ -567,7 +547,7 @@ async def discord_signup(request):
                     "avatar, last_used_at) VALUES (%s, %s, 'discord', %s, %s, %s, %s, now())",
                     (Snowflake.generate(), user_id, claims['d'], claims.get('n'), claims.get('g'), claims.get('a')))
                 user = await accounts.load_user(conn, user_id)
-                await accounts.claim_fingerprint(conn, user, fingerprint_of(request))
+                await accounts.claim_guest(conn, user, auth_module.guest_of(request))
                 expires_at = await accounts.create_session(conn, request, user_id, 'discord', settings)
         except pg_errors.UniqueViolation as error:
             message = str(error)

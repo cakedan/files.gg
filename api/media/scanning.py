@@ -616,9 +616,15 @@ def inspect_office(path):
 # --- PDFs (§5.5) -----------------------------------------------------------------------------------------
 
 PDF_NAME = re.compile(rb'/(?:[A-Za-z0-9_.+\-]|#[0-9A-Fa-f]{2})+')
-PDF_JAVASCRIPT = frozenset(('JavaScript', 'JS', 'OpenAction', 'AA'))
+# A JavaScript action always names its type (`/S /JavaScript`) and code (`/JS`), so these two find it however
+# it's triggered. `/OpenAction` and `/AA` are only triggers: on their own they open the document at a page or a
+# zoom (LibreOffice writes `/OpenAction [3 0 R /Fit]` into every PDF it exports), which is harmless. They're
+# recorded (`triggers`), not flagged; what they trigger is what's judged (milestone-4 §5.5, revised 2026-11-25:
+# every Office document converted to PDF was being flagged).
+PDF_JAVASCRIPT = frozenset(('JavaScript', 'JS'))
+PDF_TRIGGERS = frozenset(('OpenAction', 'AA'))
 PDF_DANGEROUS = frozenset(('Launch', 'RichMedia'))
-PDF_WATCH = PDF_JAVASCRIPT | PDF_DANGEROUS | {'EmbeddedFile', 'URI'}
+PDF_WATCH = PDF_JAVASCRIPT | PDF_TRIGGERS | PDF_DANGEROUS | {'EmbeddedFile', 'URI'}
 URI_PATTERN = re.compile(rb'/URI\s*\(((?:\\.|[^\\)])*)\)')
 CHUNK = 1024 * 1024
 OVERLAP = 512
@@ -671,6 +677,7 @@ def inspect_pdf(path, workdir):
             os.unlink(expanded)
     embedded = pdf_attachments(path, workdir) if 'EmbeddedFile' in names else []
     result['javascript'] = sorted(names & PDF_JAVASCRIPT)
+    result['triggers'] = sorted(names & PDF_TRIGGERS)
     result['dangerous'] = sorted(names & PDF_DANGEROUS)
     result['embedded'] = embedded
     if any(item['blocked'] for item in embedded):

@@ -36,6 +36,7 @@ describe('parsePreviewPath: /previews/<kind>/<vanity>.<kind ext>', () => {
   it('accepts every kind in the fixed set with its own extension', () => {
     assert.deepEqual(Object.fromEntries(Object.entries(PREVIEW_KINDS).map(([kind, { ext }]) => [kind, ext])), {
       thumb: 'webp', 'thumb-2x': 'webp', display: 'webp', poster: 'webp', cover: 'webp', waveform: 'webp', peaks: 'json', hover: 'mp4',
+      document: 'pdf',
     });
     for (const [kind, { ext }] of Object.entries(PREVIEW_KINDS)) {
       assert.deepEqual(parsePreviewPath(`/previews/${kind}/abc123.${ext}`), { kind, vanity: 'abc123' }, kind);
@@ -47,10 +48,11 @@ describe('parsePreviewPath: /previews/<kind>/<vanity>.<kind ext>', () => {
     assert.deepEqual(parsePreviewPath('/previews/thumb/thumb.webp'), { kind: 'thumb', vanity: 'thumb' });
     assert.deepEqual(parsePreviewPath('/previews/poster/thumb/cover.webp'), { kind: 'poster', vanity: 'thumb/cover' });
     assert.deepEqual(parsePreviewPath('/previews/hover/hover.mp4'), { kind: 'hover', vanity: 'hover' });
+    assert.deepEqual(parsePreviewPath('/previews/document/abcd/xyz.pdf'), { kind: 'document', vanity: 'abcd/xyz' });
   });
 
   it('a wrong extension for the kind is not a preview', () => {
-    for (const path of ['/previews/thumb/abc.png', '/previews/thumb/abc.json', '/previews/peaks/abc.webp', '/previews/hover/abc.webp', '/previews/poster/abc.mp4', '/previews/thumb/abc.WEBP', '/previews/thumb/abc', '/previews/thumb/abc.webp.webp']) {
+    for (const path of ['/previews/thumb/abc.png', '/previews/thumb/abc.json', '/previews/peaks/abc.webp', '/previews/hover/abc.webp', '/previews/poster/abc.mp4', '/previews/document/abc.webp', '/previews/document/abc.PDF', '/previews/thumb/abc.pdf', '/previews/thumb/abc.WEBP', '/previews/thumb/abc', '/previews/thumb/abc.webp.webp']) {
       assert.equal(parsePreviewPath(path), null, path);
     }
   });
@@ -93,6 +95,12 @@ describe('previewContentType', () => {
     assert.equal(previewContentType('peaks', {}), 'application/json');
     assert.equal(previewContentType('thumb', { content_type: 'text/html; charset=utf-8' }), 'image/webp');
     assert.equal(previewContentType('thumb', { content_type: 'image/svg+xml' }), 'image/webp');
+  });
+
+  it('serves a document preview as application/pdf, whatever the row says (milestone-5.md §9.2)', () => {
+    for (const row of [{ content_type: 'application/pdf' }, {}, null, { content_type: 'text/html' }, { content_type: 'application/octet-stream' }]) {
+      assert.equal(previewContentType('document', row), 'application/pdf');
+    }
   });
 });
 

@@ -11,6 +11,7 @@ import { adminError } from '../format';
 import { canRescan, isAdmin } from '../permissions';
 import { useStaff } from '../staffContext';
 import { Failure, Loading, Section, When } from '../components/bits';
+import { ConversionHealth } from '../components/ConversionHealth';
 
 function Stat({ label, value, to, tone }: { label: string; value: number; to?: string; tone?: 'danger' | 'warn' }) {
   const body = (
@@ -161,6 +162,7 @@ export default function OverviewPage() {
         <Stat label="Scans stalled over 10 minutes" value={data.scans_stalled} tone="warn" />
         {staff.child_safety && <Stat label="CyberTipline reports not recorded" value={data.cybertip_unrecorded} tone="danger" />}
       </div>
+      <ConversionHealth health={data.conversions} />
       {isAdmin(staff) && (
         <div className="grid gap-4 lg:grid-cols-2">
           <StaffList />

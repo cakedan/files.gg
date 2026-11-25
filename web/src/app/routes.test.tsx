@@ -28,8 +28,7 @@ describe('dashboard routes', () => {
   it.each(NAV_ITEMS.map((item) => [item.path, item.label] as const))('%s renders the %s page', async (path, label) => {
     renderAt(path);
     expect(await screen.findByRole('heading', { level: 1, name: label })).toBeInTheDocument();
-    // Only Convert is still a placeholder; Integrations and Settings ask a signed-out visitor to sign in.
-    if (path === '/convert') expect(screen.getByText(/coming in a later milestone/i)).toBeInTheDocument();
+    // Integrations and Settings ask a signed-out visitor to sign in.
     if (path === '/integrations' || path === '/settings') {
       const hrefs = screen.getAllByRole('link', { name: 'Sign in' }).map((link) => link.getAttribute('href'));
       expect(hrefs).toContain(`/login?next=${encodeURIComponent(`/app${path}`)}`);

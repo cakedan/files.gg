@@ -1,6 +1,5 @@
 import { ExternalLink, Images, KeyRound, Loader2, Pencil, RotateCcw } from 'lucide-react';
 import { useId } from 'react';
-import { Link } from 'react-router';
 
 import { Button, LinkButton } from '../../components/Button';
 import { CopyButton } from '../../components/CopyButton';
@@ -9,6 +8,7 @@ import { linkWithPassword } from '../../lib/files/accessForm';
 import { fieldClass } from '../access/fieldUtils';
 import { pluralize } from '../files/fileLabels';
 import { ANONYMOUS_ALBUM_MAX, type UploadBatch } from './useUploadAlbum';
+import { AppLink } from '../components/AppLink';
 
 interface ToggleProps {
   enabled: boolean;
@@ -108,10 +108,10 @@ export function UploadAlbumResult({ batch, anonymous, onRetry }: { batch: Upload
             Open
           </LinkButton>
           {!anonymous && (
-            <Link to={`/albums/${album.id}`} className="inline-flex h-9 items-center gap-1.5 rounded-md px-3 text-sm font-medium text-muted hover:bg-surface-2 hover:text-text">
+            <AppLink to={`/albums/${album.id}`} className="inline-flex h-9 items-center gap-1.5 rounded-md px-3 text-sm font-medium text-muted hover:bg-surface-2 hover:text-text">
               <Pencil aria-hidden className="size-4" />
               Edit
-            </Link>
+            </AppLink>
           )}
         </div>
       </div>

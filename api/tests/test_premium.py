@@ -15,7 +15,7 @@ from tests.conftest import (
 from utils import credentials
 from utils.generators import Snowflake
 
-GB, MB = 1024 ** 3, 1024 ** 2
+GB, MB = 1000 ** 3, 1000 ** 2  # decimal, as api/utils/limits.py
 
 
 @pytest.fixture(scope='module')
@@ -42,14 +42,20 @@ def test_limits_by_plan(monkeypatch):
                                                                                                     False)
     signed_in = limits.get_limits(free)
     assert (signed_in.storage_bytes, signed_in.max_file_size_chunked, signed_in.custom_domains) == (10 * GB, GB, 0)
-    assert signed_in.max_file_size_single == 100000000 - MB and signed_in.max_file_size_single_configured == 100 * MB
+    # 100 MB for tools, exactly (decimal), under the proxy's 100 MiB body limit less 1 MiB of framing
+    assert signed_in.max_file_size_single == signed_in.max_file_size_single_configured == 100 * MB
     top = limits.get_limits(premium)
     assert (top.storage_bytes, top.max_file_size_chunked, top.custom_domains, top.domain_only_allowed) == (
         100 * GB, 5 * GB, 5, True)
-    # single requests are capped by the proxy's body limit, for premium too
-    assert top.max_file_size_single == 100000000 - MB and top.max_file_size_single_configured == 500 * MB
+    # premium tools get 100 MB too, until a bigger Cloudflare plan raises both settings
+    assert top.max_file_size_single == top.max_file_size_single_configured == 100 * MB
+    monkeypatch.setenv('LIMIT_PREMIUM_SINGLE_BYTES', str(500 * MB))
     monkeypatch.setenv('PROXY_BODY_LIMIT_BYTES', str(600 * MB))
     assert limits.get_limits(premium).max_file_size_single == 500 * MB
+    # single requests are capped by the proxy's body limit less 1 MiB of framing, for everyone
+    monkeypatch.setenv('PROXY_BODY_LIMIT_BYTES', '100000000')
+    assert limits.get_limits(premium).max_file_size_single == 100000000 - limits.MIB
+    assert limits.get_limits(free).max_file_size_single == 100000000 - limits.MIB
     # the manual override wins either way
     assert limits.get_limits(User(id=3, email=None, username='c', storage_limit_override=GB, premium=True)
                              ).storage_bytes == GB
@@ -65,12 +71,13 @@ def test_premium_limits_through_the_api(client, appdb):
     set_premium(user_id, appdb)
     body = client.get('/users/@me/limits', headers=headers).json()
     assert body['premium'] is True and body['storage']['limit'] == 100 * GB
-    assert body['max_file_size_chunked'] == 5 * GB and body['max_file_size_single'] == 100000000 - MB
-    assert body['max_file_size_single_configured'] == 500 * MB
+    assert body['max_file_size_chunked'] == 5 * GB and body['max_file_size_single'] == 100 * MB
+    assert body['max_file_size_single_configured'] == 100 * MB
     assert body['custom_domains'] == {'used': 0, 'limit': 5} and body['domain_only_allowed'] is True
     response = client.post('/uploads', headers=headers, json={'filename': 'big.bin', 'size': 2 * GB})
     assert response.status_code == 201, response.text
-    assert response.json()['chunk_count'] == 205
+    # 2 GB (decimal) in 10 MiB chunks
+    assert response.json()['chunk_count'] == 191
     client.delete('/uploads/' + response.json()['upload_id'], headers=headers)
     assert client.get('/users/@me', headers=headers).json()['premium'] == {'active': True, 'expires_at': None}
 

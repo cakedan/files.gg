@@ -1,7 +1,7 @@
 import { createElement, Suspense, type CSSProperties } from 'react';
 
 import { RendererFallback } from '../components/RendererFallback';
-import { getRenderer } from '../renderers';
+import { rendererFor } from '../renderers';
 import type { AlbumItem } from '../types';
 import { LinkedText } from './LinkedText';
 
@@ -21,7 +21,7 @@ export function AlbumList({ items, onOpen }: { items: AlbumItem[]; onOpen: (inde
         <li key={`${item.vanity ?? item.filename}-${index}`} className="flex w-full max-w-[62.5rem] flex-col gap-2">
           <div className="flex justify-center overflow-hidden rounded-lg border border-line bg-well">
             <Suspense fallback={<RendererFallback file={item} />}>
-              {createElement(getRenderer(item.kind), {
+              {createElement(rendererFor(item), {
                 file: item,
                 context: 'list',
                 onOpen: item.kind === 'image' ? () => onOpen(index) : undefined,

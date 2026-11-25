@@ -1,5 +1,7 @@
 # Milestone 3 contract
 
+> Later renamed: the anonymous uploader's *fingerprint* is now a *guest* (`guest_id`, `Authorization: Guest`); see milestone-5.md §20.
+
 This is the shared contract between `api/`, `cf-worker/` and `web/` for Milestone 3. It covers:
 - media processing (`probe` and `derive`: metadata, thumbnails, posters, covers, waveforms, hover clips);
 - serving derived media from `cdn.files.gg`;

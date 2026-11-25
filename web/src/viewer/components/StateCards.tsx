@@ -1,7 +1,7 @@
-import { FileQuestion, RefreshCw, Upload, Wand2, WifiOff } from 'lucide-react';
+import { FileQuestion, RefreshCw, WifiOff } from 'lucide-react';
 import type { ReactNode } from 'react';
 
-import { Lockup, Mark } from '../../components/Brand';
+import { Mark } from '../../components/Brand';
 import { Button, LinkButton } from '../../components/Button';
 import { mainUrl } from '../host/context';
 
@@ -10,23 +10,6 @@ export function StateCard({ children }: { children: ReactNode }) {
     <section className="viewer-card w-[min(28rem,100vw-1.5rem)] items-center gap-4 px-6 py-8 text-center">
       {children}
     </section>
-  );
-}
-
-export function HomeCard() {
-  return (
-    <StateCard>
-      <h1 className="sr-only">files.gg</h1>
-      <Lockup className="h-12 w-auto max-w-full" />
-      <p className="text-muted">Simple, fast file hosting. Upload a file and share the link.</p>
-      <div className="flex flex-wrap justify-center gap-2">
-        <LinkButton href="/app/upload" variant="primary">
-          <Upload aria-hidden className="size-4" />
-          Upload a file
-        </LinkButton>
-        <LinkButton href="/app">Dashboard</LinkButton>
-      </div>
-    </StateCard>
   );
 }
 
@@ -54,18 +37,6 @@ export function UnavailableCard({ onRetry = () => window.location.reload() }: { 
         <RefreshCw aria-hidden className="size-4" />
         Retry
       </Button>
-    </StateCard>
-  );
-}
-
-/** Public /convert: placeholder until the "File conversion" milestone. */
-export function ConvertCard() {
-  return (
-    <StateCard>
-      <Wand2 aria-hidden className="size-10 text-gg" />
-      <h1 className="text-lg font-semibold">Convert</h1>
-      <p className="text-sm text-muted">Converting files between formats is coming in a later milestone.</p>
-      <LinkButton href={mainUrl('/')}>Go to files.gg</LinkButton>
     </StateCard>
   );
 }

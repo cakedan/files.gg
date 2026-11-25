@@ -22,7 +22,7 @@ export function BanForm({ from, anonymous }: { from: BanBody['from']; anonymous:
   const staff = useStaff();
   const notify = useToast();
   const ban = useCreateBan();
-  const [kind, setKind] = useState<BanBody['kind']>(anonymous ? 'fingerprint' : 'ip');
+  const [kind, setKind] = useState<BanBody['kind']>(anonymous ? 'guest' : 'ip');
   const [duration, setDuration] = useState(7 * DAY);
   const [rule, setRule] = useState('');
   const [error, setError] = useState<string | null>(null);
@@ -58,15 +58,15 @@ export function BanForm({ from, anonymous }: { from: BanBody['from']; anonymous:
         <fieldset className="flex flex-wrap gap-4 text-sm">
           <legend className="mb-1 text-sm font-medium">What to ban</legend>
           <label className="flex items-center gap-2">
-            <input type="radio" name={`${id}-kind`} checked={kind === 'fingerprint'} onChange={() => setKind('fingerprint')} className="accent-gg" disabled={!anonymous} />
-            The device (fingerprint)
+            <input type="radio" name={`${id}-kind`} checked={kind === 'guest'} onChange={() => setKind('guest')} className="accent-gg" disabled={!anonymous} />
+            The guest (its browser)
           </label>
           <label className="flex items-center gap-2">
             <input type="radio" name={`${id}-kind`} checked={kind === 'ip'} onChange={() => setKind('ip')} className="accent-gg" />
             The network (IP)
           </label>
         </fieldset>
-        {!anonymous && <p className="text-xs text-muted">Signed-in uploads have no fingerprint. To stop an account, restrict or suspend it.</p>}
+        {!anonymous && <p className="text-xs text-muted">Signed-in uploads have no guest. To stop an account, restrict or suspend it.</p>}
         <div className="grid gap-3 sm:grid-cols-2">
           <div className="flex flex-col gap-1">
             <label htmlFor={`${id}-duration`} className="text-sm font-medium">

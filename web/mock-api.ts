@@ -3,7 +3,7 @@
  * milestone-3.md, milestone-4.md, milestone-6.md) for `npm run dev`, mounted same-origin at
  * /api like the real `files.gg/api/*` passthrough. It never runs in a build.
  *
- * Implements: fingerprint, limits, single and chunked uploads, unlock, refresh, view and
+ * Implements: guests, limits, single and chunked uploads, unlock, refresh, view and
  * owner passes (Milestone 2, at `/access/unlock|refresh|view/files|albums/<vanity>`, §20.1); the owner file library, bulk delete / expiry / access,
  * albums and their items, public album reads (Milestone 3); scan states, NSFW, reports,
  * My reports, notices and appeals, badges, restrictions, and every `/admin/*` endpoint
@@ -39,6 +39,7 @@ import { domainToASCII } from 'node:url';
 
 import type { Connect } from 'vite';
 
+import { sourceKindOf, type KindInput } from './src/lib/convertKinds.ts';
 import { cleanDisplayName, DISPLAY_NAME_REASON_TEXT, displayNameProblem, normalizeUsername, USERNAME_REASON_TEXT, usernameProblem } from './src/lib/usernames.ts';
 
 export const MOCK_API_PREFIX = '/api';
@@ -48,7 +49,11 @@ const TOKEN_SECRET = 'test-unlock-token-secret';
 const CDN_SIGNING_SECRET = 'test-cdn-signing-secret';
 const TURNSTILE_DUMMY_TOKEN = 'XXXX.DUMMY.TOKEN.XXXX';
 const CHUNK_SIZE = 10 * 1024 * 1024;
-const MB = 1024 * 1024;
+// decimal, as the API's limits (api/utils/limits.py) and formatBytes are
+const MB = 1_000_000;
+const GB = 1000 * MB;
+// multipart framing headroom below the proxy's body limit
+const MIB = 1024 * 1024;
 const DAY = 86400;
 
 const env = (name: string, fallback: number) => {
@@ -308,7 +313,7 @@ interface Caller {
   anonymous: boolean;
   /** The signed-in persona (session cookie or upload key), or null. */
   user: Persona | null;
-  fingerprint: string | null;
+  guest: string | null;
   /** The live web session (cookie), or null. */
   session: WebSession | null;
   /** The upload key that authenticated this request, or null. */
@@ -317,28 +322,32 @@ interface Caller {
 
 /**
  * Who is calling (milestone-6 §3.4, §7.4): a valid `Authorization: Key` (upload endpoints
- * only; checked in `route`), else the session cookie, else anonymous with `X-Fingerprint`.
- * `Authorization` never signs anyone in.
+ * only; checked in `route`), else the session cookie, else a guest with `Authorization: Guest`
+ * (milestone-5 §20.1). Neither `Authorization` scheme signs anyone in.
  */
 function owner(req: IncomingMessage): Caller {
   const keyMatch = /^Key\s+(\S+)$/.exec(String(req.headers.authorization ?? ''));
   const key = keyMatch ? findKey(keyMatch[1]!) : null;
   if (key && keyState(key) === 'active') {
     const user = USERS.get(key.userId)!;
-    return { key: keyOfUser(user.id), anonymous: false, user, fingerprint: null, session: null, uploadKey: key };
+    return { key: keyOfUser(user.id), anonymous: false, user, guest: null, session: null, uploadKey: key };
   }
   const session = liveSession(sessionToken(req));
   if (session) {
     const user = USERS.get(session.userId)!;
-    return { key: keyOfUser(user.id), anonymous: false, user, fingerprint: null, session, uploadKey: null };
+    return { key: keyOfUser(user.id), anonymous: false, user, guest: null, session, uploadKey: null };
   }
-  const fingerprint = req.headers['x-fingerprint'];
-  return { key: `fp:${String(fingerprint ?? 'none')}`, anonymous: true, user: null, fingerprint: fingerprint ? String(fingerprint) : null, session: null, uploadKey: null };
+  const guest = guestOf(req);
+  return { key: `g:${guest ?? 'none'}`, anonymous: true, user: null, guest, session: null, uploadKey: null };
+}
+
+/** The guest of `Authorization: Guest <token>`, or null (the mock's tokens are the ids themselves). */
+function guestOf(req: IncomingMessage): string | null {
+  return /^Guest\s+(\S+)$/.exec(String(req.headers.authorization ?? ''))?.[1] ?? null;
 }
 
 /** milestone-6 §9.2: Cloudflare's per-request body limit caps single-request uploads. */
-const PROXY_BODY_LIMIT_BYTES = 100_000_000;
-const GiB = 1024 * MB;
+const PROXY_BODY_LIMIT_BYTES = 100 * MIB;
 
 function limitsFor(anonymous: boolean, key: string) {
   if (anonymous) {
@@ -360,12 +369,13 @@ function limitsFor(anonymous: boolean, key: string) {
   }
   const userId = userIdOfKey(key);
   const premium = userId ? isPremium(userId) : false;
-  const single = premium ? 500 * MB : 100 * MB;
+  // 100 MB for tools for everyone (api/utils/limits.py `premium_single`)
+  const single = 100 * MB;
   return {
-    storage: { used: usageOf(key), limit: premium ? 100 * GiB : STORAGE_LIMIT },
-    max_file_size_single: Math.min(single, PROXY_BODY_LIMIT_BYTES - MB),
+    storage: { used: usageOf(key), limit: premium ? 100 * GB : STORAGE_LIMIT },
+    max_file_size_single: Math.min(single, PROXY_BODY_LIMIT_BYTES - MIB),
     max_file_size_single_configured: single,
-    max_file_size_chunked: premium ? 5 * GiB : GiB,
+    max_file_size_chunked: premium ? 5 * GB : GB,
     max_expiry: null,
     allow_no_expiry: true,
     anonymous: false,
@@ -518,6 +528,9 @@ interface Asset {
   url: string;
   width?: number;
   height?: number;
+  /** Milestone 5 §9.2 `document`: the preview PDF's size and pages. */
+  size?: number;
+  pages?: number;
 }
 
 interface StoredFile {
@@ -611,7 +624,7 @@ interface StoredAlbum {
 const USER_KEY = 'user:42';
 const library = new Map<string, StoredFile>();
 const albumStore = new Map<string, StoredAlbum>();
-const STORAGE_LIMIT = 10 * 1024 * MB;
+const STORAGE_LIMIT = 10 * GB;
 const ALBUM_MAX_FILES = 500;
 const ANONYMOUS_ALBUM_MAX_FILES = 50;
 const ALBUMS_MAX = 1000;
@@ -626,6 +639,13 @@ const MIMETYPES: Record<string, string> = {
   pdf: 'application/pdf', txt: 'text/plain', md: 'text/markdown', csv: 'text/csv', py: 'text/x-python',
   js: 'text/javascript', ts: 'text/plain', json: 'application/json', html: 'text/html',
   zip: 'application/zip', gz: 'application/gzip', zst: 'application/zstd', dmg: 'application/x-apple-diskimage',
+  ico: 'image/x-icon', bmp: 'image/bmp', apng: 'image/apng', heif: 'image/heif', psd: 'image/vnd.adobe.photoshop', opus: 'audio/ogg',
+  // Milestone 5 §1.1 documents.
+  doc: 'application/msword', docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  xls: 'application/vnd.ms-excel', xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  ppt: 'application/vnd.ms-powerpoint', pptx: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+  odt: 'application/vnd.oasis.opendocument.text', ods: 'application/vnd.oasis.opendocument.spreadsheet',
+  odp: 'application/vnd.oasis.opendocument.presentation', rtf: 'application/rtf',
 };
 const BROWSER_IMAGES = new Set(['image/png', 'image/jpeg', 'image/gif', 'image/webp', 'image/avif', 'image/bmp']);
 
@@ -741,7 +761,6 @@ interface SeedFile {
   viewLimit?: { limit: number; action?: 'expire' | 'private'; used?: number };
 }
 
-const GB = 1024 * MB;
 const fixture = (name: string) => `/fixtures/${name}`;
 
 function seedFiles(): SeedFile[] {
@@ -789,6 +808,10 @@ function seedFiles(): SeedFile[] {
     { name: 'Installer', ext: 'dmg', size: 96 * MB, daysAgo: 44, expiresIn: 4 * 86400 },
     { name: 'config', ext: 'json', size: 812, daysAgo: 2 },
     { name: 'font-preview', ext: 'svg', size: 22_000, daysAgo: 10, mimetype: 'image/svg+xml' },
+    // Milestone 5: a document with its preview PDF (§9.2), one without, and a short unplayable clip for "Convert to MP4".
+    { name: 'quarterly-report', ext: 'docx', size: 48_210, daysAgo: 1.6, assets: { document: { url: fixture('sample.pdf'), size: 17_113, pages: 8 } } },
+    { name: 'budget-2027', ext: 'xlsx', size: 9_800, daysAgo: 2.2 },
+    { name: 'clip-hevc', ext: 'mov', size: 38 * MB, daysAgo: 0.8, width: 1920, height: 1080, duration: 12_000, media: { playable: false, has_audio: true, codecs: ['hevc', 'aac'], container: 'mov' } },
     // Milestone 6 §19: view limits. The viewer's `limited` and `limited-password` fixtures use these vanities.
     photo(2, 'limited-photo', 400, 600, 0.2, { vanity: 'limited1', viewLimit: { limit: 3, used: 1 } }),
     { name: 'limited-notes', ext: 'pdf', size: 17_113, daysAgo: 0.4, cdn: fixture('sample.pdf'), media: { pages: 8 }, vanity: 'limitedpw', visibility: 'password', viewLimit: { limit: 5, action: 'private', used: 2 } },
@@ -1381,8 +1404,8 @@ async function route(req: IncomingMessage, res: ServerResponse, path: string, or
   const who = owner(req);
   gate(who, method, path);
 
-  if (method === 'GET' && path === '/auth/fingerprint') {
-    return send(res, 200, { fingerprint: String(BigInt(Date.now()) * 1000n + BigInt(randomInt(1000))) });
+  if (method === 'GET' && path === '/auth/guest') {
+    return send(res, 200, { guest: guestOf(req) ?? String(BigInt(Date.now()) * 1000n + BigInt(randomInt(1000))) });
   }
   if (await accountRoute(req, res, path, origin, query, who)) return;
   checkUploadRestrictions(who, method, path);
@@ -1392,6 +1415,8 @@ async function route(req: IncomingMessage, res: ServerResponse, path: string, or
     return send(res, 200, limitsFor(who.anonymous, who.key));
   }
   if (await libraryRoute(req, res, path, origin, query)) return;
+  // Milestone 5: conversions, and the public file lookup the Convert page reads.
+  if (await conversionRoute(req, res, path, origin, query, who)) return;
 
   // ---- Single upload ----
   if (method === 'POST' && path === '/files') {
@@ -1403,15 +1428,19 @@ async function route(req: IncomingMessage, res: ServerResponse, path: string, or
     const { fields, file } = parseMultipart(await readBody(req), String(req.headers['content-type'] ?? ''));
     if (!file) throw new HttpError(400, 'BAD_REQUEST', 'No file.');
     checkKeyUpload(who, fields);
-    checkUpload(who.anonymous, who.key, file.size, fields, false);
-    return send(res, 200, fileObject(origin, who.key, file.filename, file.size, fields, who.anonymous));
+    const filled = withKeyDefaults(who, fields);
+    checkUpload(who.anonymous, who.key, file.size, filled, false);
+    const created = fileObject(origin, who.key, file.filename, file.size, filled, who.anonymous);
+    // §21: the `.sxcu` copies `url_with_password`, the plain link when no password was generated.
+    return send(res, 200, who.uploadKey ? { url_with_password: (created as Record<string, unknown>).url, ...created } : created);
   }
 
   // ---- Chunked ----
   if (method === 'POST' && path === '/uploads') {
-    const body = await readJson(req);
-    const size = Number(body.size);
-    checkKeyUpload(who, body);
+    const raw = await readJson(req);
+    const size = Number(raw.size);
+    checkKeyUpload(who, raw);
+    const body = withKeyDefaults(who, raw);
     checkUpload(who.anonymous, who.key, size, body, true);
     const id = snowflake();
     const session: Session = {
@@ -1992,7 +2021,18 @@ interface Persona {
   domainOnly: boolean;
   deletionRequestedAt: number | null;
   deletionScheduledFor: number | null;
+  /** Milestone 5 §21: what key uploads and conversions get when they don't say. */
+  uploadDefaults: UploadDefaults;
 }
+
+/** Milestone 5 §21: `settings.upload_defaults`; `password` is a generated password per file. */
+interface UploadDefaults {
+  expires_in: number | null;
+  visibility: Visibility;
+  nsfw: boolean;
+}
+
+const PLAIN_UPLOAD_DEFAULTS: UploadDefaults = { expires_in: null, visibility: 'link', nsfw: false };
 
 /** Every seeded account signs in with this password (milestone-6 mock). */
 export const MOCK_PASSWORD = 'mock-password';
@@ -2013,6 +2053,7 @@ const persona = (id: string, username: string, displayName: string, daysOld: num
   domainOnly: false,
   deletionRequestedAt: null,
   deletionScheduledFor: null,
+  uploadDefaults: { ...PLAIN_UPLOAD_DEFAULTS },
   ...extra,
 });
 
@@ -2112,7 +2153,7 @@ interface StoredReport {
   reason: string;
   status: 'open' | 'resolved' | 'dismissed';
   reporterUserId: string | null;
-  fingerprint: string | null;
+  guest: string | null;
   contactEmail: string | null;
   details: string;
   dmca: Record<string, unknown> | null;
@@ -2224,9 +2265,9 @@ interface StoredRestriction {
 
 interface StoredBan {
   id: string;
-  kind: 'fingerprint' | 'ip';
+  kind: 'guest' | 'ip';
   source: Record<string, string>;
-  /** What the ban matches: a fingerprint, or a stand-in for the IP hash. */
+  /** What the ban matches: a guest, or a stand-in for the IP hash. */
   value: string;
   rule: string;
   note: string | null;
@@ -2347,8 +2388,8 @@ const restrictionsOf = (userId: string) =>
     .filter((r) => r.userId === userId && r.liftedAt === null && (r.endsAt === null || r.endsAt > now()))
     .map((r) => ({ kind: r.kind, until: r.endsAt, notice_id: r.noticeId }));
 
-const isBanned = (fingerprint: string | null) =>
-  banStore.some((ban) => ban.liftedAt === null && (ban.expiresAt === null || ban.expiresAt > now()) && (ban.value === `fp:${fingerprint}` || ban.value === 'ip:127.0.0.1'));
+const isBanned = (guest: string | null) =>
+  banStore.some((ban) => ban.liftedAt === null && (ban.expiresAt === null || ban.expiresAt > now()) && (ban.value === `g:${guest}` || ban.value === 'ip:127.0.0.1'));
 
 /** §2.5 step 5: bans and restrictions stop uploads and album creation. */
 function checkUploadRestrictions(who: Caller, method: string, path: string) {
@@ -2356,7 +2397,7 @@ function checkUploadRestrictions(who: Caller, method: string, path: string) {
   if (!creating) return;
   const restriction = who.user ? activeRestriction(who.user.id, 'uploads') : null;
   if (restriction) throw new HttpError(403, 'UPLOADS_RESTRICTED', 'Uploads are restricted on your account.', { until: restriction.endsAt });
-  if (who.anonymous && isBanned(who.fingerprint)) throw new HttpError(403, 'BANNED', 'Uploads from this device or network aren’t allowed.');
+  if (who.anonymous && isBanned(who.guest)) throw new HttpError(403, 'BANNED', 'Uploads from this device or network aren’t allowed.');
 }
 
 // ---- Scanning (§2) ----
@@ -2403,7 +2444,7 @@ function finishScan(file: StoredFile) {
     file.derivedAtMs = Date.now() + env('MOCK_DERIVE_MS', 6000);
     file.assets = placeholderAssets(file);
   }
-  const anonymous = file.owner.startsWith('fp:');
+  const anonymous = file.owner.startsWith('g:');
   const rejected = outcome.state === 'blocked' || outcome.nsfwAuto || outcome.warnings?.includes('encrypted_archive');
   if (anonymous && outcome.rejectAnonymous && rejected) {
     deleteFile(file, outcome.rejectAnonymous);
@@ -2588,7 +2629,7 @@ function casePriority(c: StoredCase): number {
 }
 
 /** The reporter key for "distinct reporters" (§7.4). */
-const reporterKey = (r: StoredReport) => (r.reporterUserId ? `user:${r.reporterUserId}` : `anon:${r.fingerprint ?? 'none'}`);
+const reporterKey = (r: StoredReport) => (r.reporterUserId ? `user:${r.reporterUserId}` : `anon:${r.guest ?? 'none'}`);
 
 function distinctReporters(list: StoredReport[]) {
   return new Set(list.map(reporterKey)).size;
@@ -2626,8 +2667,8 @@ function safetySeedFiles(): SeedFile[] {
     photo(2, 'stolen-art', 5, { ...other('user:77'), moderation: 'removed', moderationRule: 'copyright' }),
     photo(3, 'private-photo', 0.4, { ...other('user:78'), moderation: 'hidden', moderationRule: 'ncii', moderationAuto: true }, { ext: 'jpg' }),
     { name: 'quiet-notes', ext: 'pdf', size: 220_000, daysAgo: 12, cdn: fixture('sample.pdf'), media: { pages: 8 }, assets: { thumb: { url: fixture('pdf-thumb.png'), width: 240, height: 310 } }, safety: { ...other('user:78'), moderation: 'removed', moderationRule: 'spam' } },
-    { name: 'invoice-urgent', ext: 'pdf', size: 90_000, daysAgo: 0.8, cdn: fixture('sample.pdf'), media: { pages: 1 }, safety: { ...other('fp:5550001'), scanState: 'flagged', scanReason: 'pdf_javascript', findings: [{ check: 'pdf', code: 'pdf_javascript', detail: '/OpenAction /JavaScript' }] }, expiresIn: 20 * DAY },
-    photo(4, 'blocked-upload', 0.1, { ...other('fp:5550002'), scanState: 'blocked', scanReason: 'csam_match' }, { expiresIn: 20 * DAY }),
+    { name: 'invoice-urgent', ext: 'pdf', size: 90_000, daysAgo: 0.8, cdn: fixture('sample.pdf'), media: { pages: 1 }, safety: { ...other('g:5550001'), scanState: 'flagged', scanReason: 'pdf_javascript', findings: [{ check: 'pdf', code: 'pdf_javascript', detail: '/OpenAction /JavaScript' }] }, expiresIn: 20 * DAY },
+    photo(4, 'blocked-upload', 0.1, { ...other('g:5550002'), scanState: 'blocked', scanReason: 'csam_match' }, { expiresIn: 20 * DAY }),
   ];
 }
 
@@ -2694,7 +2735,7 @@ function seedSafety(byName: Map<string, StoredFile>, spamAlbumId: string) {
   // Reports by others.
   const privatePhoto = file('private-photo');
   const nciiCase = caseFor('file', privatePhoto.id, { createdAt: ago(0.4), assigneeId: '43', claimedAt: ago(0.1) });
-  const r7 = addReport({ kind: 'file', fileId: privatePhoto.id, targetVanity: privatePhoto.vanity, reason: 'ncii', fingerprint: '6660001', contactEmail: 'someone@example.com', details: 'This is me. I never agreed to this being shared.', caseId: nciiCase.id, createdAt: ago(0.4) });
+  const r7 = addReport({ kind: 'file', fileId: privatePhoto.id, targetVanity: privatePhoto.vanity, reason: 'ncii', guest: '6660001', contactEmail: 'someone@example.com', details: 'This is me. I never agreed to this being shared.', caseId: nciiCase.id, createdAt: ago(0.4) });
   const nciiRow = logAction(null, 'system', 'auto_hide', { rule: 'ncii', fileId: privatePhoto.id, caseId: nciiCase.id, reportId: r7.id, at: ago(0.4) });
   privatePhoto.noticeId = createNotice('78', nciiRow, 'auto_hide', 'ncii', fileTarget(privatePhoto), null, ago(0.4)).id;
   logAction('43', 'staff', 'claim', { caseId: nciiCase.id, at: ago(0.1) });
@@ -2707,7 +2748,7 @@ function seedSafety(byName: Map<string, StoredFile>, spamAlbumId: string) {
   addFlag(hashCase, 'scan', 'csam_match', { matcher: 'standin' }, ago(0.1));
   logAction(null, 'system', 'csam_match', { hashId: blocked.id, fileId: blocked.id, caseId: hashCase.id, details: { matcher: 'standin', vendor_refs: ['standin-0-1a2b3c4d'] }, at: ago(0.1) });
   logAction(null, 'system', 'preserve_evidence', { hashId: blocked.id, caseId: hashCase.id, at: ago(0.1) });
-  banStore.push({ id: safetyId(), kind: 'fingerprint', source: { file_id: blocked.id }, value: 'fp:5550002', rule: 'csam', note: null, actionId: logAction(null, 'system', 'ban', { rule: 'csam', caseId: hashCase.id, at: ago(0.1) }).id, createdAt: ago(0.1), expiresAt: null, liftedAt: null });
+  banStore.push({ id: safetyId(), kind: 'guest', source: { file_id: blocked.id }, value: 'g:5550002', rule: 'csam', note: null, actionId: logAction(null, 'system', 'ban', { rule: 'csam', caseId: hashCase.id, at: ago(0.1) }).id, createdAt: ago(0.1), expiresAt: null, liftedAt: null });
 
   // An appeal by quietfox against a removal by Mock User: SAME_MODERATOR for Mock User.
   const notes = file('quiet-notes');
@@ -2737,7 +2778,7 @@ interface ReportInput {
   albumPart?: StoredReport['albumPart'];
   reason: string;
   reporterUserId?: string | null;
-  fingerprint?: string | null;
+  guest?: string | null;
   contactEmail?: string | null;
   details: string;
   dmca?: Record<string, unknown> | null;
@@ -2759,7 +2800,7 @@ function addReport(input: ReportInput): StoredReport {
     reason: input.reason,
     status: 'open',
     reporterUserId: input.reporterUserId ?? null,
-    fingerprint: input.fingerprint ?? null,
+    guest: input.guest ?? null,
     contactEmail: input.contactEmail ?? null,
     details: input.details,
     dmca: input.dmca ?? null,
@@ -2948,12 +2989,12 @@ async function submitReport(req: IncomingMessage, res: ServerResponse, origin: s
     const errors = missingFields(body.dmca, DMCA_FIELDS);
     if (Object.keys(errors).length) throw new HttpError(400, 'DMCA_FIELDS_REQUIRED', 'Fill in every field of the copyright notice.', { errors });
   }
-  const key = reporterId ? `user:${reporterId}` : `fp:${who.fingerprint ?? 'none'}`;
+  const key = reporterId ? `user:${reporterId}` : `g:${who.guest ?? 'none'}`;
   if (reason !== 'csam') rateLimit('report', key, 10, 'MAX_REPORTS', 'Too many reports. Try again later.');
 
   const targetId = fileTargetRow?.id ?? albumTargetRow?.id ?? userTarget ?? domainTargetRow?.id ?? null;
   const duplicate = [...reports.values()].find(
-    (r) => r.status === 'open' && (r.fileId ?? r.albumId ?? r.userId ?? r.domainId) === targetId && targetId !== null && (reporterId ? r.reporterUserId === reporterId : r.fingerprint === who.fingerprint && !r.reporterUserId),
+    (r) => r.status === 'open' && (r.fileId ?? r.albumId ?? r.userId ?? r.domainId) === targetId && targetId !== null && (reporterId ? r.reporterUserId === reporterId : r.guest === who.guest && !r.reporterUserId),
   );
   if (duplicate) {
     if (reporterId) {
@@ -2975,7 +3016,7 @@ async function submitReport(req: IncomingMessage, res: ServerResponse, origin: s
     albumPart: kind === 'album' ? (String(target.part ?? 'whole') as StoredReport['albumPart']) : null,
     reason,
     reporterUserId: reporterId,
-    fingerprint: reporterId ? null : who.fingerprint,
+    guest: reporterId ? null : who.guest,
     contactEmail: reporterId ? null : (cleanText(body.contact_email, 254) || null),
     details,
     dmca: reason === 'copyright' ? (body.dmca as Record<string, unknown>) : null,
@@ -3163,8 +3204,8 @@ function ownerOfKey(key: string) {
   const userId = userIdOfKey(key);
   const user = userId ? USERS.get(userId) : undefined;
   return user
-    ? { user_id: user.id, username: user.username, fingerprint: null, account_created_at: user.createdAt, anonymous: false }
-    : { user_id: null, username: null, fingerprint: key.startsWith('fp:') ? key.slice(3) : null, account_created_at: null, anonymous: true };
+    ? { user_id: user.id, username: user.username, guest_id: null, account_created_at: user.createdAt, anonymous: false }
+    : { user_id: null, username: null, guest_id: key.startsWith('g:') ? key.slice(2) : null, account_created_at: null, anonymous: true };
 }
 
 function staffReport(r: StoredReport) {
@@ -3919,8 +3960,8 @@ async function safetyRoute(req: IncomingMessage, res: ServerResponse, path: stri
   }
   if (path === '/admin/bans' && method === 'POST') {
     const body = await readJson(req);
-    const kind = body.kind === 'ip' ? 'ip' : body.kind === 'fingerprint' ? 'fingerprint' : null;
-    if (!kind) throw new HttpError(400, 'INVALID_ACTION', 'kind must be fingerprint or ip.');
+    const kind = body.kind === 'ip' ? 'ip' : body.kind === 'guest' ? 'guest' : null;
+    if (!kind) throw new HttpError(400, 'INVALID_ACTION', 'kind must be guest or ip.');
     if (!body.rule || !RULES.includes(String(body.rule))) throw new HttpError(400, 'INVALID_ACTION', 'Pick a rule for this ban.');
     const duration = typeof body.duration === 'number' ? body.duration : null;
     if ((duration === null || duration > 30 * DAY) && !isAdmin(staff)) throw forbidden();
@@ -3931,16 +3972,16 @@ async function safetyRoute(req: IncomingMessage, res: ServerResponse, path: stri
       const file = library.get(from.file_id);
       if (!file) throw new HttpError(404, 'UNKNOWN_FILE', 'Unknown file.');
       createdMs = file.createdMs;
-      value = kind === 'fingerprint' ? (file.owner.startsWith('fp:') ? file.owner : null) : `ip:file:${file.id}`;
+      value = kind === 'guest' ? (file.owner.startsWith('g:') ? file.owner : null) : `ip:file:${file.id}`;
     } else if (from.report_id) {
       const report = reports.get(from.report_id);
       if (!report) throw new HttpError(404, 'UNKNOWN_REPORT', 'Unknown report.');
       createdMs = report.createdAt * 1000;
-      value = kind === 'fingerprint' ? (report.fingerprint ? `fp:${report.fingerprint}` : null) : `ip:report:${report.id}`;
-    } else if (from.fingerprint && kind === 'fingerprint') {
-      value = `fp:${from.fingerprint}`;
+      value = kind === 'guest' ? (report.guest ? `g:${report.guest}` : null) : `ip:report:${report.id}`;
+    } else if (from.guest_id && kind === 'guest') {
+      value = `g:${from.guest_id}`;
     }
-    if (!value) throw new HttpError(400, 'INVALID_ACTION', kind === 'fingerprint' ? 'That source has no fingerprint.' : 'That source has no IP hash.');
+    if (!value) throw new HttpError(400, 'INVALID_ACTION', kind === 'guest' ? 'That source has no guest.' : 'That source has no IP hash.');
     if (kind === 'ip' && Date.now() - createdMs > 30 * DAY * 1000) throw new HttpError(400, 'INVALID_ACTION', 'The IP hash for that source is older than 30 days and was deleted.');
     const row = logAction(staff.id, 'staff', 'ban', { rule: String(body.rule), note: body.note ? cleanText(body.note, 2000) : null, details: { kind, from, duration } });
     const ban: StoredBan = { id: safetyId(), kind, source: from, value, rule: String(body.rule), note: body.note ? cleanText(body.note, 2000) : null, actionId: row.id, createdAt: now(), expiresAt: duration === null ? null : now() + duration, liftedAt: null };
@@ -4406,7 +4447,7 @@ function userObject(user: Persona) {
     username_changed_at: user.usernameChangedAt,
     username_change_available_at: usernameAvailableAt(user),
     identities: identityStore.filter((each) => each.userId === user.id).map(identityPayload),
-    settings: { show_name_on_albums: user.showNameOnAlbums, domain_only: user.domainOnly },
+    settings: { show_name_on_albums: user.showNameOnAlbums, domain_only: user.domainOnly, upload_defaults: user.uploadDefaults },
     premium: premiumOf(user.id),
     deletion: deletionOf(user),
     staff: user.staff,
@@ -4475,11 +4516,11 @@ function sendEmailToken(purpose: EmailToken['purpose'], user: Persona, email: st
   if (!process.env.VITEST) console.info(`[mock-api] email to ${email}: ${link}`);
 }
 
-/** §4.2: fingerprint files and albums move into the account (never one pending deletion). */
-function claimFingerprint(req: IncomingMessage, user: Persona): number {
-  const fingerprint = req.headers['x-fingerprint'];
-  if (!fingerprint || user.deletionRequestedAt) return 0;
-  const from = `fp:${String(fingerprint)}`;
+/** §4.2: a guest's files and albums move into the account (never one pending deletion). */
+function claimGuest(req: IncomingMessage, user: Persona): number {
+  const guest = guestOf(req);
+  if (!guest || user.deletionRequestedAt) return 0;
+  const from = `g:${guest}`;
   const to = keyOfUser(user.id);
   let claimed = 0;
   for (const file of library.values()) {
@@ -4496,7 +4537,7 @@ function claimFingerprint(req: IncomingMessage, user: Persona): number {
 function signIn(req: IncomingMessage, res: ServerResponse, user: Persona, method: WebSession['method']) {
   const previous = liveSession(sessionToken(req));
   if (previous) Object.assign(previous, { revokedAt: now(), revokedReason: 'logout' });
-  claimFingerprint(req, user);
+  claimGuest(req, user);
   const session = createSession(user.id, method, req);
   setSessionCookie(res, session);
   return { expires_at: session.expiresAt, user: userObject(user) };
@@ -4518,6 +4559,7 @@ function newUser(fields: Partial<Persona> & { username: string }): Persona {
     domainOnly: false,
     deletionRequestedAt: null,
     deletionScheduledFor: null,
+    uploadDefaults: { ...PLAIN_UPLOAD_DEFAULTS },
     ...fields,
   };
   USERS.set(user.id, user);
@@ -4539,10 +4581,10 @@ function checkCsrf(req: IncomingMessage) {
   if (site !== undefined && site !== 'same-origin') throw refuse();
 }
 
-/** Upload keys, CSRF and dead cookies, before any route runs. */
+/** Upload keys, CSRF and dead cookies, before any route runs. `Authorization: Guest` only names a guest (`owner`). */
 function authenticate(req: IncomingMessage, res: ServerResponse, method: string, path: string) {
   const authorization = req.headers.authorization;
-  if (authorization !== undefined) {
+  if (authorization !== undefined && !/^Guest(\s|$)/.test(String(authorization))) {
     const match = /^Key\s+(\S+)$/.exec(String(authorization));
     if (!match) throw bad('UNAUTHORIZED', 'Upload keys use `Authorization: Key fgg_…`.', {}, 401);
     if (path.startsWith('/admin')) throw unknownRoute(method, path);
@@ -4650,6 +4692,37 @@ function addKey(userId: string, fields: Partial<StoredKey> & { name: string }): 
   };
   keyStore.push(key);
   return key;
+}
+
+/** §21: a key upload's fields, with the owner's upload defaults for what it didn't send. */
+function withKeyDefaults(who: Caller, fields: Record<string, unknown>): Record<string, unknown> {
+  if (!who.uploadKey || !who.user) return fields;
+  const defaults = who.user.uploadDefaults;
+  const filled = { ...fields };
+  if (filled.expires_in === undefined && defaults.expires_in !== null) filled.expires_in = defaults.expires_in;
+  if (filled.visibility === undefined && filled.password === undefined && String(filled.generate_password) !== 'true') {
+    filled.visibility = defaults.visibility;
+    if (defaults.visibility === 'password') filled.generate_password = 'true';
+  }
+  if (filled.nsfw === undefined && defaults.nsfw) filled.nsfw = 'true';
+  return filled;
+}
+
+/** §21: `PATCH /users/@me { settings: { upload_defaults } }`, any of the three fields over the current ones. */
+function uploadDefaultsUpdate(current: UploadDefaults, raw: unknown): UploadDefaults {
+  const field = 'settings.upload_defaults';
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) throw invalid(field, 'Must be an object');
+  const value = raw as Record<string, unknown>;
+  const errors: Record<string, string> = {};
+  for (const name of Object.keys(value)) if (!['expires_in', 'visibility', 'nsfw'].includes(name)) errors[`${field}.${name}`] = 'Unknown setting';
+  const expires = value.expires_in;
+  if (expires !== undefined && expires !== null && (typeof expires !== 'number' || !Number.isInteger(expires) || expires < 3600)) {
+    errors[`${field}.expires_in`] = typeof expires === 'number' ? 'Must be at least an hour' : 'Must be a number of seconds, or null for never';
+  }
+  if (value.visibility !== undefined && !['link', 'password', 'private'].includes(String(value.visibility))) errors[`${field}.visibility`] = 'Must be one of link, password, private';
+  if (value.nsfw !== undefined && typeof value.nsfw !== 'boolean') errors[`${field}.nsfw`] = 'Must be true or false';
+  if (Object.keys(errors).length > 0) throw bad('INVALID_PARAMETERS', 'Some fields are invalid', { errors });
+  return { ...current, ...(value as Partial<UploadDefaults>) };
 }
 
 /** §7.2, §7.6: `album=` needs `albums:append`; 600 uploads an hour per key. */
@@ -4947,7 +5020,7 @@ async function accountRoute(req: IncomingMessage, res: ServerResponse, path: str
   if (method === 'POST' && path === '/auth/register') {
     const body = await readSmallJson(req);
     rateLimit('register', `ip:${ip}`, 5, 'TOO_MANY_ATTEMPTS', 'Too many accounts from here. Try again later.');
-    if (isBanned(who.fingerprint)) throw bad('BANNED', 'Accounts can’t be created from this device or network.', {}, 403);
+    if (isBanned(who.guest)) throw bad('BANNED', 'Accounts can’t be created from this device or network.', {}, 403);
     const email = String(body.email ?? '').trim();
     const { name, problems } = usernameProblems(body.username);
     const display = displayNameProblems(body.display_name);
@@ -5147,7 +5220,7 @@ async function accountRoute(req: IncomingMessage, res: ServerResponse, path: str
     const body = await readSmallJson(req);
     requireTurnstile(body);
     rateLimit('register', `ip:${ip}`, 5, 'TOO_MANY_ATTEMPTS', 'Too many accounts from here. Try again later.');
-    if (isBanned(who.fingerprint)) throw bad('BANNED', 'Accounts can’t be created from this device or network.', {}, 403);
+    if (isBanned(who.guest)) throw bad('BANNED', 'Accounts can’t be created from this device or network.', {}, 403);
     const claims = verifyLabelled(String(body.signup_token ?? ''), SIGNUP_LABEL);
     if (!claims) throw bad('INVALID_SIGNUP_TOKEN', 'This sign-up expired. Continue with Discord again.');
     const discordId = String(claims.d);
@@ -5194,6 +5267,7 @@ async function accountRoute(req: IncomingMessage, res: ServerResponse, path: str
       user.displayName = display.value;
     }
     const settings = (body.settings ?? {}) as Record<string, unknown>;
+    if (settings.upload_defaults !== undefined) user.uploadDefaults = uploadDefaultsUpdate(user.uploadDefaults, settings.upload_defaults);
     if (typeof settings.show_name_on_albums === 'boolean') user.showNameOnAlbums = settings.show_name_on_albums;
     send(res, 200, userObject(user));
     return true;
@@ -5404,7 +5478,8 @@ async function accountRoute(req: IncomingMessage, res: ServerResponse, path: str
       Headers: { Authorization: `Key ${key.secret}` },
       Body: 'MultipartFormData',
       FileFormName: 'file',
-      URL: '{json:url}',
+      // §21: key uploads always answer `url_with_password`.
+      URL: '{json:url_with_password}',
       ErrorMessage: '{json:message}',
     };
     const curl = `curl -H "Authorization: Key ${key.secret}" \\\n     -F "file=@photo.png" \\\n     ${API_PUBLIC_URL}/files`;
@@ -5634,6 +5709,677 @@ function seedAccounts() {
 
 function banPayload(ban: StoredBan) {
   return { id: ban.id, kind: ban.kind, source: ban.source, rule: ban.rule, note: ban.note, created_at: ban.createdAt, expires_at: ban.expiresAt, lifted_at: ban.liftedAt };
+}
+
+// ---------------------------------------------------------------------------
+// Milestone 5: conversions (milestone-5 §1, §5, §7, §8, §10, §12)
+// ---------------------------------------------------------------------------
+
+type ConversionStatus = 'queued' | 'running' | 'succeeded' | 'failed' | 'cancelled';
+type OptionSpec = Record<string, unknown> & { name: string; type: string; label: string; default: unknown };
+type TargetSpec = { target: string; label: string; group: string; anonymous: boolean; options: OptionSpec[] };
+
+const opt = (name: string, type: string, label: string, fallback: unknown, extra: Record<string, unknown> = {}): OptionSpec => ({ name, type, label, default: fallback, ...extra });
+const QUALITY = opt('quality', 'int', 'Quality', 85, { min: 1, max: 100 });
+const TRIM = [opt('trim_start', 'number', 'Start at', null, { min: 0 }), opt('trim_end', 'number', 'End at', null, { min: 0 })];
+const BITRATE = opt('bitrate', 'enum', 'Bitrate', 192, { values: [64, 96, 128, 160, 192, 256, 320] });
+
+function imageTarget(target: string, label: string): TargetSpec {
+  return {
+    target,
+    label,
+    group: 'image',
+    anonymous: true,
+    options: [
+      ...(['jpg', 'webp', 'avif'].includes(target) ? [QUALITY] : []),
+      opt('max_width', 'int', 'Max width', null, { min: 1, max: 8192 }),
+      opt('max_height', 'int', 'Max height', null, { min: 1, max: 8192 }),
+      ...(['jpg', 'gif', 'ico'].includes(target) ? [opt('background', 'color', 'Background', '#ffffff', { help: 'Fills transparent areas.' })] : []),
+      opt('strip_metadata', 'bool', 'Remove metadata (EXIF and location)', true),
+    ],
+  };
+}
+
+const animatedTarget = (target: string, label: string, group: string): TargetSpec => ({
+  target,
+  label,
+  group,
+  anonymous: true,
+  options: [
+    opt('fps', 'int', 'Frame rate', null, { min: 1, max: 60 }),
+    opt('width', 'int', 'Width', null, { min: 16, max: 1920 }),
+    ...TRIM,
+    ...(target === 'webp' || target === 'gif' ? [opt('loop', 'bool', 'Loop', true)] : []),
+  ],
+});
+
+const videoTarget = (target: string, label: string): TargetSpec => ({
+  target,
+  label,
+  group: 'video',
+  anonymous: true,
+  options: [
+    opt('max_height', 'enum', 'Max height', null, { values: [1080, 720, 480] }),
+    ...TRIM,
+    opt('mute', 'bool', 'Remove the sound', false),
+    opt('target_size', 'size', 'Target size', null, { min: 1, max: 500, presets: { discord: 10 } }),
+  ],
+});
+
+const audioTarget = (target: string, label: string, lossy: boolean, fromVideo = false): TargetSpec => ({
+  target,
+  label,
+  group: 'audio',
+  anonymous: true,
+  options: [
+    ...(lossy ? [BITRATE] : []),
+    ...TRIM,
+    ...(fromVideo ? [] : [opt('normalize', 'bool', 'Even out the loudness', false), opt('keep_tags', 'bool', 'Keep tags and cover art', true)]),
+  ],
+});
+
+/** §1.2 as data (§10.1). */
+const FORMATS = {
+  version: 1,
+  kinds: {
+    image: { targets: [imageTarget('png', 'PNG'), imageTarget('jpg', 'JPG'), imageTarget('webp', 'WebP'), imageTarget('avif', 'AVIF'), imageTarget('gif', 'GIF'), imageTarget('ico', 'ICO')] },
+    animated: { targets: [animatedTarget('mp4', 'MP4', 'video'), animatedTarget('webm', 'WebM', 'video'), animatedTarget('webp', 'WebP (animated)', 'image'), animatedTarget('gif', 'GIF', 'image')] },
+    video: {
+      targets: [
+        videoTarget('mp4', 'MP4'),
+        videoTarget('webm', 'WebM'),
+        { target: 'gif', label: 'GIF', group: 'image', anonymous: true, options: [...TRIM, opt('fps', 'int', 'Frame rate', 12, { min: 1, max: 30 }), opt('width', 'int', 'Width', 480, { min: 16, max: 960 })] },
+        audioTarget('mp3', 'MP3', true, true),
+        audioTarget('m4a', 'M4A', true, true),
+        audioTarget('ogg', 'Ogg (Opus)', true, true),
+        audioTarget('wav', 'WAV', false, true),
+      ],
+    },
+    audio: { targets: [audioTarget('mp3', 'MP3', true), audioTarget('m4a', 'M4A', true), audioTarget('ogg', 'Ogg (Opus)', true), audioTarget('flac', 'FLAC', false), audioTarget('wav', 'WAV', false)] },
+    document: { targets: [{ target: 'pdf', label: 'PDF', group: 'document', anonymous: false, options: [] }] },
+    pdf: {
+      targets: (['png', 'jpg'] as const).map((target) => ({
+        target,
+        label: target === 'png' ? 'PNG pages' : 'JPG pages',
+        group: 'image',
+        anonymous: true,
+        options: [opt('dpi', 'int', 'Resolution (DPI)', 150, { min: 72, max: 300 }), opt('pages', 'pages', 'Pages', null), ...(target === 'jpg' ? [QUALITY] : [])],
+      })),
+    },
+    images: {
+      targets: [
+        {
+          target: 'pdf',
+          label: 'One PDF',
+          group: 'document',
+          anonymous: true,
+          options: [opt('page_size', 'enum', 'Page size', 'fit', { values: ['fit', 'a4', 'letter'] }), opt('margin_mm', 'int', 'Margin (mm)', 0, { min: 0, max: 50, help: 'Not used with "Fit each image".' })],
+        },
+      ],
+    },
+  } as Record<string, { targets: TargetSpec[] }>,
+  presets: [
+    { id: 'play_everywhere', label: 'Make it play everywhere', kinds: ['video'], target: 'mp4', options: {} },
+    { id: 'discord', label: 'Shrink for Discord', kinds: ['video'], target: 'mp4', options: { target_size: 'discord' } },
+    { id: 'extract_audio', label: 'Extract audio', kinds: ['video'], target: 'mp3', options: {} },
+    { id: 'gif_to_mp4', label: 'GIF → MP4', kinds: ['animated'], target: 'mp4', options: {} },
+    { id: 'remove_location', label: 'Remove photo location data', kinds: ['image'], target: 'same', options: { strip_metadata: true } },
+  ],
+};
+
+/** §1.2: what `target` means when it's left out. */
+const DEFAULT_TARGETS: Record<string, string> = { image: 'png', animated: 'mp4', video: 'mp4', audio: 'mp3', document: 'pdf', pdf: 'png', images: 'pdf' };
+
+/** §7.1, per tier. */
+const CONVERSION_LIMITS = {
+  anonymous: { maxInput: 50 * MB, perDay: 10, concurrent: 1, timeLimit: 120, queue: 'anonymous', pdfPages: 20, images: 20 },
+  member: { maxInput: 500 * MB, perDay: 200, concurrent: 3, timeLimit: 600, queue: 'member', pdfPages: 200, images: 200 },
+  premium: { maxInput: 5 * GB, perDay: 1000, concurrent: 5, timeLimit: 1800, queue: 'premium', pdfPages: 500, images: 500 },
+} as const;
+type Tier = keyof typeof CONVERSION_LIMITS;
+
+const TARGET_EXTENSIONS: Record<string, string> = { jpg: 'jpg' };
+const TARGET_MIMETYPES: Record<string, string> = { ico: 'image/x-icon', ogg: 'audio/ogg', m4a: 'audio/mp4' };
+
+interface StoredConversion {
+  id: string;
+  owner: string;
+  anonymous: boolean;
+  tier: Tier;
+  batchId: string | null;
+  sourceFileIds: string[];
+  sourceAlbumId: string | null;
+  kind: string;
+  target: string;
+  options: Record<string, unknown>;
+  /** The output's access (§5.3) and expiry (§5.5). */
+  output: { visibility: Visibility; generated: string | undefined; expiresIn: number | null | undefined };
+  createdMs: number;
+  /** Simulation: queued until, then running until (ms). */
+  queuedUntilMs: number;
+  runUntilMs: number;
+  /** How it ends: by the source's name (`fail`, `timeout`, `busy`). */
+  outcome: 'succeeded' | 'failed' | 'timeout' | 'busy';
+  cancelledMs: number | null;
+  finishedMs: number | null;
+  outputFileId: string | null;
+  outputAlbumId: string | null;
+  error: { code: string; message: string; metadata: Record<string, unknown> } | null;
+  inputSize: number;
+  outputSize: number | null;
+  cached: boolean;
+  forgotten: boolean;
+}
+
+const conversionStore = new Map<string, StoredConversion>();
+/** `(source file, target, options)` → output hash stand-in: the output file id (§4.5). */
+const conversionCache = new Map<string, string>();
+const conversionCounts = new Map<string, number[]>();
+
+function tierOf(who: Caller): Tier {
+  if (who.anonymous || !who.user) return 'anonymous';
+  return isPremium(who.user.id) ? 'premium' : 'member';
+}
+
+/** The mock's simulated run time per kind (ms). */
+const RUN_MS: Record<string, number> = { image: 900, animated: 4000, video: 9000, audio: 4500, document: 3500, pdf: 3500, images: 2000 };
+/** Jobs ahead when one is enqueued (§8), by queue: anonymous visitors wait the longest. */
+const QUEUE_AHEAD: Record<Tier, number> = { anonymous: 3, member: 1, premium: 0 };
+const QUEUE_STEP_MS = 1500;
+
+function conversionSourceKind(file: StoredFile): string | null {
+  return sourceKindOf({ mimetype: file.mimetype, kind: file.kind, framecount: file.framecount ?? null, media: file.media as KindInput['media'] });
+}
+
+/** §5.1: the caller must be able to view the source right now. */
+function convertibleSource(who: Caller, req: IncomingMessage, vanityName: string, albumGrant: StoredAlbum | null = null): StoredFile {
+  const file = [...library.values()].find((each) => each.vanity === vanityName);
+  const unavailable = () => new HttpError(404, 'SOURCE_UNAVAILABLE', 'That file isn’t available');
+  if (!isLive(file) || !['passed', 'flagged'].includes(file.scanState) || file.moderation !== 'visible') throw unavailable();
+  const own = file.owner === who.key;
+  if (file.viewLimit !== null && !own) throw new HttpError(403, 'VIEW_LIMITED_SOURCE', 'Files with a view limit can only be converted by their owner');
+  if (file.visibility === 'link' || own) return file;
+  if (file.visibility === 'private') throw unavailable();
+  if (albumGrant && albumGrant.items.some((item) => item.fileId === file.id)) return file;
+  const claims = verifyToken(String(req.headers['x-filesgg-access'] ?? ''));
+  if (!claims || claims.k !== 'file' || claims.t !== file.id || claims.e <= now() || claims.v !== file.accessVersion) throw unavailable();
+  return file;
+}
+
+function checkOptions(kind: string, target: string, options: Record<string, unknown>): void {
+  const spec = FORMATS.kinds[kind]?.targets.find((each) => each.target === target);
+  if (!spec) throw new HttpError(400, 'UNSUPPORTED_CONVERSION', 'This file can’t be converted to that format', { kind, target });
+  for (const [name, value] of Object.entries(options)) {
+    const option = spec.options.find((each) => each.name === name);
+    const invalid = (reason: string) => new HttpError(400, 'INVALID_OPTION', 'That option isn’t valid for this conversion', { option: name, reason });
+    if (!option) throw invalid('unknown');
+    if (value === null) continue;
+    const { min, max } = option as { min?: number; max?: number };
+    if (option.type === 'int' || option.type === 'number') {
+      if (typeof value !== 'number' || (option.type === 'int' && !Number.isInteger(value))) throw invalid('type');
+      if ((min !== undefined && value < min) || (max !== undefined && value > max)) throw invalid('range');
+    } else if (option.type === 'bool' && typeof value !== 'boolean') throw invalid('type');
+    else if (option.type === 'enum' && !((option.values as unknown[]) ?? []).includes(value)) throw invalid('value');
+    else if (option.type === 'color' && !/^#[0-9a-f]{6}$/i.test(String(value))) throw invalid('format');
+    else if (option.type === 'pages' && !/^\d+(-\d+)?(,\d+(-\d+)?)*$/.test(String(value))) throw invalid('format');
+    else if (option.type === 'size' && !(value === 'discord' || (typeof value === 'number' && value >= 1 && value <= 500))) throw invalid('range');
+  }
+  if (typeof options.trim_start === 'number' && typeof options.trim_end === 'number' && options.trim_end <= options.trim_start) {
+    throw new HttpError(400, 'INVALID_OPTION', 'That option isn’t valid for this conversion', { option: 'trim_end', reason: 'before_start' });
+  }
+}
+
+/** §7.2 steps 5 and 6. */
+function checkConversionLimits(who: Caller, tier: Tier, size: number, count = 1): void {
+  const limits = CONVERSION_LIMITS[tier];
+  const signIn = tier === 'anonymous' ? { sign_in: true } : {};
+  if (size > limits.maxInput) throw new HttpError(413, 'CONVERSION_TOO_LARGE', 'This file is too big to convert', { limit: limits.maxInput, value: size, unit: 'bytes', ...signIn });
+  const day = Date.now() - 86_400_000;
+  const recent = (conversionCounts.get(who.key) ?? []).filter((at) => at > day);
+  if (recent.length + count > limits.perDay) {
+    throw new HttpError(429, 'CONVERSION_LIMIT_REACHED', 'You’ve reached your conversion limit for today', { limit: 'count', retry_after: Math.ceil((recent[0]! + 86_400_000 - Date.now()) / 1000), ...signIn });
+  }
+  const running = [...conversionStore.values()].filter((each) => each.owner === who.key && ['queued', 'running'].includes(conversionStatus(each))).length;
+  if (count === 1 && running >= limits.concurrent) {
+    throw new HttpError(429, 'CONVERSION_LIMIT_REACHED', 'Too many conversions at once', { limit: 'concurrent', retry_after: 5, ...signIn });
+  }
+}
+
+function conversionStatus(c: StoredConversion): ConversionStatus {
+  if (c.cancelledMs !== null) return 'cancelled';
+  const at = Date.now();
+  if (at < c.queuedUntilMs) return 'queued';
+  if (c.outcome === 'busy') return 'cancelled';
+  if (at < c.runUntilMs) return 'running';
+  finishConversion(c);
+  return c.error ? 'failed' : 'succeeded';
+}
+
+/** Output size: a stand-in for what the converter would make. */
+function outputSizeOf(c: StoredConversion): number {
+  const size = c.options.target_size;
+  if (size === 'discord') return Math.round(9.6 * MB);
+  if (typeof size === 'number') return Math.round(size * 0.96 * MB);
+  const ratio: Record<string, number> = { animated: 0.12, video: 0.55, audio: 0.35, image: 0.6, document: 0.7, pdf: 1.4, images: 0.9 };
+  return Math.max(2048, Math.round(c.inputSize * (ratio[c.kind] ?? 0.8)));
+}
+
+/** §4.4: the output is a normal file, scanned like an upload. */
+function storeOutput(c: StoredConversion, name: string, ext: string, size: number): StoredFile {
+  const fields: Record<string, unknown> = { visibility: c.output.visibility, ...(c.output.expiresIn !== undefined && c.output.expiresIn !== null ? { expires_in: c.output.expiresIn } : {}) };
+  const file = storeUpload(c.owner, `${name}.${ext}`, size, fields, c.anonymous, c.output.generated);
+  if (TARGET_MIMETYPES[ext]) file.mimetype = TARGET_MIMETYPES[ext]!;
+  if (c.output.expiresIn === null && !c.anonymous) file.expiresAt = null;
+  file.kind = kindOf(file.mimetype);
+  if (file.kind === 'pdf') {
+    file.cdn = fixture('sample.pdf');
+    file.media = { pages: 8 };
+  } else if (file.kind === 'audio') {
+    file.cdn = fixture('tone-1.wav');
+    file.media = { playable: true, duration: 2000 };
+  } else if (file.kind === 'video') {
+    file.media = { playable: true, has_audio: !c.options.mute, codecs: ext === 'webm' ? ['vp9', 'opus'] : ['h264', 'aac'], container: ext };
+  }
+  file.assets = placeholderAssets(file);
+  const source = library.get(c.sourceFileIds[0] ?? '');
+  // §5.4: the output inherits the source's effective NSFW.
+  if (source && nsfwOf(source)) file.nsfwMarked = true;
+  return file;
+}
+
+function finishConversion(c: StoredConversion): void {
+  if (c.finishedMs !== null) return;
+  c.finishedMs = c.runUntilMs;
+  if (c.outcome === 'failed') {
+    c.error = { code: 'CONVERSION_FAILED', message: 'The conversion failed', metadata: { reason: 'unreadable_source' } };
+    return;
+  }
+  if (c.outcome === 'timeout') {
+    const limit = CONVERSION_LIMITS[c.tier].timeLimit;
+    const better = c.tier === 'anonymous' ? 'member' : c.tier === 'member' ? 'premium' : null;
+    c.error = {
+      code: 'CONVERSION_TIMEOUT',
+      message: 'The conversion took too long',
+      metadata: {
+        seconds: limit,
+        ran_seconds: limit,
+        queued_seconds: Math.round((c.queuedUntilMs - c.createdMs) / 1000),
+        ...(better ? { tier: better, max_seconds: CONVERSION_LIMITS[better].timeLimit } : {}),
+      },
+    };
+    return;
+  }
+  const source = library.get(c.sourceFileIds[0] ?? '');
+  const album = c.sourceAlbumId ? albumStore.get(c.sourceAlbumId) : undefined;
+  const baseName = c.kind === 'images' ? album?.title || source?.name || 'images' : (source?.name ?? 'converted');
+  if (c.kind === 'pdf') {
+    const total = Math.max(1, Number(source?.media.pages ?? 3));
+    const pages = typeof c.options.pages === 'string' ? Math.min(total, c.options.pages.split(',').length * 2) : total;
+    const ext = c.target;
+    if (c.anonymous) {
+      const zip = storeOutput(c, `${baseName}-pages`, 'zip', pages * 180_000);
+      zip.cdn = fixture('archive.zip');
+      c.outputFileId = zip.id;
+      c.outputSize = zip.size;
+      return;
+    }
+    const width = String(pages).length;
+    const files = Array.from({ length: pages }, (_, i) => storeOutput(c, `${baseName}-p${String(i + 1).padStart(width, '0')}`, ext, 180_000 + i * 1000));
+    const id = nextId();
+    albumStore.set(id, {
+      id,
+      vanity: vanity(),
+      owner: c.owner,
+      title: source?.name ?? 'Pages',
+      description: '',
+      layout: 'grid',
+      visibility: c.output.visibility,
+      password: c.output.visibility === 'password' ? (c.output.generated ?? null) : null,
+      accessVersion: 0,
+      unlockTtl: 3600,
+      passwordExpiresAt: null,
+      showName: false,
+      coverFileId: null,
+      items: files.map((file) => ({ fileId: file.id, caption: '' })),
+      createdAt: now(),
+      updatedAt: now(),
+      expiresAt: null,
+      deleted: false,
+      nsfw: false,
+      nsfwSource: null,
+      moderation: 'visible',
+      moderationRule: null,
+      noticeId: null,
+    });
+    c.outputAlbumId = id;
+    c.outputSize = files.reduce((sum, file) => sum + file.size, 0);
+    return;
+  }
+  const ext = TARGET_EXTENSIONS[c.target] ?? c.target;
+  const file = storeOutput(c, baseName, ext, outputSizeOf(c));
+  c.outputFileId = file.id;
+  c.outputSize = file.size;
+  if (c.sourceFileIds.length === 1) conversionCache.set(cacheKey(c.sourceFileIds[0]!, c.target, c.options), file.id);
+}
+
+const cacheKey = (fileId: string, target: string, options: Record<string, unknown>) =>
+  `${fileId}:${target}:${JSON.stringify(Object.fromEntries(Object.entries(options).sort(([a], [b]) => (a < b ? -1 : 1))))}`;
+
+function conversionPayload(origin: string, c: StoredConversion, created = false): Record<string, unknown> {
+  const status = conversionStatus(c);
+  const at = Date.now();
+  const source = c.sourceFileIds.length === 1 ? library.get(c.sourceFileIds[0]!) : undefined;
+  const album = c.sourceAlbumId ? albumStore.get(c.sourceAlbumId) : undefined;
+  const outputFile = c.outputFileId ? library.get(c.outputFileId) : undefined;
+  const outputAlbum = c.outputAlbumId ? albumStore.get(c.outputAlbumId) : undefined;
+  const runningFor = Math.max(1, c.runUntilMs - c.queuedUntilMs);
+  const progress = status === 'succeeded' ? 1 : status === 'running' ? Math.min(0.99, (at - c.queuedUntilMs) / runningFor) : 0;
+  const stage = status === 'running' ? (progress < 0.15 ? 'downloading' : progress < 0.85 ? 'converting' : 'storing') : null;
+  const ended = c.cancelledMs ?? (status === 'cancelled' ? c.queuedUntilMs : c.finishedMs);
+  const error =
+    status === 'cancelled' && c.outcome === 'busy' && c.cancelledMs === null
+      ? { code: 'CONVERTER_BUSY', message: 'Busy right now. Try again, or sign in to skip the queue', metadata: { sign_in: true } }
+      : c.error;
+  return {
+    id: c.id,
+    status,
+    position: status === 'queued' ? Math.max(0, Math.ceil((c.queuedUntilMs - at) / QUEUE_STEP_MS) - 1) : 0,
+    queue: CONVERSION_LIMITS[c.tier].queue,
+    stage,
+    progress: Math.round(progress * 100) / 100,
+    time_limit: CONVERSION_LIMITS[c.tier].timeLimit,
+    took: (ended ?? at) - c.createdMs,
+    source: {
+      kind: c.kind,
+      file: source ? publicFile(origin, source) : null,
+      album: album ? albumSummary(origin, album) : null,
+      count: c.sourceAlbumId && album ? album.items.length : c.sourceFileIds.length,
+    },
+    target: c.target,
+    options: c.options,
+    cached: c.cached,
+    output: {
+      file: outputFile && isLive(outputFile) ? ownerFile(origin, outputFile) : null,
+      album: outputAlbum && !outputAlbum.deleted ? albumSummary(origin, outputAlbum) : null,
+      ...(created && c.output.generated ? { password: c.output.generated } : {}),
+    },
+    error,
+    input_size: c.inputSize,
+    output_size: status === 'succeeded' ? c.outputSize : null,
+    cpu_seconds: status === 'succeeded' || status === 'failed' ? Math.round((c.runUntilMs - c.queuedUntilMs) / 100) / 10 : 0,
+    created_at: Math.floor(c.createdMs / 1000),
+    started_at: at >= c.queuedUntilMs && c.outcome !== 'busy' ? Math.floor(c.queuedUntilMs / 1000) : null,
+    finished_at: ended !== null && ['succeeded', 'failed', 'cancelled'].includes(status) ? Math.floor(ended / 1000) : null,
+  };
+}
+
+/** §5.3: the output's access; §5.5: its expiry; §21: the signed-in caller's upload defaults for what isn't sent. */
+function outputAccess(who: Caller, sources: StoredFile[], body: Record<string, unknown>): StoredConversion['output'] {
+  const protectedSource = sources.some((file) => file.visibility !== 'link');
+  const defaults = who.user?.uploadDefaults ?? null;
+  let visibility: Visibility = protectedSource ? (who.anonymous ? 'password' : 'private') : (defaults?.visibility ?? 'link');
+  if (body.visibility !== undefined) {
+    const asked = String(body.visibility) as Visibility;
+    if (!['link', 'password', 'private'].includes(asked)) throw new HttpError(400, 'BAD_REQUEST', 'Invalid visibility.');
+    if (asked === 'private' && who.anonymous) throw new HttpError(400, 'PRIVATE_REQUIRES_ACCOUNT', 'Private files need an account.');
+    visibility = asked;
+  }
+  const typed = typeof body.password === 'string' && body.password ? body.password : null;
+  const generated = visibility === 'password' ? (typed ?? passphrase()) : undefined;
+  const expiresIn = body.expires_in === undefined ? defaults?.expires_in : body.expires_in === null ? null : Number(body.expires_in);
+  if (who.anonymous && (expiresIn === null || (expiresIn !== undefined && expiresIn > 21 * DAY))) {
+    throw new HttpError(400, 'EXPIRY_NOT_ALLOWED', 'Expiry not allowed.', { max_expiry: 21 * DAY });
+  }
+  // A typed password isn't shown back; only a generated one is (§5.3).
+  return { visibility, generated: typed ? undefined : generated, expiresIn };
+}
+
+function outcomeFor(names: string[]): StoredConversion['outcome'] {
+  const text = names.join(' ').toLowerCase();
+  if (text.includes('timeout')) return 'timeout';
+  if (text.includes('busy')) return 'busy';
+  if (text.includes('fail')) return 'failed';
+  return 'succeeded';
+}
+
+function newConversion(who: Caller, tier: Tier, kind: string, target: string, options: Record<string, unknown>, sources: StoredFile[], album: StoredAlbum | null, output: StoredConversion['output'], batchId: string | null, delayAhead = 0): StoredConversion {
+  const createdMs = Date.now();
+  // Most images finish within the brief wait (§8); everything else waits in line a little.
+  const ahead = kind === 'image' ? delayAhead : QUEUE_AHEAD[tier] + delayAhead;
+  const outcome = outcomeFor(sources.map((file) => file.name));
+  const queuedUntilMs = createdMs + (outcome === 'busy' ? 12_000 : ahead * QUEUE_STEP_MS);
+  const c: StoredConversion = {
+    id: nextId(createdMs),
+    owner: who.key,
+    anonymous: who.anonymous,
+    tier,
+    batchId,
+    sourceFileIds: sources.map((file) => file.id),
+    sourceAlbumId: album?.id ?? null,
+    kind,
+    target,
+    options,
+    output,
+    createdMs,
+    queuedUntilMs,
+    runUntilMs: queuedUntilMs + (RUN_MS[kind] ?? 3000),
+    outcome,
+    cancelledMs: null,
+    finishedMs: null,
+    outputFileId: null,
+    outputAlbumId: null,
+    error: null,
+    inputSize: sources.reduce((sum, file) => sum + file.size, 0),
+    outputSize: null,
+    cached: false,
+    forgotten: false,
+  };
+  conversionStore.set(c.id, c);
+  conversionCounts.set(who.key, [...(conversionCounts.get(who.key) ?? []), createdMs]);
+  return c;
+}
+
+/** §4.1 step 3: wait up to 2 s (0.1 s, doubling to 1 s) for a quick conversion to finish. */
+async function waitBriefly(c: StoredConversion): Promise<void> {
+  const until = Date.now() + 2000;
+  let step = 100;
+  while (Date.now() < until && ['queued', 'running'].includes(conversionStatus(c))) {
+    await sleep(Math.min(step, until - Date.now()));
+    step = Math.min(step * 2, 1000);
+  }
+}
+
+function ownConversion(who: Caller, id: string): StoredConversion {
+  const c = conversionStore.get(id);
+  if (!c || c.owner !== who.key || c.forgotten) throw new HttpError(404, 'UNKNOWN_CONVERSION', 'Unknown conversion.');
+  return c;
+}
+
+/** The public file payload (`GET /files/<vanity>`), which the Convert page reads for `?source=`. */
+function publicFileLookup(who: Caller, req: IncomingMessage, origin: string, vanityName: string): Record<string, unknown> {
+  const file = [...library.values()].find((each) => each.vanity === vanityName.split('.')[0]);
+  if (!isLive(file)) throw new HttpError(404, 'UNKNOWN_FILE', 'Unknown file.');
+  checkPublicState('file', file.id);
+  const own = file.owner === who.key;
+  if (file.viewLimit !== null && !own) return { vanity: file.vanity, view_limited: true, views_remaining: Math.max(0, file.viewLimit - file.viewers.size) };
+  if (file.visibility === 'link') return publicFile(origin, file);
+  if (own) return ownerSigned(file, publicFile(origin, file));
+  const claims = verifyToken(String(req.headers['x-filesgg-access'] ?? ''));
+  const valid = claims && claims.k === 'file' && claims.t === file.id && claims.e > now() && claims.v === file.accessVersion;
+  if (file.visibility === 'private' && !valid) throw new HttpError(404, 'UNKNOWN_FILE', 'Unknown file.');
+  if (!valid) return { vanity: file.vanity, protected: 'password', ...(file.showName ? { filename: `${file.name}.${file.extension}` } : {}) };
+  return signFile(publicFile(origin, file), { expires: claims.e, grant: `file:${file.id}:${file.accessVersion}` });
+}
+
+async function conversionRoute(req: IncomingMessage, res: ServerResponse, path: string, origin: string, query: URLSearchParams, who: Caller): Promise<boolean> {
+  const method = req.method ?? 'GET';
+  let match: RegExpExecArray | null;
+
+  if (method === 'GET' && (match = /^\/files\/(.+)$/.exec(path))) {
+    send(res, 200, publicFileLookup(who, req, origin, decodeURIComponent(match[1]!)));
+    return true;
+  }
+  if (!path.startsWith('/conversions') && path !== '/users/@me/conversions') return false;
+
+  if (method === 'GET' && path === '/conversions/formats') {
+    send(res, 200, FORMATS);
+    return true;
+  }
+
+  if (method === 'POST' && path === '/conversions') {
+    const body = await readJson(req);
+    const tier = tierOf(who);
+    // §7.2, in order.
+    if (who.anonymous && body.turnstile_token !== TURNSTILE_DUMMY_TOKEN) throw new HttpError(403, 'CAPTCHA_INVALID', 'Human verification failed.');
+    let sources: StoredFile[];
+    let album: StoredAlbum | null = null;
+    let kind: string;
+    if (typeof body.album === 'string' || Array.isArray(body.sources)) {
+      if (typeof body.album === 'string') {
+        album = [...albumStore.values()].find((each) => each.vanity === body.album && !each.deleted) ?? null;
+        if (!album || (album.visibility !== 'link' && album.owner !== who.key)) throw new HttpError(404, 'SOURCE_UNAVAILABLE', 'That file isn’t available');
+        sources = album.items.map((item) => library.get(item.fileId)).filter((file): file is StoredFile => isLive(file) && file.scanState !== 'pending');
+      } else {
+        sources = (body.sources as unknown[]).map((name) => convertibleSource(who, req, String(name)));
+      }
+      sources = sources.filter((file) => conversionSourceKind(file) === 'image');
+      if (sources.length === 0) throw new HttpError(400, 'UNSUPPORTED_CONVERSION', 'This file can’t be converted to that format', { kind: 'images', target: body.target ?? 'pdf' });
+      if (sources.length > CONVERSION_LIMITS[tier].images) {
+        throw new HttpError(413, 'CONVERSION_TOO_LARGE', 'This file is too big to convert', { limit: CONVERSION_LIMITS[tier].images, value: sources.length, unit: 'images', ...(who.anonymous ? { sign_in: true } : {}) });
+      }
+      kind = 'images';
+    } else {
+      const source = typeof body.source === 'string' ? body.source : '';
+      const file = [...library.values()].find((each) => each.vanity === source);
+      const fileKind = file ? conversionSourceKind(file) : null;
+      const target = typeof body.target === 'string' ? body.target : fileKind ? DEFAULT_TARGETS[fileKind] : undefined;
+      if (who.anonymous && fileKind === 'document' && target === 'pdf') throw new HttpError(403, 'CONVERSION_REQUIRES_ACCOUNT', 'Sign in to convert documents', { sign_in: true });
+      sources = [convertibleSource(who, req, source)];
+      kind = conversionSourceKind(sources[0]!) ?? '';
+      if (!kind) throw new HttpError(400, 'UNSUPPORTED_CONVERSION', 'This file can’t be converted to that format', { kind: null, target: body.target ?? null });
+    }
+    const target = typeof body.target === 'string' ? body.target : DEFAULT_TARGETS[kind]!;
+    const options = typeof body.options === 'object' && body.options !== null ? (body.options as Record<string, unknown>) : {};
+    checkOptions(kind, target, options);
+    if (kind === 'pdf') {
+      const pages = Number(sources[0]!.media.pages ?? 1);
+      const limit = CONVERSION_LIMITS[tier].pdfPages;
+      if (pages > limit) throw new HttpError(413, 'CONVERSION_TOO_LARGE', 'This file is too big to convert', { limit, value: pages, unit: 'pages', ...(who.anonymous ? { sign_in: true } : {}) });
+    }
+    if (target === 'mp4' && options.target_size !== undefined && sources[0]?.duration && sources[0].duration > 600_000 && options.target_size === 'discord') {
+      throw new HttpError(400, 'TARGET_SIZE_TOO_SMALL', 'That size is too small for this video', { minimum_mb: Math.ceil((sources[0].duration / 1000) * 0.03) });
+    }
+    checkConversionLimits(who, tier, sources.reduce((sum, file) => sum + file.size, 0));
+    const output = outputAccess(who, sources, body);
+    // §4.5: a cache hit makes the output at once, with no job.
+    const hit = sources.length === 1 && kind !== 'pdf' ? conversionCache.get(cacheKey(sources[0]!.id, target, options)) : undefined;
+    const hitFile = hit ? library.get(hit) : undefined;
+    const c = newConversion(who, tier, kind, target, options, sources, album, output, null);
+    if (hitFile && isLive(hitFile) && c.outcome === 'succeeded') {
+      c.queuedUntilMs = c.createdMs;
+      c.runUntilMs = c.createdMs;
+      c.cached = true;
+      const copy = storeOutput(c, hitFile.name, hitFile.extension, hitFile.size);
+      copy.scanState = hitFile.scanState;
+      copy.scanReadyAtMs = Date.now();
+      c.finishedMs = c.createdMs;
+      c.outputFileId = copy.id;
+      c.outputSize = copy.size;
+      send(res, 200, conversionPayload(origin, c, true));
+      return true;
+    }
+    await waitBriefly(c);
+    const status = conversionStatus(c);
+    send(res, status === 'queued' || status === 'running' ? 202 : 200, conversionPayload(origin, c, true));
+    return true;
+  }
+
+  if (method === 'POST' && path === '/conversions/batch') {
+    const body = await readJson(req);
+    if (who.anonymous) throw new HttpError(403, 'CONVERSION_REQUIRES_ACCOUNT', 'Sign in to convert in bulk', { sign_in: true });
+    const tier = tierOf(who);
+    const target = String(body.target ?? '');
+    const options = typeof body.options === 'object' && body.options !== null ? (body.options as Record<string, unknown>) : {};
+    let names: string[];
+    let album: StoredAlbum | null = null;
+    if (typeof body.album === 'string') {
+      album = [...albumStore.values()].find((each) => each.vanity === body.album && !each.deleted) ?? null;
+      if (!album || (album.visibility !== 'link' && album.owner !== who.key)) throw new HttpError(404, 'SOURCE_UNAVAILABLE', 'That file isn’t available');
+      names = album.items.map((item) => library.get(item.fileId)?.vanity ?? '');
+    } else {
+      if (!Array.isArray(body.files) || body.files.length < 1 || body.files.length > 100) throw new HttpError(400, 'BAD_REQUEST', 'files must list 1–100 vanities.');
+      names = (body.files as unknown[]).map(String);
+    }
+    const skipped: Array<{ source: string; code: string }> = [];
+    const accepted: Array<{ file: StoredFile; kind: string }> = [];
+    for (const name of names) {
+      try {
+        const file = convertibleSource(who, req, name, album);
+        const kind = conversionSourceKind(file);
+        if (!kind || !FORMATS.kinds[kind]?.targets.some((each) => each.target === target)) {
+          skipped.push({ source: name, code: 'UNSUPPORTED_CONVERSION' });
+          continue;
+        }
+        checkOptions(kind, target, options);
+        accepted.push({ file, kind });
+      } catch (error) {
+        if (error instanceof HttpError && error.code === 'INVALID_OPTION') throw error;
+        skipped.push({ source: name, code: error instanceof HttpError ? error.code : 'SOURCE_UNAVAILABLE' });
+      }
+    }
+    if (accepted.length === 0) throw new HttpError(400, 'UNSUPPORTED_CONVERSION', 'This file can’t be converted to that format', { kind: null, target });
+    const tooBig = accepted.find(({ file }) => file.size > CONVERSION_LIMITS[tier].maxInput);
+    if (tooBig) throw new HttpError(413, 'CONVERSION_TOO_LARGE', 'This file is too big to convert', { limit: CONVERSION_LIMITS[tier].maxInput, value: tooBig.file.size, unit: 'bytes' });
+    checkConversionLimits(who, tier, 0, accepted.length);
+    const batchId = nextId();
+    // §10.6: the concurrent limit queues the rest rather than refusing them.
+    const items = accepted.map(({ file, kind }, index) =>
+      newConversion(who, tier, kind, target, options, [file], null, outputAccess(who, [file], body), batchId, Math.floor(index / CONVERSION_LIMITS[tier].concurrent) * 2),
+    );
+    send(res, 202, { batch_id: batchId, items: items.map((c) => conversionPayload(origin, c, true)), skipped });
+    return true;
+  }
+
+  if (method === 'GET' && path === '/conversions') {
+    const batchId = query.get('batch') ?? '';
+    const items = [...conversionStore.values()].filter((c) => c.owner === who.key && c.batchId === batchId && !c.forgotten);
+    if (!batchId || items.length === 0) throw new HttpError(404, 'UNKNOWN_BATCH', 'Unknown batch.');
+    send(res, 200, { items: items.map((c) => conversionPayload(origin, c)), next: null });
+    return true;
+  }
+
+  if (method === 'GET' && path === '/users/@me/conversions') {
+    const limit = Math.min(100, Math.max(1, Number(query.get('limit') ?? 50) || 50));
+    const before = query.get('before');
+    const mine = [...conversionStore.values()]
+      .filter((c) => c.owner === who.key && !c.forgotten)
+      .sort((a, b) => (BigInt(b.id) > BigInt(a.id) ? 1 : -1))
+      .filter((c) => !before || BigInt(c.id) < BigInt(before));
+    const page = mine.slice(0, limit);
+    send(res, 200, { items: page.map((c) => conversionPayload(origin, c)), next: mine.length > limit ? page.at(-1)!.id : null });
+    return true;
+  }
+
+  if ((match = /^\/conversions\/([^/]+)$/.exec(path))) {
+    const c = ownConversion(who, match[1]!);
+    if (method === 'GET') {
+      send(res, 200, conversionPayload(origin, c));
+      return true;
+    }
+    if (method === 'DELETE') {
+      const status = conversionStatus(c);
+      if (status === 'queued' || status === 'running') {
+        c.cancelledMs = Date.now();
+        c.error = null;
+        send(res, 200, conversionPayload(origin, c));
+        return true;
+      }
+      c.forgotten = true;
+      send(res, 204);
+      return true;
+    }
+  }
+  return false;
 }
 
 export function mockApiMiddleware(): Connect.NextHandleFunction {

@@ -33,7 +33,7 @@ describe('errorMessage: Milestone 3 codes', () => {
       err(403, 'ANONYMOUS_ALBUM_NOT_ALLOWED'),
       'Without an account, an album can only be made from up to 50 files you just uploaded. Sign in to make and edit albums.',
     ],
-    [err(413, 'ZIP_TOO_LARGE', { limit: 2147483648 }), 'This album is over 2 GB, too large to download as one ZIP. Download the files one by one.'],
+    [err(413, 'ZIP_TOO_LARGE', { limit: 2_000_000_000 }), 'This album is over 2 GB, too large to download as one ZIP. Download the files one by one.'],
   ])('%#: maps %s', (error, message) => {
     expect(errorMessage(error)).toBe(message);
   });
@@ -77,5 +77,19 @@ describe('errorMessage: view limits (milestone-6 §19.8)', () => {
       expect(message).not.toMatch(/please|!/i);
       expect(message[0]).toBe(message[0]!.toUpperCase());
     }
+  });
+});
+
+describe('milestone 5: conversions and Redis rate limits (§12, §18)', () => {
+  it('maps the conversion codes through their details', () => {
+    expect(errorMessage(err(403, 'CONVERSION_REQUIRES_ACCOUNT', { sign_in: true }))).toBe('Sign in to convert documents.');
+    expect(errorMessage(err(404, 'SOURCE_UNAVAILABLE'))).toBe('That file isn’t available.');
+    expect(errorMessage(err(400, 'TARGET_SIZE_TOO_SMALL', { minimum_mb: 14.2 }))).toBe('That size is too small for this video. Try at least 15 MB.');
+  });
+
+  it('RATE_LIMITED and TOO_MANY_ATTEMPTS round a fractional retry_after up', () => {
+    expect(errorMessage(err(429, 'RATE_LIMITED', { retry_after: 1.25 }))).toBe('You’re doing that too fast. Try again in 2 seconds.');
+    expect(errorMessage(err(429, 'TOO_MANY_ATTEMPTS', { retry_after: 0.4 }))).toBe('Too many attempts. Try again in 1 second.');
+    expect(errorMessage(err(503, 'RATE_LIMIT_UNAVAILABLE'))).toBe('Try again in a moment.');
   });
 });

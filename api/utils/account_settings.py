@@ -2,7 +2,6 @@
 like `safety_settings()`. Each is an environment variable of the same name, read on every call (tests
 override them with monkeypatch)."""
 
-import json
 import os
 
 from dataclasses import dataclass
@@ -10,10 +9,6 @@ from typing import Optional
 
 from utils.urls import public_url
 
-DEFAULT_AUTH_RATE_LIMITS = {
-    'login_ip': 30, 'login_account': 10, 'register': 5, 'forgot_ip': 10, 'forgot_account': 3, 'verify_resend': 5,
-    'discord': 30, 'reauth': 10, 'username_check': 60, 'domain_add': 10,
-}
 DEFAULT_DISCORD_API_BASE = 'https://discord.com/api'
 DEFAULT_CLOUDFLARE_API_BASE = 'https://api.cloudflare.com/client/v4'
 DEFAULT_API_PUBLIC_URL = 'https://api.files.gg'
@@ -65,7 +60,6 @@ class AccountSettings:
     reset_token_minutes: int
     upload_keys_max: int
     upload_key_rate_per_hour: int
-    rate_limits: dict
     domain_pending_hours: int
     domain_failing_days: int
     domain_paused_days: int
@@ -84,15 +78,8 @@ class AccountSettings:
     def domains_enabled(self):
         return bool(self.cloudflare_api_token and self.cloudflare_zone_id)
 
-    def rate(self, scope):
-        return self.rate_limits[scope]
-
 
 def account_settings():
-    limits = dict(DEFAULT_AUTH_RATE_LIMITS)
-    raw = _str('AUTH_RATE_LIMITS')
-    if raw:
-        limits.update({str(k): int(v) for k, v in json.loads(raw).items()})
     return AccountSettings(
         cookie_insecure=truthy(os.getenv('SESSION_COOKIE_INSECURE')) and truthy(os.getenv('FILESGG_DEV_TOOLS')),
         discord_client_id=_str('DISCORD_CLIENT_ID'),
@@ -106,7 +93,7 @@ def account_settings():
         custom_domains_global_max=_int('CUSTOM_DOMAINS_GLOBAL_MAX', 1000),
         api_public_url=_str('API_PUBLIC_URL', DEFAULT_API_PUBLIC_URL).rstrip('/'),
         premium_custom_domains=_int('PREMIUM_CUSTOM_DOMAINS', 5),
-        proxy_body_limit=_int('PROXY_BODY_LIMIT_BYTES', 100000000),
+        proxy_body_limit=_int('PROXY_BODY_LIMIT_BYTES', 100 * MIB),
         auth_request_max_bytes=_int('AUTH_REQUEST_MAX_BYTES', 65536),
         json_request_max_bytes=_int('JSON_REQUEST_MAX_BYTES', MIB),
         session_idle_days=_int('SESSION_IDLE_DAYS', 30),
@@ -120,7 +107,6 @@ def account_settings():
         reset_token_minutes=_int('RESET_TOKEN_MINUTES', 60),
         upload_keys_max=_int('UPLOAD_KEYS_MAX', 20),
         upload_key_rate_per_hour=_int('UPLOAD_KEY_RATE_PER_HOUR', 600),
-        rate_limits=limits,
         domain_pending_hours=_int('DOMAIN_PENDING_HOURS', 72),
         domain_failing_days=_int('DOMAIN_FAILING_DAYS', 3),
         domain_paused_days=_int('DOMAIN_PAUSED_DAYS', 30),

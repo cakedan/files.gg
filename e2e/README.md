@@ -1,6 +1,6 @@
 # Local full stack and end-to-end test
 
-The whole of files.gg on your machine: the API, the jobs worker, the Milestone 4 scanner and rescanner with an offline ClamAV, Postgres, MinIO standing in for B2, a mock of Cloudflare's custom hostnames API, the Cloudflare Worker under `wrangler dev`, and a fresh `web` build. It runs on hostnames that resolve to loopback by themselves, so no `/etc/hosts` edits and no sudo.
+The whole of files.gg on your machine: the API, the jobs worker, the Milestone 4 scanner and rescanner with an offline ClamAV, the Milestone 5 converter pools on Redis and the network-less LibreOffice service, Postgres, MinIO standing in for B2, a mock of Cloudflare's custom hostnames API, the Cloudflare Worker under `wrangler dev`, and a fresh `web` build. It runs on hostnames that resolve to loopback by themselves, so no `/etc/hosts` edits and no sudo.
 
 ## Commands
 
@@ -8,13 +8,16 @@ From the repo root:
 
 ```sh
 e2e/up.sh          # start everything (first run builds the API and worker images and the web app)
-node e2e/run.mjs   # the end-to-end test, against the running stack (about 2.5 minutes)
+node e2e/run.mjs   # the end-to-end test, against the running stack (about 3 minutes)
+E2E_STEPS=28-43 node e2e/run.mjs   # only some steps (plus step 0, the sign-in); a full run is the real test
 e2e/down.sh        # stop everything and delete its data (volumes, secrets, web build, logs)
 ```
 
 `up.sh` is safe to run again: it rebuilds what changed and restarts the Worker. It prints the URLs, the e2e user's credentials and how to sign in at the end.
 
 **Milestone 4 (trust & safety)** needs no setup of its own: `up.sh` generates `ABUSE_HASH_SECRET` and the evidence key pair, creates the Object Lock evidence bucket, starts the scanner and an offline clamd, and makes the `e2e` user staff. Nothing is downloaded for scanning: clamd runs on the API suite's tiny test signature database, and the CSAM matcher is the stand-in.
+
+**Milestone 5 (conversion)** needs no setup either: `up.sh` generates `REDIS_PASSWORD` and starts Redis, the three converter pools (`converter-premium`, `converter`, `converter-previews`, one process each) and `office` (LibreOffice with `network_mode: none`), which share the in-memory `office-spool` volume. The first build pulls and builds those images, so it takes a while. The web build allows the Terms and Privacy drafts' placeholders (`FILESGG_ALLOW_LEGAL_PLACEHOLDERS=1`).
 
 **Milestone 6 (accounts)** needs no setup either: `up.sh` turns on the plain-http session cookie, starts the mock Cloudflare, and generates its token and zone id (below).
 
@@ -24,7 +27,9 @@ e2e/down.sh        # stop everything and delete its data (volumes, secrets, web 
 
 | URL | What |
 |---|---|
-| http://files.localhost:8787/ | The site (viewer shell, home) |
+| http://files.localhost:8787/ | The home page (the app bundle) |
+| http://files.localhost:8787/convert | Convert, signed out (`/app/convert` signed in) |
+| http://files.localhost:8787/changelog | The changelog; also `/legal/terms` and `/legal/privacy` (`/legal` redirects to Terms) |
 | http://files.localhost:8787/app/upload | Upload page (dashboard) |
 | http://files.localhost:8787/app | Dashboard |
 | http://files.localhost:8787/&lt;vanity&gt; | A file page |
@@ -81,6 +86,9 @@ docker compose -p filesgg-e2e exec api python -m tools.entitlements list
 |---|---|---|
 | Postgres 19, MinIO, bucket creation, `python -m migrate`, the API (`sanic`, 2 workers), `python -m worker` (`default,media`) | Docker, `docker-compose.e2e.yml` (project `filesgg-e2e`) | Data in named volumes only. The API is published on `127.0.0.1:18080` and MinIO on `127.0.0.1:19000`, both for the Worker. The jobs worker also runs Milestone 6's `domain_checker`, `domain_delete`, `account_deletion` and the other account tasks. |
 | `cloudflare` (mock) | Docker, the API image running `e2e/scripts/mock_cloudflare.py` (standard library only, bind-mounted read-only) | Stands in for Cloudflare's custom hostnames API at `CLOUDFLARE_API_BASE=http://cloudflare:8080/client/v4`, for the zone `CLOUDFLARE_ZONE_ID` with the token `CLOUDFLARE_API_TOKEN` (both random, in `.env`). `POST`, `GET`, `PATCH` and `DELETE` answer Cloudflare's envelope; a hostname is created `pending`/`initializing`, and each `GET` or `PATCH` moves it on: `active`/`pending_validation`, then `active`/`active`, so one **Check now** activates it. In memory only. Published on `127.0.0.1:18081`, where `GET /_mock/hostnames` lists what the API asked for. |
+| `redis` | Docker, the image pinned in `docker-compose.yml` | Milestone 5 §3.1, §18: the RQ queues and the rate-limit windows, with `REDIS_PASSWORD` from `.env`. Not published. |
+| `converter-premium`, `converter`, `converter-previews` | Docker, the `converter` image (the worker plus resvg, pillow-heif, img2pdf) | `rq worker-pool` with one process each: `convert_premium` then `convert_member`; `convert_member` then `convert_anonymous`; `convert_previews` (document previews). RQ job ids are `conversion-<id>` and `preview-<hash_id>`. |
+| `office` | Docker, the `office` image | LibreOffice behind a spool directory, `network_mode: none`, read-only root, fed through the `office-spool` tmpfs volume. |
 | `scanner` (`WORKER_QUEUES=scan`) and `rescanner` (`rescan`) | Docker, the worker image | Milestone 4 §2.2. New uploads stay `pending` until the scanner is done. They get the ClamAV and evidence settings; the API and the jobs worker don't. |
 | `clamav` | Docker, the image pinned in `docker-compose.test.yml` | Offline, as in the API test compose: `clamd` only, no `freshclam`, and only the test database from `api/tests/fixtures/clamav/` (EICAR by hash, which blocks, and a test-only `PUA.` string, which flags), bind-mounted read-only with its `clamd.conf`. That's the stack's only bind mount. Not published. |
 | The `bucket` one-off | Docker, the API image | Creates `filesgg` and the evidence bucket `filesgg-evidence`, the latter **with Object Lock** (it can only be enabled at creation), and checks it's on. |
@@ -108,7 +116,8 @@ Why outside: when the checkout is in a synced folder (iCloud Desktop & Documents
 
 **Logs:**
 - the Worker: `e2e/.local/wrangler.log`;
-- the API, the jobs worker, the scanner and the mock Cloudflare: `docker compose -p filesgg-e2e logs -f api worker scanner rescanner clamav cloudflare`.
+- the API, the jobs worker, the scanner and the mock Cloudflare: `docker compose -p filesgg-e2e logs -f api worker scanner rescanner clamav cloudflare`;
+- conversions and previews: `docker compose -p filesgg-e2e logs -f converter converter-premium converter-previews office`.
 
 **Local differences from production:**
 - MinIO has one key, so the Worker reads with the same key the API writes with. In production, the Worker's key is read-only.
@@ -124,15 +133,17 @@ Why outside: when the checkout is in a synced folder (iCloud Desktop & Documents
 
 It uses plain `fetch` against the local hosts. **The website** is signed in with real logins through `files.localhost/api`: a small `Caller` keeps a cookie jar for `filesgg_session` and sends `X-Filesgg-Csrf: 1` on every write, like the web app. **Tools** upload to `api.files.localhost` with an upload key. It also runs `docker compose exec`: psql (to move a file's expiry, a session's sign-in time and an account's age into the past, and to store a raw HTML filename), `tools.create_user` (a fresh account for each Milestone 6 step that changes one) and `tools.entitlements`. Test media is made by `ffmpeg` in the jobs worker container. Each run uploads new files and makes its own accounts and domain, so it can run again on the same stack. Reports are rate-limited to 10 an hour per IP (milestone-4 §7.7) and every run sends one anonymous report from the same address, so about ten runs an hour fit. Registering uses a random address of its own each run (`register` allows 5 an hour per IP).
 
+**Rate limits** (milestone-5 §18) are on Redis. A whole run comes from one address, so `docker-compose.e2e.yml` raises the global, upload and conversion limits in `RATE_LIMITS`; the brute-force ones (register, login, ...) keep their defaults, and `GET /conversions/<id>` keeps its 5 a second, which step 41 hits on purpose. Anonymous conversions are limited per guest **and** per IP (10 a day), so every anonymous conversion step uses an address of its own.
+
 **Waiting for scans.** Since Milestone 4 every new upload is `pending` until the scanner is done (§2). Wherever a step uploads and then expects a page or CDN bytes, it first polls the owner's `GET /users/@me/files/<id>` until `safety.state` leaves `pending` (or the upload is rejected with `410 UPLOAD_REJECTED`). Each wait is printed under its step, with a min/median/max summary at the end. Content the stack has seen before (the same test media on a second run) is passed at once.
 
-0. **Setup.** The hosts resolve to loopback, the API answers through the Worker, and the viewer CSP names the local CDN and API. `e2e`, `e2e.member` and `e2e.reporter` sign in with `POST /api/auth/login` and a Turnstile testing token; the response sets `filesgg_session` (`HttpOnly`, `SameSite=Lax`, `Path=/`, the 180-day `Max-Age`, no `Secure`).
+0. **Setup.** The hosts resolve to loopback, the API answers through the Worker, and the viewer CSP (on `/report`, since `/` is now the app's home page) names the local CDN and API. `e2e`, `e2e.member` and `e2e.reporter` sign in with `POST /api/auth/login` and a Turnstile testing token; the response sets `filesgg_session` (`HttpOnly`, `SameSite=Lax`, `Path=/`, the 180-day `Max-Age`, no `Secure`).
 1. **Anonymous single upload** through `files.localhost/api` with a Turnstile token. Without a token (or a key) it's `401 UPLOAD_KEY_REQUIRED`. The CDN bytes match (sha256). `files.localhost/<vanity>` returns the shell with a correct `#file-data`, and `&` is escaped as `&`.
 2. **Signed-in chunked upload** of 30 MB. Four chunks go up concurrently and out of order, then `complete`, then a poll until `complete`. The CDN bytes match, and a `Range` request across a chunk boundary works.
 3. **HTML filename** `</script><script>alert(1)</script>.png`.
    - The API turns `<`, `>` and `/` into `_` on upload. That's long-standing behaviour.
    - The file is a real PNG: an image the scanner can't decode is served as an attachment only (milestone-4 §2.3), and step 7 needs an image.
-   - The raw name is then written to the database, and the shell is checked: the JSON escapes it, it adds exactly one `<script>`, `<script>alert(1)` appears nowhere live, the meta tags are escaped, and the CDN's `Content-Disposition` is encoded.
+   - The raw name is then written to the database, and the shell is checked: the JSON escapes it, it has no `<script>` beyond the missing page's (the viewer and `#file-data`), `<script>alert(1)` appears nowhere live, the meta tags are escaped, and the CDN's `Content-Disposition` is encoded.
 4. **Password.**
    - `PATCH visibility: password` gives the `locked` shell, with no media or name in the meta.
    - The CDN gives 401.
@@ -147,7 +158,7 @@ It uses plain `fetch` against the local hosts. **The website** is signed in with
    - `TelegramBot` on a `link` file is redirected (302) to the CDN.
    - `Discordbot` gets the embed page, whose `og:image` is the CDN URL. Only Telegram is redirected among `*bot` agents, as before.
    - On a password file, neither bot nor `Accept: image/*` is redirected. They get the locked shell, with no media.
-8. **Limits.** `GET /users/@me/limits` returns the anonymous and the signed-in values from contract §6, plus `nsfw_allowed` (milestone-4 §13) and Milestone 6's fields (§9.2): `premium`, `custom_domains`, `upload_keys`, `domain_only_allowed`, and `max_file_size_single` capped at `PROXY_BODY_LIMIT_BYTES` − 1 MiB (98,951,424) with the configured 100 MB in `max_file_size_single_configured`.
+8. **Limits.** `GET /users/@me/limits` returns the anonymous and the signed-in values from contract §6, plus `nsfw_allowed` (milestone-4 §13) and Milestone 6's fields (§9.2): `premium`, `custom_domains`, `upload_keys`, `domain_only_allowed`, and `max_file_size_single`. Sizes are decimal (1 MB = 1,000,000 bytes): the single request is 100,000,000 bytes for every signed-in caller, premium too (under `PROXY_BODY_LIMIT_BYTES` − 1 MiB, so never cut by it), chunked 1,000,000,000, anonymous 25,000,000.
 9. **Media.** A PNG, an MP4 and an MP3 are scanned, probed and derived. The previews are at `/previews/<kind>/<vanity>`, and malformed preview paths are 404.
 10. **Protected previews** are signed per path. A signature only opens its own path.
 11. **Albums.** The page, the collage, the ZIP (checked with `unzip -t`), a link album hiding its password item, and a password album whose token opens every item.
@@ -184,7 +195,7 @@ Milestone 6 (`docs/redesign/contracts/milestone-6.md`):
     - CSRF: a cookie `PATCH` without `X-Filesgg-Csrf`, with a foreign `Origin`, with `Origin: null` or with `Sec-Fetch-Site: cross-site` is `403 CSRF`; with the header and same-origin values it's 200. A login without the header is `403 CSRF` too.
     - `Authorization: Bearer <token>` is 401 on both hosts.
     - Logout clears the cookie (`Max-Age=0`) and the old value is refused. A password change ends every other session (the old password stops working); sign out everywhere ends all of them, including this one, and a dead cookie is cleared by `GET /auth/session`.
-21. **Register** (§4.3, §4.2). Discord is off (`/auth/config`, `503 DISCORD_UNAVAILABLE`). The username check works signed out (available, `taken`, `reserved`, `characters`). An anonymous upload, then `POST /api/auth/register` with the same fingerprint (Turnstile testing token): 201, the cookie, a lowercased username and an **unverified** email; the name is now taken to others, the email again is `EMAIL_TAKEN`, and the anonymous upload is the account's, with its expiry.
+21. **Register** (§4.3, §4.2). Discord is off (`/auth/config`, `503 DISCORD_UNAVAILABLE`). The username check works signed out (available, `taken`, `reserved`, `characters`). An anonymous upload, then `POST /api/auth/register` as the same guest (`Authorization: Guest`, Turnstile testing token): 201, the cookie, a lowercased username and an **unverified** email; the name is now taken to others, the email again is `EMAIL_TAKEN`, and the anonymous upload is the account's, with its expiry.
 22. **Upload keys** (§7). Created once with its secret (`fgg_…`, prefix = 12 characters), the `.sxcu` (`RequestURL` = `API_PUBLIC_URL/files`) and the curl snippet; never shown again. A tool uploads with it to `api.files.localhost`, single and chunked; the files are e2e's. The key is refused (`403 UPLOAD_KEY_NOT_ALLOWED`) on non-upload endpoints there and on `files.localhost/api` website calls (`/admin/*` is the plain 404). Revoked or mistyped: `401 UPLOAD_KEY_INVALID`. No key and no Turnstile: `401 UPLOAD_KEY_REQUIRED` on `POST /files` and `POST /uploads`.
 23. **Premium** (§9). A fresh account's limits; a 2 GB chunked upload is `413 FILE_TOO_LARGE`. An admin grants premium (`POST /api/admin/users/<id>/entitlements`; twice is `ENTITLEMENT_EXISTS`; a non-staff caller gets the 404): 100 GB storage, 5 GB chunked (2 GB accepted), 5 domains, domain-only allowed, and single requests still capped by `PROXY_BODY_LIMIT_BYTES`. Revoked, the limits are back at once. Then the same with `python -m tools.entitlements grant --days 30` / `list` / `revoke`, and the admin detail shows both entitlements.
 24. **Custom domain** (§10). A fresh premium account: refused while it's minutes old (`DOMAIN_REQUIREMENTS account_too_new`), then made 8 days old with psql; a non-premium user gets `PREMIUM_REQUIRED`, an apex hostname `INVALID_HOSTNAME`.
@@ -201,3 +212,22 @@ Milestone 6 (`docs/redesign/contracts/milestone-6.md`):
     - A password file with a limit: open without unlocking is `401 UNLOCK_REQUIRED`; a wrong password uses nothing; the unlock is the view, once per viewer (unlocking again or opening with the token doesn't count); after the second viewer the right password gets 404.
 26. **Routes** (§20). The old `/files/<v>/unlock`, `/unlock/refresh`, `/view`, `/open` and the album ones are 404 on both API hosts. `/report/<vanity>`, `/report/a/<vanity>` and `/report` are the report pages, and the old `/<vanity>/report` and `/a/<vanity>/report` are `missing`. `/a/<vanity>?item=2` is the album, and `/a/<vanity>/2` is `missing`.
 27. **Account deletion** (§8.8). Staff can't (`409 ACCOUNT_DELETE_NOT_ALLOWED staff`). A fresh account whose session signed in an hour ago (psql) gets `403 REAUTH_REQUIRED`; `POST /api/auth/reauth` (a wrong password is `INVALID_CREDENTIALS`), then `POST /api/users/@me/delete` with the username: 202, 14 days. The other session ends, the library and the upload key are `403 ACCOUNT_PENDING_DELETION`, and the file is `missing` (never removed): the page 404, the CDN `404 private, no-store`, the API `UNKNOWN_FILE`. Signing in still works and shows the deletion. **Keep my account** (`POST /api/users/@me/delete/cancel`) brings the file, the library and the key back.
+
+Milestone 5 (`docs/redesign/contracts/milestone-5.md`). Each conversion is polled as the Convert page does (`POST /conversions`, then `GET /conversions/<id>` once a second until it's finished); the time each took is printed under its step and summarised at the end. Sources are new bytes every run (a nonce in a JPEG comment, a GIF comment, container metadata, the PDF or docx text), so nothing comes from an earlier run's cache.
+
+28. **Strip metadata.** `GET /conversions/formats` (public, 5 minutes). `api/tests/fixtures/convert/gps.jpg` (GPS EXIF and a camera make) → `jpg` with `{}`: the options come back normalised (`strip_metadata: true`, `quality: 85`), the output is a new file with `derived_from_file_id` and `conversion_id`, and its EXIF has no GPS IFD and no make. An RQ member worker ran `conversion-<id>`.
+29. **Cache.** The same source with `{ quality: 85 }`: `200`, `cached: true`, no CPU, no RQ job, a new file over the same hash. A 1440x1080 video converted anonymously is capped at 720p; the same conversion signed in isn't served from the cache (the cap is part of the recipe) and keeps 1080p.
+30. **GIF → MP4.** Straight after the upload it's `404 SOURCE_UNAVAILABLE` (scan pending) or `409 FILE_PENDING` (probe pending); once probed as animated, it becomes a playable H.264 MP4.
+31. **`target_size`.** A ~4 MB video → mp4 with `target_size: 1`: at most 1,000,000 bytes + 5% (and at least half of it); `target_size: 0` is `INVALID_OPTION`.
+32. **Normalise.** A tone at about −46 dB → mp3 with `normalize`: at least 10 dB louder (ffmpeg `volumedetect` in the worker container), peak under 0 dBFS.
+33. **docx → PDF.** A docx (built by `run.mjs`, like the fixture) → PDF on `office`, signed in. Anonymous: `403 CONVERSION_REQUIRES_ACCOUNT { sign_in: true }`, with `target: pdf` or the default target. LibreOffice's PDF has an `/OpenAction`, which the milestone-4 PDF check flags (`pdf_javascript`), so the output is usually `flagged`.
+34. **Document preview.** The same docx (uploaded signed in) gets `preview_state = done` (psql), `converter-previews` ran `preview-<hash_id>`, the owner payload has `assets.document` at `/previews/document/<vanity>.pdf?v=`, the CDN serves it as `application/pdf`, and the viewer's `#file-data` carries it.
+35. **PDF → images.** A 3-page PDF → png: signed in, an album titled after the PDF with `<name>-p1.png` … `-p3.png`; anonymously, `<name>-pages.zip` holding the three pages (`unzip -t`).
+36. **Images → PDF** from an album of two images: `source.count` 2, named after the album, a 2-page PDF.
+37. **Batch.** Anonymous: `403 CONVERSION_REQUIRES_ACCOUNT`. Signed in, four images and a video → webp: four conversions with one `batch_id`, the video skipped (`UNSUPPORTED_CONVERSION`); the fourth is held past the concurrent limit (3) and released when `GET /conversions?batch=` is polled (psql: one item went on the queue after it was created).
+38. **Cancel.** A 30 s video → webm (VP9): once `running`, `DELETE` answers `200 cancelled`; 5 s later it's still cancelled with no output file and `failure_reason = cancelled`, and the worker takes the next conversion. `DELETE` again (finished) is `204` and hides it from the history (`404` after).
+39. **Moderation cascade.** A fresh account's image, converted by another fresh account; staff `remove` the source (`POST /admin/actions`): the output becomes `removed` with `derived_from_removed` (psql), its page 410 and the CDN 410, and the source can't be converted again.
+40. **Anonymous limits.** Without a Turnstile token: `403 CAPTCHA_INVALID`. Then 10 conversions (one real, nine cache hits, which still count), and the 11th is `429 CONVERSION_LIMIT_REACHED { limit: count, sign_in: true }`; a new guest on the same address too. Another address still converts. (The always-pass testing secret accepts any token, so a wrong token isn't tested here.)
+41. **A Redis rate limit.** A fresh account polls `GET /conversions/<id>` 15 times at once: 5 get through (404), the rest are `429 RATE_LIMITED` with `retry_after` and a whole-second `Retry-After`; after it, the window has moved on, and another user isn't affected.
+42. **Pages.** Signed out: `/` (`files.gg: share any file with a link`), `/changelog`, `/legal/terms` and `/legal/privacy` with their titles, no cookie; `/legal` is `302 /legal/terms`; the changelog isn't on the CDN host. The removed page from step 39 loads viewer code that links `/legal/terms`, and that link resolves to the Terms page.
+43. **100 MB.** With an upload key on `api.files.localhost`: exactly 100,000,000 bytes is accepted; 100,000,001 is `413 FILE_TOO_LARGE { limit: 100000000 }`.

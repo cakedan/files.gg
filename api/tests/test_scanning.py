@@ -13,7 +13,7 @@ from tests.conftest import EVIDENCE_BUCKET, EVIDENCE_PRIVATE_KEY, s3_client, s3_
 from tests.m4 import (
     EICAR, ELF, ORIGIN, PUA_STRING, anonymous, appdb, broken_png, docx, docx_remote_template, docx_with_vba,  # noqa: F401
     fixture_bytes, gif_html, hash_id_of, hash_row, lookup, new_user, nonce, nsfw_score, owner_file, pdf,  # noqa: F401
-    pattern, pdf_embedded_exe, pdf_escaped_javascript_in_object_stream, pdf_javascript, pdf_launch, png,
+    pattern, pdf_embedded_exe, pdf_escaped_javascript_in_object_stream, pdf_javascript, pdf_launch, pdf_open_at_fit, png,
     rar5_header_encrypted,
     run_scan, send, xlsx_with_xlm, zip_aes, zip_declaring, zip_of, zipcrypto,
 )
@@ -237,14 +237,14 @@ def test_a_standin_match_blocks_preserves_evidence_and_restricts_uploaders(clien
         assert action in actions
     assert appdb.fetchone('SELECT bool_and(child_safety) FROM moderation_actions WHERE case_id = %s', (case[0],))[0]
     # a re-upload is refused, stores nothing, and bans that uploader too
-    fingerprint = anonymous('198.51.100.9')
-    response = client.post('/files', headers=fingerprint, files={'file': ('again.png', fixture_bytes('match.png'),
+    guest = anonymous('198.51.100.9')
+    response = client.post('/files', headers=guest, files={'file': ('again.png', fixture_bytes('match.png'),
                                                                           'image/png')},
                            data={'turnstile_token': 'mock:upload:files.gg'})
     assert response.status_code == 403 and response.json()['code'] == 'FILE_BLOCKED'
-    from utils.tokens import FingerprintToken
-    fp = int(FingerprintToken.deconstruct(fingerprint['X-Fingerprint']))
-    assert appdb.fetchone("SELECT count(*) FROM bans WHERE fingerprint = %s AND rule = 'csam'", (fp,))[0] == 1
+    from utils.tokens import GuestToken
+    guest_id = int(GuestToken.deconstruct(guest['Authorization'].removeprefix('Guest ')))
+    assert appdb.fetchone("SELECT count(*) FROM bans WHERE guest_id = %s AND rule = 'csam'", (guest_id,))[0] == 1
     # idempotent: running §3.6 again changes nothing
     from safety import csam
     csam.handle_match(hash_id, source='standin')
@@ -271,10 +271,10 @@ def test_anonymous_matches_are_rejected_after_the_scan(client, appdb):
     assert run_scan(appdb, created)['scan_reason'] == 'csam_match'
     response = client.get('/users/@me/files/' + created['id'], headers=headers)
     assert response.status_code == 410 and response.json()['reason'] == 'FILE_BLOCKED'
-    from utils.tokens import FingerprintToken
-    fp = int(FingerprintToken.deconstruct(headers['X-Fingerprint']))
-    assert appdb.fetchone("SELECT count(*) FROM bans WHERE fingerprint = %s AND rule = 'csam'", (fp,))[0] == 1
-    # that fingerprint and network can't upload any more
+    from utils.tokens import GuestToken
+    guest_id = int(GuestToken.deconstruct(headers['Authorization'].removeprefix('Guest ')))
+    assert appdb.fetchone("SELECT count(*) FROM bans WHERE guest_id = %s AND rule = 'csam'", (guest_id,))[0] == 1
+    # that guest and network can't upload any more
     response = client.post('/files', headers=headers, files={'file': ('x.txt', nonce(), 'text/plain')},
                            data={'turnstile_token': 'mock:upload:files.gg'})
     assert response.json()['code'] == 'BANNED'
@@ -651,6 +651,8 @@ def test_a_plain_docx_passes(client, appdb):
 
 @pytest.mark.parametrize('build, state, reason', [
     (pdf_javascript, 'flagged', 'pdf_javascript'),
+    # an /OpenAction that only opens at a page and zoom (every LibreOffice export) is harmless
+    (pdf_open_at_fit, 'passed', None),
     (pdf_escaped_javascript_in_object_stream, 'flagged', 'pdf_javascript'),
     (pdf_launch, 'blocked', 'pdf_dangerous'),
     (pdf_embedded_exe, 'blocked', 'pdf_dangerous'),
@@ -659,7 +661,8 @@ def test_pdf_checks(client, appdb, build, state, reason):
     _, owner = new_user(appdb)
     created = send(client, owner, build(), 'doc.pdf', 'application/pdf')
     row = run_scan(appdb, created)
-    assert row['scan_state'] == state and reason in findings(row), row['scan']
+    assert row['scan_state'] == state, row['scan']
+    assert (reason in findings(row)) if reason else not findings(row), row['scan']
 
 
 def test_a_plain_pdf_passes_and_its_pages_are_matched(client, appdb):

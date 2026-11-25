@@ -5,7 +5,8 @@
 #   POSTMARK_SERVER_TOKEN, CDN_SIGNING_SECRET, TURNSTILE_SECRET,
 #   S3_ENDPOINT, S3_REGION, S3_BUCKET_FILES, S3_ACCESS_KEY_ID, S3_SECRET_ACCESS_KEY,
 #   (Milestone 4) CSAM_MATCHER, PHOTODNA_SUBSCRIPTION_KEY (scanner and rescanner only), ABUSE_HASH_SECRET, EVIDENCE_PUBLIC_KEY,
-#   S3_BUCKET_EVIDENCE, S3_EVIDENCE_ACCESS_KEY_ID, S3_EVIDENCE_SECRET_ACCESS_KEY (WEB_RISK_API_KEY is optional)
+#   S3_BUCKET_EVIDENCE, S3_EVIDENCE_ACCESS_KEY_ID, S3_EVIDENCE_SECRET_ACCESS_KEY (WEB_RISK_API_KEY is optional),
+#   (Milestone 5) REDIS_PASSWORD
 #
 # Order on `docker compose up`: postgres becomes healthy, migrate runs once and must succeed,
 # then api and worker start. Scale either independently, e.g. `docker compose up --scale worker=2`;
@@ -69,7 +70,13 @@ x-api-environment: &api-environment
   CUSTOM_DOMAIN_TARGET: ${CUSTOM_DOMAIN_TARGET:-domains.files.gg}
   API_PUBLIC_URL: ${API_PUBLIC_URL:-https://api.files.gg}
   # Cloudflare's request-body limit for the zone's plan: caps single-request uploads for everyone (§9.5)
-  PROXY_BODY_LIMIT_BYTES: ${PROXY_BODY_LIMIT_BYTES:-100000000}
+  PROXY_BODY_LIMIT_BYTES: ${PROXY_BODY_LIMIT_BYTES:-104857600}
+  # Milestone 5 (docs/redesign/contracts/milestone-5.md §3.1, §14): the RQ queues of the converter services and the
+  # rate limits, on the redis service below. The password is hex (openssl rand -hex 32), so it fits in the URL as is.
+  REDIS_URL: ${REDIS_URL:-redis://:${REDIS_PASSWORD:?REDIS_PASSWORD must be set (openssl rand -hex 32)}@redis:6379/0}
+  # Rate limits on Redis (§18): JSON `{ "<scope>": "<amount> per [<n>] <second|minute|hour|day>" }` overriding the
+  # defaults of §18.2 and §18.3; empty keeps them. The API refuses to boot with an invalid value.
+  RATE_LIMITS: ${RATE_LIMITS:-}
 
 # Only the scanner and rescanner get the matcher, ClamAV, Web Risk and evidence settings (milestone-4 §13).
 x-scanner-environment: &scanner-environment
@@ -105,6 +112,41 @@ x-api-service: &api-service
     driver: json-file
     options: { max-size: "20m", max-file: "5" }
 
+# Milestone 5 (docs/redesign/contracts/milestone-5.md §3.1, §3.3): the converter services, one image (api/Dockerfile
+# `converter`: the worker plus resvg and img2pdf) on different RQ queues, as notsobot.api's api-rq-worker-* services.
+# `rq worker-pool` forks one work horse per job; the worker class is convert_worker.ConvertWorker. Each has its own
+# tmpfs for the jobs' directories (CONVERT_TMP_DIR) and shares the office spool with `office`. `cpus` and `cpu_shares`
+# only matter once the host's CPUs are all wanted; CONVERT_PROCESSES is the pool's size, and with it the thread
+# budget (CONVERT_THREADS, else the service's cpus divided by its processes, media/sandbox.py).
+x-converter-service: &converter-service
+  <<: *api-service
+  build:
+    context: ./api/
+    target: converter
+  image: filesgg-converter:latest
+  init: true
+  tmpfs:
+    - /convert-tmp:size=${CONVERTER_TMP_SIZE:-8g},uid=10001,mode=0700
+  volumes:
+    - office-spool:/spool
+  depends_on:
+    postgres:
+      condition: service_healthy
+    migrate:
+      condition: service_completed_successfully
+    redis:
+      condition: service_healthy
+    office:
+      condition: service_healthy
+
+x-converter-environment: &converter-environment
+  <<: *api-environment
+  # rq's own connection (`rq worker-pool --url`)
+  RQ_REDIS_URL: ${REDIS_URL:-redis://:${REDIS_PASSWORD:?REDIS_PASSWORD must be set}@redis:6379/0}
+  CONVERT_TMP_DIR: /convert-tmp
+  OFFICE_SPOOL_DIR: /spool
+  OFFICE_TIMEOUT: ${OFFICE_TIMEOUT:-120}
+
 services:
   postgres:
     # 2026.11.24, PostgreSQL 19 (latest major, released 2026-11-19, supported to 2031-11). backup/Dockerfile uses the
@@ -126,6 +168,26 @@ services:
       - ./postgres/postgres.conf:/etc/postgres/postgresql.conf:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # Milestone 5 (§3.1): the RQ queues of the converter services and the rate-limit windows, the same as notsobot.api's
+  # db-api-redis. Append-only with fsync every second (redis/redis.conf) and RDB snapshots on; a named volume, and
+  # never published: only the API, the workers and the converter services reach it. Nothing in it needs a backup
+  # (every conversion is a Postgres row, and convert_sweep re-enqueues a job Redis lost).
+  redis:
+    # 2026.11.25, Redis 8.10.3, pinned by digest (the same as notsobot.api's)
+    image: redis:8.10.3-alpine@sha256:7958cfbb9d152f87dadfbc89f1b0b15938f0b81ff8982feb327476f4911935c3
+    command: ["redis-server", "/usr/local/etc/redis/redis.conf", "--requirepass", "${REDIS_PASSWORD:?REDIS_PASSWORD must be set (openssl rand -hex 32)}"]
+    restart: always
+    environment:
+      REDISCLI_AUTH: ${REDIS_PASSWORD:?REDIS_PASSWORD must be set}
+    volumes:
+      - redis-data:/data
+      - ./redis/redis.conf:/usr/local/etc/redis/redis.conf:ro
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
       interval: 5s
       timeout: 5s
       retries: 5
@@ -199,6 +261,8 @@ services:
         condition: service_healthy
       migrate:
         condition: service_completed_successfully
+      redis:
+        condition: service_healthy
     expose:
       - 8080
     healthcheck:
@@ -226,6 +290,8 @@ services:
         condition: service_healthy
       migrate:
         condition: service_completed_successfully
+      redis:
+        condition: service_healthy
 
   # Milestone 4 (§2.2): a new hash's `scan` never waits behind a slow derive or a rescan backlog, so the scan and
   # rescan queues get their own services from the worker image (Python 3.14, the scanning tools, the NSFW model).
@@ -244,6 +310,8 @@ services:
         condition: service_healthy
       migrate:
         condition: service_completed_successfully
+      redis:
+        condition: service_healthy
       clamav:
         condition: service_healthy
 
@@ -262,6 +330,8 @@ services:
         condition: service_healthy
       migrate:
         condition: service_completed_successfully
+      redis:
+        condition: service_healthy
       clamav:
         condition: service_healthy
 
@@ -282,6 +352,68 @@ services:
     healthcheck: { test: ["CMD", "clamdcheck.sh"], interval: 60s, timeout: 10s, retries: 3, start_period: 6m }
     mem_limit: 4g
 
+  # Milestone 5 (§3.1): premium never waits behind anyone (it drains convert_premium first, then helps with
+  # convert_member), signed-in users never wait behind anonymous visitors, previews never hold up a conversion.
+  converter-premium:
+    <<: *converter-service
+    command: ["rq", "worker-pool", "convert_premium", "convert_member", "-n", "${CONVERTER_PREMIUM_PROCESSES:-2}", "--worker-class", "convert_worker.ConvertWorker"]
+    environment:
+      <<: *converter-environment
+      CONVERT_PROCESSES: ${CONVERTER_PREMIUM_PROCESSES:-2}
+      CONVERT_THREADS: ${CONVERTER_PREMIUM_THREADS:-}
+    cpus: ${CONVERTER_PREMIUM_CPUS:-4}
+    cpu_shares: 768
+
+  converter:
+    <<: *converter-service
+    command: ["rq", "worker-pool", "convert_member", "convert_anonymous", "-n", "${CONVERTER_PROCESSES:-4}", "--worker-class", "convert_worker.ConvertWorker"]
+    environment:
+      <<: *converter-environment
+      CONVERT_PROCESSES: ${CONVERTER_PROCESSES:-4}
+      CONVERT_THREADS: ${CONVERTER_THREADS:-}
+    cpus: ${CONVERTER_CPUS:-4}
+    cpu_shares: 512
+
+  converter-previews:
+    <<: *converter-service
+    command: ["rq", "worker-pool", "convert_previews", "-n", "${CONVERTER_PREVIEW_PROCESSES:-1}", "--worker-class", "convert_worker.ConvertWorker"]
+    environment:
+      <<: *converter-environment
+      CONVERT_PROCESSES: ${CONVERTER_PREVIEW_PROCESSES:-1}
+      CONVERT_THREADS: ${CONVERTER_PREVIEW_THREADS:-}
+    cpus: ${CONVERTER_PREVIEW_CPUS:-1}
+    cpu_shares: 256
+
+  # Milestone 5 (§3.2): LibreOffice, and only here: no network at all, a read-only root, tmpfs for /tmp (the profiles),
+  # no capabilities. It shares nothing but the tmpfs spool with the converter services, and runs as their uid.
+  office:
+    build:
+      context: ./api/
+      target: office
+    image: filesgg-office:latest
+    restart: unless-stopped
+    network_mode: none
+    read_only: true
+    tmpfs:
+      - /tmp:size=2g,mode=1777
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    pids_limit: 512
+    mem_limit: 2g
+    environment:
+      OFFICE_PROCESSES: ${OFFICE_PROCESSES:-2}
+      OFFICE_TIMEOUT: ${OFFICE_TIMEOUT:-120}
+    volumes:
+      - office-spool:/spool
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import os, sys; sys.exit(0 if os.path.isdir('/spool/done') else 1)"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    logging:
+      driver: json-file
+      options: { max-size: "20m", max-file: "5" }
+
   nginx:
     # 2026.11.24, nginx mainline 1.31 (latest), pinned by digest
     image: nginx:1.31@sha256:6a3df739b6312289e87d70947d900669c1b3087474ece5814b9c01bbf2e6dde3
@@ -294,3 +426,13 @@ services:
     ports:
       - 80:80
       - 443:443
+
+volumes:
+  # Redis's append-only file and snapshots (§3.1)
+  redis-data:
+  # §3.2: the converter <-> office spool, in memory, open to their shared uid only
+  office-spool:
+    driver_opts:
+      type: tmpfs
+      device: tmpfs
+      o: size=2g,uid=10001,mode=0770

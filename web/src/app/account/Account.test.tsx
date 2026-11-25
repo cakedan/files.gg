@@ -115,7 +115,7 @@ describe('account prompts (§13.3)', () => {
   it('Overview shows Premium with its expiry and the premium limits', async () => {
     const expires = NOW + 30 * 86400;
     setup({ ...ME, premium: { active: true, expires_at: expires } }, {
-      'GET /users/@me/limits': () => ({ storage: { used: 0, limit: 100 * 1024 ** 3 }, max_file_size_single: 99 * 1024 ** 2, max_file_size_chunked: 5 * 1024 ** 3, max_expiry: null, allow_no_expiry: true, anonymous: false, premium: true }),
+      'GET /users/@me/limits': () => ({ storage: { used: 0, limit: 100_000_000_000 }, max_file_size_single: 99_000_000, max_file_size_chunked: 5_000_000_000, max_expiry: null, allow_no_expiry: true, anonymous: false, premium: true }),
     });
     renderDashboard('/');
     expect(await screen.findByText(/^Premium until /)).toBeInTheDocument();

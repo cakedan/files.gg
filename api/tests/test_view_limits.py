@@ -126,11 +126,11 @@ def test_the_owner_and_staff_never_count(client, appdb):
     assert response.status_code == 200, response.text
     assert opened(client, created['vanity'], access=owner_pass)['file']['id'] == created['id']
     assert state_of(appdb, created)[2] == 0 and viewers_of(appdb, created) == 0
-    # an anonymous upload's owner is its fingerprint
-    fingerprint = anonymous()
-    anon = upload(client, dict(fingerprint, **{'X-Forwarded-For': new_ip()}), view_limit=1,
+    # an anonymous upload's owner is its guest
+    guest = anonymous()
+    anon = upload(client, dict(guest, **{'X-Forwarded-For': new_ip()}), view_limit=1,
                   turnstile_token=UPLOAD_TOKEN)
-    assert opened(client, anon['vanity'], headers=fingerprint)['file']['id'] == anon['id']
+    assert opened(client, anon['vanity'], headers=guest)['file']['id'] == anon['id']
     assert state_of(appdb, anon)[2] == 0
     # a stranger uses the only view
     assert opened(client, created['vanity'])['file']['view_limit'] == {'remaining': 0}
@@ -211,9 +211,9 @@ def test_the_owner_changes_the_limit(client, appdb):
         assert code_of(patch(client, owner, created, view_limit=bad)) == (400, 'INVALID_PARAMETERS')
     assert code_of(patch(client, owner, created, view_limit_action='delete')) == (400, 'INVALID_PARAMETERS')
     # anonymous uploaders set it only at upload
-    fingerprint = anonymous(new_ip())
-    anon = upload(client, fingerprint, view_limit=3, turnstile_token=UPLOAD_TOKEN)
-    response = client.patch('/users/@me/files/' + anon['id'], headers=fingerprint, json={'view_limit': 5})
+    guest = anonymous(new_ip())
+    anon = upload(client, guest, view_limit=3, turnstile_token=UPLOAD_TOKEN)
+    response = client.patch('/users/@me/files/' + anon['id'], headers=guest, json={'view_limit': 5})
     assert code_of(response) == (403, 'FORBIDDEN')
 
 
@@ -325,18 +325,18 @@ def test_payloads_and_lookup(client, appdb):
 # --- uploads (§19.3) ------------------------------------------------------------------------------------------
 
 def test_an_anonymous_upload_cant_choose_private(client, appdb, monkeypatch):
-    fingerprint = anonymous(new_ip())
-    response = client.post('/files', headers=fingerprint, files={'file': ('a.txt', uuid.uuid4().bytes, 'text/plain')},
+    guest = anonymous(new_ip())
+    response = client.post('/files', headers=guest, files={'file': ('a.txt', uuid.uuid4().bytes, 'text/plain')},
                            data={'view_limit': '1', 'view_limit_action': 'private', 'turnstile_token': UPLOAD_TOKEN})
     assert code_of(response) == (400, 'PRIVATE_REQUIRES_ACCOUNT')
-    created = upload(client, fingerprint, view_limit=1, turnstile_token=UPLOAD_TOKEN)
+    created = upload(client, guest, view_limit=1, turnstile_token=UPLOAD_TOKEN)
     assert (created['view_limit'], created['view_limit_action']) == (1, 'expire')
-    response = client.post('/uploads', headers=fingerprint, json={
+    response = client.post('/uploads', headers=guest, json={
         'filename': 'x.bin', 'size': 100, 'view_limit': 2, 'view_limit_action': 'private',
         'turnstile_token': UPLOAD_TOKEN})
     assert code_of(response) == (400, 'PRIVATE_REQUIRES_ACCOUNT')
     for bad in ('0', '1001', 'x'):
-        response = client.post('/files', headers=fingerprint,
+        response = client.post('/files', headers=guest,
                                files={'file': ('a.txt', uuid.uuid4().bytes, 'text/plain')},
                                data={'view_limit': bad, 'turnstile_token': UPLOAD_TOKEN})
         assert code_of(response) == (400, 'INVALID_PARAMETERS')

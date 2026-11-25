@@ -23,7 +23,7 @@ function Fact({ label, children }: { label: string; children: React.ReactNode })
 }
 
 function OwnerFact({ owner }: { owner: AdminFileDetail['owner'] }) {
-  if (owner.anonymous) return <>Anonymous{owner.fingerprint ? ` (fingerprint ${owner.fingerprint})` : ''}</>;
+  if (owner.anonymous) return <>Anonymous{owner.guest_id ? ` (guest ${owner.guest_id})` : ''}</>;
   return owner.user_id ? (
     <Link to={`/admin/users/${owner.user_id}`} className="text-gg hover:underline">
       {owner.username ?? owner.user_id}

@@ -174,6 +174,59 @@ describe('/previews/ parsing (contract §3)', () => {
 });
 
 
+describe('/previews/document/<vanity>.pdf (milestone-5.md §9.2)', () => {
+  it('link file: the PDF inline, as application/pdf, immutable with ?v=, sandboxed', async () => {
+    const url = new URL(FILES.mdoc.file.assets.document.url);
+    assert.equal(url.pathname, '/previews/document/mdoc.pdf');
+    const response = await cdn(url.pathname + url.search);
+    assert.equal(response.status, 200);
+    assert.equal(response.text, '%PDF-1.7 report');
+    assert.equal(response.headers['content-type'], 'application/pdf');
+    assert.equal(response.headers['content-disposition'], 'inline');
+    assert.equal(response.headers['cache-control'], IMMUTABLE);
+    assertCdnHeaders(response.headers);
+    assert.equal(s3Reads(previewKey('mdoc', 'document')).length, 1);
+  });
+
+  it('always application/pdf, whatever the stored row says', async () => {
+    const response = await preview('mdocodd', 'document');
+    assert.equal(response.status, 200);
+    assert.equal(response.headers['content-type'], 'application/pdf');
+  });
+
+  it('a wrong extension, or a file without the asset, is a 404', async () => {
+    assert.equal((await cdn('/previews/document/mdoc.webp')).status, 404);
+    assert.equal((await cdn('/previews/document/mdoc')).status, 404);
+    assert.equal((await preview('mvid', 'document')).status, 404);
+  });
+
+  it('password file: 401 unsigned, 200 with the file grant, never publicly cacheable', async () => {
+    const unsigned = await preview('mdocpw', 'document');
+    assert.equal(unsigned.status, 401);
+    assert.equal(unsigned.headers['cache-control'], NO_STORE);
+    assert.equal(s3Reads(previewKey('mdocpw', 'document')).length, 0);
+    const response = await cdn(signedForFile('mdocpw', previewPath('mdocpw', 'document')));
+    assert.equal(response.status, 200);
+    assert.equal(response.text, '%PDF-1.7 secret');
+    assert.equal(response.headers['content-type'], 'application/pdf');
+    assert.equal(response.headers['content-disposition'], 'inline');
+    assert.equal(response.headers['cache-control'], NO_STORE);
+    // Signed for another file, or a stale version: refused.
+    assert.equal((await cdn(signedForFile('mdocpw', previewPath('mdocpw', 'document'), { version: 1 }))).status, 401);
+    assert.equal((await cdn(signedForFile('mdoc', previewPath('mdocpw', 'document')))).status, 401);
+  });
+
+  it('private file: 404 unsigned, 200 with the owner\'s signed URL', async () => {
+    const hidden = await preview('mdocpriv', 'document');
+    assert.equal(hidden.status, 404);
+    assert.equal(hidden.headers['cache-control'], NO_STORE);
+    const response = await cdn(signedForFile('mdocpriv', previewPath('mdocpriv', 'document')));
+    assert.equal(response.status, 200);
+    assert.equal(response.text, '%PDF-1.7 mine');
+  });
+});
+
+
 describe('/previews/ access: the file\'s own rules', () => {
   it('password file: 401 without a signature, before any byte or preview list is touched', async () => {
     for (const kind of ['poster', 'thumb', 'hover']) {

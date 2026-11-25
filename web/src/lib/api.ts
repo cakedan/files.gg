@@ -5,10 +5,11 @@
  *   passthrough. `VITE_API_URL` overrides it only for unusual local setups.
  * - Auth: the session is the HttpOnly `__Host-filesgg_session` cookie, which JavaScript
  *   never sees; requests use `credentials: "same-origin"` so the browser sends it.
- *   Every non-GET request carries `X-Filesgg-Csrf: 1` (§3.6). `X-Fingerprint` from
- *   localStorage `filesgg.fingerprint` identifies anonymous uploads while signed out.
+ *   Every non-GET request carries `X-Filesgg-Csrf: 1` (§3.6). `Authorization: Guest <token>`,
+ *   from localStorage `filesgg.guest`, identifies anonymous uploads while signed out
+ *   (milestone-5 §20): a random id the API signs, never a credential.
  * - Signed-in state comes from `GET /auth/session` (lib/session.ts); this module only
- *   remembers the last answer, so it knows whether to send the fingerprint.
+ *   remembers the last answer, so it knows whether to send the guest token.
  * - Errors: non-2xx responses throw `ApiError` with the `{ code, message, status, ... }`
  *   body. A `401` on a signed-in call, `403 CSRF` and `403 ACCOUNT_PENDING_DELETION` are
  *   also announced to `onAuthEvent` listeners (the dashboard's session layer).
@@ -25,7 +26,7 @@ export const DEFAULT_API_URL = '/api';
 /** The API's public origin, used by tools (ShareX, curl) and by custom-domain viewers. */
 export const PUBLIC_API_URL = 'https://api.files.gg';
 
-export const FINGERPRINT_KEY = 'filesgg.fingerprint';
+export const GUEST_KEY = 'filesgg.guest';
 export const CSRF_HEADER = 'X-Filesgg-Csrf';
 
 /**
@@ -107,7 +108,7 @@ const stored = (key: string): string | null => getItem(key) || null;
 // ---------------------------------------------------------------------------
 // Session state (milestone-6 §3, §13.1). The cookie is invisible to scripts; this is
 // only the last answer of `GET /auth/session`, kept so the client knows whether to send
-// the anonymous fingerprint and whether a 401 means "you were signed out".
+// the guest token and whether a 401 means "you were signed out".
 // ---------------------------------------------------------------------------
 
 let signedIn: boolean | null = null;
@@ -149,16 +150,16 @@ export function reportApiFailure(error: ApiError, path: string): void {
 const SAFE_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);
 
 /**
- * Headers for a call to `/api`: the anonymous fingerprint while signed out, and the CSRF
- * header on every state-changing method (§3.6). Never a credential: the cookie is the
- * browser's. Storage failures simply mean "no fingerprint".
+ * Headers for a call to `/api`: the guest token while signed out, and the CSRF header on
+ * every state-changing method (§3.6). Never a credential: the cookie is the browser's.
+ * Storage failures simply mean "no guest".
  */
 export function authHeaders(method = 'GET'): Record<string, string> {
   const headers: Record<string, string> = {};
-  const fingerprint = stored(FINGERPRINT_KEY);
-  // The fingerprint identifies anonymous uploads, so it is only sent while signed out.
-  // Fingerprint files are claimed on sign-in, which also deletes it (§4.2).
-  if (fingerprint && signedIn !== true) headers['X-Fingerprint'] = fingerprint;
+  const guest = stored(GUEST_KEY);
+  // The guest identifies anonymous uploads, so it is only sent while signed out.
+  // A guest's files are claimed on sign-in, which also deletes it (§4.2).
+  if (guest && signedIn !== true) headers.Authorization = `Guest ${guest}`;
   if (!SAFE_METHODS.has(method.toUpperCase())) headers[CSRF_HEADER] = '1';
   return headers;
 }
@@ -172,7 +173,7 @@ export interface RequestOptions {
   body?: unknown;
   headers?: Record<string, string>;
   signal?: AbortSignal | undefined;
-  /** Send the anonymous fingerprint (while signed out). Defaults to true. */
+  /** Send the guest token (while signed out). Defaults to true. */
   auth?: boolean;
   /** Defaults to `same-origin` (the session cookie). `omit` also drops the CSRF header. */
   credentials?: RequestCredentials;
@@ -183,7 +184,7 @@ export interface SessionResponse {
   user: User | null;
 }
 
-/** Asks who is signed in, and remembers the answer for the fingerprint and 401 handling. */
+/** Asks who is signed in, and remembers the answer for the guest token and 401 handling. */
 export async function fetchSession(signal?: AbortSignal): Promise<User | null> {
   const response = await request<SessionResponse | undefined>('/auth/session', { signal });
   const user = response?.user ?? null;
@@ -206,16 +207,16 @@ async function knownSignedIn(): Promise<boolean> {
 }
 
 /**
- * Anonymous uploads and limits need a fingerprint (milestone-2 §6). Signed in, there's
- * none. Signed out, reuses the stored one, or asks the API for a new one.
+ * Anonymous uploads and limits need a guest token (milestone-2 §6, milestone-5 §20).
+ * Signed in, there's none. Signed out, reuses the stored one, or asks the API for a new one.
  */
-export async function ensureFingerprint(): Promise<string | null> {
+export async function ensureGuest(): Promise<string | null> {
   if (await knownSignedIn()) return null;
-  const existing = stored(FINGERPRINT_KEY);
+  const existing = stored(GUEST_KEY);
   if (existing) return existing;
-  const { fingerprint } = await request<{ fingerprint: string }>('/auth/fingerprint', { auth: false });
-  const value = String(fingerprint);
-  setItem(FINGERPRINT_KEY, value);
+  const { guest } = await request<{ guest: string }>('/auth/guest', { auth: false });
+  const value = String(guest);
+  setItem(GUEST_KEY, value);
   return value;
 }
 
@@ -245,7 +246,7 @@ export async function request<T>(path: string, options: RequestOptions = {}): Pr
   const { method = 'GET', query, body, signal, auth = true, credentials = 'same-origin' } = options;
   const headers: Record<string, string> = { Accept: 'application/json' };
   const standard = authHeaders(method);
-  if (auth && standard['X-Fingerprint']) headers['X-Fingerprint'] = standard['X-Fingerprint'];
+  if (auth && standard.Authorization) headers.Authorization = standard.Authorization;
   // Same-origin writes prove where they came from (§3.6); a credential-less call needs no proof.
   if (credentials !== 'omit' && standard[CSRF_HEADER]) headers[CSRF_HEADER] = standard[CSRF_HEADER];
   Object.assign(headers, options.headers);
@@ -304,6 +305,17 @@ export interface Identity {
   last_used_at: number | null;
 }
 
+/**
+ * Milestone 5 §21: what upload-key uploads and conversions get when they don't say, and where the Upload and
+ * Convert pages' pickers start. `password` is a generated password per file; `expires_in` is seconds, or null
+ * for never. The API answers the values in effect (re-checked against the account's limits).
+ */
+export interface UploadDefaults {
+  expires_in: number | null;
+  visibility: Visibility;
+  nsfw: boolean;
+}
+
 /** The user object (milestone-6 §2.1): `GET /users/@me`, `/auth/session` and sign-in responses. */
 export interface User {
   id: string;
@@ -322,7 +334,7 @@ export interface User {
   /** Null when a rename is allowed now (§2.2 cooldown). */
   username_change_available_at: number | null;
   identities: Identity[];
-  settings: { show_name_on_albums: boolean; domain_only: boolean };
+  settings: { show_name_on_albums: boolean; domain_only: boolean; upload_defaults: UploadDefaults };
   premium: { active: boolean; expires_at: number | null };
   /** Set while a deletion is pending (§8.8). */
   deletion: { requested_at: number; scheduled_for: number } | null;

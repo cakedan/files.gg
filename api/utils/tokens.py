@@ -42,7 +42,7 @@ class Token:
         return serializer.loads(token, **kwargs)
 
 
-class FingerprintToken(Token):
-    """An anonymous uploader's fingerprint (`X-Fingerprint`). The only itsdangerous token left: user
-    sessions are opaque `fgs_` tokens in a cookie and email links are random tokens (milestone-6 §0)."""
-    salt = 'fingerprint'
+class GuestToken(Token):
+    """An anonymous uploader's guest id (`Authorization: Guest`, milestone-5 §20). The only itsdangerous token
+    left: user sessions are opaque `fgs_` tokens in a cookie and email links are random tokens (milestone-6 §0)."""
+    salt = 'guest'

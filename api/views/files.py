@@ -9,9 +9,11 @@ import db
 from db import queries
 from utils import access, access_token, errors, limits as limits_module, params, passwords, payloads, storage as storage_module
 from utils import uploading, view_hash, view_limits
+from utils.auth import guest_of
 from utils.cdn_signing import Grant
 from utils.generators import Snowflake
 from utils.params import Arg, Args
+from utils.ratelimit import limiter
 from utils.responses import ApiResponse
 from utils.turnstile import Turnstile
 from utils.vanity import (
@@ -24,15 +26,11 @@ from safety.settings import safety_settings
 from utils import standing
 
 import utils.helpers as helpers
-import utils.parameters as parameters
 
 files = Blueprint('files', url_prefix='/files')
 # milestone-6 §20.1: unlock, refresh, view and open live under the reserved `access` segment, with the kind and
 # then the vanity last (`/access/<action>/files|albums/<vanity>`), so no vanity can be read as an action word
 access_routes = Blueprint('access', url_prefix='/access')
-
-
-Fingerprint = Annotated[Optional[int], Arg('x-fingerprint', location='headers', type=parameters.fingerprint)]
 
 
 # --- POST /files: single-request upload ------------------------------------------------
@@ -42,7 +40,6 @@ class CreateFileArgs(Args):
     vanity: Annotated[Optional[str], Arg(location='values')] = ''
     type: Annotated[Optional[str], Arg(location='values', choices=('multipart', 'raw'),
                                        help='Invalid Upload Type')] = 'multipart'
-    fingerprint: Fingerprint = None
     # Milestone 2 (contract §6)
     expires_in: Annotated[Optional[int], Arg(location='values', type=uploading.positive_int)] = None
     visibility: Annotated[Optional[str], Arg(location='values', choices=uploading.VISIBILITIES)] = None
@@ -68,7 +65,7 @@ async def create_file(request):
     Milestone 6 (§7.4, §7.5): the uploader is the session cookie's user or an upload key's owner. Anonymous
     tool uploads (no credential and no `turnstile_token` at all) are 401 UPLOAD_KEY_REQUIRED before the file
     is read: from the query string for raw bodies, and before the first file part of a multipart body."""
-    from utils import auth as auth_module, links, upload_keys
+    from utils import auth as auth_module, links, upload_defaults, upload_keys
     content_mimetype = uploading.mimetype_of(request.content_type)
 
     user, key = auth_module.uploader(request)
@@ -77,13 +74,12 @@ async def create_file(request):
         raise errors.upload_key_required()
     limit = limits_module.get_limits(user).max_file_size_single
     # milestone-4 §2.5 step 5: bans and restrictions, before reading the body
-    raw_fingerprint = request.headers.get('x-fingerprint')
     async with db.connection() as conn:
         await standing.check_uploader(
-            conn, user, parameters.fingerprint(raw_fingerprint) if raw_fingerprint else None,
+            conn, user, guest_of(request),
             abuse_ip.abuse_ip_hash(helpers.client_ip(request), safety_settings().abuse_hash_secret))
         if key is not None:
-            await upload_keys.count_upload(conn, key)
+            await upload_keys.count_upload(request, key)
         await links.prepare(conn, user, key)
 
     # Content-Length first, before reading anything
@@ -114,6 +110,9 @@ async def create_file(request):
             raise errors.upload_key_required()
         if key is not None and args.album not in (None, '') and not key.allows('albums:append'):
             raise errors.upload_key_scope('albums:append')
+        if key is not None:
+            # milestone-5 §21: what the tool doesn't send comes from the owner's upload defaults
+            args = upload_defaults.for_key_upload(args, user)
         return await _create_file(request, args, user, upload, declared, key)
     finally:
         if upload is not None:
@@ -121,12 +120,12 @@ async def create_file(request):
 
 
 create_file.__params_model__ = CreateFileArgs
-route(files, '', ['POST'], stream=True)(create_file)
+# milestone-5 §18.2
+route(files, '', ['POST'], stream=True)(limiter.limit('60 per minute', scope='file_upload')(create_file))
 
 
 async def _create_file(request, args, user, upload, declared, key=None):
-    fingerprint = args.fingerprint if user is None else None
-    owner = uploading.Owner(user, fingerprint, helpers.client_ip(request), request.app.ctx.view_hash_secret)
+    owner = uploading.Owner(user, guest_of(request), helpers.client_ip(request), request.app.ctx.view_hash_secret)
     limits = owner.limits
 
     if not vanity_length_ok(args.vanity):
@@ -190,7 +189,11 @@ async def _create_file(request, args, user, upload, declared, key=None):
             spooled.discard()
     # the uploader owns it: a protected file's URLs are signed for 1 h; milestone-4 §6.2 adds `safety`, and
     # milestone-6 §10.9 the link domain and `direct_url`
-    return ApiResponse(payloads.with_password(payloads.owner_upload(fobj), fobj, generated))
+    data = payloads.with_password(payloads.owner_upload(fobj), fobj, generated)
+    if key is not None:
+        # milestone-5 §21: the `.sxcu` always copies `url_with_password`, which the owner's defaults may need
+        data.setdefault('url_with_password', data['url'])
+    return ApiResponse(data)
 
 
 async def refuse_known_content(request, hasher, owner, nsfw, name, extension, mimetype):
@@ -219,7 +222,7 @@ async def csam_reupload(request, owner, blake2b, md5, sha1, size, name, extensio
     attempt = {'filename': name + ('.' + extension if extension else ''), 'mimetype': mimetype, 'size': size,
                'signed_in': owner.user is not None, 'at': access.now()}
     await in_thread(csam.reupload, row[0] if row else None, owner.user.id if owner.user else None,
-                    owner.fingerprint, ip_hash, attempt)
+                    owner.guest_id, ip_hash, attempt)
 
 
 async def store_upload(request, owner, spooled, name, extension, mimetype, expires_in, access_columns, vanity='',
@@ -265,7 +268,7 @@ async def store_upload(request, owner, spooled, name, extension, mimetype, expir
                         continue
                     fobj = await queries.create_file(
                         conn, id=Snowflake.generate(), vanity=fvanity, mimetype_id=mimetype, extension=extension,
-                        filename=name, fhash=fhash, user=owner.user, fingerprint=owner.fingerprint, size=size,
+                        filename=name, fhash=fhash, user=owner.user, guest_id=owner.guest_id, size=size,
                         expires_at=expires_at, uploader_ip_hash=owner.ip_hash, nsfw_marked=nsfw_marked,
                         uploader_abuse_ip_hash=abuse_hash, uploader_ip_sealed=sealed_ip, upload_key_id=upload_key_id,
                         view_limit=view_limit, view_limit_action=view_limit_action, **access_columns,
@@ -311,9 +314,7 @@ async def _visible_file(conn, request, vanity):
     if fobj.visibility == 'link':
         return fobj, True, None
     user = await access.optional_user(conn, request)
-    fingerprint = parameters.fingerprint(request.headers.get('x-fingerprint')) if request.headers.get(
-        'x-fingerprint') else None
-    if access.is_owner(fobj, user, fingerprint):
+    if access.is_owner(fobj, user, guest_of(request)):
         return fobj, True, Grant.owner_file(fobj)
     claims, album = await access.file_or_album_claims(conn, request, fobj, request.ctx.access_token)
     grant = access.grant_for(fobj, claims, album) if claims is not None else None
@@ -444,8 +445,7 @@ async def unlock_file(request, args, vanity):
     check_state(fobj)
     if not await Turnstile.verify(args.turnstile_token, 'unlock', helpers.client_ip(request)):
         raise errors.captcha_invalid()
-    async with db.connection() as conn:
-        await access.rate_limit(conn, request, fobj, 'unlock', access.UNLOCK_ATTEMPTS_PER_MINUTE)
+    await access.rate_limit(request, fobj, 'unlock')
     if fobj.visibility == 'password':
         if access.password_has_expired(fobj):
             raise errors.password_expired()
@@ -479,7 +479,7 @@ async def refresh_unlock(request, args, vanity):
         if fobj.visibility == 'private' and (claims is None or claims['s'] != 'owner'):
             raise errors.unknown_file()
         check_state(fobj)
-        await access.rate_limit(conn, request, fobj, 'access', access.ACCESS_REQUESTS_PER_MINUTE)
+        await access.rate_limit(request, fobj, 'access')
         if claims is not None and view_limits.limited(fobj):
             fobj = await _count_unless_privileged(conn, request, fobj, claims)
     if claims is None:
@@ -511,7 +511,7 @@ async def view_file(request, vanity):
         if fobj.visibility == 'private' and claims is None:
             raise errors.unknown_file()
         check_state(fobj)
-        await access.rate_limit(conn, request, fobj, 'access', access.ACCESS_REQUESTS_PER_MINUTE)
+        await access.rate_limit(request, fobj, 'access')
         if claims is not None and album is None and view_limits.limited(fobj):
             fobj = await _count_unless_privileged(conn, request, fobj, claims)
     if claims is None:
@@ -551,7 +551,7 @@ async def open_file(request, args, vanity):
     if not await Turnstile.verify(args.turnstile_token, 'view', helpers.client_ip(request)):
         raise errors.captcha_invalid()
     async with db.connection() as conn:
-        await access.rate_limit(conn, request, fobj, 'unlock', access.UNLOCK_ATTEMPTS_PER_MINUTE)
+        await access.rate_limit(request, fobj, 'unlock')
         if not privileged and fobj.visibility == 'password' and claims is None:
             raise errors.unlock_required()
         if not privileged:

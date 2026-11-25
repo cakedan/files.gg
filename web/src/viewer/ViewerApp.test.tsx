@@ -24,12 +24,6 @@ const image: FileData = {
 };
 
 describe('ViewerApp', () => {
-  it('renders the home card', () => {
-    render(<ViewerApp state={{ page: 'home' }} />);
-    expect(screen.getByAltText('files.gg')).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: /upload a file/i })).toHaveAttribute('href', '/app/upload');
-  });
-
   it('renders the missing state', () => {
     render(<ViewerApp state={{ page: 'missing' }} />);
     expect(screen.getByRole('heading', { name: "This file doesn't exist or has expired." })).toBeInTheDocument();

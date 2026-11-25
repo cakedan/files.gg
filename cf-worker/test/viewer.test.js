@@ -11,6 +11,9 @@ import {
   escapeJsonForHtml,
   fileMetaTags,
   isExpired,
+  LEGAL_REDIRECTS,
+  PUBLIC_PAGE_PATHS,
+  publicPageHead,
   visibleAlbumItems,
 } from '../worker/utils/viewer.js';
 
@@ -358,13 +361,16 @@ describe('classifyStablePath (web/README.md §1 order)', () => {
   const cases = {
     '/favicon.ico': 'root-file', '/og-image.png': 'root-file', '/apple-touch-icon.png': 'root-file',
     '/assets/viewer-abc.js': 'asset', '/assets/pdfjs/6.5.438/wasm/openjpeg.wasm': 'asset',
-    '/app': 'app', '/app/files': 'app', '/': 'home', '/convert': 'convert',
+    '/app': 'app', '/app/files': 'app', '/': 'home', '/convert': 'page',
     '/a/Ab3dE6gH': 'album', '/a/Ab3dE6gH/': 'album',
     // milestone-6.md §20.2: the album item is `?item=<n>`; nothing comes after an album's vanity.
     '/a/Ab3dE6gH/3': 'missing', '/a/Ab3dE6gH/3/': 'missing',
     '/api/users/@me': 'api',
     // The old frontend's pages are gone (milestone-3.md §0): these are vanities now.
-    '/auth/session': 'file', '/dashboard/uploads': 'file', '/legal': 'file', '/options': 'file', '/details/1': 'file',
+    '/auth/session': 'file', '/dashboard/uploads': 'file', '/options': 'file', '/details/1': 'file',
+    // milestone-5.md §19.1: the changelog and legal pages; /legal redirects to the Terms.
+    '/changelog': 'page', '/changelog/': 'page', '/legal/terms': 'page', '/legal/privacy/': 'page', '/legal': 'redirect',
+    '/legal/other': 'missing', '/changelog/x': 'missing', '/x/changelog.png': 'missing', '/convert/x': 'missing',
     // ...except where they contain a reserved segment (milestone-6.md §6.3): never looked up.
     '/auth/login': 'missing', '/dashboard/files': 'missing',
     '/img1': 'file', '/img1.png': 'file', '/abcd/xyz.png': 'file', '/favicon': 'file', '/apple': 'file',
@@ -379,6 +385,43 @@ describe('classifyStablePath (web/README.md §1 order)', () => {
     assert.equal(classifyStablePath('/a/Ab3dE6gH/').vanity, 'Ab3dE6gH');
     assert.equal(classifyStablePath('/a/caf%C3%A9').vanity, 'café');
     assert.equal(classifyStablePath('/api/files?x').path, '/files?x');
+  });
+});
+
+
+describe('the public app pages: Convert, changelog, Terms and Privacy (milestone-5.md §11, §19.1)', () => {
+  it('maps each path to its page, and /legal to a 302 to the Terms', () => {
+    assert.deepEqual(PUBLIC_PAGE_PATHS, {
+      '/convert': 'convert', '/convert/': 'convert',
+      '/changelog': 'changelog', '/changelog/': 'changelog',
+      '/legal/terms': 'terms', '/legal/terms/': 'terms',
+      '/legal/privacy': 'privacy', '/legal/privacy/': 'privacy',
+    });
+    for (const [path, page] of Object.entries(PUBLIC_PAGE_PATHS)) {
+      assert.deepEqual(classifyStablePath(path), { route: 'page', page }, path);
+    }
+    for (const path of Object.keys(LEGAL_REDIRECTS)) {
+      assert.deepEqual(classifyStablePath(path), { route: 'redirect', location: '/legal/terms', status: 302 }, path);
+    }
+  });
+
+  it('gives each page its own title and description', () => {
+    const titles = {
+      convert: 'Convert · files.gg', changelog: 'Changelog · files.gg', terms: 'Terms of Service · files.gg', privacy: 'Privacy Policy · files.gg',
+    };
+    const descriptions = new Set();
+    for (const [page, title] of Object.entries(titles)) {
+      const head = publicPageHead(page);
+      assert.equal(head.title, title);
+      assert.match(head.meta, new RegExp(`<meta property="og:title" content="${title}">`));
+      assert.match(head.meta, /<meta property="og:image" content="https:\/\/files.gg\/og-image.png">/);
+      assert.doesNotMatch(head.meta, /robots/);
+      const description = /<meta name="description" content="([^"]+)">/.exec(head.meta)[1];
+      assert.match(head.meta, new RegExp(`<meta property="og:description" content="${description}">`));
+      descriptions.add(description);
+    }
+    assert.equal(descriptions.size, 4);
+    assert.match(publicPageHead('terms', { mainOrigin: 'http://files.localhost:8787' }).meta, /content="http:\/\/files.localhost:8787\/og-image.png"/);
   });
 });
 

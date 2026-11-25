@@ -9,9 +9,9 @@ import { safeNext, useSession } from '../../lib/session';
 /** Shown after a sign-in that moved this browser's anonymous uploads into the account (§4.2). */
 export const CLAIMED_TOAST = 'Signed in. Files you uploaded from this browser are now in your account.';
 
-/** The toast after a sign-in: the claim note only when there was a fingerprint and nothing blocks claiming. */
-export function signedInToast(hadFingerprint: boolean, pendingDeletion: boolean): string | undefined {
-  return hadFingerprint && !pendingDeletion ? CLAIMED_TOAST : undefined;
+/** The toast after a sign-in: the claim note only when there was a guest and nothing blocks claiming. */
+export function signedInToast(hadGuest: boolean, pendingDeletion: boolean): string | undefined {
+  return hadGuest && !pendingDeletion ? CLAIMED_TOAST : undefined;
 }
 
 /** `GET /auth/config`: Discord is hidden when the API has no Discord app (§15). */

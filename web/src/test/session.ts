@@ -16,7 +16,7 @@ export const ME: User = {
   username_changed_at: null,
   username_change_available_at: null,
   identities: [],
-  settings: { show_name_on_albums: false, domain_only: false },
+  settings: { show_name_on_albums: false, domain_only: false, upload_defaults: { expires_in: null, visibility: 'link', nsfw: false } },
   premium: { active: false, expires_at: null },
   deletion: null,
   staff: null,

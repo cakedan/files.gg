@@ -60,11 +60,15 @@ function safeJoin(root: string, relative: string): string | null {
   }
 }
 
+/** The dashboard entry's public pages: the home page, and milestone-5 §11 and §19.1's. */
+const APP_PUBLIC_PAGES = /^\/(|convert|changelog|legal|legal\/terms|legal\/privacy)\/?$/;
+
 /**
  * Mirrors the production routing in dev and preview:
  *   /app, /app/*            -> app.html     (the dashboard SPA)
+ *   /, /convert, /changelog, /legal, /legal/terms, /legal/privacy -> app.html (its public pages, milestone-5
+ *                              §11, §19.1; the Worker answers /legal with a 302, the dev server leaves it to the app)
  *   /challenge              -> challenge.html (the Turnstile frame for custom domains)
- *   /, /convert             -> viewer.html  (home card, convert placeholder)
  *   /a/<vanity>             -> viewer.html  (album page; the lightbox item is ?item=<n>)
  *   /report/<vanity>, /report/a/<vanity> -> viewer.html (report pages, milestone-6 §20.2)
  */
@@ -72,14 +76,12 @@ export function routeEntries(): Plugin {
   const rewrite: Connect.NextHandleFunction = (req, _res, next) => {
     const url = req.url ?? '/';
     const [pathname = '/', search = ''] = url.split(/(?=\?)/, 2);
-    if (pathname === '/app' || (pathname.startsWith('/app/') && !pathname.includes('.'))) {
+    if (pathname === '/app' || (pathname.startsWith('/app/') && !pathname.includes('.')) || APP_PUBLIC_PAGES.test(pathname)) {
       req.url = `/app.html${search}`;
     } else if (pathname === '/challenge') {
       // Before the bare-vanity rule, which would match it. `challenge` is a reserved vanity.
       req.url = `/challenge.html${search}`;
     } else if (
-      pathname === '/' ||
-      pathname === '/convert' ||
       /^\/a\/[^/.]+\/?$/.test(pathname) ||
       pathname.startsWith('/report/') ||
       // A bare vanity (no extension), e.g. /private123 for owner-pass testing.

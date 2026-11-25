@@ -8,20 +8,22 @@ import migrate
 from utils import filetypes
 
 VERSIONS = [('0001', 'schema'), ('0002', 'mimetypes'), ('0003', 'trust_safety'), ('0004', 'scan_hardening'),
-            ('0005', 'accounts'), ('0006', 'view_limits')]
+            ('0005', 'accounts'), ('0006', 'view_limits'), ('0007', 'conversions')]
 TABLES = {
     'schema_migrations', 'mimetype_types', 'mimetypes', 'mimetype_extensions', 'users', 'file_hashes',
     'file_hash_assets', 'files', 'file_view_days', 'file_view_seen', 'albums', 'album_files', 'upload_sessions',
-    'upload_parts', 'unlock_attempts', 'jobs', 'snowflake_nodes',
+    'upload_parts', 'jobs', 'snowflake_nodes',
     # Milestone 4 (contract §1)
     'file_hash_pdq', 'staff', 'moderation_actions', 'blocked_hashes', 'blocked_hash_pdq', 'user_warnings',
     'user_restrictions', 'bans', 'moderation_cases', 'reports', 'report_messages', 'report_reads', 'content_flags',
-    'safety_rate_limits', 'evidence_holds',
+    'evidence_holds',
     # Milestone 6 (contract §1)
     'username_holds', 'user_identities', 'sessions', 'account_tokens', 'custom_domains', 'upload_keys',
     'user_entitlements', 'data_exports',
     # Milestone 6 §19.2
     'file_limit_viewers',
+    # Milestone 5 (contract §2; safety_rate_limits and unlock_attempts moved to Redis, §18.5)
+    'conversions', 'conversion_sources', 'conversion_cache', 'conversion_usage',
 }
 # PLAN.md "Accepted file types", the v1 blocklist: none of these may be accepted
 # one list for the code and the tests: utils/filetypes.py
@@ -182,7 +184,8 @@ def test_column_types_are_idiomatic(migrated_db):
     for table in ('users', 'file_hashes', 'files', 'albums', 'upload_sessions'):
         assert by_column[(table, 'id')] == 'bigint', table
     for table, column in (('files', 'hash_id'), ('files', 'user_id'), ('files', 'size'), ('file_hashes', 'size'),
-                          ('album_files', 'file_id'), ('unlock_attempts', 'album_id')):
+                          ('album_files', 'file_id'), ('conversions', 'source_file_id'),
+                          ('files', 'derived_from_file_id')):
         assert by_column[(table, column)] == 'bigint', (table, column)
 
 
@@ -218,8 +221,6 @@ def test_foreign_keys(migrated_db):
         ('upload_sessions', 'file_id'): ('files', 'set null'),
         ('upload_sessions', 'album_id'): ('albums', 'set null'),
         ('upload_parts', 'session_id'): ('upload_sessions', 'cascade'),
-        ('unlock_attempts', 'file_id'): ('files', 'cascade'),
-        ('unlock_attempts', 'album_id'): ('albums', 'cascade'),
         # Milestone 4: targets of the audit trail, cases, reports and flags are SET NULL so the trail
         # survives deletions (PLAN.md schema fix 3); a user's own notices and restrictions go with them
         ('bans', 'action_id'): ('moderation_actions', 'set null'),
@@ -286,6 +287,21 @@ def test_foreign_keys(migrated_db):
         ('moderation_cases', 'domain_id'): ('custom_domains', 'set null'),
         # milestone-6 §19.2: a file's viewers go with it
         ('file_limit_viewers', 'file_id'): ('files', 'cascade'),
+        # Milestone 5 (contract §2): a conversion goes with its owner's account; its sources and outputs outlive
+        # it as SET NULL; cache rows go with either hash
+        ('conversions', 'owner_user_id'): ('users', 'cascade'),
+        ('conversions', 'source_file_id'): ('files', 'set null'),
+        ('conversions', 'source_album_id'): ('albums', 'set null'),
+        ('conversions', 'source_hash_id'): ('file_hashes', 'set null'),
+        ('conversions', 'output_file_id'): ('files', 'set null'),
+        ('conversions', 'output_album_id'): ('albums', 'set null'),
+        ('conversion_sources', 'conversion_id'): ('conversions', 'cascade'),
+        ('conversion_sources', 'file_id'): ('files', 'set null'),
+        ('conversion_sources', 'hash_id'): ('file_hashes', 'set null'),
+        ('conversion_cache', 'source_hash_id'): ('file_hashes', 'cascade'),
+        ('conversion_cache', 'output_hash_id'): ('file_hashes', 'cascade'),
+        ('files', 'derived_from_file_id'): ('files', 'set null'),
+        ('files', 'conversion_id'): ('conversions', 'set null'),
     }
 
 
@@ -307,8 +323,6 @@ def insert_file(temp, file_id, **columns):
     "UPDATE files SET mimetype_id = 'application/x-msdownload'",
     "UPDATE file_hashes SET processing_state = 'unknown'",
     "INSERT INTO file_hashes (id, blake2b, sha1, md5, size) VALUES (2, 'b', 's', 'm', 1)",
-    "INSERT INTO unlock_attempts (file_id, album_id, scope, ip_hash, window_start) VALUES (1, NULL, 'nope', '\\x00', now())",
-    "INSERT INTO unlock_attempts (file_id, album_id, scope, ip_hash, window_start) VALUES (NULL, NULL, 'unlock', '\\x00', now())",
     "INSERT INTO mimetypes (id, type_id) VALUES ('Image/X-Thing', 'image')",
     "INSERT INTO mimetypes (id, type_id) VALUES ('image/x-thing', 'video')",
     "INSERT INTO mimetype_extensions (mimetype_id, extension) VALUES ('text/plain', 'TXT2')",
@@ -334,11 +348,28 @@ def insert_file(temp, file_id, **columns):
     'UPDATE files SET view_limit = 2, views_used = 3',
     "INSERT INTO file_limit_viewers (file_id, viewer) VALUES (1, '\\x01'), (1, '\\x01')",
     "INSERT INTO file_limit_viewers (file_id, viewer) VALUES (2, '\\x01')",
+    # Milestone 5 (contract §2)
+    "UPDATE file_hashes SET preview_state = 'running'",
+    "INSERT INTO file_hash_assets (hash_id, kind, storage_key, content_type, size) VALUES (1, 'document', 'k', "
+    "'application/pdf', 1)",
+    "INSERT INTO file_hash_assets (hash_id, kind, storage_key, content_type, size, pages) VALUES (1, 'thumb', 'k', "
+    "'image/webp', 1, 2)",
+    "INSERT INTO conversions (id, owner_user_id, owner_guest_id, source_kind, target, options, recipe_hash, queue, "
+    "time_limit, output_settings) VALUES (1, 9, 7, 'image', 'png', '{}', sha256('x'::bytea), 'convert_member', 60, '{}')",
+    "INSERT INTO conversions (id, owner_user_id, source_kind, target, options, recipe_hash, queue, time_limit, "
+    "output_settings) VALUES (1, 9, 'spreadsheet', 'png', '{}', sha256('x'::bytea), 'convert_member', 60, '{}')",
+    "INSERT INTO conversions (id, owner_user_id, source_kind, target, options, recipe_hash, queue, time_limit, "
+    "output_settings, status) VALUES (1, 9, 'image', 'png', '{}', sha256('x'::bytea), 'convert_member', 60, '{}', "
+    "'done')",
+    "INSERT INTO conversions (id, owner_user_id, owner_ip_hash, source_kind, target, options, recipe_hash, queue, "
+    "time_limit, output_settings) VALUES (1, 9, '\\x01', 'image', 'png', '{}', sha256('x'::bytea), 'convert_member', "
+    "60, '{}')",
+    "INSERT INTO conversion_usage (subject, day) VALUES ('ip:1', '2026-11-25')",
 ])
 def test_constraints(migrated_db, sql):
     migrated_db.execute("INSERT INTO file_hashes (id, blake2b, sha1, md5, size) VALUES (1, 'b', 's', 'm', 1)")
     insert_file(migrated_db, 1, extension='txt')
-    migrated_db.execute("INSERT INTO albums (id, vanity, owner_fingerprint) VALUES (1, 'a1', 7)")
+    migrated_db.execute("INSERT INTO albums (id, vanity, owner_guest_id) VALUES (1, 'a1', 7)")
     migrated_db.execute("INSERT INTO users (id, email, username) VALUES (9, 'nine@x', 'nine')")
     with pytest.raises(psycopg.errors.IntegrityError):
         migrated_db.execute(sql)
@@ -351,11 +382,9 @@ def test_deleting_a_blobs_rows(migrated_db):
     migrated_db.execute("INSERT INTO file_hash_assets (hash_id, kind, storage_key, content_type, size) "
                         "VALUES (1, 'thumb', 'derived/1/thumb.webp', 'image/webp', 1)")
     insert_file(migrated_db, 1)
-    migrated_db.execute("INSERT INTO albums (id, vanity, owner_fingerprint, cover_file_id) VALUES (1, 'a1', 7, 1)")
+    migrated_db.execute("INSERT INTO albums (id, vanity, owner_guest_id, cover_file_id) VALUES (1, 'a1', 7, 1)")
     migrated_db.execute('INSERT INTO album_files (album_id, file_id, position) VALUES (1, 1, 0)')
     migrated_db.execute("INSERT INTO file_view_days (file_id, day, views) VALUES (1, '2026-11-25', 1)")
-    migrated_db.execute("INSERT INTO unlock_attempts (file_id, scope, ip_hash, window_start) "
-                        "VALUES (1, 'unlock', '\\x00', now())")
     with pytest.raises(psycopg.errors.ForeignKeyViolation):
         migrated_db.execute('DELETE FROM file_hashes WHERE id = 1')
 
@@ -363,7 +392,7 @@ def test_deleting_a_blobs_rows(migrated_db):
     migrated_db.execute('DELETE FROM file_hashes WHERE id = 1')
     assert migrated_db.fetchone(
         'SELECT (SELECT count(*) FROM album_files) + (SELECT count(*) FROM file_view_days) + '
-        '(SELECT count(*) FROM unlock_attempts) + (SELECT count(*) FROM file_hash_assets)')[0] == 0
+        '(SELECT count(*) FROM file_hash_assets)')[0] == 0
     assert migrated_db.fetchone('SELECT cover_file_id FROM albums WHERE id = 1')[0] is None
 
 

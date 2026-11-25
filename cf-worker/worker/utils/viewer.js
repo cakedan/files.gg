@@ -586,8 +586,9 @@ export const REPORT_SEGMENT = 'report';
 // Every reserved vanity segment the Worker knows (milestone-6.md §6.3 adds the auth pages, the
 // challenge frame and the custom-domain byte paths `files`, `previews` and `albums`). A vanity
 // containing one can't exist, so nothing is looked up for it.
+// milestone-5.md §19.1 adds the public pages `convert`, `legal` and `changelog`.
 export const RESERVED_SEGMENTS = Object.freeze([
-  REPORT_SEGMENT, 'login', 'register', 'signup', 'challenge', 'files', 'previews', 'albums',
+  REPORT_SEGMENT, 'login', 'register', 'signup', 'challenge', 'files', 'previews', 'albums', 'convert', 'legal', 'changelog',
 ]);
 
 export function hasReservedSegment(vanity) {
@@ -603,6 +604,68 @@ export const AUTH_REDIRECTS = Object.freeze({
   '/signup': '/app/register',
   '/signup/': '/app/register',
 });
+
+// files.gg only (milestone-5.md §11, §19.1): the public pages of the dashboard entry (app.html), outside
+// /app and readable signed out: the home page (`/`, the `home` route), Convert, the changelog, the Terms and the
+// Privacy Policy. Each gets its own
+// <title> and description; the app's router picks the page from the path.
+const PUBLIC_PAGES = Object.freeze({
+  home: Object.freeze({
+    title: 'files.gg: share any file with a link',
+    description: 'Upload a file and share the link. Private and password files, view limits, albums, conversion, and ShareX upload keys.',
+  }),
+  convert: Object.freeze({
+    title: 'Convert · files.gg',
+    description: 'Convert images, GIFs, video, audio, PDFs and documents to other formats.',
+  }),
+  changelog: Object.freeze({
+    title: 'Changelog · files.gg',
+    description: 'What changed on files.gg, newest first.',
+  }),
+  terms: Object.freeze({
+    title: 'Terms of Service · files.gg',
+    description: 'The rules for using files.gg: accounts, your content, acceptable use, scanning, reports and copyright.',
+  }),
+  privacy: Object.freeze({
+    title: 'Privacy Policy · files.gg',
+    description: 'What files.gg collects, why, who it shares it with, how long it keeps it, and your rights.',
+  }),
+});
+
+export const PUBLIC_PAGE_PATHS = Object.freeze({
+  '/convert': 'convert',
+  '/convert/': 'convert',
+  '/changelog': 'changelog',
+  '/changelog/': 'changelog',
+  '/legal/terms': 'terms',
+  '/legal/terms/': 'terms',
+  '/legal/privacy': 'privacy',
+  '/legal/privacy/': 'privacy',
+});
+
+// `/legal` has no page of its own: a 302 to the Terms (milestone-5.md §19.1), query kept.
+export const LEGAL_REDIRECTS = Object.freeze({
+  '/legal': '/legal/terms',
+  '/legal/': '/legal/terms',
+});
+
+// A public page's <title> and the meta tags that replace app.html's (no `robots: noindex`, which is the
+// dashboard's).
+export function publicPageHead(page, { mainOrigin = DEFAULT_ORIGINS.main } = {}) {
+  const { title, description } = PUBLIC_PAGES[page];
+  return {
+    title,
+    meta: metaHtml([
+      ['description', description],
+      ['og:site_name', 'files.gg'],
+      ['og:title', title],
+      ['og:description', description],
+      ['og:type', 'website'],
+      ...defaultImage(mainOrigin),
+      ['twitter:card', 'summary'],
+    ]),
+  };
+}
 
 // milestone-4.md §10.1's report routes at milestone-6.md §20.2's paths, or null. A report route
 // carries its `#report-data`. The Worker never looks anything up for a report page.
@@ -664,11 +727,14 @@ export function classifyStablePath(pathname) {
   if (pathname === '/') {
     return { route: 'home' };
   }
-  if (pathname === '/convert' || pathname === '/convert/') {
-    return { route: 'convert' };
+  if (Object.hasOwn(PUBLIC_PAGE_PATHS, pathname)) {
+    return { route: 'page', page: PUBLIC_PAGE_PATHS[pathname] };
   }
   if (Object.hasOwn(AUTH_REDIRECTS, pathname)) {
-    return { route: 'redirect', location: AUTH_REDIRECTS[pathname] };
+    return { route: 'redirect', location: AUTH_REDIRECTS[pathname], status: 308 };
+  }
+  if (Object.hasOwn(LEGAL_REDIRECTS, pathname)) {
+    return { route: 'redirect', location: LEGAL_REDIRECTS[pathname], status: 302 };
   }
   if (pathname === '/challenge') {
     return { route: 'challenge' };

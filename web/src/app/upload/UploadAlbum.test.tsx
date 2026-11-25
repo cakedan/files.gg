@@ -20,8 +20,8 @@ vi.mock('../../lib/upload/xhr', () => ({
 
 const anonymousLimits = {
   storage: { used: 0, limit: null },
-  max_file_size_single: 25 * 1024 * 1024,
-  max_file_size_chunked: 25 * 1024 * 1024,
+  max_file_size_single: 25_000_000,
+  max_file_size_chunked: 25_000_000,
   max_expiry: 21 * 86400,
   allow_no_expiry: false,
   anonymous: true,
@@ -49,7 +49,7 @@ const pick = (...names: string[]) =>
 beforeEach(() => {
   uploaded = 0;
   installTurnstile();
-  localStorage.setItem('filesgg.fingerprint', 'fp1');
+  localStorage.setItem('filesgg.guest', 'fp1');
   vi.stubGlobal(
     'fetch',
     vi.fn(async (url: string, init?: RequestInit) => {

@@ -3,7 +3,7 @@
 - **A viewer** is the milestone-4 abuse IP hash (HMAC with ABUSE_HASH_SECRET, IPv6 grouped by /64,
   safety/ip.py), so reopening, refreshing or coming back another day never uses a second view.
 - **The owner and staff never count**: the owner's session (files.gg/api), an anonymous owner's
-  fingerprint, an owner pass, or a staff session.
+  guest token, an owner pass, or a staff session.
 - **Counting** (`count_view`) runs in one transaction with the file row locked: the viewer's row is
   inserted if it's new, `views_used` goes up with it, and when that makes `views_used == view_limit`
   this viewer is the last one and the action fires in the same transaction:
@@ -120,19 +120,14 @@ async def is_staff(conn, user):
 
 
 async def privileged(conn, request, fobj, claims=None):
-    """The owner (session, or an anonymous upload's fingerprint), an owner pass, or staff: served without
+    """The owner (session, or an anonymous upload's guest), an owner pass, or staff: served without
     counting, whatever the limit."""
     from utils import access
-    import utils.parameters as parameters
+    from utils.auth import guest_of
     if claims is not None and claims.get('s') == 'owner':
         return True
     user = await access.optional_user(conn, request)
-    raw = request.headers.get('x-fingerprint')
-    try:
-        fingerprint = parameters.fingerprint(raw) if raw else None
-    except ValueError:
-        fingerprint = None
-    if access.is_owner(fobj, user, fingerprint):
+    if access.is_owner(fobj, user, guest_of(request)):
         return True
     return await is_staff(conn, user)
 

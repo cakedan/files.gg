@@ -3,9 +3,10 @@ import { useEffect, useId, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router';
 
 import { Button } from '../../components/Button';
+import { SignUpAgreement } from '../../components/TermsAgreement';
 import { useTurnstile } from '../../components/useTurnstile';
 import { accountApi, type DiscordCallbackResponse } from '../../lib/accountApi';
-import { ApiError, FINGERPRINT_KEY } from '../../lib/api';
+import { ApiError, GUEST_KEY } from '../../lib/api';
 import { clearOAuth, loadOAuth, startDiscord, type StoredOAuth } from '../../lib/discord';
 import { fieldErrors } from '../../lib/errors';
 import { getItem } from '../../lib/storage';
@@ -43,7 +44,7 @@ export default function DiscordPage() {
   const login = oauth?.purpose === 'login';
   const turnstile = useTurnstile('login', step.kind === 'callback' && login && view.kind === 'working');
   const started = useRef(false);
-  const [hadFingerprint] = useState(() => Boolean(getItem(FINGERPRINT_KEY)));
+  const [hadGuest] = useState(() => Boolean(getItem(GUEST_KEY)));
 
   useEffect(() => {
     if (!oauth || started.current) return;
@@ -69,7 +70,7 @@ export default function DiscordPage() {
         }
         clearOAuth();
         if (result.status === 'signed_in') {
-          const toast = signedInToast(hadFingerprint, result.user.deletion !== null);
+          const toast = signedInToast(hadGuest, result.user.deletion !== null);
           completeSignIn(result.user);
           navigate(oauth.next ?? '/', { replace: true, state: toast ? { toast } : null });
         } else if (result.status === 'linked') {
@@ -88,7 +89,7 @@ export default function DiscordPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  if (view.kind === 'signup') return <ChooseUsername signup={view.signup} oauth={view.oauth} hadFingerprint={hadFingerprint} onError={setView} />;
+  if (view.kind === 'signup') return <ChooseUsername signup={view.signup} oauth={view.oauth} hadGuest={hadGuest} onError={setView} />;
   if (view.kind === 'error') {
     const back = view.purpose === 'link' || view.purpose === 'reauth' ? { to: '/settings/security', label: 'Back to settings' } : { to: '/login', label: 'Back to sign in' };
     return (
@@ -113,7 +114,7 @@ export default function DiscordPage() {
 }
 
 /** "Choose your username" (§5.5): the suggestion filled in, a display name, the email line. */
-function ChooseUsername({ signup, oauth, hadFingerprint, onError }: { signup: Signup; oauth: StoredOAuth; hadFingerprint: boolean; onError: (view: View) => void }) {
+function ChooseUsername({ signup, oauth, hadGuest, onError }: { signup: Signup; oauth: StoredOAuth; hadGuest: boolean; onError: (view: View) => void }) {
   const id = useId();
   const navigate = useNavigate();
   const completeSignIn = useCompleteSignIn();
@@ -151,7 +152,7 @@ function ChooseUsername({ signup, oauth, hadFingerprint, onError }: { signup: Si
       const { user } = await accountApi.discordSignup({ signup_token: signup.signup_token, username: name, ...(display ? { display_name: display } : {}), turnstile_token: token });
       clearOAuth();
       completeSignIn(user);
-      navigate(oauth.next ?? '/', { replace: true, state: { toast: signedInToast(hadFingerprint, false) ?? 'Welcome to files.gg.' } });
+      navigate(oauth.next ?? '/', { replace: true, state: { toast: signedInToast(hadGuest, false) ?? 'Welcome to files.gg.' } });
     } catch (failure) {
       if (failure instanceof ApiError && (failure.code === 'DISCORD_EMAIL_IN_USE' || failure.code === 'INVALID_SIGNUP_TOKEN' || failure.code === 'IDENTITY_IN_USE')) {
         clearOAuth();
@@ -191,11 +192,12 @@ function ChooseUsername({ signup, oauth, hadFingerprint, onError }: { signup: Si
             ? `We’ll use ${signup.email.address} from Discord.`
             : 'Discord didn’t share a verified email. You can add one later.'}
         </p>
-        {hadFingerprint && <p className="text-xs text-muted">Files you uploaded from this browser will move to your account.</p>}
+        {hadGuest && <p className="text-xs text-muted">Files you uploaded from this browser will move to your account.</p>}
         <FormError>{error}</FormError>
         <Button type="submit" variant="primary" disabled={pending} className="w-full">
           {pending ? 'Creating your account…' : 'Create account'}
         </Button>
+        <SignUpAgreement />
         <TurnstileField mount={turnstile.mount} status={turnstile.status} retry={turnstile.retry} />
       </form>
     </AuthCard>

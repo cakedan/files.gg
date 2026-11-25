@@ -6,8 +6,8 @@ It builds three entry points:
 
 | Entry | Served at | What it is |
 |---|---|---|
-| `viewer.html` | `files.gg/`, `files.gg/<vanity>[.<ext>]`, `files.gg/a/<vanity>[?item=<n>]`, `files.gg/convert`, and the report pages `files.gg/report`, `files.gg/report/<vanity>` and `files.gg/report/a/<vanity>` | The file viewer and album page. A small bundle that boots from data the worker inlines into the HTML, with no API call. The PDF viewer, the album page, the video/audio player, the text viewer (with Shiki), the lock screen and the report form are lazy chunks. |
-| `app.html` | `files.gg/app` and `files.gg/app/*` | The dashboard SPA. Every page is its own lazy-loaded chunk. |
+| `viewer.html` | `files.gg/`, `files.gg/<vanity>[.<ext>]`, `files.gg/a/<vanity>[?item=<n>]`, and the report pages `files.gg/report`, `files.gg/report/<vanity>` and `files.gg/report/a/<vanity>` | The file viewer and album page. A small bundle that boots from data the worker inlines into the HTML, with no API call. The PDF viewer, the album page, the video/audio player, the text viewer (with Shiki), the lock screen and the report form are lazy chunks. |
+| `app.html` | `files.gg/app` and `files.gg/app/*`, plus the public pages `files.gg/convert`, `files.gg/changelog`, `files.gg/legal/terms` and `files.gg/legal/privacy` (milestone-5 §11, §19.1) | The dashboard SPA, and its public pages outside `/app` (a second router, `publicRoutes` in `src/app/routes.tsx`, picked by `main.tsx` from the path). Every page is its own lazy-loaded chunk. |
 | `challenge.html` | `files.gg/challenge` (milestone-6 §10.10) | The Turnstile frame for custom domains. No React and no API calls: it renders the widget and posts each token to the one custom-domain origin it was served for. About 4 KB of JavaScript (2 KB gzipped). |
 
 The viewer also serves **custom domains** (`i.example.com/<vanity>`, milestone-6 §10.8–§10.11): the same bundle, told by the Worker that it's on a customer's domain. See [Custom domains](#7-custom-domains-milestone-6) below.
@@ -22,7 +22,7 @@ Needs Node 24+ (developed on Node 26, npm 11).
 cd web
 npm install
 npm run dev        # http://localhost:5173
-npm run build      # outputs to web/dist
+npm run build      # outputs to web/dist; fails while the legal pages have placeholders (see below)
 npm run preview    # serves web/dist
 npm run typecheck
 npm run test
@@ -37,13 +37,13 @@ The dashboard and the files.gg viewer call the API **same-origin at `/api`** (mi
 
 **Turnstile:** set `VITE_TURNSTILE_SITE_KEY` for production builds, which warn when it's missing. Dev and tests use Cloudflare's documented testing key `1x00000000000000000000AA` (always passes; https://developers.cloudflare.com/turnstile/troubleshooting/testing/). It issues the dummy token `XXXX.DUMMY.TOKEN.XXXX`, which the mock accepts the way the testing secret keys do. All five testing site keys and three testing secrets are in `src/lib/config.ts`.
 
-In dev and preview, `/app` and `/app/*` serve `app.html`, `/challenge` serves `challenge.html`, and `/`, `/convert`, `/a/<vanity>` and `/report/…` serve `viewer.html`. In dev, a bare vanity such as `/private123` does too. The same rewrites happen in production (see below).
+In dev and preview, `/app`, `/app/*`, `/convert`, `/changelog`, `/legal`, `/legal/terms` and `/legal/privacy` serve `app.html` (the Worker answers `/legal` with a 302 to `/legal/terms`; in dev the app's router does it), `/challenge` serves `challenge.html`, and `/`, `/a/<vanity>` and `/report/…` serve `viewer.html`. In dev, a bare vanity such as `/private123` does too. The same rewrites happen in production (see below).
 
 ### Mock API (dev only)
 
 `mock-api.ts` is a Vite middleware mounted same-origin at `/api` (like the production `files.gg/api/*` passthrough) that implements the Milestone 2, 3, 4 and 6 contracts in memory, so the whole flow works with no backend. It's never part of a build. `mock-api.test.ts` covers it, including the contract's token, PKCE, state and sign-up token vectors.
 
-**Signing in:** open `/app/login` and use one of the seeded accounts below with the password `mock-password` (Turnstile uses the always-pass testing key). The session is an HttpOnly cookie, `filesgg_session` (the contract's plain-http dev name, milestone-6 §3.2), which JavaScript never sees. Writes need `X-Filesgg-Csrf: 1`, as in production. Signed out, the dashboard works for anonymous uploads through `X-Fingerprint`, and signing in claims them.
+**Signing in:** open `/app/login` and use one of the seeded accounts below with the password `mock-password` (Turnstile uses the always-pass testing key). The session is an HttpOnly cookie, `filesgg_session` (the contract's plain-http dev name, milestone-6 §3.2), which JavaScript never sees. Writes need `X-Filesgg-Csrf: 1`, as in production. Signed out, the dashboard works for anonymous uploads as a guest (`Authorization: Guest <token>`, milestone-5 §20), and signing in claims them.
 
 | Email | Account |
 |---|---|
@@ -64,7 +64,7 @@ In dev and preview, `/app` and `/app/*` serve `app.html`, `/challenge` serves `c
 **Upload keys:** create one in Integrations, then `curl -H "Authorization: Key fgg_…" -F file=@photo.png localhost:5173/api/files`.
 
 **Endpoints:**
-- `GET /auth/fingerprint`, `GET /users/@me` and `GET /users/@me/limits`. Signed out you get the anonymous values (by `X-Fingerprint`).
+- `GET /auth/guest`, `GET /users/@me` and `GET /users/@me/limits`. Signed out you get the anonymous values (by `Authorization: Guest`).
 - `POST /files`, with a multipart parser.
 - The chunked `POST /uploads`, `PUT …/chunks/<i>`, `GET`, `complete` (moves to `complete` after 1.5 s) and `DELETE`.
 - `POST /access/unlock/{files|albums}/<vanity>`, `POST /access/refresh/…` and `GET /access/view/…` (milestone-6 §20.1: the vanity is always last; the old `/{files|albums}/<vanity>/unlock|view` paths are 404).
@@ -84,7 +84,9 @@ In dev and preview, `/app` and `/app/*` serve `app.html`, `/challenge` serves `c
 
 - View limits (milestone-6 §19): `view_limit` and `view_limit_action` on `POST /files`, `POST /uploads` and `PATCH /users/@me/files/<id>` (`400 VIEW_LIMIT_TOO_LOW { views_used }`, `403 FORBIDDEN` for anonymous edits, `400 PRIVATE_REQUIRES_ACCOUNT` for an anonymous `private`); `POST /access/open/files/<vanity>` (Turnstile, rate limit, the file's own access with `401 UNLOCK_REQUIRED` for password files, then counting); a password file's unlock counts as its view. Viewers are counted once per IP (`cf-connecting-ip`, standing in for the abuse IP hash); the owner and staff never count. At the limit, `expire` keeps the file for the last viewer's hour and `private` hides it and bumps `access_version`; anyone new gets `404`. View-limited files are hidden in albums (`hidden_reason: "view_limit"` in the editor).
 
-**Seeded library:** signed in, you start with about 30 files of every kind (images, a HEIC with a `display` preview, a GIF, playable and unplayable videos, tagged audio, PDFs, text with snippets, archives), some password-protected, private, temporary or still `processing`, and three albums (one with a hidden password item, a tracklist, and a password album). It belongs to `mock@example.com` (`mockuser`); the other accounts start empty; the password for protected seed files and albums is `files.gg`.
+- Conversions (milestone-5 §10): `GET /conversions/formats` (every target and option of §1.2, the five presets), `POST /conversions` (§7.2's checks in order: Turnstile, anonymous `document → pdf`, source access by vanity with `X-Filesgg-Access`, size, daily count and concurrency; `INVALID_OPTION`, `UNSUPPORTED_CONVERSION`; the 2 s brief wait, so most images answer `200`), `POST /conversions/batch`, `GET /conversions?batch=`, `GET`/`DELETE /conversions/<id>` and `GET /users/@me/conversions`, plus the public `GET /files/<vanity>` the Convert page reads for `?source=`. Conversions are time-driven: queued (anonymous 3 ahead, members 1, premium none; images skip the line), then running through `downloading`, `converting` and `storing`, then the output is stored like an upload (pending its scan, then processing). A source whose name contains `fail` ends `CONVERSION_FAILED`, `timeout` ends `CONVERSION_TIMEOUT` (naming the tier that gets more), and `busy` is cancelled with `CONVERTER_BUSY`. Repeating a recipe is a cache hit (`cached: true`). PDF → images makes an album signed in and a ZIP anonymous. Video outputs have no playable bytes here.
+
+**Seeded library:** signed in, you start with about 30 files of every kind (images, a HEIC with a `display` preview, a GIF, playable and unplayable videos, tagged audio, PDFs, text with snippets, archives, a Word document with its preview PDF and a spreadsheet without one), some password-protected, private, temporary or still `processing`, and three albums (one with a hidden password item, a tracklist, and a password album). It belongs to `mock@example.com` (`mockuser`); the other accounts start empty; the password for protected seed files and albums is `files.gg`.
 - `assets` point at generated SVG placeholders (data: URLs) or the `web/fixtures/` media. There's no hover clip, since nothing can generate an MP4 here.
 - Text files are served from `/api/raw/<vanity>`, standing in for the CDN.
 - New uploads join the uploader's library, stay `pending` (scanning) for `MOCK_SCAN_MS`, then `processing` for `MOCK_DERIVE_MS`, then get placeholder assets.
@@ -117,7 +119,8 @@ With no backend, the viewer has nothing to boot from. In `npm run dev`, add `?fi
 | `/viewer.html?fixture=home` | `data-page="home"`, the landing card. |
 | `/viewer.html?fixture=pdf` | An 8-page PDF with selectable text, an outline, an internal link, an external link and a landscape page. |
 | `/viewer.html?fixture=pdf-password` | The same PDF, encrypted. The password is `files.gg`. |
-| `/viewer.html?fixture=convert` or `/convert` | The Convert placeholder. |
+| `/viewer.html?fixture=document` | A Word document with its preview PDF (milestone-5 §9.2): the PDF viewer, "Word document · preview", Download gives the `.docx`. |
+| `/viewer.html?fixture=document-no-preview` | A spreadsheet without a preview: the download card with "Convert to PDF" or "Sign in to preview and convert". |
 | `/viewer.html?fixture=album-grid` or `/a/<anything>` (`?item=<n>` opens item n) | A grid album: images, an unplayable HEVC video with a poster, a PDF and a zip, with captions. |
 | `/viewer.html?fixture=album-list` | The list layout. |
 | `/viewer.html?fixture=album-tracklist` | An all-audio album (tagged tones with covers), shown as a tracklist. |
@@ -205,8 +208,8 @@ Handle these in this order, before any vanity lookup:
      - This includes the pdf.js worker, `/assets/pdf.worker.min-<hash>.mjs`. Serve `.mjs` as `text/javascript`, or module workers refuse to start.
      - It also includes `/assets/pdfjs/<version>/{cmaps,standard_fonts,wasm,iccs}/*`. Serve `.wasm` as `application/wasm`. These paths are versioned, so they can be cached as immutable too.
    - Root files: `/favicon.ico`, `/favicon.svg`, `/favicon-16.png`, `/favicon-32.png`, `/favicon-48.png`, `/apple-touch-icon.png`, `/icon-192.png`, `/icon-512.png`, `/og-image.png` and `/.well-known/security.txt` (milestone-4 §10.4; renew its `Expires` yearly). Match these **exact paths** first. Otherwise the vanity router reads `files.gg/favicon.ico` as the vanity `favicon`.
-2. **`/app` and `/app/*`** serve `dist/app.html` with `Cache-Control: no-cache`. The plan (§1.4 item 2) still needs `app` and `api` added to `blacklisted_ids`.
-3. **`/`** serves `dist/viewer.html` with the `home` state, and **`/convert`** serves it with `data-page="convert"`. `convert` needs to be reserved like `app`.
+2. **`/app` and `/app/*`** serve `dist/app.html` with `Cache-Control: no-cache`. So do the public pages **`/convert`**, **`/changelog`**, **`/legal/terms`** and **`/legal/privacy`** (trailing slash allowed), each with its own `<title>`, description and OpenGraph tags instead of the dashboard's, and without its `robots: noindex` (milestone-5 §11, §19.1). **`/legal`** is a 302 to `/legal/terms`. `convert`, `legal` and `changelog` are reserved vanity segments, and none of these is served on the CDN, the API host or custom domains.
+3. **`/`** serves `dist/viewer.html` with the `home` state.
 4. **`/a/<vanity>`** serves `dist/viewer.html` with the album state (below), whatever the query. `a` is reserved (§1.4 item 2). The lightbox item is `?item=<n>` (milestone-6 §20.2), which the client reads, so the worker returns the same album page for every `?item`. Nothing comes after the vanity: `/a/<vanity>/<n>` is missing.
 5. **`/<vanity>[.<anything>]`** serves `dist/viewer.html` with the `file`, `missing`, `locked` or `unavailable` state. The bot, ShareX, Telegram and `Accept: image/*` redirects to the CDN happen before the shell is rendered.
 
@@ -223,7 +226,6 @@ The HTML shell must be served with `Content-Type: text/html; charset=utf-8` and 
 | Password file | `file` | `locked` | `#file-data`: `{ vanity, protected: "password", filename?, password_expired? }` | 200 |
 | Unknown, deleted, expired or private | `file` | `missing` | `#file-data`: `null` | 404 |
 | API unreachable, timed out or 5xx | `file` | `unavailable` | (omit) | 503 |
-| `/convert` | `convert` | (omit) | (omit) | 200 |
 | `/a/<vanity>` with at least one item to show | `album` | `album` | `#album-data`: the album payload | 200 |
 | Password album | `album` | `locked` | `#album-data`: `{ vanity, protected: "password", title? }` | 200 |
 | Album unknown, deleted, expired, private, or with nothing to show | `album` | `missing` | (omit) | 404 |
@@ -242,7 +244,7 @@ The milestone-4 rows follow milestone-4 §10.1, which wins where this table and 
 
 The client checks them in this order:
 
-1. `data-page="home"` shows home, `data-page="domain-home"` the custom domain's landing card, and `data-page="convert"` the Convert placeholder. `data-page="report"` shows the report page when `#report-data` is valid, and missing otherwise.
+1. `data-page="home"` shows home, and `data-page="domain-home"` the custom domain's landing card. `data-page="report"` shows the report page when `#report-data` is valid, and missing otherwise.
 2. `data-state="unavailable"` shows unavailable.
 3. `data-state="missing"` shows missing. `data-state="pending"` and `data-state="removed"` show those cards when the script tag holds their shape, and missing otherwise.
 4. `data-state="locked"` shows the lock screen when the script tag holds a valid locked payload, and missing otherwise.
@@ -265,7 +267,7 @@ Insert them right after `#root`, with `element.after(html, { html: true })`:
 **The payloads are the API's, passed through as they are** (milestone-3 §4): the file payload for `#file-data`, the album payload (items are file payloads plus `position` and `caption`) for `#album-data`. The parser reads that one shape only, snake_case with times in epoch seconds (`cdn_url`, `uploaded_at`, `expires_at`, `hover_url`, `download_url`, `total_size`, `next_cursor`); camelCase and ISO dates are ignored. Unknown preview kinds, invalid items and expired items (`expires_at <= now`) drop out, and items are sorted by `position`. What the viewer uses from it:
 - `kind` picks the renderer (unknown kinds fall back to `file`); `width`/`height` reserve the media's `aspect-ratio`; `processing` shows type icons;
 - `cdn_url` is the `src`, Raw and, with `download=true` appended, Download;
-- `assets` (`thumb`, `thumb-2x`, `display`, `poster`, `cover`, `waveform`, `peaks`, `hover`) and `thumbnail` drive tiles, posters, cover art, the waveform and the HEIC/TIFF/PSD stand-in;
+- `assets` (`thumb`, `thumb-2x`, `display`, `poster`, `cover`, `waveform`, `peaks`, `hover`) and `thumbnail` drive tiles, posters, cover art, the waveform and the HEIC/TIFF/PSD stand-in; `assets.document` (`{ url, size, pages }`, milestone-5 §9.2) shows an Office or OpenDocument file as its preview PDF in the PDF renderer, with "Word document · preview" in the footer and Download still the original;
 - `media` (`playable`, `tags`, `pages`, `lines`, `language`) drives the players, the tracklist, the PDF footer and the text viewer;
 - `url` is what Copy link copies (else `origin + pathname`); albums also use it for Report;
 - `download_url` is Download all (no button without it); `collage` is for embeds;
@@ -299,7 +301,7 @@ Insert them right after `#root`, with `element.after(html, { html: true })`:
 
 ### 5. Meta tags
 
-`viewer.html` wraps its default meta tags in `<!-- filesgg:meta:start … -->` and `<!-- filesgg:meta:end -->`. Replace everything between the two markers with the file's own tags: `description`, `og:title`, `og:description`, `og:url`, and `og:image` / `og:video` with their dimensions. Use `property=` and not `name=` (§1.3). For albums, `og:title` is "*Title* · N files" and `og:image` is the collage (PLAN.md "Embeds"). NSFW albums get no image. Leave the default tags in place for `home`, `convert`, `missing` and `unavailable`. The client sets `document.title` itself.
+`viewer.html` wraps its default meta tags in `<!-- filesgg:meta:start … -->` and `<!-- filesgg:meta:end -->`. Replace everything between the two markers with the file's own tags: `description`, `og:title`, `og:description`, `og:url`, and `og:image` / `og:video` with their dimensions. Use `property=` and not `name=` (§1.3). For albums, `og:title` is "*Title* · N files" and `og:image` is the collage (PLAN.md "Embeds"). NSFW albums get no image. Leave the default tags in place for `home`, `missing` and `unavailable`. The client sets `document.title` itself.
 
 ### 6. CSP for the viewer
 
@@ -318,7 +320,7 @@ On a custom domain the viewer uses milestone-6 §10.11's `viewerCsp`: `connect-s
 ### 7. Custom domains (milestone 6)
 
 The contract is [`milestone-6.md`](../docs/redesign/contracts/milestone-6.md) §10.8–§10.11 and §13.4. What the viewer does with `data-host="custom"` (`src/viewer/host/`):
-- **API calls** (unlock, view, refresh, open, anonymous reports) go to `api_origin` with `credentials: "omit"` and no `X-Fingerprint` or CSRF header; view sends `X-Filesgg-Access`. There's never a session on a custom domain, so the report form doesn't ask for one.
+- **API calls** (unlock, view, refresh, open, anonymous reports) go to `api_origin` with `credentials: "omit"` and no guest token or CSRF header; view sends `X-Filesgg-Access`. There's never a session on a custom domain, so the report form doesn't ask for one.
 - **Rehosting** (`host/rehost.ts`, the §16.5 vectors in `rehost.test.ts`): every `url` and `*_url` value in those responses that starts with the CDN or main origin gets this page's origin instead, with the rest of the string untouched, so path-only signatures still verify. The Worker does the same for the boot data.
 - **Copy link** is built on `location.origin`. Titles end with the domain, links to files.gg pages (Terms, "Go to files.gg") go to `main_origin`, and there are no sign-in, upload or dashboard links.
 - **Owner passes** (`#t=`) work as on files.gg, redeemed at `api_origin`. Unlock tokens live in the custom domain's own storage, so unlocking on one host never unlocks the other.
@@ -447,8 +449,8 @@ Each lazy chunk has its own utility stylesheet (`pdf/pdf.css`, `album/album.css`
 
 `src/lib/api.ts`:
 
-- Calls same-origin `/api` with `credentials: "same-origin"`; the session is the HttpOnly `__Host-filesgg_session` cookie (milestone-6 §3), so no credential is ever stored or read by JavaScript. Every non-`GET` request sends `X-Filesgg-Csrf: 1` (§3.6); `credentials: "omit"` drops it. `X-Fingerprint` (from `filesgg.fingerprint`) goes only while signed out, for anonymous uploads.
-- Signed-in state is `GET /auth/session` (`fetchSession`, `api.session`); the module remembers the last answer (`signedInState()`), and `ensureFingerprint` asks it first. A `401` on a signed-in call, `403 CSRF` and `403 ACCOUNT_PENDING_DELETION` are announced to `onAuthEvent` listeners, which the dashboard turns into "You were signed out.", a generic error, and the Keep my account screen.
+- Calls same-origin `/api` with `credentials: "same-origin"`; the session is the HttpOnly `__Host-filesgg_session` cookie (milestone-6 §3), so no credential is ever stored or read by JavaScript. Every non-`GET` request sends `X-Filesgg-Csrf: 1` (§3.6); `credentials: "omit"` drops it. `Authorization: Guest <token>` (from `filesgg.guest`) goes only while signed out, for anonymous uploads; it names a guest, never a user.
+- Signed-in state is `GET /auth/session` (`fetchSession`, `api.session`); the module remembers the last answer (`signedInState()`), and `ensureGuest` asks it first. A `401` on a signed-in call, `403 CSRF` and `403 ACCOUNT_PENDING_DELETION` are announced to `onAuthEvent` listeners, which the dashboard turns into "You were signed out.", a generic error, and the Keep my account screen.
 - `src/lib/session.ts` holds the session query (`useSession`, stale after 60 s, refetched on focus; `useMe` and `useSignedIn` read it), the `BroadcastChannel("filesgg-session")` that keeps tabs in step, what a sign-in or sign-out resets, and the `next` rules (`safeNext`). `src/lib/accountApi.ts` has the Milestone 6 calls (auth, settings, upload keys, domains), dashboard only; `lib/discord.ts` the PKCE flow; `lib/sharex.ts` the `.sxcu` and curl snippet; `lib/usernames.ts` and `lib/passwordStrength.ts` the form rules.
 - Every localStorage access goes through `src/lib/storage.ts`, which never throws. The other keys are `filesgg.access.<kind>.<vanity>` (unlock tokens), `filesgg.uploads` (resumable uploads), `filesgg.volume` and `filesgg.muted`.
 - A non-2xx response throws `ApiError { status, code, message, body }`, parsed from the `{ code: "STRING", message, status, ...details }` body; a body without a string code gets `code: null`, and the message falls back on the status. Network failures become `status: 0, code: "NETWORK_ERROR"`.
@@ -459,7 +461,7 @@ Each lazy chunk has its own utility stylesheet (`pdf/pdf.css`, `album/album.css`
 The Milestone 2 calls are typed from the contract:
 - `unlock`, `refreshUnlock` and `view`;
 - `createUpload`, `uploadStatus`, `completeUpload` and `abortUpload`;
-- `ensureFingerprint`.
+- `ensureGuest`.
 
 The Milestone 3 owner calls (contract §6) are `myFiles`, `updateFile`, `deleteFile`, `deleteFiles`, `setFilesExpiry`, `setFilesAccess`, `filePass`, `createAlbum`, `myAlbums`, `album`, `updateAlbum`, `deleteAlbum`, `setAlbumFiles`, `addAlbumFiles`, `removeAlbumFile`, `setAlbumCaption` and `albumPass`. `src/lib/errors.ts` maps every error code, the album codes included, to its message.
 
@@ -501,6 +503,16 @@ Uploads use XHR (`lib/upload/xhr.ts`) for progress, with the same base, headers 
 - Shown while the batch has more than one file, on by default, with an optional title. Files added while a batch is still going join it.
 - When every file in the batch has finished, `POST /users/@me/albums` gets the successful ids, and the album link shows above the per-file links. Fewer than two successes make no album.
 - Anonymous uploads work too (up to 50 files). Signed in, a password or private batch's album gets the same access with a `PATCH` (a generated password gets the album its own one, shown once). Anonymous albums can't be edited, so a protected anonymous batch isn't offered an album.
+
+### Convert page (Milestone 5)
+
+`/app/convert` and the public `files.gg/convert` (milestone-5 §13.1) are one component, `src/app/convert/ConvertView.tsx`; the public one has its own header and the site footer, and no history. The API calls and types are in `src/lib/conversions.ts`, the conversion kinds and the `/convert?source=` links (shared with the viewer, so tiny) in `src/lib/convertKinds.ts`, the messages for §12's codes in `src/lib/conversionErrors.ts`.
+- **Source:** drop or paste a file anywhere (it goes through the normal upload, Turnstile action `upload` anonymous, then waits for its scan, and for its probe when a GIF, WebP or APNG might be animated), or Choose a file; signed in, "From your files" and "From an album". Links: `?source=<vanity>` (with this browser's unlock token for a password file), `?preset=` and `?target=` to preselect, `?album=<id>` (Convert all), `?batch=<id>`; the Files table hands its selection over in the router state.
+- **Target and options:** presets first, then every target as a chip; a target the caller can't use (anonymous `document → pdf`) shows a lock and Sign in. The options form is generated from `GET /conversions/formats`, one control per option type (`int`, `number`, `bool`, `enum`, `color`, `pages`, `size` with the input size and an estimate), and sends only what differs from the defaults (`convert/options.ts`, tested).
+- **Convert:** anonymous callers get Turnstile (action `convert`) and "By uploading, you agree to the Terms." under the button. `POST /conversions`, then `GET /conversions/<id>` every second (every 5 s while the tab is hidden): "Waiting in line: N ahead" (and "Sign in to skip the line"), then the stage and a progress bar, with Cancel. A failure or timeout shows its message (a timeout says how long it ran and which tier gets more) and Try again.
+- **Result:** "Scanning…" until the output can be shared, then a preview with the viewer's renderers (or the album for PDF pages), size before and after, Copy link, Download, Convert again and Add to album (signed in). A generated password is shown once.
+- **History** (signed in): live rows, Run again, Delete (Cancel while running). **Batch:** the Files table's **Convert…** (bulk bar, row menu and drawer) and the album editor's **Convert all** offer the targets of the kinds selected (with the options they all accept) and "One PDF" for the images, then one combined list from `GET /conversions?batch=`.
+- **Viewer entry points:** **Convert** in the file footer (a new tab on files.gg from a custom domain), "Convert to MP4 to play in browser" on an unplayable video (the `play_everywhere` preset), and on a document without a preview "Convert to PDF" or "Sign in to preview and convert" (a lazy chunk that asks `GET /auth/session`). The footer also links Terms · Privacy · Report on files.gg.
 
 ### Dashboard (Milestone 3)
 
@@ -553,7 +565,7 @@ Uploads use XHR (`lib/upload/xhr.ts`) for progress, with the same base, headers 
 - `/app/login` (email and password, never a username), `/app/register` (email; a username lowercased as you type and checked with `/username/check` 400 ms after the last keystroke, with the reason; an optional display name; a password with a strength meter, minimum 8, no maximum), `/app/verify#token=`, `/app/forgot` (always "If an account uses that email, we've sent a link. It works for 1 hour."), `/app/reset#token=` (signs in), and `/app/auth/discord`.
 - Every form that signs in, creates an account or sends an email runs managed Turnstile right before submitting (actions `login`, `register`, `forgot`, `reset`), and the widget resets after each try. Errors use the contract copy: "Wrong email or password", "Too many attempts. Try again in N minutes", "Couldn't verify you're human. Try again."
 - Email tokens are read from the fragment once and removed with `replaceState`. `?next=` must be a path under `/app/` (no `//`, no scheme); a signed-in visitor of login or register goes there (or to `/app`).
-- **Claiming:** when this browser has an anonymous fingerprint, login, register and Discord say "Files you uploaded from this browser will move to your account." After sign-in the fingerprint is deleted and a toast says the files are in the account (not for a pending-deletion account, which claims nothing).
+- **Claiming:** when this browser has a guest token, login, register and Discord say "Files you uploaded from this browser will move to your account." After sign-in the guest token is deleted and a toast says the files are in the account (not for a pending-deletion account, which claims nothing).
 - **Discord** (§5.2): Continue with Discord makes a PKCE verifier (32 random bytes, base64url), sends its S256 challenge to `POST /api/auth/discord/authorize`, keeps `{ verifier, state, purpose, next }` in `sessionStorage["filesgg.oauth"]`, and redirects. The callback page compares `state` with the stored one and sends nothing if it differs ("This sign-in link expired. Try again."), clears the query, runs Turnstile for a sign-in, and posts code, state and verifier. `access_denied` says "Discord sign-in was cancelled."; any other error after `prompt=none` retries once without `prompt`. `signup_required` shows "Choose your username" (the suggestion, the display name, the email line); a verified Discord email that belongs to an account shows the contract message and Sign in. Link and re-auth return to Settings with a toast.
 
 **Session in the dashboard:** the layout waits for `GET /api/auth/session` before rendering a page. A `401` signs the tab out with "You were signed out." and Sign in; sign-in, sign-out and `401`s post `"session-changed"` on `BroadcastChannel("filesgg-session")`, and other tabs refetch (clearing their cache if the account changed). The sidebar footer shows Sign in and Create account, or the initials tile (§2.4), the names and a menu with Settings and Sign out.
@@ -563,18 +575,28 @@ Uploads use XHR (`lib/upload/xhr.ts`) for progress, with the same base, headers 
 
 **Settings** (`/app/settings/*`, tabs in the URL; signed in only):
 - **Profile:** the username with the 30-day rule ("You can change it again on 25 Dec"; the old name is held for you), the display name with the initials preview, "Show my name on albums".
+- **Uploads** (milestone-5 §21): Expires, Who can open it (Password is a new generated one per file) and "Mark uploads as adult content", saved with Save defaults. Upload-key uploads and conversions get them when they don't say; the Upload page's pickers and the Convert page's **New file** pickers start from them (the Convert page sends no output fields until one is changed).
 - **Security:** email (verified badge, change with the pending state and Cancel), password (set or change; the result says other devices were signed out and upload keys still work), login methods (Discord with its avatar from `cdn.discordapp.com`, Link or Unlink; Unlink disabled with "Add a password and verify your email first, so you can still sign in"), and sessions (device, country, last used, "This device", Sign out per row, Sign out everywhere, which signs this browser out too).
 - **Domains** (premium; an explanation otherwise, "Premium is granted by files.gg staff for now"): Add domain, then a card with the CNAME and TXT records, Copy buttons and the DNS-only hint; the status ("Waiting for DNS" → "Issuing certificate" → "Active", and Failing, Failed, Paused, Disabled by files.gg with the reason and "Appeal in Notices"); Check now, Set as default, Retry, Remove; the "Only my files" switch (on by default; turning it off confirms); and "Only show my files on my domain" (needs a serving domain; turning it on shows the `/preview` counts and confirms; a paused note). Domains are polled every 10 s while one is pending and the tab is visible.
 - **Data:** Request export, the export list with Download (a same-origin link to `/api/users/@me/exports/<id>/download`), and Delete account: type the username, re-authenticate, then the final confirmation. Staff and suspended accounts get the reason instead.
 - **Re-authentication** (`account/useReauth.ts`): an action that answers `403 REAUTH_REQUIRED` opens the shared dialog (the password, or Continue with Discord with `purpose: reauth`) and is retried once confirmed. A Discord re-auth leaves the page, so the action is tried again by hand afterwards.
 
-**Integrations** (`/app/integrations`): the key list (name, prefix, scopes, pinned domain, created, last used or "never used", expiry, state; Rename and Revoke with a confirmation), Create key (name, "Also allow adding to albums", link domain for premium, expiry never/30/90/365 days, and ShareX defaults: file expiry, access, view limit and what happens at it (milestone-6 §19.3), sensitive, album), and the result panel shown once: the key with Copy, Download ShareX config, and the curl snippet with Copy. The `.sxcu` and the curl snippet are built in the browser (`lib/sharex.ts`, §7.7 exactly); the ShareX defaults go into their `Arguments` and `-F` fields (and, as the optional `sharex` object, to the API, so its own `sharex` and `curl` match); they don't change the key. At 20 active keys Create key is disabled with the reason.
+**Integrations** (`/app/integrations`): the key list (name, prefix, scopes, pinned domain, created, last used or "never used", expiry, state; Rename and Revoke with a confirmation), Create key (name, "Also allow adding to albums", link domain for premium, expiry never/30/90/365 days, and ShareX defaults, each starting at the account's upload defaults: file expiry, access, view limit and what happens at it (milestone-6 §19.3), sensitive, album), and the result panel shown once: the key with Copy, Download ShareX config, and the curl snippet with Copy. The `.sxcu` and the curl snippet are built in the browser (`lib/sharex.ts`, §7.7 exactly); the ShareX defaults go into their `Arguments` and `-F` fields (and, as the optional `sharex` object, to the API, so its own `sharex` and `curl` match); they don't change the key. At 20 active keys Create key is disabled with the reason.
 
 **Premium** shows on Overview (a badge with the expiry, the storage meter against the premium limit, and the website and ShareX limits), on Upload (the single-request limit for ShareX and curl), and in Integrations.
 
 **Admin:** `/app/admin/users/:id` loads its Milestone 6 cards lazily inside the admin chunk (`admin/account/AccountCards.tsx`): Premium (status, granted by, expiry, history; Grant, Change expiry and Revoke, each with a required note, admins only), login methods, sessions, upload keys (Revoke one key through `revoke_upload_keys`), domains and a pending deletion. User actions gain Sign out everywhere and Reset the username. Cases gain the `domain` kind, with a domain panel and `disable_domain`, `enable_domain` and `set_domain_scope`; `/app/admin/domains` lists every domain (filters by status and hostname in the URL, Load more; `pages/DomainsPage.tsx`, its own lazy chunk inside the admin chunk), `/app/admin/domains/:id` is the domain page, and Lookup lists matching domains.
 
 **Files drawer (§13.4, §19.7):** **Copy direct link** copies `direct_url`; **Open on i.example.com** mints an owner pass with `domain_id` for the default domain while it's serving (premium only). Rows and the drawer show "N of M views used" for view-limited files; the drawer's View limit section has **Set/Edit view limit…** (`ViewLimitDialog`, which explains `VIEW_LIMIT_TOO_LOW`) and **Remove limit**, signed in only (anonymous files set it at upload). A file whose `private` action fired shows as private with "Raise the limit to share it again", and the dialog can share it with the link again in the same `PATCH`. The upload page has **View limit** (off, or 1–1000) and **When the limit is reached** (Expire the file, or Make it private when signed in).
+
+### Changelog, Terms and Privacy (Milestone 5)
+
+The contract is [`milestone-5.md`](../docs/redesign/contracts/milestone-5.md) §19.
+- **Sources:** `CHANGELOG.md` at the repo root (newest first, one `## YYYY-MM-DD: <title>` per release, written with each release), and `src/content/legal/terms.md` and `privacy.md`, drafts for legal review. The Privacy Policy cites the setting behind each number in an HTML comment; comments never reach the page.
+- **Markdown at build time** (`plugins/markdown.ts`, `marked` as a dev dependency): `import html, { title, updated, headings, placeholders } from '…/terms.md?html'`, or the same without the HTML from `?meta` (the sidebar's changelog dot only needs the date). Optional front matter gives `updated`; without it, the newest dated heading does. Heading ids are stable: a dated heading's id is its date (`/changelog#2026-11-25`), any other's its text without the section number (`## 6. Scanning` is `#scanning`). Nothing parses Markdown in the browser.
+- **Pages** (`src/app/legal/`, lazy chunks of `app.html`, public): the title, "Last updated", the contents (folded above the text on phones, beside it on wide screens), heading anchors, print styles, and a light theme that follows the system (the rest of the site is dark only). While a page has `[PLACEHOLDER]` tokens, it shows "Draft: pending legal review" and highlights them.
+- **No placeholders in production (§19.6):** `vite build` fails while `terms.md` or `privacy.md` has one, naming them, unless `FILESGG_ALLOW_LEGAL_PLACEHOLDERS=1` is set (e2e and other test builds). The dev server and the tests never check.
+- **Links (§19.2):** `src/components/SiteFooter.tsx` (Changelog · Terms · Privacy · Report abuse · Contact) on the home card, the legal pages, the auth pages and the dashboard sidebar's bottom, where Changelog gets a dot until this browser has opened the newest entry (`localStorage["filesgg.changelog.seen"]`, `src/lib/changelog.ts`). `src/components/TermsAgreement.tsx` has the sign-up line (email and Discord) and "By uploading, you agree to the Terms." (anonymous uploads). The NSFW gate says "You must be 18 or older."
 
 ## Assets
 

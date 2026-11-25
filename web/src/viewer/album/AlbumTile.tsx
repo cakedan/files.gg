@@ -3,7 +3,7 @@ import { useRef, useState } from 'react';
 
 import { tileImage } from '../renderers/assets';
 import { FileTypeIcon } from '../renderers/FileTypeIcon';
-import type { AlbumItem } from '../types';
+import type { AlbumItem, FileKind } from '../types';
 
 interface AlbumTileProps {
   item: AlbumItem;
@@ -19,6 +19,17 @@ interface AlbumTileProps {
  * tile. Derived `thumb` / `thumb-2x` are used through `srcset` when present; while an
  * item is still processing it has none, so the type icon shows instead.
  */
+/**
+ * What shows behind a tile's thumbnail while it loads (and through any transparency): a checkerboard for
+ * images, white for page thumbnails (PDFs, and `file`s, whose only thumbnails are document previews'
+ * first pages), and the dark surface for everything else, so a video's tile doesn't flash white on the dark page.
+ */
+function tileBackdrop(kind: FileKind) {
+  if (kind === 'image') return 'checkerboard';
+  if (kind === 'pdf' || kind === 'file') return 'bg-white';
+  return 'bg-surface-2';
+}
+
 export function AlbumTile({ item, index, count, width, height, onOpen }: AlbumTileProps) {
   const [hovering, setHovering] = useState(false);
   const [broken, setBroken] = useState(false);
@@ -38,7 +49,7 @@ export function AlbumTile({ item, index, count, width, height, onOpen }: AlbumTi
         decoding="async"
         draggable={false}
         onError={() => setBroken(true)}
-        className={`absolute inset-0 size-full ${item.kind === 'image' ? 'checkerboard' : 'bg-white'} object-cover`}
+        className={`absolute inset-0 size-full ${tileBackdrop(item.kind)} object-cover`}
       />
     );
   } else {

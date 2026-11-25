@@ -11,6 +11,7 @@ import type { ViewLimitAction } from '../../lib/api';
 import { useSession } from '../../lib/session';
 import { fieldClass } from '../access/fieldUtils';
 import { useDomains } from '../account/accountQueries';
+import { AppLink } from '../components/AppLink';
 import { Dialog } from '../components/Dialog';
 
 const DAY = 86400;
@@ -23,7 +24,7 @@ const KEY_EXPIRIES = [
 ] as const;
 
 const UPLOAD_EXPIRIES = [
-  { value: null, label: 'Account default (never)' },
+  { value: null, label: 'Account default' },
   { value: 3600, label: '1 hour' },
   { value: DAY, label: '1 day' },
   { value: 7 * DAY, label: '7 days' },
@@ -159,7 +160,13 @@ export function CreateKeyDialog({ onClose, onCreated }: { onClose: () => void; o
 
         <fieldset className="flex flex-col gap-3 rounded-md border border-line p-3">
           <legend className="px-1 text-sm font-medium">ShareX defaults</legend>
-          <p className="text-xs text-muted">These go only into the ShareX config and the curl example; you can change them there later.</p>
+          <p className="text-xs text-muted">
+            These go only into the ShareX config and the curl example; you can change them there later. What’s left at the account default follows{' '}
+            <AppLink to="/settings/uploads" className="text-gg hover:underline">
+              your upload defaults
+            </AppLink>
+            .
+          </p>
           <div className="flex flex-col gap-1.5">
             <label htmlFor={`${id}-file-expiry`} className="text-sm">
               Files expire after
@@ -191,7 +198,8 @@ export function CreateKeyDialog({ onClose, onCreated }: { onClose: () => void; o
               }}
               className={fieldClass}
             >
-              <option value="">Anyone with the link</option>
+              <option value="">Account default</option>
+              <option value="link">Anyone with the link</option>
               <option value="password">Password (a new one for each upload)</option>
               <option value="private">Only me</option>
             </select>
@@ -243,7 +251,7 @@ export function CreateKeyDialog({ onClose, onCreated }: { onClose: () => void; o
           {nsfwAllowed && (
             <label className="flex items-center gap-2 text-sm">
               <input type="checkbox" checked={defaults.nsfw} onChange={(event) => set('nsfw', event.target.checked)} className="accent-gg" />
-              Mark uploads as sensitive
+              Mark uploads as sensitive (else the account default)
             </label>
           )}
           {albumsScope && (

@@ -7,9 +7,9 @@
 import { PUBLIC_API_URL, type ViewLimitAction, type Visibility } from './api';
 
 export interface SharexDefaults {
-  /** Seconds, or null for the account default. */
+  /** Seconds, or null for the account's upload defaults (milestone-5 §21). */
   expiresIn: number | null;
-  /** Null leaves access to the account default (`link`). */
+  /** Null leaves access to the account's upload defaults (milestone-5 §21). */
   visibility: Exclude<Visibility, 'private'> | 'private' | null;
   /** With `visibility: "password"`: a generated password per upload. */
   generatePassword: boolean;
@@ -60,7 +60,6 @@ export function apiRequestUrl(sharex: Record<string, unknown> | undefined, pageP
  * own `sharex` object when it sent one, else `PUBLIC_API_URL`.
  */
 export function buildSharexConfig({ keyName, secret, requestUrl = uploadUrl(), args }: { keyName: string; secret: string; requestUrl?: string; args: Record<string, string> }) {
-  const generated = args.generate_password === 'true';
   return {
     Version: '17.0.0',
     Name: `files.gg (${keyName})`,
@@ -71,7 +70,9 @@ export function buildSharexConfig({ keyName, secret, requestUrl = uploadUrl(), a
     Body: 'MultipartFormData',
     ...(Object.keys(args).length > 0 ? { Arguments: args } : {}),
     FileFormName: 'file',
-    URL: generated ? '{json:url_with_password}' : '{json:url}',
+    // Key uploads always answer `url_with_password` (the plain link without a password), so a password the
+    // account's upload defaults generate reaches the copied link too (milestone-5 §21).
+    URL: '{json:url_with_password}',
     ErrorMessage: '{json:message}',
   };
 }

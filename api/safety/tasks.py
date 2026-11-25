@@ -5,9 +5,9 @@
 - report_closer (1 h): close reports 30 days after they were resolved or dismissed (§7.6);
 - safety_retention (daily): IP hashes and sealed IPs past 30 days, contact emails 90 days after
   a report closed, closed reports past REPORT_RETENTION_DAYS (except child-safety cases), and
-  expired evidence holds in the files bucket;
-- safety_rate_limits_cleanup (1 h): rate-limit windows older than an hour (a day for `domain_add`, whose
-  window is a day, milestone-6 §10.13).
+  expired evidence holds in the files bucket.
+
+Rate limits are on Redis and expire with their windows (milestone-5 §18), so nothing cleans them up here.
 """
 
 import logging
@@ -22,7 +22,6 @@ SCAN_SWEEPER_INTERVAL = 5 * 60
 RESCAN_SCHEDULER_INTERVAL = 10 * 60
 REPORT_CLOSER_INTERVAL = 60 * 60
 RETENTION_INTERVAL = 24 * 60 * 60
-RATE_LIMITS_INTERVAL = 60 * 60
 CONTACT_EMAIL_DAYS = 90
 
 
@@ -45,12 +44,6 @@ def register(scheduler):
     def safety_retention():
         log.info('safety retention: %r', retention(conn))
 
-    @scheduler.register('safety_rate_limits_cleanup', RATE_LIMITS_INTERVAL)
-    def safety_rate_limits_cleanup():
-        deleted = conn.execute("DELETE FROM safety_rate_limits WHERE window_start < now() - CASE WHEN scope = "
-                               "'domain_add' THEN interval '1 day' ELSE interval '1 hour' END").rowcount
-        log.info('safety_rate_limits cleanup removed %d row(s)', deleted)
-
     return scheduler
 
 
@@ -70,6 +63,11 @@ def retention(conn, settings=None):
         'UPDATE files SET uploader_abuse_ip_hash = NULL, uploader_ip_sealed = NULL WHERE id < %s AND '
         '(uploader_abuse_ip_hash IS NOT NULL OR uploader_ip_sealed IS NOT NULL)',
         (snowflake_since(days * 86400),)).rowcount
+    # milestone-5 §2.1: a conversion's abuse IP hash and the sealed IP kept for its output
+    out['conversion_ips'] = conn.execute(
+        "UPDATE conversions SET owner_ip_hash = NULL, output_settings = output_settings - 'ip_sealed' WHERE "
+        "(owner_ip_hash IS NOT NULL OR output_settings ? 'ip_sealed') AND created_at < now() - make_interval(days => "
+        '%s)', (days,)).rowcount
     out['report_ips'] = conn.execute(
         'UPDATE reports SET reporter_abuse_ip_hash = NULL WHERE reporter_abuse_ip_hash IS NOT NULL AND '
         'created_at < now() - make_interval(days => %s)', (days,)).rowcount

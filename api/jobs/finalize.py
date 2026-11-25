@@ -19,14 +19,13 @@ from datetime import datetime, timedelta, timezone
 
 import db
 import jobs.media as media_jobs
+from db import file_rows
 from db.models import UploadSession, columns, from_row
 from jobs.queue import register
 from safety import scan as safety_scan, uploads as safety_uploads
 from utils import filetypes
 from utils import storage as storage_module
-from utils.generators import Snowflake
 from utils.uploading import Hasher
-from utils.vanity import MAX_VANITY_ATTEMPTS, generate_vanity
 
 log = logging.getLogger(__name__)
 
@@ -107,27 +106,9 @@ def finalize(upload_id, conn=None, client=None):
                 log.warning('could not delete staging object %s; the upload reaper will retry', session.storage_key)
             return None
 
-        blake2b, md5, sha1 = hasher.digests()
-        row = conn.execute('SELECT id FROM file_hashes WHERE blake2b = %s AND md5 = %s AND sha1 = %s',
-                           (blake2b, md5, sha1)).fetchone()
-        new_hash = False
-        if row is not None:
-            hash_id = row[0]
-        else:
-            hash_id = Snowflake.generate()
-            key = storage_module.blob_key(hash_id)
-            client.copy({'Bucket': name, 'Key': session.storage_key}, name, key)
-            inserted = conn.execute(
-                'INSERT INTO file_hashes (id, blake2b, sha1, md5, size) VALUES (%s, %s, %s, %s, %s) '
-                'ON CONFLICT (blake2b, sha1, md5) DO NOTHING RETURNING id',
-                (hash_id, blake2b, sha1, md5, hasher.size)).fetchone()
-            if inserted is None:
-                # the same content was stored meanwhile: use it, drop our copy
-                client.delete_object(Bucket=name, Key=key)
-                hash_id = conn.execute('SELECT id FROM file_hashes WHERE blake2b = %s AND md5 = %s AND sha1 = %s',
-                                       (blake2b, md5, sha1)).fetchone()[0]
-            else:
-                new_hash = True
+        hash_id, new_hash = file_rows.stored_hash(
+            conn, client, name, hasher.digests(), hasher.size,
+            lambda key: client.copy({'Bucket': name, 'Key': session.storage_key}, name, key))
 
         now = datetime.now(timezone.utc)
         expires_at = now + timedelta(seconds=session.expires_in) if session.expires_in else None
@@ -135,36 +116,23 @@ def finalize(upload_id, conn=None, client=None):
             session = _session(conn, upload_id, lock=True)
             if session is None or session.status != 'processing':
                 return None
-            file_id = Snowflake.generate()
-            for _ in range(MAX_VANITY_ATTEMPTS):
-                vanity = generate_vanity()
-                created = conn.execute(
-                    'INSERT INTO files (id, vanity, mimetype_id, extension, filename, hash_id, user_id, fingerprint, '
-                    'view_count, size, expires_at, visibility, password_hash, unlock_ttl, password_expires_at, '
-                    'uploader_ip_hash, nsfw_marked, uploader_abuse_ip_hash, uploader_ip_sealed, upload_key_id, '
-                    'view_limit, view_limit_action) '
-                    'VALUES (%s, %s, %s, %s, %s, %s, %s, %s, 0, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s) '
-                    'ON CONFLICT (vanity) DO NOTHING RETURNING id',
-                    (file_id, vanity, session.mimetype_id, session.extension, session.name, hash_id,
-                     session.owner_user_id, session.owner_fingerprint, session.size, expires_at, session.visibility,
-                     session.password_hash, session.unlock_ttl, session.password_expires_at,
-                     session.owner_ip_hash, session.nsfw_marked, session.owner_abuse_ip_hash,
-                     session.owner_ip_sealed, session.upload_key_id, session.view_limit,
-                     session.view_limit_action)).fetchone()
-                if created is not None:
-                    break
-            else:
-                # the default pattern (3-16 characters) can't realistically run out: let the
-                # job queue retry, and fail the session (FINALIZE_FAILED) after the last attempt
-                raise RuntimeError('no free vanity after {} attempts'.format(MAX_VANITY_ATTEMPTS))
+            # VANITY_EXHAUSTED can't realistically happen with the default pattern: the job queue retries it, and
+            # the session fails (FINALIZE_FAILED) after the last attempt
+            file_id, _ = file_rows.insert_file(
+                conn, hash_id=hash_id, mimetype_id=session.mimetype_id, extension=session.extension,
+                filename=session.name, size=session.size, user_id=session.owner_user_id,
+                guest_id=session.owner_guest_id, expires_at=expires_at, visibility=session.visibility,
+                password_hash=session.password_hash, unlock_ttl=session.unlock_ttl,
+                password_expires_at=session.password_expires_at, uploader_ip_hash=session.owner_ip_hash,
+                nsfw_marked=session.nsfw_marked, uploader_abuse_ip_hash=session.owner_abuse_ip_hash,
+                uploader_ip_sealed=session.owner_ip_sealed, upload_key_id=session.upload_key_id,
+                view_limit=session.view_limit, view_limit_action=session.view_limit_action)
             conn.execute("UPDATE upload_sessions SET status = 'complete', file_id = %s WHERE id = %s",
                          (file_id, upload_id))
             # every new hash is scanned first (milestone-4 §2.1); `album=` on POST /uploads (Milestone 3).
             # The hash row was inserted before this transaction, so a retry after a crash in between
             # finds it as "existing": any hash still pending gets its (deduplicated) scan here.
-            pending = conn.execute("SELECT scan_state = 'pending' AND scan_stuck_at IS NULL FROM file_hashes "
-                                   'WHERE id = %s', (hash_id,)).fetchone()
-            if new_hash or (pending and pending[0]):
+            if file_rows.needs_scan(conn, hash_id, new_hash):
                 safety_scan.queue_scan(conn, hash_id)
             if session.album_id is not None:
                 append_to_album(conn, session.album_id, file_id, session.owner_user_id)
@@ -196,7 +164,7 @@ def _csam_reupload(conn, session, blake2b, md5, sha1, size):
                          (blake2b, md5, sha1)).fetchone()
     attempt = {'filename': session.filename, 'mimetype': session.mimetype_id, 'size': size,
                'signed_in': session.owner_user_id is not None, 'upload_id': str(session.id)}
-    csam.reupload(conn, entry[0] if entry else None, session.owner_user_id, session.owner_fingerprint,
+    csam.reupload(conn, entry[0] if entry else None, session.owner_user_id, session.owner_guest_id,
                   session.owner_abuse_ip_hash, attempt)
 
 

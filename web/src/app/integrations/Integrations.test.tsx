@@ -18,7 +18,7 @@ const key = (n: number, extra: Partial<UploadKey> = {}): UploadKey => ({
   state: 'active',
   ...extra,
 });
-const LIMITS = { storage: { used: 0, limit: 1e10 }, max_file_size_single: 99 * 1024 * 1024, max_file_size_chunked: 1024 ** 3, max_expiry: null, allow_no_expiry: true, anonymous: false, upload_keys: { used: 1, limit: 20 } };
+const LIMITS = { storage: { used: 0, limit: 1e10 }, max_file_size_single: 99_000_000, max_file_size_chunked: 1_000_000_000, max_expiry: null, allow_no_expiry: true, anonymous: false, upload_keys: { used: 1, limit: 20 } };
 
 function setup(routes: Record<string, StubHandler>, user = ME) {
   signIn(user);

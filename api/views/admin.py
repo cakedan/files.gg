@@ -15,7 +15,8 @@ from safety import admin as admin_rules, core, moderation, states, webrisk
 from safety.run import in_thread
 from safety.settings import safety_settings
 from utils import albums as album_rules
-from utils import errors, parameters, params, payloads, standing
+from utils import errors, params, payloads, standing
+from utils.auth import guest_of
 from utils.cdn_signing import sign_staff
 from utils.generators import EPOCH
 from utils.helpers import client_ip
@@ -46,8 +47,7 @@ def staff_only(func):
 
 def requester_of(request):
     """The staff member's own device and network for this request (ban self-checks, §9.1)."""
-    raw = request.headers.get('x-fingerprint')
-    return {'ip': client_ip(request), 'fingerprint': parameters.fingerprint(raw) if raw else None}
+    return {'ip': client_ip(request), 'guest_id': guest_of(request)}
 
 
 def body_of(request):
@@ -382,7 +382,7 @@ async def file_detail(request, staff, file_id):
         return {
             'owner': {'user_id': str(fobj.user_id) if fobj.user_id else None,
                       'username': owner_row and owner_row[0],
-                      'fingerprint': str(fobj.fingerprint) if fobj.fingerprint is not None and fobj.user_id is None
+                      'guest_id': str(fobj.guest_id) if fobj.guest_id is not None and fobj.user_id is None
                       else None,
                       'account_created_at': ((fobj.user_id >> 22) + EPOCH) // 1000 if fobj.user_id else None,
                       'anonymous': fobj.user_id is None},

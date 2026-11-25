@@ -11,7 +11,7 @@ export interface XhrOptions {
 
 /**
  * fetch() can't report upload progress, so uploads use XHR. Same base, the same headers
- * (fingerprint while signed out, the CSRF header) and the same `ApiError` parsing as the
+ * (the guest while signed out, the CSRF header) and the same `ApiError` parsing as the
  * rest of the client; a same-origin XHR sends the session cookie by itself. Aborts reject with an
  * `AbortError` DOMException, like fetch.
  */

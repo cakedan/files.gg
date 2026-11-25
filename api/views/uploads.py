@@ -26,6 +26,7 @@ from utils.cdn_signing import Grant
 from utils.generators import Snowflake
 from utils.helpers import client_ip
 from utils.params import Arg, Args
+from utils.ratelimit import limiter
 from utils.responses import ApiResponse
 from utils.turnstile import Turnstile
 from utils.wrappers import parse_args, route
@@ -33,13 +34,12 @@ from safety import ip as abuse_ip, uploads as safety_uploads
 from safety.settings import safety_settings
 from utils import standing
 
-import utils.parameters as parameters
 
 uploads = Blueprint('uploads', url_prefix='/uploads')
 
 DEFAULT_CHUNK_SIZE = 10 * 1024 * 1024
 SESSION_HOURS = 24
-# open chunked uploads per user, or per anonymous fingerprint and per IP (each S3 multipart upload
+# open chunked uploads per user, or per guest and per IP (each S3 multipart upload
 # holds its parts until it's completed or aborted)
 DEFAULT_MAX_OPEN_UPLOADS = 20
 OPEN_SESSION = "status = 'open' AND expires_at > now()"
@@ -60,7 +60,7 @@ async def _count(conn, sql, params):
 
 async def check_open_uploads(conn, owner):
     """Raise TOO_MANY_UPLOADS when the owner already has max_open_uploads() open sessions: a
-    signed-in user by account, an anonymous caller by fingerprint and by IP (today's and
+    signed-in user by account, an anonymous caller by guest and by IP (today's and
     yesterday's hashes, as the rolling cap)."""
     limit = max_open_uploads()
     if owner.user is not None:
@@ -68,10 +68,10 @@ async def check_open_uploads(conn, owner):
                              (owner.user.id,))
     else:
         count = 0
-        if owner.fingerprint is not None:
+        if owner.guest_id is not None:
             count = await _count(
-                conn, 'SELECT count(*) FROM upload_sessions WHERE owner_fingerprint = %s AND ' + OPEN_SESSION,
-                (owner.fingerprint,))
+                conn, 'SELECT count(*) FROM upload_sessions WHERE owner_guest_id = %s AND ' + OPEN_SESSION,
+                (owner.guest_id,))
         if owner.ip_hashes:
             count = max(count, await _count(
                 conn, 'SELECT count(*) FROM upload_sessions WHERE owner_ip_hash = ANY(%s) AND ' + OPEN_SESSION,
@@ -109,12 +109,12 @@ def nonempty_filename(value):
 
 
 class Caller:
-    """The session, upload key or fingerprint making the request."""
+    """The session, upload key or guest making the request."""
 
-    def __init__(self, user, fingerprint, key=None):
+    def __init__(self, user, guest_id, key=None):
         self.user = user
         self.key = key
-        self.fingerprint = None if user is not None else fingerprint
+        self.guest_id = None if user is not None else guest_id
 
     def owns(self, session):
         """Milestone-6 §7.5: a session a key started answers only that key (or the owner's session cookie, so
@@ -125,18 +125,17 @@ class Caller:
             if self.key is not None:
                 return session.upload_key_id == self.key.id
             return True
-        return self.fingerprint is not None and session.owner_user_id is None \
-            and session.owner_fingerprint == self.fingerprint
+        return self.guest_id is not None and session.owner_user_id is None \
+            and session.owner_guest_id == self.guest_id
 
 
 async def caller_of(request):
-    from utils.auth import uploader
+    from utils.auth import guest_of, uploader
     user, key = uploader(request)
-    fingerprint = parameters.fingerprint(request.headers.get('x-fingerprint')) \
-        if request.headers.get('x-fingerprint') else None
-    if user is None and fingerprint is None:
+    guest_id = guest_of(request)
+    if user is None and guest_id is None:
         raise errors.unauthorized()
-    return Caller(user, fingerprint, key)
+    return Caller(user, guest_id, key)
 
 
 async def owned_session(conn, caller, upload_id, for_update=False):
@@ -172,9 +171,10 @@ class CreateUploadArgs(Args):
 
 
 @route(uploads, '', ['POST'])
+@limiter.limit('60 per minute', scope='chunked_upload')
 @parse_args(CreateUploadArgs)
 async def create_upload(request, args):
-    from utils import upload_keys
+    from utils import upload_defaults, upload_keys
     from utils.auth import uploader
     user, key = uploader(request)
     # milestone-6 §7.5: anonymous tools (no credential, no turnstile_token at all) need a key
@@ -183,15 +183,18 @@ async def create_upload(request, args):
     caller = await caller_of(request)
     if key is not None and args.album not in (None, '') and not key.allows('albums:append'):
         raise errors.upload_key_scope('albums:append')
+    if key is not None:
+        # milestone-5 §21: what the tool doesn't send comes from the owner's upload defaults
+        args = upload_defaults.for_key_upload(args, user)
     settings = safety_settings()
     abuse_hash, sealed_ip = abuse_ip.for_request(client_ip(request), settings)
     async with db.connection() as conn:
-        await standing.check_uploader(conn, caller.user, caller.fingerprint, abuse_hash)
+        await standing.check_uploader(conn, caller.user, caller.guest_id, abuse_hash)
         if key is not None:
-            await upload_keys.count_upload(conn, key)
+            await upload_keys.count_upload(request, key)
     if args.nsfw and caller.user is None:
         raise errors.nsfw_requires_account()
-    owner = uploading.Owner(caller.user, caller.fingerprint, client_ip(request), request.app.ctx.view_hash_secret)
+    owner = uploading.Owner(caller.user, caller.guest_id, client_ip(request), request.app.ctx.view_hash_secret)
     limits = owner.limits
     if args.size > limits.max_file_size_chunked:
         raise limits_module.file_too_large(limits.max_file_size_chunked)
@@ -229,7 +232,7 @@ async def create_upload(request, args):
                     conn,
                     id=upload_id,
                     owner_user_id=caller.user.id if caller.user else None,
-                    owner_fingerprint=caller.fingerprint,
+                    owner_guest_id=caller.guest_id,
                     owner_ip_hash=owner.ip_hash,
                     filename=args.filename,
                     name=name,

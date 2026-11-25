@@ -204,7 +204,7 @@ def test_report_rate_limits(client, appdb, monkeypatch):
     assert 1 <= response.json()['retry_after'] <= 3600
     # CSAM reports aren't limited for signed-in reporters
     report(client, reporter, {'target': {'type': 'file', 'vanity': created['vanity']}, 'reason': 'csam'}, status=201)
-    # anonymous: per fingerprint and per IP hash
+    # anonymous: per guest and per IP hash
     ip = net()
     for _ in range(2):
         created, _ = file_of(client, appdb)

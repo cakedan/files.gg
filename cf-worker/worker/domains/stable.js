@@ -11,7 +11,7 @@ import { DEFAULT_HOSTS, getHosts, hostPattern, isMainHost, originFor } from '../
 import { renderChallenge, renderViewer, serveApp, serveSecurityTxt, serveStatic } from '../shell.js';
 import { parseChallengeQuery } from '../utils/domains.js';
 import { domainServing } from '../utils/owners.js';
-import { classifyStablePath, decideAlbumShell, decideFileShell } from '../utils/viewer.js';
+import { classifyStablePath, decideAlbumShell, decideFileShell, publicPageHead } from '../utils/viewer.js';
 import { botRefusalResponse } from '../utils/viewlimits.js';
 
 export const STABLE_DOMAIN = hostPattern(DEFAULT_HOSTS.main, { www: true });
@@ -65,6 +65,9 @@ async function serveChallenge(event) {
 }
 
 
+const mainOriginOf = (event) => originFor(getHosts(event.environment).main, event.url);
+
+
 async function handle(event) {
   const route = classifyStablePath(event.url.pathname);
 
@@ -79,10 +82,14 @@ async function handle(event) {
     case 'root-file': return await serveFromDist(event, { immutable: false });
     case 'asset': return await serveFromDist(event, { immutable: true });
     case 'app': return await serveApp(event);
-    case 'home': return await renderViewer(event, { page: 'home', status: 200 });
-    case 'convert': return await renderViewer(event, { page: 'convert', status: 200 });
-    // /login, /register, /signup: the dashboard's auth pages, with the query kept (milestone-6.md §6.2).
-    case 'redirect': return new ApiRedirect(route.location + event.url.search, { status: 308 });
+    // The home page: the dashboard entry's, with the upload box (a public page, like /convert).
+    case 'home': return await serveApp(event, publicPageHead('home', { mainOrigin: mainOriginOf(event) }));
+    // /convert (milestone-5.md §11), /changelog, /legal/terms and /legal/privacy (§19.1): the dashboard
+    // entry's public pages, with their own title and description. No lookup.
+    case 'page': return await serveApp(event, publicPageHead(route.page, { mainOrigin: mainOriginOf(event) }));
+    // /login, /register, /signup: the dashboard's auth pages, 308 (milestone-6.md §6.2); /legal: 302
+    // to the Terms (milestone-5.md §19.1). The query is kept.
+    case 'redirect': return new ApiRedirect(route.location + event.url.search, { status: route.status });
     case 'challenge': return await serveChallenge(event);
     // Report pages: always 200, no lookup, the default meta tags (milestone-4.md §10.1). They never
     // say whether the target exists; the API answers that when the form is sent.
@@ -96,8 +103,7 @@ async function handle(event) {
     }
     case 'file': {
       const lookup = await internalLookup(event, 'files', route.vanity);
-      const mainOrigin = originFor(getHosts(event.environment).main, event.url);
-      const shell = decideFileShell({ lookup, vanity: route.vanity, headers: event.originalRequest.headers, mainOrigin });
+      const shell = decideFileShell({ lookup, vanity: route.vanity, headers: event.originalRequest.headers, mainOrigin: mainOriginOf(event) });
       if (shell.redirect) {
         // ShareX, Telegram and embeds of `link` files go straight to cdn_url (PLAN.md §1.4 item 3).
         return new ApiRedirect(shell.redirect);

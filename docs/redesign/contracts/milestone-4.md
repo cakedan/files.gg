@@ -1,5 +1,7 @@
 # Milestone 4 contract (trust & safety)
 
+> Later renamed: the anonymous uploader's *fingerprint* is now a *guest* (`guest_id`, `Authorization: Guest`); see milestone-5.md §20.
+
 This is the shared contract between `api/`, `cf-worker/` and `web/` for Milestone 4. It covers:
 - the `scan` job and publication gating: nothing new is served until it passes;
 - CSAM hash matching (PhotoDNA behind a vendor-neutral interface) and what happens on a match;
@@ -231,7 +233,7 @@ The child decides by **every type the bytes or the name say it is**: the libmagi
 | `blocked_type` | `blocked` | A blocked type found by sniffing, inside an archive, or as an Office macro (§5.1, §5.3, §5.4) |
 | `archive_bomb` | `blocked` | §5.3 thresholds |
 | `pdf_dangerous` | `blocked` | `/Launch`, `/RichMedia`, or an embedded file of a blocked type (§5.5) |
-| `pdf_javascript` | `flagged` | `/JavaScript`, `/JS`, `/OpenAction` or `/AA` (§5.5) |
+| `pdf_javascript` | `flagged` | `/JavaScript` or `/JS` (§5.5; `/OpenAction` and `/AA` alone are only recorded, revised 2026-11-25) |
 | `polyglot_archive` | `flagged` | An image or PDF with an archive appended (§5.5) |
 | `web_risk` | `flagged` | A Web Risk hit on an extracted URL (§5.7) |
 
@@ -646,7 +648,8 @@ Applies when any of the types (§2.3) is zip, 7z, rar, tar, gzip, bzip2, xz or z
 **PDFs** (a pdfid-style keyword scan):
 - Over the raw bytes **and** over `qpdf --qdf --object-streams=disable` output (so keywords inside object streams are seen), with name escapes (`/J#61vaScript`) normalised first. `qpdf` comes from Debian in the worker image.
 - **Block** (`pdf_dangerous`): `/Launch`, `/RichMedia`, and an `/EmbeddedFile` whose name or sniffed content is a blocked type.
-- **Flag** (`pdf_javascript`): `/JavaScript`, `/JS`, `/OpenAction`, `/AA`. pdf.js never runs them (`enableScripting: false`).
+- **Flag** (`pdf_javascript`): `/JavaScript`, `/JS`. pdf.js never runs them (`enableScripting: false`).
+  - **Revised 2026-11-25 (Milestone 5):** `/OpenAction` and `/AA` are only *triggers*, and alone they just open the document at a page or zoom (LibreOffice writes `/OpenAction [3 0 R /Fit]` into every export, so every converted Office document was flagged). They're recorded in the scan's `triggers`, not flagged. A JavaScript action still names `/JavaScript` and `/JS`, and `/Launch` stays blocked, however it's triggered.
 - **URLs:** `/URI` actions and `http(s)://` in the extracted text (§5.7).
 
 **Polyglots and type mismatches:**
@@ -696,7 +699,7 @@ Sanesecurity's feeds were also considered and dropped: they publish no licence o
 | Archive: over 10,000 entries | | | | `archive_partially_scanned` |
 | Office: macros, XLM, DDE, external links | yes | | | |
 | PDF: `/Launch`, `/RichMedia`, embedded blocked files | yes | | | |
-| PDF: `/JavaScript`, `/OpenAction`, `/AA` | | | yes | |
+| PDF: `/JavaScript`, `/JS` (`/OpenAction` and `/AA` alone only recorded) | | | yes | |
 | Polyglot with an appended archive | (if the archive blocks) | | yes | |
 | Web Risk | | | yes | flagged links listed in `link_warnings` |
 | Non-media blob over 512 MiB | | | | `too_large_to_scan` |

@@ -12,7 +12,7 @@ from tests.conftest import (
 )
 from utils import credentials
 from utils.generators import Snowflake
-from utils.tokens import FingerprintToken
+from utils.tokens import GuestToken
 
 
 @pytest.fixture(scope='module')
@@ -69,10 +69,10 @@ def test_create_list_rename_and_revoke(client, appdb):
         credentials.token_hash(secret)
     listing = client.get('/users/@me/upload-keys', headers=headers).json()
     assert listing['limit'] == 20 and listing['items'][0]['id'] == key['id'] and secret not in json.dumps(listing)
-    # defaults: no Arguments, `{json:url}`
+    # defaults: no Arguments, and still `{json:url_with_password}` (the owner's defaults may generate one, §21)
     plain = create_key(client, headers)
     assert plain['key']['name'] == 'Upload key' and plain['key']['scopes'] == ['files:upload']
-    assert 'Arguments' not in plain['sharex'] and plain['sharex']['URL'] == '{json:url}'
+    assert 'Arguments' not in plain['sharex'] and plain['sharex']['URL'] == '{json:url_with_password}'
     assert client.patch('/users/@me/upload-keys/' + key['id'], headers=headers, json={'name': 'Desk'}).json()['name'] \
         == 'Desk'
     assert client.delete('/users/@me/upload-keys/' + key['id'], headers=headers).status_code == 204
@@ -192,21 +192,21 @@ def test_the_per_key_rate(client, appdb, monkeypatch):
 
 
 def test_anonymous_tools_need_a_key(client):
-    fingerprint = {'X-Fingerprint': FingerprintToken.generate(Snowflake.generate())}
-    for headers in (fingerprint, {}):
+    guest = {'Authorization': 'Guest ' + GuestToken.generate(Snowflake.generate())}
+    for headers in (guest, {}):
         response = client.post('/files', headers=headers, files={'file': ('a.txt', b'hello', 'text/plain')})
         assert (response.status_code, response.json()) == (401, {
             'code': 'UPLOAD_KEY_REQUIRED', 'message': 'Create a free account to upload with ShareX', 'status': 401})
-    response = client.post('/files?type=raw&filename=a.txt', headers=dict(fingerprint, **{'Content-Type': 'text/plain'}),
+    response = client.post('/files?type=raw&filename=a.txt', headers=dict(guest, **{'Content-Type': 'text/plain'}),
                            content=b'hello')
     assert response.json()['code'] == 'UPLOAD_KEY_REQUIRED'
-    response = client.post('/uploads', headers=fingerprint, json={'filename': 'a.bin', 'size': 10})
+    response = client.post('/uploads', headers=guest, json={'filename': 'a.bin', 'size': 10})
     assert response.json()['code'] == 'UPLOAD_KEY_REQUIRED'
     # a present but failing token is still CAPTCHA_INVALID; a good one uploads
-    response = client.post('/files', headers=fingerprint, files={'file': ('a.txt', b'hello', 'text/plain')},
+    response = client.post('/files', headers=guest, files={'file': ('a.txt', b'hello', 'text/plain')},
                            data={'turnstile_token': 'mock-fail'})
     assert response.json()['code'] == 'CAPTCHA_INVALID'
-    response = client.post('/files', headers=fingerprint, files={'file': ('a.txt', b'hello', 'text/plain')},
+    response = client.post('/files', headers=guest, files={'file': ('a.txt', b'hello', 'text/plain')},
                            data={'turnstile_token': TURNSTILE_TOKEN})
     assert response.status_code == 200
 

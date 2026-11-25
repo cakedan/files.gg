@@ -458,18 +458,18 @@ def test_bans(client, appdb):
     _, moderator = make_staff(appdb)
     _, admin = make_staff(appdb, 'admin')
     assert client.post('/admin/bans', headers=moderator, json={
-        'kind': 'fingerprint', 'from': {'file_id': created['id']}, 'rule': 'spam'}).status_code == 403  # no end
+        'kind': 'guest', 'from': {'file_id': created['id']}, 'rule': 'spam'}).status_code == 403  # no end
     ban = client.post('/admin/bans', headers=moderator, json={
-        'kind': 'fingerprint', 'from': {'file_id': created['id']}, 'rule': 'spam', 'duration': 86400})
+        'kind': 'guest', 'from': {'file_id': created['id']}, 'rule': 'spam', 'duration': 86400})
     assert ban.status_code == 201
     body = ban.json()
-    assert body['kind'] == 'fingerprint' and body['source'] == {'file_id': created['id']}
-    assert 'fingerprint' not in body and 'abuse_ip_hash' not in body
+    assert body['kind'] == 'guest' and body['source'] == {'file_id': created['id']}
+    assert 'guest_id' not in body and 'abuse_ip_hash' not in body
     response = client.post('/files', headers=dict(headers, **{'X-Forwarded-For': '10.77.0.2'}),
                            files={'file': ('b.txt', nonce(), 'text/plain')}, data={'turnstile_token':
                                                                                     'mock:upload:files.gg'})
     assert response.status_code == 403 and response.json()['code'] == 'BANNED'
-    # an IP ban from the same file: another fingerprint on that network is refused too
+    # an IP ban from the same file: another guest on that network is refused too
     ip_ban = client.post('/admin/bans', headers=admin, json={'kind': 'ip', 'from': {'file_id': created['id']},
                                                              'rule': 'spam'}).json()
     response = client.post('/files', headers=anonymous('10.77.0.1'), files={'file': ('c.txt', nonce(), 'text/plain')},
@@ -807,9 +807,9 @@ def test_staff_cant_ban_or_unban_their_own_device_or_network(client, appdb):
     device = anonymous('10.66.0.1')
     created = send(client, device, nonce(), 'a.txt', 'text/plain', anonymous_upload=True, ip='10.66.0.1')
     from_here = dict(admin, **{'X-Forwarded-For': '10.66.0.1'})
-    same_device = dict(admin, **{'X-Fingerprint': device['X-Fingerprint'], 'X-Forwarded-For': '10.67.0.1'})
+    same_device = dict(admin, **{'Authorization': device['Authorization'], 'X-Forwarded-For': '10.67.0.1'})
     elsewhere = dict(admin, **{'X-Forwarded-For': '10.68.0.1'})
-    for headers, kind in ((from_here, 'ip'), (same_device, 'fingerprint')):
+    for headers, kind in ((from_here, 'ip'), (same_device, 'guest')):
         response = client.post('/admin/bans', headers=headers, json={'kind': kind, 'from': {'file_id': created['id']},
                                                                      'rule': 'spam'})
         assert (response.status_code, response.json()['code']) == (403, 'FORBIDDEN'), (kind, response.text)

@@ -2,6 +2,7 @@ import { Suspense, useEffect, type ReactNode } from 'react';
 import { Outlet } from 'react-router';
 
 import { Lockup } from '../../components/Brand';
+import { SiteFooter } from '../../components/SiteFooter';
 import { useSessionSync } from '../../lib/session';
 import { Toaster } from '../components/Toaster';
 
@@ -28,6 +29,7 @@ export function AuthLayout() {
             <Outlet />
           </Suspense>
         </main>
+        <SiteFooter className="mt-8" />
       </div>
     </Toaster>
   );

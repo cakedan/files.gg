@@ -6,7 +6,7 @@
 - Email links: 32 random bytes, base64url without padding (43 characters), stored as SHA-256.
 - The OAuth `state` and the Discord sign-up token: signed, stateless claims, built like the unlock tokens
   (utils/access_token.py) with a label so one can never be used as the other.
-- The email rate-limit key: a keyed hash, so `safety_rate_limits` holds no addresses.
+- The email rate-limit key: a keyed hash, so Redis holds no addresses (milestone-5 §18.1).
 """
 
 import base64

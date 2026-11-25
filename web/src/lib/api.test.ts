@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { accessPath, api, ApiError, apiBaseUrl, authHeaders, buildUrl, ensureFingerprint, onAuthEvent, openPath, parseApiError, request, setSignedInState, signedInState, type AuthEvent } from './api';
+import { accessPath, api, ApiError, apiBaseUrl, authHeaders, buildUrl, ensureGuest, onAuthEvent, openPath, parseApiError, request, setSignedInState, signedInState, type AuthEvent } from './api';
 
 const json = (body: unknown, init: ResponseInit = {}) =>
   new Response(JSON.stringify(body), { headers: { 'Content-Type': 'application/json' }, ...init });
@@ -62,11 +62,11 @@ describe('authHeaders (milestone-6 §3.6, §13.1)', () => {
     expect(authHeaders()).toEqual({});
   });
 
-  it('sends X-Fingerprint only while not known to be signed in', () => {
-    localStorage.setItem('filesgg.fingerprint', '1234567890');
-    expect(authHeaders()).toEqual({ 'X-Fingerprint': '1234567890' });
+  it('sends Authorization: Guest only while not known to be signed in', () => {
+    localStorage.setItem('filesgg.guest', '1234567890');
+    expect(authHeaders()).toEqual({ Authorization: 'Guest 1234567890' });
     setSignedInState(false);
-    expect(authHeaders()).toEqual({ 'X-Fingerprint': '1234567890' });
+    expect(authHeaders()).toEqual({ Authorization: 'Guest 1234567890' });
     setSignedInState(true);
     expect(authHeaders()).toEqual({});
   });
@@ -149,16 +149,16 @@ describe('session and cookie behaviour (milestone-6 §3, §13.1)', () => {
     stop();
   });
 
-  it('ensureFingerprint asks who is signed in first: none when signed in, else the stored or a new one', async () => {
+  it('ensureGuest asks who is signed in first: none when signed in, else the stored or a new one', async () => {
     const fetchMock = mockFetch(async (input) =>
-      String(input).endsWith('/auth/session') ? json({ user: null }) : json({ fingerprint: '123' }),
+      String(input).endsWith('/auth/session') ? json({ user: null }) : json({ guest: '123' }),
     );
-    await expect(ensureFingerprint()).resolves.toBe('123');
-    expect(localStorage.getItem('filesgg.fingerprint')).toBe('123');
-    await expect(ensureFingerprint()).resolves.toBe('123');
-    expect(fetchMock.mock.calls.map(([url]) => String(url).replace(API, ''))).toEqual(['/auth/session', '/auth/fingerprint']);
+    await expect(ensureGuest()).resolves.toBe('123');
+    expect(localStorage.getItem('filesgg.guest')).toBe('123');
+    await expect(ensureGuest()).resolves.toBe('123');
+    expect(fetchMock.mock.calls.map(([url]) => String(url).replace(API, ''))).toEqual(['/auth/session', '/auth/guest']);
     setSignedInState(true);
-    await expect(ensureFingerprint()).resolves.toBeNull();
+    await expect(ensureGuest()).resolves.toBeNull();
   });
 });
 
@@ -177,7 +177,6 @@ describe('request', () => {
     const fetchMock = mockFetch(json({ ok: true }));
     await request('/anything');
     expect(sentHeaders(fetchMock)).not.toHaveProperty('Authorization');
-    expect(sentHeaders(fetchMock)).not.toHaveProperty('X-Fingerprint');
   });
 
   it('defaults the files list to 25 per page', async () => {
@@ -239,13 +238,12 @@ describe('parseApiError', () => {
 });
 
 describe('Milestone 2 endpoints', () => {
-  it('unlock posts password + Turnstile token without the fingerprint', async () => {
-    localStorage.setItem('filesgg.fingerprint', '123');
+  it('unlock posts password + Turnstile token without the guest', async () => {
+    localStorage.setItem('filesgg.guest', '123');
     const fetchMock = mockFetch(json({ token: 't', expires_at: 1, file: {} }));
     await api.unlock('album', 'v1', 'pw', 'XXXX.DUMMY.TOKEN.XXXX');
     expect(fetchMock.mock.calls[0]?.[0]).toBe(`${API}/access/unlock/albums/v1`);
     expect(sentHeaders(fetchMock)).not.toHaveProperty('Authorization');
-    expect(sentHeaders(fetchMock)).not.toHaveProperty('X-Fingerprint');
   });
 
   it('view sends the token in X-Filesgg-Access, never the query string', async () => {

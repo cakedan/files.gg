@@ -5,22 +5,25 @@
   `files.gg/api/*`: the origin secret matched (`request.ctx.from_worker`) **and** `X-Filesgg-Via: main`,
   which the Worker sets only there. A cookie on any other request is ignored.
 - **Upload keys** (`Authorization: Key fgg_…`) authenticate only the upload endpoints; elsewhere they're
-  `403 UPLOAD_KEY_NOT_ALLOWED` (the plain 404 on `/admin/*`). Any other `Authorization` (`Bearer` included)
-  is `401 UNAUTHORIZED`, never a session.
+  `403 UPLOAD_KEY_NOT_ALLOWED` (the plain 404 on `/admin/*`).
+- **Guests** (`Authorization: Guest <token>`, milestone-5 §20.1) only name the anonymous uploader; they never
+  authenticate a user. A session cookie still decides the user, and the guest is then only claimed. An invalid
+  token is ignored (no guest). Any other `Authorization` (`Bearer` included), or more than one, is
+  `401 UNAUTHORIZED`, never a session.
 - **CSRF** (§3.6): every POST, PUT, PATCH and DELETE carrying the session cookie, and every POST under
   `/auth/`, needs `X-Filesgg-Csrf: 1`, a same-origin `Origin` when one is sent, and `Sec-Fetch-Site:
   same-origin` when that is sent. Else `403 CSRF`, before the handler runs.
 
 `resolve()` runs as request middleware and leaves `request.ctx.auth`; handlers ask `require_session()`,
-`optional_user()` or `uploader()`. The cookie and the `Authorization` header are removed from the request
-once read, so nothing later can log them. Responses set or clear the cookie from `request.ctx.set_cookie`
+`optional_user()`, `uploader()` or `guest_of()`. The cookie and the `Authorization` header are removed from the
+request once read, so nothing later can log them. Responses set or clear the cookie from `request.ctx.set_cookie`
 and `request.ctx.clear_cookie` (app.py).
 """
 
 from urllib.parse import urlsplit
 
 import db
-from utils import accounts, credentials, errors
+from utils import accounts, credentials, errors, parameters
 from utils.account_settings import account_settings
 from utils.urls import public_url
 
@@ -31,13 +34,15 @@ KEY_HELP = 'Upload keys use `Authorization: Key fgg_…`'
 
 
 class Auth:
-    """What authenticated this request: nothing, the session cookie, or an upload key."""
+    """What authenticated this request: nothing, the session cookie, or an upload key; and the guest it named."""
 
-    def __init__(self, kind=None, user=None, session=None, key=None):
+    def __init__(self, kind=None, user=None, session=None, key=None, guest_id=None):
         self.kind = kind
         self.user = user
         self.session = session
         self.key = key
+        # `Authorization: Guest`: the anonymous uploader's id, never a user
+        self.guest_id = guest_id
         # a session cookie came with the request (valid or not)
         self.cookie = False
         # the cookie named no live session: the response clears it
@@ -115,6 +120,11 @@ def is_upload_endpoint(request):
     return path.startswith('/uploads/') and method in ('GET', 'HEAD', 'PUT', 'POST', 'DELETE')
 
 
+def is_conversion_endpoint(request):
+    path = request.path.rstrip('/')
+    return path == '/conversions' or path.startswith('/conversions/') or path == '/users/@me/conversions'
+
+
 def _quiet_path(path):
     """Where any credential problem answers like an unknown route (milestone-4 §9.1, milestone-3 §5)."""
     return path.startswith(('/admin/', '/internal/')) or path in ('/admin', '/internal')
@@ -129,7 +139,7 @@ async def resolve(request):
         return
     settings = account_settings()
     path = request.path
-    authorization = request.headers.get('authorization')
+    authorizations = request.headers.getall('authorization', [])
     token = read_cookie(request, settings.cookie_name)
     scrub(request)
 
@@ -137,12 +147,21 @@ async def resolve(request):
     if request.method == 'POST' and path.startswith('/auth/'):
         check_csrf(request)
 
-    if authorization is not None:
+    if len(authorizations) > 1:
+        # `Key` and `Guest` never come together (milestone-5 §20.1)
+        raise errors.not_found() if _quiet_path(path) else errors.unauthorized()
+    scheme, _, value = authorizations[0].strip().partition(' ') if authorizations else ('', '', '')
+    if scheme.lower() == 'guest':
+        # names the guest, never a user; the session cookie below still decides who the caller is
+        request.ctx.auth.guest_id = parameters.guest(value.strip())
+    elif authorizations:
         if _quiet_path(path):
             raise errors.not_found()
-        scheme, _, value = authorization.strip().partition(' ')
         if scheme.lower() != 'key':
             raise errors.unauthorized(KEY_HELP if is_upload_endpoint(request) else 'Sign in to do that')
+        if is_conversion_endpoint(request):
+            # milestone-5 §10: keys stay upload-only (milestone-6 §7), and conversions say so with their scope
+            raise errors.upload_key_scope('conversions')
         if not is_upload_endpoint(request):
             raise errors.upload_key_not_allowed()
         from utils import upload_keys
@@ -168,13 +187,18 @@ async def resolve(request):
             return
         user, session = found
         await accounts.touch_session(conn, session, accounts.country_of(request), settings)
-    request.ctx.auth = Auth('session', user, session)
+    request.ctx.auth = Auth('session', user, session, guest_id=auth.guest_id)
     request.ctx.auth.cookie = True
 
 
 def auth_of(request):
     auth = getattr(request.ctx, 'auth', None)
     return auth if auth is not None else Auth()
+
+
+def guest_of(request):
+    """The guest id from `Authorization: Guest` (milestone-5 §20.1), or None (none sent, or not valid)."""
+    return auth_of(request).guest_id
 
 
 def require_session(request):

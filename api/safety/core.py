@@ -215,11 +215,11 @@ def _strike_suspend(conn, user_id, rule):
 
 # --- bans (§9.3) ------------------------------------------------------------------------------------------------
 
-def active_ban(conn, fingerprint=None, ip_hash=None):
+def active_ban(conn, guest_id=None, ip_hash=None):
     clauses, params = [], []
-    if fingerprint is not None:
-        clauses.append('fingerprint = %s')
-        params.append(fingerprint)
+    if guest_id is not None:
+        clauses.append('guest_id = %s')
+        params.append(guest_id)
     if ip_hash is not None:
         clauses.append('abuse_ip_hash = %s')
         params.append(ip_hash)
@@ -229,20 +229,20 @@ def active_ban(conn, fingerprint=None, ip_hash=None):
                      'expires_at > now()) LIMIT 1'.format(' OR '.join(clauses)), params)
 
 
-def ban(conn, actor, rule, fingerprint=None, ip_hash=None, expires_at=None, source=None, case_id=None, note=None,
+def ban(conn, actor, rule, guest_id=None, ip_hash=None, expires_at=None, source=None, case_id=None, note=None,
         child_safety=False):
     """A `bans` row and its audit row; an existing open-ended ban of the same key is reused."""
     existing = one(conn, 'SELECT id FROM bans WHERE {} = %s AND lifted_at IS NULL AND expires_at IS NULL'.format(
-        'fingerprint' if fingerprint is not None else 'abuse_ip_hash'),
-        (fingerprint if fingerprint is not None else ip_hash,)) if expires_at is None else None
+        'guest_id' if guest_id is not None else 'abuse_ip_hash'),
+        (guest_id if guest_id is not None else ip_hash,)) if expires_at is None else None
     if existing is not None:
         return existing[0], None
     action_id = log_action(conn, actor, 'ban', rule=rule, case_id=case_id, note=note, child_safety=child_safety,
-                           details={'kind': 'fingerprint' if fingerprint is not None else 'ip', 'source': source,
+                           details={'kind': 'guest' if guest_id is not None else 'ip', 'source': source,
                                     'expires_at': int(expires_at.timestamp()) if expires_at else None})
-    ban_id = one(conn, 'INSERT INTO bans (fingerprint, abuse_ip_hash, rule, action_id, source, expires_at) '
+    ban_id = one(conn, 'INSERT INTO bans (guest_id, abuse_ip_hash, rule, action_id, source, expires_at) '
                        'VALUES (%s, %s, %s, %s, %s::jsonb, %s) RETURNING id',
-                 (fingerprint, ip_hash, rule, action_id, json.dumps(source) if source else None, expires_at))[0]
+                 (guest_id, ip_hash, rule, action_id, json.dumps(source) if source else None, expires_at))[0]
     return ban_id, action_id
 
 
@@ -313,8 +313,8 @@ def queue_probe(conn, hash_id):
 
 
 def hash_files(conn, hash_id, live=True):
-    """[(id, user_id, fingerprint, vanity, deleted_at)] of the hash's files."""
-    return all_rows(conn, 'SELECT id, user_id, fingerprint, vanity, deleted_at FROM files WHERE hash_id = %s{} '
+    """[(id, user_id, guest_id, vanity, deleted_at)] of the hash's files."""
+    return all_rows(conn, 'SELECT id, user_id, guest_id, vanity, deleted_at FROM files WHERE hash_id = %s{} '
                           'ORDER BY id'.format(' AND deleted_at IS NULL' if live else ''), (hash_id,))
 
 

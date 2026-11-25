@@ -16,7 +16,7 @@ from tests.conftest import (
 )
 from utils import access_token
 from utils.generators import Snowflake
-from utils.tokens import FingerprintToken
+from utils.tokens import GuestToken
 
 # the API's unlock tokens are signed with SECRET_KEY (milestone-3 §3)
 SECRET = SECRET_KEY
@@ -48,7 +48,7 @@ def new_user(appdb, override=None):
 
 
 def anonymous(ip=None):
-    headers = {'X-Fingerprint': FingerprintToken.generate(Snowflake.generate())}
+    headers = {'Authorization': 'Guest ' + GuestToken.generate(Snowflake.generate())}
     if ip:
         headers['X-Forwarded-For'] = ip
     return headers
@@ -250,23 +250,23 @@ def test_anonymous_file_size_limit(client, seeded, monkeypatch):
     upload(client, anonymous(), content=b'x' * 1000, turnstile_token=TURNSTILE_TOKEN)
 
 
-def test_anonymous_rolling_caps_per_fingerprint_and_per_ip(client, seeded, monkeypatch):
+def test_anonymous_rolling_caps_per_guest_and_per_ip(client, seeded, monkeypatch):
     monkeypatch.setenv('LIMIT_ANONYMOUS_DAILY_BYTES', '3000')
     ip = '198.51.100.{}'.format(uuid.uuid4().int % 250)
     first = anonymous(ip)
     upload(client, first, content=uuid.uuid4().bytes * 62, turnstile_token=TURNSTILE_TOKEN)  # 992 bytes
     upload(client, first, content=uuid.uuid4().bytes * 62, turnstile_token=TURNSTILE_TOKEN)
-    # per fingerprint
+    # per guest
     response = client.post('/files', headers=first, files={'file': ('a.txt', uuid.uuid4().bytes * 70, 'text/plain')},
                            data={'turnstile_token': TURNSTILE_TOKEN})
     assert response.status_code == 413 and response.json()['code'] == 'STORAGE_LIMIT_REACHED'
     assert response.json()['limit'] == 3000 and response.json()['used'] == 1984
-    # per IP, with a fresh fingerprint
+    # per IP, with a fresh guest
     response = client.post('/files', headers=anonymous(ip),
                            files={'file': ('a.txt', uuid.uuid4().bytes * 70, 'text/plain')},
                            data={'turnstile_token': TURNSTILE_TOKEN})
     assert response.status_code == 413 and response.json()['code'] == 'STORAGE_LIMIT_REACHED'
-    # another IP and fingerprint is unaffected
+    # another IP and guest is unaffected
     upload(client, anonymous('203.0.113.{}'.format(uuid.uuid4().int % 250)), content=uuid.uuid4().bytes * 70,
            turnstile_token=TURNSTILE_TOKEN)
 
@@ -334,11 +334,11 @@ def test_limits_endpoint(client, seeded):
     _, headers = new_user(seeded)
     upload(client, headers, content=b'y' * 100)
     assert client.get('/users/@me/limits', headers=headers).json() == {
-        'storage': {'used': 100, 'limit': 10737418240},
-        # milestone-6 §9.2: capped by PROXY_BODY_LIMIT_BYTES (100,000,000) less 1 MiB of framing, for everyone
-        'max_file_size_single': 98951424,
-        'max_file_size_single_configured': 104857600,
-        'max_file_size_chunked': 1073741824,
+        'storage': {'used': 100, 'limit': 10_000_000_000},
+        # decimal sizes: 100 MB single, under PROXY_BODY_LIMIT_BYTES (100 MiB) less 1 MiB of framing
+        'max_file_size_single': 100_000_000,
+        'max_file_size_single_configured': 100_000_000,
+        'max_file_size_chunked': 1_000_000_000,
         'premium': False,
         'custom_domains': {'used': 0, 'limit': 0},
         'upload_keys': {'used': 0, 'limit': 20},
@@ -354,9 +354,9 @@ def test_limits_endpoint(client, seeded):
     body = client.get('/users/@me/limits', headers=anonymous('192.0.2.77')).json()
     assert body['album_max_files'] == 50 and body['albums_max'] is None
     assert body['storage'] == {'used': 0, 'limit': None} and body['anonymous'] is True
-    assert body['max_file_size_single'] == body['max_file_size_chunked'] == 26214400
+    assert body['max_file_size_single'] == body['max_file_size_chunked'] == 25_000_000
     assert body['max_expiry'] == 1814400 and body['allow_no_expiry'] is False
-    assert body['daily'] == {'used': 0, 'limit': 524288000}
+    assert body['daily'] == {'used': 0, 'limit': 500_000_000}
     assert client.get('/users/@me/limits').status_code == 401
 
 
@@ -825,19 +825,19 @@ def test_chunked_limits_reservations_and_delete(client, seeded, small_chunks, mo
 
 
 def test_anonymous_chunked_uploads(client, seeded, small_chunks):
-    fingerprint = anonymous()
-    response = client.post('/uploads', headers=fingerprint, json={'filename': 'x.bin', 'size': 100})
+    guest = anonymous()
+    response = client.post('/uploads', headers=guest, json={'filename': 'x.bin', 'size': 100})
     # milestone-6 §7.5: no credential and no turnstile_token at all needs an upload key
     assert (response.status_code, response.json()['code']) == (401, 'UPLOAD_KEY_REQUIRED')
-    response = client.post('/uploads', headers=fingerprint, json={'filename': 'x.bin', 'size': 100,
+    response = client.post('/uploads', headers=guest, json={'filename': 'x.bin', 'size': 100,
                                                                   'turnstile_token': FAILING_TOKEN})
     assert (response.status_code, response.json()['code']) == (403, 'CAPTCHA_INVALID')
-    response = client.post('/uploads', headers=fingerprint,
+    response = client.post('/uploads', headers=guest,
                            json={'filename': 'x.bin', 'size': 26214401, 'turnstile_token': TURNSTILE_TOKEN})
     assert response.json()['code'] == 'FILE_TOO_LARGE'
-    session = start(client, fingerprint, 100, turnstile_token=TURNSTILE_TOKEN, generate_password=True)
+    session = start(client, guest, 100, turnstile_token=TURNSTILE_TOKEN, generate_password=True)
     assert len(session['password'].split('-')) == 4  # shown once, here
-    assert put(client, fingerprint, session['upload_id'], 0, b'z' * 100).status_code == 204  # no Turnstile on chunks
+    assert put(client, guest, session['upload_id'], 0, b'z' * 100).status_code == 204  # no Turnstile on chunks
     assert client.get('/uploads/' + session['upload_id'], headers=anonymous()).status_code == 404
     assert client.get('/uploads/' + session['upload_id']).status_code == 401
 
@@ -995,11 +995,11 @@ def test_open_upload_sessions_are_capped(client, seeded, small_chunks, monkeypat
     for upload_id in (second, third, fourth, fifth):
         client.request('DELETE', '/uploads/' + upload_id, headers=headers)
 
-    # anonymous: per fingerprint, and per IP across fingerprints
+    # anonymous: per guest, and per IP across guests
     ip = '198.51.100.{}'.format(uuid.uuid4().int % 250)
-    fingerprint = anonymous(ip)
-    opened = [start(client, fingerprint, 100, turnstile_token=TURNSTILE_TOKEN)['upload_id'] for _ in range(2)]
-    response = client.post('/uploads', headers=fingerprint,
+    guest = anonymous(ip)
+    opened = [start(client, guest, 100, turnstile_token=TURNSTILE_TOKEN)['upload_id'] for _ in range(2)]
+    response = client.post('/uploads', headers=guest,
                            json={'filename': 'c.bin', 'size': 100, 'turnstile_token': TURNSTILE_TOKEN})
     assert (response.status_code, response.json()['code']) == (429, 'TOO_MANY_UPLOADS')
     response = client.post('/uploads', headers=anonymous(ip),
@@ -1009,7 +1009,7 @@ def test_open_upload_sessions_are_capped(client, seeded, small_chunks, monkeypat
     extra = start(client, other, 100, turnstile_token=TURNSTILE_TOKEN)['upload_id']
     client.request('DELETE', '/uploads/' + extra, headers=other)
     for upload_id in opened:
-        client.request('DELETE', '/uploads/' + upload_id, headers=fingerprint)
+        client.request('DELETE', '/uploads/' + upload_id, headers=guest)
 
 
 # --- configurable public URLs (PUBLIC_URL, CDN_URL) --------------------------------------------

@@ -1,5 +1,4 @@
 import { CheckCircle2, CircleAlert, KeyRound, Loader2, Pause, Play, RotateCcw, X } from 'lucide-react';
-import { Link } from 'react-router';
 
 import { CopyButton } from '../../components/CopyButton';
 import { formatBytes } from '../../lib/format';
@@ -7,6 +6,7 @@ import { errorMessage } from '../../lib/upload/errors';
 import { uploadRejectedMessage } from '../safety/labels';
 import { useScanStatus, type ScanStatus } from './useScanStatus';
 import type { QueueItem } from './useUploadQueue';
+import { AppLink } from '../components/AppLink';
 
 /** The row's label once the bytes are up and the scan has an answer (milestone-4 §11.2). */
 const SCAN_LABEL: Record<ScanStatus['phase'], string | null> = {
@@ -38,9 +38,9 @@ function ScanMessage({ scan }: { scan: ScanStatus }) {
       <p className="text-sm text-danger" role="alert">
         {text}{' '}
         {scan.noticeId && (
-          <Link to={`/notices/${scan.noticeId}`} className="font-medium text-gg hover:underline">
+          <AppLink to={`/notices/${scan.noticeId}`} className="font-medium text-gg hover:underline">
             See the notice
-          </Link>
+          </AppLink>
         )}
       </p>
     );

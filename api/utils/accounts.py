@@ -1,12 +1,13 @@
 """Accounts for the async API (contract milestone-6 §2, §3): loading users with their premium flag, the
-user object, sessions, email links, rate limits and claiming anonymous uploads."""
+user object, sessions, email links and claiming anonymous uploads. Their rate limits are on Redis
+(utils/ratelimit.py, milestone-5 §18)."""
 
 import time
 
 from datetime import datetime, timedelta, timezone
 
 from db.models import User, columns, epoch, from_row, width
-from utils import credentials, errors
+from utils import credentials
 from utils.account_settings import account_settings
 from utils.generators import Snowflake
 
@@ -118,7 +119,7 @@ def deletion_dict(user):
 
 
 async def user_object(conn, user):
-    from utils import standing
+    from utils import standing, upload_defaults
     staff = await _one(conn, 'SELECT role, child_safety FROM staff WHERE user_id = %s', (user.id,))
     rows = await standing.restrictions(conn, user.id)
     return {
@@ -134,7 +135,8 @@ async def user_object(conn, user):
         'username_changed_at': epoch(user.username_changed_at),
         'username_change_available_at': username_change_available_at(user),
         'identities': await identities(conn, user.id),
-        'settings': {'show_name_on_albums': user.show_name_on_albums, 'domain_only': user.domain_only},
+        'settings': {'show_name_on_albums': user.show_name_on_albums, 'domain_only': user.domain_only,
+                     'upload_defaults': upload_defaults.of(user)},
         'premium': {'active': user.premium, 'expires_at': epoch(user.premium_expires_at)},
         'deletion': deletion_dict(user),
         'staff': {'role': staff[0], 'child_safety': staff[1]} if staff else None,
@@ -258,61 +260,21 @@ async def take_account_token(conn, token, purpose):
                             'AND used_at IS NULL AND expires_at > now() FOR UPDATE', (digest, purpose))
 
 
-# --- rate limits (§4.7), in safety_rate_limits ---------------------------------------------------------------------
-
-WINDOWS = {'minute': 60, 'hour': 3600, 'day': 86400}
-
-
-async def rate_hit(conn, scope, key, window='hour'):
-    """Count one in the current window. Returns (count, seconds until the window ends)."""
-    row = await _one(conn, (
-        'INSERT INTO safety_rate_limits AS r (scope, key, window_start, count) '
-        'VALUES (%s, %s, date_trunc(%s, now()), 1) '
-        'ON CONFLICT (scope, key, window_start) DO UPDATE SET count = r.count + 1 '
-        'RETURNING count, ceil(extract(epoch FROM (window_start + make_interval(secs => %s) - now())))::int'),
-        (scope, key, window, WINDOWS[window]))
-    return row[0], max(1, row[1])
-
-
-async def rate_peek(conn, scope, key, window='hour'):
-    row = await _one(conn, (
-        'SELECT count, ceil(extract(epoch FROM (window_start + make_interval(secs => %s) - now())))::int FROM '
-        'safety_rate_limits WHERE scope = %s AND key = %s AND window_start = date_trunc(%s, now())'),
-        (WINDOWS[window], scope, key, window))
-    return (row[0], max(1, row[1])) if row else (0, 0)
-
-
-async def rate_limited(conn, scope, key, limit, window='hour'):
-    """Count one; 429 TOO_MANY_ATTEMPTS { retry_after } when that goes over the limit."""
-    count, retry_after = await rate_hit(conn, scope, key, window)
-    if count > limit:
-        raise errors.too_many_attempts(retry_after)
-
-
-def ip_key(request):
-    from safety import ip as abuse_ip
-    from safety.settings import safety_settings
-    from utils.helpers import client_ip
-    digest = abuse_ip.abuse_ip_hash(client_ip(request), safety_settings().abuse_hash_secret)
-    return ('ip:' + digest.hex()) if digest else 'ip:0', digest
-
-
-def email_key(email):
-    from safety.settings import safety_settings
-    return credentials.email_key(safety_settings().abuse_hash_secret, email)
-
-
 # --- claiming anonymous uploads (§4.2) ------------------------------------------------------------------------------
 
-async def claim_fingerprint(conn, user, fingerprint):
-    """Live files and albums made with this fingerprint move to the account (never into one with a pending
+async def claim_guest(conn, user, guest_id):
+    """Live files and albums made as this guest move to the account (never into one with a pending
     deletion). Open upload sessions are left to finish as anonymous."""
-    if fingerprint is None or user is None or user.state != 'active':
+    if guest_id is None or user is None or user.state != 'active':
         return
-    await conn.execute('UPDATE files SET user_id = %s, fingerprint = NULL WHERE fingerprint = %s AND user_id IS NULL '
-                       'AND deleted_at IS NULL', (user.id, fingerprint))
-    await conn.execute('UPDATE albums SET owner_user_id = %s, owner_fingerprint = NULL WHERE owner_fingerprint = %s '
-                       'AND owner_user_id IS NULL AND deleted_at IS NULL', (user.id, fingerprint))
+    cursor = await conn.execute('UPDATE files SET user_id = %s, guest_id = NULL WHERE guest_id = %s AND user_id '
+                                'IS NULL AND deleted_at IS NULL RETURNING hash_id', (user.id, guest_id))
+    # milestone-5 §9.1: claimed documents get their preview if their hash has none yet (`queued` with the claim; the
+    # sweeper enqueues it once the sign-in has committed)
+    from utils import document_previews
+    await document_previews.mark_async(conn, {r[0] for r in await cursor.fetchall()})
+    await conn.execute('UPDATE albums SET owner_user_id = %s, owner_guest_id = NULL WHERE owner_guest_id = %s '
+                       'AND owner_user_id IS NULL AND deleted_at IS NULL', (user.id, guest_id))
 
 
 def now():

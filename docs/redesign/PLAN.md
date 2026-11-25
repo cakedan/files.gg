@@ -36,6 +36,7 @@ The exact cross-service formats are in [`contracts/milestone-2.md`](contracts/mi
 - Discordbot gets the embed page rather than a redirect to the CDN. That matches the old Worker; only Telegram is redirected, and protected files are never redirected.
 
 **Before the first deploy:**
+- **Check Cloudflare's request-body limit on the real zone** (Milestone 5, 2026-11-25): upload a file of exactly 100,000,000 bytes with an upload key through `api.files.gg`. It must succeed; ShareX and curl are promised 100 MB. If Cloudflare answers 413, its "100 MB" means 10⁸ bytes: set `PROXY_BODY_LIMIT_BYTES=100000000` (the cap becomes 98.95 MB) or move to a plan with a bigger limit.
 - Set `SECRET_KEY`, `RPC_KEY`, `DATABASE_URL`, `ORIGIN_SHARED_SECRET` and `VIEW_HASH_SECRET` (compose now refuses to start without them). Generate the last with `openssl rand -hex 32`, and set the **same value** as the worker's `ORIGIN_SHARED_SECRET` binding.
 - ~~Set `PROXY_SECRET` on the worker.~~ **`proxy.files.gg` is removed (decided 2026-11-25):** nothing in files.gg used it, and a shared-secret URL fetcher was a needless abuse risk. Delete the `PROXY_SECRET` Worker secret and the `proxy.files.gg` DNS record when deploying.
 - Never share a Snowflake lease across a fork: each Sanic worker process leases its own in `before_server_start`.
@@ -72,7 +73,7 @@ The exact formats are in [`contracts/milestone-3.md`](contracts/milestone-3.md).
 - The viewer shows all three Web Risk "learn more" links. The API now sends `link_warning_types` (threat types per URL), so it can show just the matched type's link, as Google's warning rules prefer.
 - `lib/reports.ts` and `lib/api.ts` both define the report reasons and DMCA types; unify them.
 - The DMCA good-faith and perjury statements in the report and appeal forms need legal review.
-- A Terms page at `/legal/terms` is linked from removed-file pages and doesn't exist yet.
+- ~~A Terms page at `/legal/terms` is linked from removed-file pages and doesn't exist yet.~~ Planned in Milestone 5 with the Privacy Policy and the changelog ([`contracts/milestone-5.md`](contracts/milestone-5.md) §19), as drafts with placeholders pending legal review.
 - Scanner efficiency (found by the security review):
   - each blob is read from B2 about 4 times across scan, probe and derive;
   - the ONNX model is loaded and re-hashed in every scan child.
@@ -82,7 +83,7 @@ The exact formats are in [`contracts/milestone-3.md`](contracts/milestone-3.md).
   - ~~**W1:** server-cut Web Risk links rendering live.~~ Fixed: the client reduces links the server's way, and a link is flagged on a match or prefix match, with a host boundary.
   - ~~**W2:** download-confirmation gaps.~~ Fixed: middle-clicks, per-item album links and "Download all" with any warned item ask first, and PDF middle-clicks get the "leaving files.gg" notice.
   - ~~The admin UI has no "retry" for `scan_failing` holds.~~ Fixed: a `retry_scan` action (audited; the usual permission, child-safety and own-content checks) resets the failure count, resolves the `scan_failing` flag and queues a fresh scan; the file detail carries `scan_stuck`, and the admin UI offers "Retry the scan" only then.
-  - ~~Bans aren't checked for staff targeting themselves.~~ Fixed: staff can't create or lift a ban on their own device or network (this request's fingerprint and IP, and those on their own uploads and reports), nor one taken from their own upload or report. A staff member sharing a network with an abuser (office, CGNAT) needs a colleague to ban or lift it.
+  - ~~Bans aren't checked for staff targeting themselves.~~ Fixed: staff can't create or lift a ban on their own device or network (this request's guest and IP, and those on their own uploads and reports), nor one taken from their own upload or report. A staff member sharing a network with an abuser (office, CGNAT) needs a colleague to ban or lift it.
   - ~~The case list still shows cases about a staff member's own content.~~ Fixed: the case list, the summary counts and the staff badges leave them out (opening or acting on them was already refused).
 
 **Decided 2026-11-25:**
@@ -302,7 +303,7 @@ Decided 2026-11-24: the API will run on several servers. Everything in this plan
      - **How:** `pg_dump -Fc -Z0` is streamed straight into restic (nothing touches disk), plus `pg_dumpall --roles-only`. restic deduplicates day to day.
      - **Where:** a **separate B2 bucket in the US** (`S3_BUCKET_DB_BACKUP`), using a **backup-only application key**. The API's key can't read or delete backups. The bucket lifecycle must be set to "keep only the last version", or pruning never frees space.
      - **When:** **`scheduler-ofelia`** runs `backup all` daily at 02:00 and `backup check` (rereads 5% of the stored data) on Sundays at 05:00, from Docker labels on `backup-db`.
-     - **Retention:** 14 daily plus one weekly forever (`DB_BACKUP_KEEP_*`).
+     - **Retention:** 14 daily plus 52 weekly, a year (`DB_BACKUP_KEEP_*`; owner, 2026-11-25: "forever" conflicted with the Privacy Policy and GDPR's storage limitation).
      - **Monitoring:** optional healthchecks.io pings (`DB_BACKUP_HEALTHCHECK_URL`).
      - **Verified locally:** a first backup (creating the repository), the snapshot list, restore, `pg_restore` into a fresh database with the data intact, and the weekly check, all against a local restic repository in throwaway volumes.
    - **What this means for recovery:** these are daily logical dumps, not continuous archiving, so a restore can lose **up to 24 h** of database changes. The same trade-off NotSoBot makes. Two consequences:
@@ -353,7 +354,7 @@ Decided 2026-11-24: the API will run on several servers. Everything in this plan
       |---|---|---|
       | `id` | snowflake | |
       | `owner_user_id` | | NULL for anonymous |
-      | `owner_fingerprint` | | |
+      | `owner_guest_id` | | |
       | `filename` | | |
       | `size` | | |
       | `chunk_size` | | |
@@ -376,7 +377,7 @@ Decided 2026-11-24: the API will run on several servers. Everything in this plan
       | Column | Notes |
       |---|---|
       | `id` | |
-      | `owner_user_id` / `owner_fingerprint` | |
+      | `owner_user_id` / `owner_guest_id` | |
       | `source_file_id` | |
       | `target` | |
       | `options jsonb` | |
@@ -402,7 +403,7 @@ Decided 2026-11-24: the API will run on several servers. Everything in this plan
     - no `discord_id` column on `User`; identities go in their own table (below)
   - Indexes on `files`:
     - `(user_id, id DESC)`
-    - `(fingerprint, id DESC)`
+    - `(guest_id, id DESC)`
     - `(user_id, mimetype_id)`
     - `(user_id, size)`
     - `(hash_id)`
@@ -450,7 +451,7 @@ Decided 2026-11-24: the API will run on several servers. Everything in this plan
   - **Store no Discord OAuth tokens.** The `identify` scope is only needed during the callback, so exchange the code, read `/users/@me`, and discard the token.
   - Flows:
     1. **Log in with Discord, identity already linked:** issue a files.gg token for the linked `user_id`.
-    2. **Log in with Discord, identity unknown:** create a new files.gg `User` with its own username (pre-filled from the Discord name, but editable and independent). Claim fingerprint files as the email signup does.
+    2. **Log in with Discord, identity unknown:** create a new files.gg `User` with its own username (pre-filled from the Discord name, but editable and independent). Claim the guest's files as the email signup does.
     3. **Link Discord** from Settings while logged in. If that Discord account is already linked to another files.gg user, refuse; never merge silently.
     4. **Unlink Discord:** allowed only if the account still has another way in (a password with a verified email, or another identity). This avoids locking the user out.
   - The files.gg username, avatar and email never sync from Discord after creation. Renaming yourself on Discord changes nothing on files.gg.
@@ -511,7 +512,7 @@ Decided 2026-11-24: the API will run on several servers. Everything in this plan
     - The read path (API metadata, viewer and CDN) treats `expires_at <= now()` as gone **immediately**, showing the viewer's "This file has expired" state.
     - A reaper job runs about every 10 minutes and soft-deletes expired files in batches, which then feeds the normal blob garbage collection. Reads therefore never depend on the reaper being on time.
   - **Claiming on sign-up** (decided 2026-11-24):
-    - Files claimed from a fingerprint **keep the expiry they were uploaded with**.
+    - Files claimed from a guest **keep the expiry they were uploaded with**.
     - The dashboard offers **"Keep forever"**, which clears `expires_at`:
       - per file, and in bulk;
       - plus a one-time banner after sign-up: "N files from before you signed in will expire. Keep them forever?"
@@ -529,7 +530,7 @@ Decided 2026-11-24: the API will run on several servers. Everything in this plan
     - Errors: `FILE_TOO_LARGE` or `STORAGE_LIMIT_REACHED` (HTTP 413), each with `limit` and `used` in the body so the UI can explain.
   - **Anonymous:**
     - a smaller max file size;
-    - a rolling 24-hour byte cap per fingerprint *and* per IP (`CF-Connecting-IP`), queried by Snowflake-id time range;
+    - a rolling 24-hour byte cap per guest *and* per IP (`CF-Connecting-IP`), queried by Snowflake-id time range;
     - plus a Cloudflare rate-limit rule as a backstop.
   - `GET /users/@me/limits` (named like notsobot.com's) returns usage alongside the limits.
 - [ ] **Chunked, resumable uploads** (decided 2026-11-24). Today there's no chunking: one multipart POST per file, the whole file held in memory, and nginx's 100 MB cap.
@@ -558,7 +559,7 @@ Decided 2026-11-24: the API will run on several servers. Everything in this plan
   - **Quota reservations:** while a session is open, its declared `size` counts toward usage. That stops several parallel uploads from jointly overshooting the limit.
   - **Abandoned uploads:** a reaper job calls `AbortMultipartUpload` for sessions not completed within 24 h, and deletes their rows and any staging object.
     - B2 bills unfinished large files until they are cancelled, so also set the bucket lifecycle rule `daysFromStartingToCancelingUnfinishedLargeFiles: 2` as a backstop.
-  - **Ownership:** a session belongs to the user token, or to the fingerprint for anonymous uploads. Every chunk and `complete` call must come from the same owner. Anonymous rolling caps count reserved bytes too.
+  - **Ownership:** a session belongs to the user token, or to the guest for anonymous uploads. Every chunk and `complete` call must come from the same owner. Anonymous rolling caps count reserved bytes too.
   - **Client (Phase 3 Upload page):**
     - Files larger than `chunk_size` use sessions; smaller ones keep the single-request `POST /files`.
     - Up to 3 chunks upload in parallel, each retried with backoff, and the overall progress bar is built from per-chunk progress.
@@ -579,7 +580,7 @@ Decided 2026-11-24: the API will run on several servers. Everything in this plan
     | `id` | snowflake |
     | `vanity` | unique, random, 8 characters |
     | `owner_user_id` | NULL for anonymous |
-    | `owner_fingerprint` | |
+    | `owner_guest_id` | |
     | `title` | ≤ 100 characters |
     | `description` | ≤ 2,000 characters, plain text |
     | `cover_file_id` | NULL means automatic |
@@ -864,7 +865,10 @@ Decided 2026-11-24: the API will run on several servers. Everything in this plan
     - The sandbox rules from "Media processing" apply unchanged: non-root, no network except Postgres and B2, CPU and memory limits, ffmpeg's `-protocol_whitelist file,pipe`.
   - **Progress:**
     - ffmpeg's `-progress pipe:1` (and per-page counts for documents) updates `conversions.progress` about once a second.
-    - The API streams progress to the browser over **Server-Sent Events**, woken by Postgres `LISTEN/NOTIFY`. Sanic and psycopg 3 async both support this, so there's no polling.
+    - ~~Server-Sent Events woken by `LISTEN/NOTIFY`.~~ **Polled, notsobot.api style** (owner, 2026-11-25): `POST /conversions` waits up to 2 s, then the page polls `GET /conversions/<id>` for queue position, stage, progress and time limit.
+  - **Conversions and document previews run on RQ + Redis, as notsobot.api's jobs do** (owner, 2026-11-25): `rq worker-pool` services by tier with their own `cpus` and `cpu_shares`, a forked work horse per job killed at its timeout, structured errors and failure reasons. The upload pipeline stays on the Postgres queue. Details in [`contracts/milestone-5.md`](contracts/milestone-5.md) §3.1 and §3.3.
+    - This replaces "`convert` jobs go on their own `convert` queue" in the jobs section below.
+  - **Rate limits move to Redis too** (owner, 2026-11-25): notsobot.api's moving-window limiter, with a global limit and per-route limits, replacing `safety_rate_limits` and `unlock_attempts`. Brute-force limits fail closed. See [`contracts/milestone-5.md`](contracts/milestone-5.md) §18.
   - **Limits**, added to `get_limits()`:
     - max input size;
     - conversion CPU-seconds per day;
@@ -879,7 +883,6 @@ Decided 2026-11-24: the API will run on several servers. Everything in this plan
     | `GET /conversions/formats` | The matrix above as data: for each source kind, the targets and a JSON schema of their options. The UI builds its forms from this, so adding a format needs no frontend change. |
     | `POST /conversions { file_id, target, options }` | Start a conversion: `202 { id }`. Uploading a new file first goes through the normal upload, then this call. |
     | `GET /conversions/:id` | Status, progress, output file, error code |
-    | `GET /conversions/:id/events` | SSE progress stream |
     | `DELETE /conversions/:id` | Cancel a queued or running conversion |
     | `POST /conversions/batch { file_ids[] or album_id, target, options }` | One conversion per item. "PDF → pages" and "images → PDF" are single-output jobs. |
     | `GET /users/@me/conversions` | History |
@@ -1081,7 +1084,7 @@ Decided 2026-11-24: the API will run on several servers. Everything in this plan
     - Videos are matched on sampled frames.
   - **On a match:**
     1. Block the file immediately; it never becomes public.
-    2. Suspend the uploader (account, fingerprint and IP).
+    2. Suspend the uploader (account, guest and IP).
     3. Add the hash to `blocked_hashes`, so re-uploads are rejected in `finalize_upload`.
     4. Restrict the evidence to a locked-down preservation store, with no moderator viewing. Do **not** just delete it: US law (18 U.S.C. § 2258A, as extended by the 2024 REPORT Act) requires providers to report apparent CSAM to NCMEC's CyberTipline and to preserve it for a set period (currently one year).
     5. File the report through the vendor's integration or NCMEC's ESP registration.
@@ -1124,7 +1127,7 @@ Decided 2026-11-24: the API will run on several servers. Everything in this plan
     - a reports queue;
     - a content-flags queue (classifier and scanner hits needing review);
     - user and file lookup;
-    - actions: hide, remove, block hash, mark NSFW, suspend user, ban fingerprint/IP.
+    - actions: hide, remove, block hash, mark NSFW, suspend user, ban guest/IP.
   - **Moderator safety:** media in the queue is blurred and greyscale by default, and revealed one item at a time. Hash-matched CSAM is never displayable.
   - **Audit log:** every action is written to an audit log. This is a `moderation_actions` table: actor, action, the target as nullable `file_id` / `album_id` / `user_id` / `report_id` FKs (`ON DELETE SET NULL`, so the trail survives deletions; schema fix 3), reason and `created_at timestamptz`. The never-created `FileAuditLog` model went away with Peewee.
   - **What visitors see:** removed files show "This file was removed for violating the Terms" (HTTP 410) instead of a 404.
@@ -1175,7 +1178,7 @@ Decided 2026-11-24: the API will run on several servers. Everything in this plan
     | Spam | P3 | Hidden after 3 distinct reports. |
     | Other | P3 | none |
 
-    "Distinct" means different accounts, or different fingerprint and IP pairs. Thresholds live in config.
+    "Distinct" means different accounts, or different guest and IP pairs. Thresholds live in config.
   - **Reporter flow:**
     1. Pick a reason.
     2. Add details: required for "Other" and DMCA, optional otherwise, max 2,000 characters.
@@ -1184,7 +1187,7 @@ Decided 2026-11-24: the API will run on several servers. Everything in this plan
 
     Rules:
     - **Anonymous reports** need a Turnstile token (`CAPTCHA_INVALID`).
-    - **Rate limits:** per account, fingerprint and IP (for example 10 an hour), with `MAX_REPORTS` once exceeded. One open report per reporter per file; a duplicate adds to the existing report.
+    - **Rate limits:** per account, guest and IP (for example 10 an hour), with `MAX_REPORTS` once exceeded. One open report per reporter per file; a duplicate adds to the existing report.
     - **Confirmation:** "Report sent". Signed-in reporters see it in **Dashboard → My reports**. Anonymous reporters get the "Sign in to hear back" hint, and a status email if they gave an address.
   - **"My reports"** (dashboard section, signed in only):
     - a list with status, filters and search;
@@ -1241,7 +1244,7 @@ Decided 2026-11-24: the API will run on several servers. Everything in this plan
       | `priority` | |
       | `status` | `open` / `resolved` / `dismissed` |
       | `reporter_user_id` | NULL for anonymous |
-      | `reporter_fingerprint` | |
+      | `reporter_guest_id` | |
       | `reporter_ip_hash` | hashed, never the raw IP |
       | `contact_email` | NULL if none given |
       | `details` | |
@@ -1440,7 +1443,7 @@ Sidebar sections:
      - the "Convert to MP4 to play in browser" prompt on videos that can't play;
      - "Convert all" in the album header.
 
-- [ ] Anonymous uploads keep working: the fingerprint flow stays, and anonymous files are claimed on login as they are today.
+- [ ] Anonymous uploads keep working: the guest flow (the old app's fingerprint, renamed in milestone-5 §20) stays, and anonymous files are claimed on login as they are today.
 - [ ] Mobile: the sidebar collapses to a drawer, the table becomes a list of cards, and the upload button floats.
 
 ### Phase 4: Brand refresh
@@ -1507,7 +1510,7 @@ Items 2–4 were decided 2026-11-24. These follow-ups are still open:
   |---|---|---|
   | Storage | 10 GB | n/a (files expire instead) |
   | Max file size | **1 GB with chunked uploads** (the website); **100 MB with single-request uploads** (ShareX, curl, upload keys). Decided 2026-11-24. | 25 MB |
-  | Rolling cap | none | 500 MB per 24 h, per fingerprint and per IP |
+  | Rolling cap | none | 500 MB per 24 h, per guest and per IP |
   | Expiry | optional, 1 h to never | required, at most 21 days (default 21 days) |
 
 - ~~Claimed files on sign-up?~~ **They keep their expiry, and a "Keep forever" button counts toward the storage limit** (decided 2026-11-24; see "Expiry" in Phase 1).
@@ -1535,8 +1538,8 @@ Open, from "Trust & safety" (Phase 1):
     | **Video length** | 30 min | 60 s, output capped at 720p |
     | **PDF → images** | 200 pages | 20 pages |
     | **Images → PDF** | 200 images | 20 images |
-    | **Processing time per day** | 30 CPU-min | 3 CPU-min, per fingerprint *and* per IP |
-    | **Conversions per day** | 200 | 10, per fingerprint *and* per IP |
+    | **Processing time per day** | 30 CPU-min | 3 CPU-min, per guest *and* per IP |
+    | **Conversions per day** | 200 | 10, per guest *and* per IP |
     | **At once** | 3 | 1 |
     | **Batch convert** | yes (Files table, albums) | no, one file at a time |
     | **Turnstile** | no | yes, on every conversion |

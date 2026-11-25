@@ -1,5 +1,7 @@
 # Milestone 6 contract (accounts)
 
+> Later renamed: the anonymous uploader's *fingerprint* is now a *guest* (`guest_id`, `Authorization: Guest`); see milestone-5.md §20.
+
 This is the shared contract between `api/`, `cf-worker/` and `web/` for Milestone 6. It covers:
 - the account model: unique usernames, display names, email verification, argon2id passwords;
 - web sessions (an HttpOnly cookie on `files.gg`) and their revocation;
@@ -434,7 +436,7 @@ acct key = "acct:" + hex( HMAC-SHA256( ABUSE_HASH_SECRET, "filesgg-auth-email-1"
 | `reauth` | `user:` | 10 failures | `429 TOO_MANY_ATTEMPTS` |
 | `username_check` | `ip:` | 60 | `429 TOO_MANY_ATTEMPTS` |
 
-`retry_after` is the seconds until the window ends. Limits are config (`AUTH_RATE_LIMITS`, §15).
+`retry_after` is the seconds until the window has room again. Limits are config (`RATE_LIMITS`; since Milestone 5 they're Redis moving windows, [`milestone-5.md`](milestone-5.md) §18).
 
 ### 4.8 Request-size limits (chosen)
 
@@ -833,7 +835,7 @@ Sizes use the units `api/utils/limits.py` already uses (`GB = 1024³`, `MB = 102
 |---|---|---|---|---|
 | `storage_bytes` | `null` | 10 GB (10,737,418,240) | **100 GB** (107,374,182,400) | `LIMIT_STORAGE_BYTES`, `LIMIT_PREMIUM_STORAGE_BYTES` |
 | `max_file_size_chunked` | 25 MB | 1 GB (1,073,741,824) | **5 GB** (5,368,709,120) | `LIMIT_CHUNKED_BYTES`, `LIMIT_PREMIUM_CHUNKED_BYTES` |
-| `max_file_size_single` | 25 MB | 100 MB (104,857,600) | **500 MB** (524,288,000) | `LIMIT_SINGLE_BYTES`, `LIMIT_PREMIUM_SINGLE_BYTES` |
+| `max_file_size_single` | 25 MB (25,000,000) | 100 MB (100,000,000) | ~~500 MB~~ **100 MB** (100,000,000; owner, 2026-11-25: Cloudflare's body limit can't carry more) | `LIMIT_SINGLE_BYTES`, `LIMIT_PREMIUM_SINGLE_BYTES` |
 | `premium` | `false` | `false` | `true` | |
 | `custom_domains` | `0` | `0` | `5` | `PREMIUM_CUSTOM_DOMAINS` |
 | `domain_only_allowed` | `false` | `false` | `true` | |
@@ -1325,7 +1327,7 @@ A `401 UNAUTHORIZED` caused by a dead session cookie also clears the cookie. Mes
 | `USERNAME_COOLDOWN_DAYS`, `USERNAME_HOLD_DAYS` | `30`, `30` | |
 | `VERIFY_TOKEN_HOURS`, `RESET_TOKEN_MINUTES` | `24`, `60` | |
 | `UPLOAD_KEYS_MAX`, `UPLOAD_KEY_RATE_PER_HOUR` | `20`, `600` | |
-| `AUTH_RATE_LIMITS` | `{"login_ip":30,"login_account":10,"register":5,"forgot_ip":10,"forgot_account":3,"verify_resend":5,"discord":30,"reauth":10,"username_check":60,"domain_add":10}` | JSON, per hour (`domain_add` per day) |
+| ~~`AUTH_RATE_LIMITS`~~ | | Replaced by `RATE_LIMITS` in Milestone 5 ([`milestone-5.md`](milestone-5.md) §18.2, §18.3): the same values as limit text, such as `{"login_ip": "30 per hour"}` |
 | `DOMAIN_PENDING_HOURS`, `DOMAIN_FAILING_DAYS`, `DOMAIN_PAUSED_DAYS`, `DOMAIN_MIN_ACCOUNT_AGE_DAYS` | `72`, `3`, `30`, `7` | |
 | `EXPORT_KEEP_DAYS` | `7` | |
 
@@ -1596,6 +1598,7 @@ Set-Cookie: __Host-filesgg_session=; Path=/; Secure; HttpOnly; SameSite=Lax; Max
 9. **ShareX's `Version` field:** whether a value older than the running app matters isn't stated; `17.0.0` is the documentation's own example. Whether a `TextUploader` with `MultipartFormData` sends text as a file part under `FileFormName` should be confirmed with the current ShareX.
 10. **Which CA** Cloudflare uses for a given custom hostname (for the CAA hint) isn't selectable below Enterprise and wasn't checked.
 11. **Cloudflare's "100 MB" body limit unit** (10⁸ bytes or 100 MiB) isn't stated; `PROXY_BODY_LIMIT_BYTES` defaults to the smaller reading.
+    **Update (Milestone 5, owner 2026-11-25):** sizes are now decimal everywhere (1 MB = 1,000,000 bytes), the single-request limit is exactly **100 MB (100,000,000 bytes)** for everyone, and `PROXY_BODY_LIMIT_BYTES` defaults to **104,857,600** (100 MiB, assuming Cloudflare's limit is binary). Confirm it on the real zone before launch (PLAN.md "Before the first deploy"); if Cloudflare turns out to mean 10⁸ bytes, set `PROXY_BODY_LIMIT_BYTES=100000000` and the cap drops to 98.95 MB.
 12. **B2's `UploadPartCopy`** for the 5 GB finalize copy should be confirmed on staging (§9.5).
 13. **Secure cookies on `http://*.localhost`:** browsers differ, which is why the local stack uses `SESSION_COOKIE_INSECURE` (§3.2).
 

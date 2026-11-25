@@ -85,11 +85,12 @@ def build_export(conn, user_id):
     from utils.urls import public_url
     user = conn.execute('SELECT id, username, display_name, email, email_verified, pending_email, password_hash IS NOT '
                         'NULL, created_at, username_changed_at, show_name_on_albums, domain_only, '
-                        'deletion_requested_at, deletion_scheduled_for FROM users WHERE id = %s', (user_id,)).fetchone()
+                        'deletion_requested_at, deletion_scheduled_for, upload_defaults FROM users WHERE id = %s',
+                        (user_id,)).fetchone()
     account = {'id': str(user[0]), 'username': user[1], 'display_name': user[2], 'email': user[3],
                'email_verified': user[4], 'pending_email': user[5], 'has_password': user[6],
                'created_at': epoch(user[7]), 'username_changed_at': epoch(user[8]),
-               'settings': {'show_name_on_albums': user[9], 'domain_only': user[10]},
+               'settings': {'show_name_on_albums': user[9], 'domain_only': user[10], 'upload_defaults': user[13]},
                'premium': entitlements.is_premium(conn, user_id),
                'deletion': {'requested_at': epoch(user[11]), 'scheduled_for': epoch(user[12])} if user[11] else None}
     identities = [accounts.identity_dict(r) for r in conn.execute(

@@ -190,7 +190,7 @@ describe('cdnSecurityHeaders', () => {
 describe('corsHeaders (milestone-6.md §12 item 2: never credentialed)', () => {
   it('is always `*` without credentials or Vary', () => {
     assert.deepEqual(corsHeaders(), {
-      'Access-Control-Allow-Headers': 'Authorization, Content-Type, X-Fingerprint, X-Filesgg-Access',
+      'Access-Control-Allow-Headers': 'Authorization, Content-Type, X-Filesgg-Access',
       'Access-Control-Allow-Methods': 'DELETE, GET, HEAD, OPTIONS, PATCH, POST, PUT',
       'Access-Control-Allow-Origin': '*',
     });

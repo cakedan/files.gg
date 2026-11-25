@@ -519,11 +519,10 @@ def check_global_cap(conn, settings):
         raise errors.domains_unavailable()
 
 
-def _count_add(conn, user, settings):
-    from utils.ratelimit_sync import hit
-    count, retry_after = hit(conn, 'domain_add', 'user:{:x}'.format(user.id), 'day')
-    if count > settings.rate('domain_add'):
-        raise errors.too_many_attempts(retry_after)
+def _count_add(user):
+    """10 a day per account (milestone-5 §18.3, open): 429 TOO_MANY_ATTEMPTS { retry_after }."""
+    from utils import ratelimit_sync
+    ratelimit_sync.hit('domain_add', 'user:{:x}'.format(user.id))
 
 
 def add(conn, user, hostname, settings=None):
@@ -542,7 +541,7 @@ def add(conn, user, hostname, settings=None):
         if one(conn, 'SELECT 1 FROM custom_domains WHERE hostname = %s AND deleted_at IS NULL', (host,)):
             raise errors.domain_taken()
         check_global_cap(conn, settings)
-        _count_add(conn, user, settings)
+        _count_add(user)
     try:
         cf_id, cf_status, ssl_status = cloudflare.create(host, settings)
     except cloudflare.CloudflareError:
@@ -574,11 +573,9 @@ def verify_now(conn, user, domain_id, settings=None):
     """"Check now": once a minute per domain."""
     settings = settings or account_settings()
     domain = owned(conn, user, domain_id)
-    from utils.ratelimit_sync import hit
-    with conn.transaction():
-        count, retry_after = hit(conn, 'domain_check', 'domain:{:x}'.format(domain.id), 'minute')
-    if count > 1:
-        raise errors.domain_check_rate_limited(retry_after)
+    from utils import ratelimit_sync
+    # milestone-5 §18.3 (open): 429 DOMAIN_CHECK_RATE_LIMITED { retry_after }
+    ratelimit_sync.hit('domain_check', 'domain:{:x}'.format(domain.id))
     mails = check(conn, domain.id, manual=True, settings=settings)
     return detail(conn, user, load(conn, domain.id), settings), mails
 
@@ -591,7 +588,7 @@ def retry(conn, user, domain_id, settings=None):
     with conn.transaction():
         check_requirements(conn, user, settings)
         check_global_cap(conn, settings)
-        _count_add(conn, user, settings)
+        _count_add(user)
     try:
         cf_id, cf_status, ssl_status = cloudflare.create(domain.hostname, settings)
     except cloudflare.CloudflareError:

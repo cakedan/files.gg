@@ -23,6 +23,7 @@ from utils import access, access_token, errors, passwords
 from utils import albums as album_rules
 from utils.cdn_signing import Grant
 from utils.accounts import owner_offline
+from utils.auth import guest_of
 from utils.helpers import client_ip
 from utils.params import Arg, Args
 from utils.responses import ApiResponse
@@ -30,7 +31,6 @@ from utils.turnstile import Turnstile
 from utils.wrappers import parse_args, route
 from views.files import access_routes
 
-import utils.parameters as parameters
 
 albums = Blueprint('albums', url_prefix='/albums')
 
@@ -88,10 +88,10 @@ def check_removed(album):
         raise errors.album_removed(album_rules.album_safety(album)['reason'])
 
 
-def _is_owner(album, user, fingerprint):
+def _is_owner(album, user, guest_id):
     if user is not None and album.owner_user_id == user.id:
         return True
-    return album.owner_user_id is None and fingerprint is not None and album.owner_fingerprint == fingerprint
+    return album.owner_user_id is None and guest_id is not None and album.owner_guest_id == guest_id
 
 
 def _album_claims(request, album, token):
@@ -108,10 +108,8 @@ async def fetch_album(request, args, vanity):
         full, grant = album.visibility == 'link', None
         if not full:
             user = await access.optional_user(conn, request)
-            raw = request.headers.get('x-fingerprint')
-            fingerprint = parameters.fingerprint(raw) if raw else None
             claims = _album_claims(request, album, request.ctx.access_token)
-            if _is_owner(album, user, fingerprint):
+            if _is_owner(album, user, guest_of(request)):
                 full, grant = True, Grant.owner_album(album)
             elif claims is not None:
                 full, grant = True, Grant.for_album(album, claims['e'])
@@ -148,8 +146,7 @@ async def unlock_album(request, args, vanity):
             raise errors.unknown_album()
     if not await Turnstile.verify(args.turnstile_token, 'unlock', client_ip(request)):
         raise errors.captcha_invalid()
-    async with db.connection() as conn:
-        await access.rate_limit(conn, request, album, 'unlock', access.UNLOCK_ATTEMPTS_PER_MINUTE, kind='album')
+    await access.rate_limit(request, album, 'unlock', kind='album')
     if album.visibility == 'password':
         if access.password_has_expired(album):
             raise errors.password_expired()
@@ -177,7 +174,7 @@ async def refresh_album_unlock(request, args, vanity):
         if album.visibility == 'private' and (claims is None or claims['s'] != 'owner'):
             raise errors.unknown_album()
         check_removed(album)
-        await access.rate_limit(conn, request, album, 'access', access.ACCESS_REQUESTS_PER_MINUTE, kind='album')
+        await access.rate_limit(request, album, 'access', kind='album')
     if claims is None:
         raise errors.unlock_expired()
     now = access.now()
@@ -208,7 +205,7 @@ async def view_album(request, vanity):
         if album.visibility == 'private' and claims is None:
             raise errors.unknown_album()
         check_removed(album)
-        await access.rate_limit(conn, request, album, 'access', access.ACCESS_REQUESTS_PER_MINUTE, kind='album')
+        await access.rate_limit(request, album, 'access', kind='album')
         if claims is None:
             raise errors.unlock_expired()
         body = await album_body(conn, album, grant=Grant.for_album(album, claims['e']))

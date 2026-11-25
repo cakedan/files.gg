@@ -9,7 +9,7 @@ ACTIVE = 'lifted_at IS NULL AND starts_at <= now() AND (ends_at IS NULL OR ends_
 # the account, read itself, its badges and its notices, its sessions and password, and its data exports.
 # (method or None for any, exact path or prefix ending in '*')
 SUSPENDED_ALLOWED = (
-    ('GET', '/auth/session'), ('GET', '/auth/config'), ('GET', '/auth/fingerprint'), ('POST', '/auth/login'),
+    ('GET', '/auth/session'), ('GET', '/auth/config'), ('GET', '/auth/guest'), ('POST', '/auth/login'),
     ('POST', '/auth/discord/authorize'), ('POST', '/auth/discord/callback'), ('POST', '/auth/logout'),
     ('POST', '/auth/forgot'), ('POST', '/auth/forgot/reset'), ('POST', '/auth/verify'),
     ('POST', '/auth/verify/resend'), ('POST', '/auth/reauth'),
@@ -20,7 +20,7 @@ SUSPENDED_ALLOWED = (
 # What an account with a pending deletion can still do (milestone-6 §8.8): sign in (and recover), sign out,
 # read itself, cancel the deletion, manage its sessions and take its data.
 PENDING_DELETION_ALLOWED = (
-    ('GET', '/auth/session'), ('GET', '/auth/config'), ('GET', '/auth/fingerprint'), ('POST', '/auth/login'),
+    ('GET', '/auth/session'), ('GET', '/auth/config'), ('GET', '/auth/guest'), ('POST', '/auth/login'),
     ('POST', '/auth/discord/authorize'), ('POST', '/auth/discord/callback'), ('POST', '/auth/logout'),
     ('POST', '/auth/forgot'), ('POST', '/auth/forgot/reset'), ('POST', '/auth/verify'), ('POST', '/auth/reauth'),
     ('GET', '/users/@me'), ('POST', '/users/@me/delete'), ('POST', '/users/@me/delete/cancel'),
@@ -50,11 +50,11 @@ async def suspension(conn, user_id):
     return None
 
 
-async def banned(conn, fingerprint=None, ip_hash=None):
+async def banned(conn, guest_id=None, ip_hash=None):
     clauses, params = [], []
-    if fingerprint is not None:
-        clauses.append('fingerprint = %s')
-        params.append(fingerprint)
+    if guest_id is not None:
+        clauses.append('guest_id = %s')
+        params.append(guest_id)
     if ip_hash is not None:
         clauses.append('abuse_ip_hash = %s')
         params.append(ip_hash)
@@ -65,10 +65,10 @@ async def banned(conn, fingerprint=None, ip_hash=None):
     return bool(rows)
 
 
-async def check_uploader(conn, user=None, fingerprint=None, ip_hash=None):
+async def check_uploader(conn, user=None, guest_id=None, ip_hash=None):
     """403 BANNED, ACCOUNT_SUSPENDED or UPLOADS_RESTRICTED { until } (§2.5 step 5). Restricted
     means no uploads at all, and no album creation."""
-    if await banned(conn, fingerprint if user is None else None, ip_hash):
+    if await banned(conn, guest_id if user is None else None, ip_hash):
         raise errors.banned()
     if user is None:
         return

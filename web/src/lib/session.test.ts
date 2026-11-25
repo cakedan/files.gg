@@ -44,15 +44,15 @@ describe('session (milestone-6 §13.1)', () => {
     expect(signedInState()).toBe(true);
   });
 
-  it('after a sign-in, drops the fingerprint and the old account’s cache, and tells other tabs', async () => {
-    localStorage.setItem('filesgg.fingerprint', '123');
+  it('after a sign-in, drops the guest and the old account’s cache, and tells other tabs', async () => {
+    localStorage.setItem('filesgg.guest', '123');
     const client = new QueryClient();
     client.setQueryData(['users', '@me', 'files', {}], { items: ['old'] });
     const listener = new BroadcastChannel(SESSION_CHANNEL);
     const received = new Promise((resolve) => (listener.onmessage = (event) => resolve(event.data)));
     const { result } = renderHook(() => useCompleteSignIn(), { wrapper: wrapper(client) });
     act(() => result.current({ id: '9', username: 'b' } as never));
-    expect(localStorage.getItem('filesgg.fingerprint')).toBeNull();
+    expect(localStorage.getItem('filesgg.guest')).toBeNull();
     expect(client.getQueryData(['users', '@me', 'files', {}])).toBeUndefined();
     expect(client.getQueryData(SESSION_QUERY_KEY)).toMatchObject({ id: '9' });
     await expect(received).resolves.toBe(SESSION_CHANGED);

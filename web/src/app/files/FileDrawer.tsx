@@ -1,4 +1,4 @@
-import { AlertTriangle, Clock, Download, Eye, EyeOff, ExternalLink, Gauge, Globe, KeyRound, Link as LinkIcon, Link2, Lock, MessageSquareWarning, Trash2 } from 'lucide-react';
+import { AlertTriangle, Clock, Download, Eye, EyeOff, ExternalLink, Gauge, Globe, KeyRound, Link as LinkIcon, Link2, Lock, MessageSquareWarning, Trash2, Wand2 } from 'lucide-react';
 import { createElement, Suspense, useId, useMemo, useState } from 'react';
 import { Link } from 'react-router';
 
@@ -10,14 +10,14 @@ import { epochMs, formatFullDate, formatRelative, RELATIVE_REFRESH_MS } from '..
 import { useNow } from '../../lib/useNow';
 import { parseFileData } from '../../viewer/boot';
 import { RendererFallback } from '../../viewer/components/RendererFallback';
-import { getRenderer } from '../../viewer/renderers';
+import { rendererFor } from '../../viewer/renderers';
 import { downloadUrl } from '../../viewer/urls';
 import { Drawer } from '../components/Drawer';
 import { canShowMedia, stateExplanation, WARNING_TEXT } from '../safety/labels';
 import { SafetyBadge } from '../safety/SafetyBadge';
 import { useShowSensitive } from '../safety/sensitive';
 import { AccessBadge } from './AccessBadge';
-import { canAskReview, NSFW_LOCKED_HINT, type FileHandlers } from './fileMenu';
+import { canAskReview, canConvert, NSFW_LOCKED_HINT, type FileHandlers } from './fileMenu';
 import { formatDuration, pluralize, typeLabel } from './fileLabels';
 import { EXPIRE_FIRED_HINT, expireActionFired, privateActionFired, PRIVATE_FIRED_HINT, viewLimitActionText, viewLimitOf, viewsUsedLabel } from './viewLimit';
 
@@ -102,7 +102,7 @@ export default function FileDrawer({ file, handlers, onClose }: FileDrawerProps)
           ) : gated ? (
             <SensitiveGate onShow={() => setRevealed(true)} />
           ) : data ? (
-            <Suspense fallback={<RendererFallback file={data} />}>{createElement(getRenderer(data.kind), { file: data, context: 'list' })}</Suspense>
+            <Suspense fallback={<RendererFallback file={data} />}>{createElement(rendererFor(data), { file: data, context: 'list' })}</Suspense>
           ) : (
             <p className="p-6 text-center text-sm text-muted">This file can't be previewed.</p>
           )}
@@ -160,6 +160,12 @@ export default function FileDrawer({ file, handlers, onClose }: FileDrawerProps)
               <Download aria-hidden className="size-4" />
               Download
             </LinkButton>
+          )}
+          {handlers.convert && canConvert(file) && (
+            <Button onClick={() => handlers.convert!([file])}>
+              <Wand2 aria-hidden className="size-4" />
+              Convert…
+            </Button>
           )}
           <Button onClick={() => handlers.changeAccess([file])}>
             <Lock aria-hidden className="size-4" />

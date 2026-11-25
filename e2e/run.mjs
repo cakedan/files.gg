@@ -22,7 +22,12 @@
 // sends `X-Filesgg-Csrf: 1` on every write there, like the web app); tools upload to api.files.localhost
 // with `Authorization: Key fgg_…`. Steps 20-27 cover sessions, register, upload keys, premium, custom
 // domains, view limits, the vanity-last routes (§20) and account deletion.
-import { execFileSync } from 'node:child_process';
+//
+// Milestone 5 (docs/redesign/contracts/milestone-5.md): steps 28-43 cover conversions on the RQ converter pools and
+// the network-less office service (polled as the web app does, GET /conversions/<id> until finished, with each
+// conversion's time printed at the end), document previews, the moderation cascade, the anonymous limits, a Redis
+// rate limit, the home, changelog, Terms and Privacy pages, and the 100 MB single-request limit for upload keys.
+import { execFileSync, spawnSync } from 'node:child_process';
 import { createHash, randomBytes, randomInt } from 'node:crypto';
 import { lookup } from 'node:dns/promises';
 import { existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
@@ -43,8 +48,10 @@ const MOCK_CLOUDFLARE = `http://127.0.0.1:${process.env.E2E_CLOUDFLARE_PORT || '
 const LOOKUP_TTL_MS = 5_000;
 // The API's cookie name over plain http (SESSION_COOKIE_INSECURE=1, milestone-6 §3.2).
 const SESSION_COOKIE = 'filesgg_session';
-const MB = 1024 * 1024;
-const GB = 1024 * MB;
+// Sizes are decimal (1 MB = 1,000,000 bytes), as the API and the web app count them (api/utils/limits.py).
+const MB = 1000 * 1000;
+const GB = 1000 * MB;
+const MIB = 1024 * 1024;
 
 // Cloudflare's documented testing token, which the always-pass testing secret accepts (web/src/lib/config.ts).
 const TURNSTILE_TOKEN = /TURNSTILE_TEST_TOKEN = '([^']+)'/.exec(readFileSync(join(ROOT, 'web/src/lib/config.ts'), 'utf8'))[1];
@@ -65,7 +72,17 @@ const WHATSAPP = { 'user-agent': 'WhatsApp/2.23.20.0 A', 'accept-language': 'en-
 const results = [];
 let current = null;
 
+// E2E_STEPS=28-43 (or "9,28-30") runs only those steps, plus step 0 (the sign-in every step needs). Steps that use
+// what an earlier step made fail or fall back when it was skipped; a full run is the real test.
+const ONLY = process.env.E2E_STEPS ? new Set(process.env.E2E_STEPS.split(',').flatMap((part) => {
+  const [from, to = from] = part.split('-').map(Number);
+  return Array.from({ length: to - from + 1 }, (_, index) => from + index);
+}).concat(0)) : null;
+
 async function step(name, fn) {
+  if (ONLY && !ONLY.has(Number(name.split('.')[0]))) {
+    return;
+  }
   current = { name, checks: 0, notes: [] };
   const started = Date.now();
   try {
@@ -164,8 +181,8 @@ class Caller {
     return response;
   }
 }
-// A signed-out website visitor, with an anonymous upload fingerprint.
-const visitor = async (headers = {}) => new Caller('visitor', { headers: { 'X-Fingerprint': await fingerprint(), ...headers } });
+// A signed-out website visitor: a guest (`Authorization: Guest`, milestone-5 §20).
+const visitor = async (headers = {}) => new Caller('visitor', { headers: { authorization: `Guest ${await guest()}`, ...headers } });
 // A tool with an upload key, on api.files.localhost.
 const tool = (secret, headers = {}) => new Caller('upload key', { base: API, headers: { authorization: `Key ${secret}`, ...headers } });
 
@@ -233,10 +250,10 @@ function makeUser(tag, { premium = false } = {}) {
   return { ...user, password };
 }
 
-async function fingerprint() {
-  const response = await api('/auth/fingerprint');
-  equal(response.status, 200, 'GET /auth/fingerprint');
-  return response.data.fingerprint;
+async function guest() {
+  const response = await api('/auth/guest');
+  equal(response.status, 200, 'GET /auth/guest');
+  return response.data.guest;
 }
 
 // POST /files, multipart, as `caller`. The fields go before the file, as the web app sends them
@@ -252,7 +269,7 @@ async function uploadFile(caller, { bytes, filename, type = 'application/octet-s
 }
 
 // Milestone 4 §2: a new upload is `pending` until the scanner is done with it. Polls the owner's
-// GET /users/@me/files/<id> (as `caller`, the owner's session or anonymous fingerprint) until
+// GET /users/@me/files/<id> (as `caller`, the owner's session or guest) until
 // `safety.state` leaves `pending` (or the upload is rejected after the scan: 410 UPLOAD_REJECTED),
 // and records how long that took.
 const scanTimes = [];
@@ -316,10 +333,11 @@ await step('0. the stack answers on the *.localhost hosts, and the e2e users sig
   }
   const health = await api('/health');
   equal(health.status, 200, 'API /health through the Worker');
-  const home = await page('/');
-  equal(home.status, 200, 'home page');
-  equal(parseShell(home.text).page, 'home', 'home data-page');
-  const csp = home.headers.get('content-security-policy');
+  // Milestone 5 §19: `/` is the home page from the app bundle (step 30 checks it); the viewer shell's CSP is on its
+  // own pages, such as /report.
+  const viewer = await page('/report');
+  equal(viewer.status, 200, 'a viewer page (/report)');
+  const csp = viewer.headers.get('content-security-policy');
   check(csp.includes(`connect-src 'self' ${CDN} ${API}`), 'viewer CSP allows the local CDN and API', csp);
 
   // The password up.sh printed works with the real login endpoint, through files.localhost/api as
@@ -338,7 +356,7 @@ await step('0. the stack answers on the *.localhost hosts, and the e2e users sig
 });
 
 await step('1. anonymous single upload (Turnstile testing token): CDN bytes and the escaped #file-data', async () => {
-  // The website uploads through files.localhost/api, signed out, with a fingerprint.
+  // The website uploads through files.localhost/api, signed out, as a guest.
   const headers = await visitor();
   const bytes = randomBytes(256 * 1024 + 7);
 
@@ -378,12 +396,12 @@ await step('1. anonymous single upload (Turnstile testing token): CDN bytes and 
 });
 
 await step('2. signed-in chunked upload, ~30 MB, chunks in parallel and out of order', async () => {
-  const size = 30 * 1024 * 1024 + 12_345;
+  const size = 30 * MIB + 12_345;
   const bytes = randomBytes(size);
   const created = await OWNER.call('/uploads', { method: 'POST', json: { filename: 'e2e-chunked.bin', size } });
   equal(created.status, 201, 'POST /api/uploads (session cookie)');
   const { upload_id: id, chunk_size: chunkSize, chunk_count: count } = created.data;
-  equal(chunkSize, 10 * 1024 * 1024, 'chunk_size');
+  equal(chunkSize, 10 * MIB, 'chunk_size (10 MiB, UPLOAD_CHUNK_SIZE)');
   equal(count, Math.ceil(size / chunkSize), 'chunk_count');
 
   const order = [...Array(count).keys()].reverse();
@@ -438,7 +456,8 @@ await step('3. an HTML filename can\'t break out of the shell', async () => {
   equal(stored, '</script><script>alert(1)</script>', 'raw name stored (psql)');
   equal((await waitScanned(file, OWNER, 'step 3 PNG')).safety.state, 'ok', 'scanned: ok');
 
-  const baseline = parseShell((await page('/')).text).scripts;
+  // The missing shell has the viewer's scripts plus `#file-data` (null): a file page must have no more.
+  const baseline = parseShell((await page('/zzzzzzzzzzzz')).text).scripts;
   const shell = await page(vanityPath(file));
   equal(shell.status, 200, 'the shell renders');
   const parsed = parseShell(shell.text);
@@ -447,7 +466,7 @@ await step('3. an HTML filename can\'t break out of the shell', async () => {
   check(parsed.raw.includes('\\u003c/script\\u003e\\u003cscript\\u003ealert(1)\\u003c/script\\u003e.png'),
     'the boot JSON escapes < and > as \\u003c / \\u003e', parsed.raw);
   check(!shell.text.includes('<script>alert(1)'), 'no live <script>alert(1) anywhere in the page');
-  equal(parsed.scripts, baseline + 1, 'exactly one extra <script> (#file-data) compared with the home page');
+  equal(parsed.scripts, baseline, 'exactly the missing page\'s <script>s (the viewer and #file-data): nothing extra');
   check(parsed.meta.includes('content="&lt;/script&gt;&lt;script&gt;alert(1)&lt;/script&gt;.png"'), 'meta tags escape the filename', parsed.meta);
 
   const blob = await request(file.cdn_url);
@@ -626,13 +645,14 @@ await step('7. bots: link files go to the CDN (or get the embed page), password 
   }
 });
 
-// The single-request cap for everyone (milestone-6 §9.2, §9.5): Cloudflare's request-body limit,
-// PROXY_BODY_LIMIT_BYTES (10^8), less 1 MiB.
-const PROXY_SINGLE_CAP = 100_000_000 - MB;
+// The single-request limit is 100 MB (100,000,000 bytes) for everyone signed in, premium too: under Cloudflare's
+// request-body limit (PROXY_BODY_LIMIT_BYTES, assumed 100 MiB) less 1 MiB of multipart framing (milestone-6 §9.5),
+// so the proxy cap never cuts it. Step 32 uploads exactly 100,000,000 bytes with an upload key.
+const SINGLE_LIMIT = 100 * MB;
 // GET /users/@me/limits without `storage`, `upload_keys` and `daily`, whose numbers depend on earlier uploads.
 const SIGNED_IN_LIMITS = {
-  max_file_size_single: Math.min(100 * MB, PROXY_SINGLE_CAP),
-  max_file_size_single_configured: 100 * MB,
+  max_file_size_single: SINGLE_LIMIT,
+  max_file_size_single_configured: SINGLE_LIMIT,
   max_file_size_chunked: GB,
   max_expiry: null,
   allow_no_expiry: true,
@@ -646,9 +666,7 @@ const SIGNED_IN_LIMITS = {
 };
 const PREMIUM_LIMITS = {
   ...SIGNED_IN_LIMITS,
-  // 500 MB is the premium single-request size, but a single request stays under Cloudflare's request-body cap (§9.5)
-  max_file_size_single: Math.min(500 * MB, PROXY_SINGLE_CAP),
-  max_file_size_single_configured: 500 * MB,
+  // premium raises storage and chunked uploads; a single request stays 100 MB
   max_file_size_chunked: 5 * GB,
   premium: true,
   custom_domains: { used: 0, limit: 5 },
@@ -675,7 +693,7 @@ await step('8. limits: anonymous and signed-in values', async () => {
     nsfw_allowed: false, // milestone-4 §13
   }, 'anonymous limits');
   equal(anonymousStorage.limit, null, 'anonymous storage.limit');
-  // Anonymous usage is counted per fingerprint and per IP; step 1 uploaded from this IP.
+  // Anonymous usage is counted per guest and per IP; step 1 uploaded from this IP.
   check(anonymousStorage.used >= files.anon.size, 'anonymous storage.used includes step 1 (same IP)', anonymousStorage);
   if (daily) {
     note(`anonymous callers also get daily: ${JSON.stringify(daily)} (not in contract §6)`);
@@ -684,7 +702,7 @@ await step('8. limits: anonymous and signed-in values', async () => {
   const signedIn = await OWNER.call('/users/@me/limits');
   equal(signedIn.status, 200, 'GET /api/users/@me/limits (signed in)');
   const { storage, upload_keys: keys, ...rest } = signedIn.data;
-  equal(rest, SIGNED_IN_LIMITS, 'signed-in limits (single requests capped at PROXY_BODY_LIMIT_BYTES - 1 MiB)');
+  equal(rest, SIGNED_IN_LIMITS, 'signed-in limits (decimal: single requests 100,000,000 bytes, chunked 1,000,000,000)');
   equal(storage.limit, 10 * GB, 'storage.limit (10 GB)');
   check(storage.used >= files.chunked.size, 'storage.used counts the uploads', storage);
   equal(keys.limit, 20, 'upload_keys.limit (20)');
@@ -1393,7 +1411,7 @@ await step('20. sessions: HttpOnly cookie on files.localhost only, CSRF, no Bear
   equal(fourth.cookie, null, '...and the dead cookie is cleared');
 });
 
-await step('21. register: a new unverified account, username checks, and it claims the anonymous uploads of its fingerprint', async () => {
+await step('21. register: a new unverified account, username checks, and it claims the anonymous uploads of its guest', async () => {
   const config = await new Caller('visitor').call('/auth/config');
   equal([config.status, config.data], [200, { discord: false }], 'GET /api/auth/config: Discord is off locally (DISCORD_* unset)');
   const discord = await new Caller('visitor').call('/auth/discord/authorize', { method: 'POST', json: { purpose: 'login', code_challenge: 'SkrKhQFbMBX5ptYerKJJajG2CIJ-X_1O1IyRGzbnMZ8' } });
@@ -1409,7 +1427,7 @@ await step('21. register: a new unverified account, username checks, and it clai
   equal((await availability('admin')).reason, 'reserved', 'a reserved username');
   equal((await availability('e2e-new')).reason, 'characters', 'a hyphen isn\'t allowed');
 
-  // Uploaded before signing up, from this browser (same fingerprint).
+  // Uploaded before signing up, from this browser (same guest).
   const bytes = randomBytes(8 * 1024);
   const before = await anonymousUpload(browser, { bytes, filename: 'e2e-before-register.bin' });
   equal(before.status, 200, 'anonymous upload before registering');
@@ -1431,7 +1449,7 @@ await step('21. register: a new unverified account, username checks, and it clai
   const again = await (await visitor(fromIp(ip))).call('/auth/register', { method: 'POST', json: { email: email.toUpperCase(), username: `${username}x`, password, turnstile_token: TURNSTILE_TOKEN } });
   equal([again.status, again.data.code, Object.keys(again.data.errors || {})], [400, 'EMAIL_TAKEN', ['email']], 'the same email again (any case): EMAIL_TAKEN on the email field');
 
-  // §4.2: the fingerprint's upload moved into the account, and keeps its expiry.
+  // §4.2: the guest's upload moved into the account, and keeps its expiry.
   const claimed = await browser.call(`/users/@me/files/${before.data.id}`);
   equal(claimed.status, 200, 'the anonymous upload is the new account\'s file');
   equal(claimed.data.expires_at, before.data.expires_at, 'and keeps its expiry');
@@ -1445,13 +1463,13 @@ await step('22. upload keys: shown once, upload to api.files.localhost, refused 
   const { key, secret, sharex, curl } = created.data;
   check(/^fgg_[0-9A-Za-z]{36}$/.test(secret), 'the secret is fgg_ + 36 base62 characters (§7.1)', secret);
   equal([key.name, key.prefix, key.scopes, key.state, key.domain], ['e2e run.mjs', secret.slice(0, 12), ['files:upload'], 'active', null], 'the key object (prefix = the first 12 characters)');
-  equal([sharex.Version, sharex.RequestURL, sharex.Headers.Authorization, sharex.FileFormName, sharex.URL], ['17.0.0', `${API}/files`, `Key ${secret}`, 'file', '{json:url}'], 'the ShareX .sxcu (RequestURL is API_PUBLIC_URL/files)');
+  equal([sharex.Version, sharex.RequestURL, sharex.Headers.Authorization, sharex.FileFormName, sharex.URL], ['17.0.0', `${API}/files`, `Key ${secret}`, 'file', '{json:url_with_password}'], 'the ShareX .sxcu (RequestURL is API_PUBLIC_URL/files; URL is url_with_password, milestone-5 §21)');
   check(curl.includes(`Authorization: Key ${secret}`) && curl.includes(`${API}/files`), 'the curl snippet', curl);
   const listed = await OWNER.call('/users/@me/upload-keys');
   equal(listed.status, 200, 'GET /api/users/@me/upload-keys');
   check(listed.data.items.some((item) => item.id === key.id) && !listed.text.includes(secret), 'listed, and the secret is never shown again', listed.data);
 
-  // A tool uploads to api.files.localhost with the key (no fingerprint, no Turnstile).
+  // A tool uploads to api.files.localhost with the key (no guest, no Turnstile).
   const sharexTool = tool(secret);
   const bytes = randomBytes(48 * 1024);
   const uploaded = await uploadFile(sharexTool, { bytes, filename: 'e2e-sharex.bin' });
@@ -1509,7 +1527,7 @@ async function limitsOf(caller) {
   return { storage, rest };
 }
 
-await step('23. premium: granted by an admin and by the CLI, limits rise (100 GB, 5 GB chunked, single capped), revoked, back', async () => {
+await step('23. premium: granted by an admin and by the CLI, limits rise (100 GB, 5 GB chunked, single stays 100 MB), revoked, back', async () => {
   const user = makeUser('prem');
   const member = new Caller('premium candidate', { cookie: user.session.value });
   const twoGb = { filename: 'e2e-big.bin', size: 2 * GB };
@@ -1529,7 +1547,7 @@ await step('23. premium: granted by an admin and by the CLI, limits rise (100 GB
   const twice = await OWNER.call(`/admin/users/${user.id}/entitlements`, { method: 'POST', json: { kind: 'premium', note: 'again' } });
   equal([twice.status, twice.data.code], [409, 'ENTITLEMENT_EXISTS'], 'granting it twice');
   const premium = await limitsOf(member);
-  equal(premium.rest, PREMIUM_LIMITS, 'premium limits: 5 GB chunked, 5 domains, domain-only; a single request stays capped by PROXY_BODY_LIMIT_BYTES');
+  equal(premium.rest, PREMIUM_LIMITS, 'premium limits: 5 GB chunked, 5 domains, domain-only; a single request stays 100 MB');
   equal(premium.storage.limit, 100 * GB, 'storage.limit 100 GB');
   equal((await member.call('/users/@me')).data.premium, { active: true, expires_at: null }, 'GET /api/users/@me: premium');
   const big = await member.call('/uploads', { method: 'POST', json: twoGb });
@@ -1963,6 +1981,596 @@ await step('27. account deletion: re-auth, files go missing (never removed), the
 });
 
 
+// --- Milestone 5: conversion (docs/redesign/contracts/milestone-5.md) -------------------------------------------
+
+const FINISHED = ['succeeded', 'failed', 'cancelled'];
+// Each conversion: POST /conversions (it waits up to 2 s, §4.1), then GET /conversions/<id> once a second until it's
+// finished, as the Convert page polls (§8). The times are printed under the step and summarised at the end.
+const conversionTimes = [];
+async function convert(caller, body, label, { timeoutMs = 240_000 } = {}) {
+  const started = Date.now();
+  const created = await caller.call('/conversions', { method: 'POST', json: body });
+  check([200, 202].includes(created.status) && created.data && created.data.id, `${label}: POST /conversions answers 200 or 202 with the conversion`, created.text.slice(0, 600));
+  equal(created.status === 200, FINISHED.includes(created.data.status), `${label}: 200 exactly when it's finished within the brief wait (else 202)`);
+  let conversion = created.data;
+  if (!FINISHED.includes(conversion.status)) {
+    const done = await poll(`${label} to finish`, async () => {
+      const response = await caller.call(`/conversions/${conversion.id}`);
+      if (response.status !== 200) {
+        throw new Error(`GET /conversions/${conversion.id} gave ${response.status}: ${response.text.slice(0, 300)}`);
+      }
+      const { status, stage, position, progress, queue } = response.data;
+      return { done: FINISHED.includes(status), state: { status, stage, position, progress, queue }, conversion: response.data };
+    }, { timeoutMs, intervalMs: 1000 });
+    conversion = done.conversion;
+  }
+  const ms = Date.now() - started;
+  conversionTimes.push({ label, ms, took: conversion.took, status: conversion.status, cached: conversion.cached });
+  note(`${label}: ${conversion.status}${conversion.cached ? ' (cache hit)' : ''} in ${(ms / 1000).toFixed(1)}s ` +
+    `(took ${conversion.took} ms, ${conversion.queue} queue, ${conversion.cpu_seconds}s CPU, ${conversion.input_size} -> ${conversion.output_size} bytes)`);
+  return { created, conversion };
+}
+function succeeded(conversion, label) {
+  check(conversion.status === 'succeeded', `${label}: succeeded`, { status: conversion.status, error: conversion.error });
+  return conversion;
+}
+// An owner's file, once its probe has run (kind, size, duration, pages): the output of a conversion, as its owner.
+async function waitProcessedAs(caller, file, label) {
+  const scanned = await waitScanned(file, caller, label);
+  if (scanned.rejected) {
+    return scanned;
+  }
+  const done = await poll(`${label} to be processed`, async () => {
+    const response = await caller.call(`/users/@me/files/${file.id}`);
+    return { done: response.status === 200 && response.data.processing === false, state: response.status, item: response.data };
+  }, { timeoutMs: 120_000, intervalMs: 500 });
+  return done.item;
+}
+// The bytes of an owner's file, once scanned (its cdn_url is signed when it's protected).
+async function ownerBytes(caller, file, label) {
+  const item = await waitScanned(file, caller, label);
+  check(item.safety && ['ok', 'flagged'].includes(item.safety.state), `${label}: scanned and served`, item.safety || item);
+  const response = await request(item.cdn_url);
+  equal(response.status, 200, `${label}: CDN serves the output`);
+  return { item, bytes: response.buffer, response };
+}
+// A signed-out visitor on an address of its own: the anonymous conversion limits are per guest **and** per IP
+// (§7.1), so each anonymous step is a fresh viewer and every run starts from zero.
+const anonymousConverter = async () => visitor(fromIp(clientIp()));
+// Did an RQ worker in `services` log the job `jobId` (the API names them conversion-<id> and preview-<hash_id>)?
+function rqLogged(services, jobId) {
+  const logs = execFileSync('docker', [...COMPOSE, 'logs', '--no-color', ...services], { encoding: 'utf8', maxBuffer: 256 * 1024 * 1024 });
+  return logs.includes(jobId);
+}
+const hashIdOf = (fileId) => psql(`SELECT hash_id FROM files WHERE id = ${BigInt(fileId)}`);
+
+// JPEG segments: inserts a comment (COM) with `text` after the APPn segments (EXIF stays), for a new hash every run.
+function jpegWithComment(jpeg, text) {
+  let offset = 2;
+  while (jpeg[offset] === 0xff && jpeg[offset + 1] >= 0xe0 && jpeg[offset + 1] <= 0xef) {
+    offset += 2 + jpeg.readUInt16BE(offset + 2);
+  }
+  const data = Buffer.from(text, 'latin1');
+  const segment = Buffer.alloc(4);
+  segment.writeUInt16BE(0xfffe, 0);
+  segment.writeUInt16BE(data.length + 2, 2);
+  return Buffer.concat([jpeg.subarray(0, offset), segment, data, jpeg.subarray(offset)]);
+}
+// The tag ids of a JPEG's EXIF IFD0 (0x8825 is the GPS IFD, 0x010F the camera make), or null without EXIF.
+function exifTags(jpeg) {
+  let offset = 2;
+  while (offset + 4 <= jpeg.length && jpeg[offset] === 0xff) {
+    const marker = jpeg[offset + 1];
+    if (marker === 0xda || marker === 0xd9) {
+      break;
+    }
+    const length = jpeg.readUInt16BE(offset + 2);
+    if (marker === 0xe1 && jpeg.subarray(offset + 4, offset + 10).toString('latin1') === 'Exif\0\0') {
+      const tiff = jpeg.subarray(offset + 10, offset + 2 + length);
+      const little = tiff.subarray(0, 2).toString('latin1') === 'II';
+      const u16 = (at) => (little ? tiff.readUInt16LE(at) : tiff.readUInt16BE(at));
+      const ifd = little ? tiff.readUInt32LE(4) : tiff.readUInt32BE(4);
+      return [...Array(u16(ifd)).keys()].map((index) => u16(ifd + 2 + index * 12));
+    }
+    offset += 2 + length;
+  }
+  return null;
+}
+// A GIF with a comment extension before its trailer: a new hash every run.
+const gifWithComment = (gif, text) => {
+  const data = Buffer.from(text.slice(0, 255), 'latin1');
+  return Buffer.concat([gif.subarray(0, gif.length - 1), Buffer.from([0x21, 0xfe, data.length]), data, Buffer.from([0x00, 0x3b])]);
+};
+// A minimal PDF written by hand, as api/tests/fixtures/convert/make_fixtures.py does, with a nonce comment.
+function pdfBytes(pages, tag) {
+  const objects = ['<< /Type /Catalog /Pages 2 0 R >>',
+    `<< /Type /Pages /Kids [${[...Array(pages).keys()].map((i) => `${3 + i * 2} 0 R`).join(' ')}] /Count ${pages} >>`];
+  const font = 3 + pages * 2;
+  for (let index = 0; index < pages; index++) {
+    const content = `0.${index + 2} 0.3 0.6 rg 20 20 160 100 re f BT /F1 24 Tf 80 60 Td (${index + 1}) Tj ET`;
+    objects.push(`<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 140] /Contents ${4 + index * 2} 0 R /Resources << /Font << /F1 ${font} 0 R >> >> >>`);
+    objects.push(`<< /Length ${content.length} >>\nstream\n${content}\nendstream`);
+  }
+  objects.push('<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>');
+  let body = `%PDF-1.4\n% ${tag}\n`;
+  const offsets = [];
+  objects.forEach((object, index) => {
+    offsets.push(Buffer.byteLength(body, 'latin1'));
+    body += `${index + 1} 0 obj\n${object}\nendobj\n`;
+  });
+  const xref = Buffer.byteLength(body, 'latin1');
+  body += `xref\n0 ${objects.length + 1}\n0000000000 65535 f \n` + offsets.map((o) => `${String(o).padStart(10, '0')} 00000 n \n`).join('');
+  body += `trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF\n`;
+  return Buffer.from(body, 'latin1');
+}
+// A minimal .docx (stored zip), as make_fixtures.py writes document.docx, with `text` in a paragraph.
+const DOCX_TYPE = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+function docxBytes(text) {
+  const w = 'http://schemas.openxmlformats.org/wordprocessingml/2006/main';
+  const files = [
+    ['[Content_Types].xml', '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">' +
+      '<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/>' +
+      `<Override PartName="/word/document.xml" ContentType="${DOCX_TYPE}.main+xml"/></Types>`],
+    ['_rels/.rels', '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">' +
+      '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/></Relationships>'],
+    ['word/document.xml', `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:document xmlns:w="${w}"><w:body>` +
+      `<w:p><w:r><w:t>files.gg e2e document</w:t></w:r></w:p><w:p><w:r><w:t>${text}</w:t></w:r></w:p></w:body></w:document>`],
+  ];
+  return zipOf(files.map(([name, xml]) => [name, Buffer.from(xml, 'utf8')]));
+}
+// ffmpeg's volumedetect on some audio (in the jobs worker container): { mean, max } in dB.
+function volumeOf(bytes) {
+  const result = spawnSync('docker', [...COMPOSE, 'exec', '-T', 'worker', 'ffmpeg', '-hide_banner', '-i', 'pipe:0',
+    '-af', 'volumedetect', '-f', 'null', '-'], { input: bytes, encoding: 'buffer', maxBuffer: 64 * 1024 * 1024 });
+  const stderr = result.stderr.toString('utf8');
+  const mean = /mean_volume: (-?[\d.]+) dB/.exec(stderr);
+  const max = /max_volume: (-?[\d.]+) dB/.exec(stderr);
+  if (!mean || !max) {
+    throw new Error('volumedetect printed no volume:\n' + stderr.slice(-800));
+  }
+  return { mean: Number(mean[1]), max: Number(max[1]) };
+}
+// Unique test media for this step: a short noise tag in the container metadata.
+const tag = () => `e2e-${hex(8)}`;
+const m5 = {};
+
+await step('28. conversions: the formats document, and a JPEG with GPS EXIF converted with strip_metadata (the default)', async () => {
+  const formats = await request(`${WEB_API}/conversions/formats`);
+  equal([formats.status, formats.headers.get('cache-control')], [200, 'public, max-age=300'], 'GET /api/conversions/formats: public, 5 minutes');
+  const kinds = formats.data.kinds;
+  equal(Object.keys(kinds).sort(), ['animated', 'audio', 'document', 'image', 'images', 'pdf', 'video'], 'every source kind (§1.1)');
+  equal(kinds.image.targets.map((t) => t.target), ['png', 'jpg', 'webp', 'avif', 'gif', 'ico'], 'image targets (§1.2)');
+  const docPdf = kinds.document.targets.find((t) => t.target === 'pdf');
+  equal([docPdf.anonymous, docPdf.options], [false, []], 'document -> pdf: signed in only, no options');
+  const strip = kinds.image.targets.find((t) => t.target === 'jpg').options.find((o) => o.name === 'strip_metadata');
+  equal([strip.type, strip.default], ['bool', true], 'strip_metadata: a bool, true by default');
+  check(['play_everywhere', 'discord', 'extract_audio', 'gif_to_mp4', 'remove_location'].every((id) => formats.data.presets.some((p) => p.id === id)), 'the presets (§10.1)', formats.data.presets.map((p) => p.id));
+
+  const source = jpegWithComment(readFileSync(join(ROOT, 'api/tests/fixtures/convert/gps.jpg')), tag());
+  const sourceTags = exifTags(source);
+  check(sourceTags && sourceTags.includes(0x8825) && sourceTags.includes(0x010f), 'the source JPEG has EXIF with a GPS IFD and a camera make', sourceTags);
+  const created = await uploadFile(OWNER, { bytes: source, filename: 'e2e-gps.jpg', type: 'image/jpeg' });
+  equal(created.status, 200, 'upload the JPEG');
+  const file = m5.jpeg = created.data;
+  equal((await waitScanned(file, OWNER, 'step 28 GPS JPEG')).safety.state, 'ok', 'scanned: ok');
+
+  const { conversion } = await convert(OWNER, { source: file.vanity, target: 'jpg', options: {} }, 'image -> jpg (strip metadata)');
+  succeeded(conversion, 'image -> jpg');
+  m5.jpegConversion = conversion;
+  equal([conversion.target, conversion.source.kind, conversion.queue, conversion.cached, conversion.options.strip_metadata, conversion.options.quality],
+    ['jpg', 'image', 'member', false, true, 85], 'the conversion: image -> jpg on the member queue, options normalised (strip_metadata true, quality 85)');
+  equal(conversion.source.file.id, file.id, 'source.file is the JPEG');
+  const output = conversion.output.file;
+  equal([output.filename, output.mimetype], ['e2e-gps.jpg', 'image/jpeg'], 'the output: <name>.jpg (§1.3)');
+  check(output.id !== file.id && output.vanity !== file.vanity, 'the output is a new file with its own link', output);
+  const { bytes } = await ownerBytes(OWNER, output, 'step 28 stripped JPEG');
+  equal(bytes.subarray(0, 3).toString('hex'), 'ffd8ff', 'the output is a JPEG');
+  const outputTags = exifTags(bytes);
+  check(outputTags === null || (!outputTags.includes(0x8825) && !outputTags.includes(0x010f)), 'the output has no GPS IFD and no camera make', outputTags);
+  check(!bytes.includes(Buffer.from('FilesggTestCamera')), 'the camera make string is gone');
+  equal(conversion.output_size, bytes.length, 'output_size is the output\'s size');
+  const fromConversion = psql(`SELECT derived_from_file_id || ' ' || conversion_id FROM files WHERE id = ${BigInt(output.id)}`);
+  equal(fromConversion, `${file.id} ${conversion.id}`, 'provenance: derived_from_file_id and conversion_id (psql)');
+  check(rqLogged(['converter', 'converter-premium'], `conversion-${conversion.id}`), `an RQ member worker ran the job conversion-${conversion.id}`);
+});
+
+await step('29. cache hit: the same recipe again is 200 { cached: true }, a new file over the same bytes, and the anonymous 720p cap isn\'t shared', async () => {
+  const first = m5.jpegConversion;
+  // §6: `{}` and `{ quality: 85 }` for jpg are the same recipe
+  const { created, conversion } = await convert(OWNER, { source: m5.jpeg.vanity, target: 'jpg', options: { quality: 85 } }, 'image -> jpg again (cache)');
+  equal([created.status, conversion.status, conversion.cached, conversion.cpu_seconds], [200, 'succeeded', true, 0], 'POST /conversions: 200, succeeded, cached, no CPU');
+  check(conversion.output.file.id !== first.output.file.id, 'a new output file', conversion.output.file.id);
+  equal(conversion.output.file.size, first.output.file.size, 'over the same bytes (size)');
+  equal(psql(`SELECT count(DISTINCT hash_id) FROM files WHERE id IN (${BigInt(first.output.file.id)}, ${BigInt(conversion.output.file.id)})`), '1', 'the same hash (psql)');
+  equal(rqLogged(['converter', 'converter-premium'], `conversion-${conversion.id}`), false, 'no RQ job for a cache hit');
+
+  // The anonymous 720p cap is part of the recipe: a capped output is never served to a signed-in caller from the cache.
+  const video = ffmpeg(['-f', 'lavfi', '-i', 'testsrc2=size=1440x1080:rate=15:duration=2', '-c:v', 'libx264', '-preset', 'ultrafast', '-pix_fmt', 'yuv420p',
+    '-metadata', `comment=${tag()}`, '-movflags', 'frag_keyframe+empty_moov', '-f', 'mp4']);
+  const uploaded = await uploadFile(OWNER, { bytes: video, filename: 'e2e-1080p.mp4', type: 'video/mp4' });
+  equal(uploaded.status, 200, 'upload a 1440x1080 video');
+  const source = await waitProcessedAs(OWNER, uploaded.data, 'step 29 1080p video');
+  m5.video = uploaded.data;
+  equal([source.width, source.height], [1440, 1080], 'probed 1440x1080');
+  const anonymous = await anonymousConverter();
+  const capped = succeeded((await convert(anonymous, { source: uploaded.data.vanity, target: 'mp4', turnstile_token: TURNSTILE_TOKEN }, 'video -> mp4, anonymous (720p cap)')).conversion, 'anonymous mp4');
+  equal([capped.queue, capped.cached], ['anonymous', false], 'anonymous queue, not cached');
+  const cappedFile = await waitProcessedAs(anonymous, capped.output.file, 'step 29 anonymous mp4');
+  equal(cappedFile.height, 720, 'the anonymous output is capped at 720p');
+  const full = succeeded((await convert(OWNER, { source: uploaded.data.vanity, target: 'mp4' }, 'video -> mp4, signed in (no cap)')).conversion, 'signed-in mp4');
+  equal(full.cached, false, 'the signed-in caller doesn\'t get the anonymous capped output from the cache');
+  equal((await waitProcessedAs(OWNER, full.output.file, 'step 29 signed-in mp4')).height, 1080, 'the signed-in output keeps 1080p');
+});
+
+await step('30. GIF -> MP4: an animated GIF becomes an H.264 MP4', async () => {
+  const gif = gifWithComment(ffmpeg(['-f', 'lavfi', '-i', 'testsrc2=size=160x120:rate=10:duration=2', '-f', 'gif']), tag());
+  const created = await uploadFile(OWNER, { bytes: gif, filename: 'e2e-animated.gif', type: 'image/gif' });
+  equal(created.status, 200, 'upload an animated GIF');
+  // Straight away its scan (then its probe, which tells a still GIF from an animated one) hasn't run
+  const early = await OWNER.call('/conversions', { method: 'POST', json: { source: created.data.vanity, target: 'mp4' } });
+  check([[404, 'SOURCE_UNAVAILABLE'], [409, 'FILE_PENDING']].some(([status, code]) => early.status === status && early.data.code === code),
+    'before the scan and probe: 404 SOURCE_UNAVAILABLE (scan pending) or 409 FILE_PENDING (probe pending)', early.text.slice(0, 300));
+  note(`converting it straight after the upload: ${early.status} ${early.data.code}`);
+  const source = await waitProcessedAs(OWNER, created.data, 'step 30 animated GIF');
+  check(source.media && source.media.framecount > 1, 'probed as animated', source.media);
+  const conversion = succeeded((await convert(OWNER, { source: created.data.vanity, target: 'mp4' }, 'GIF -> MP4')).conversion, 'GIF -> MP4');
+  equal([conversion.source.kind, conversion.output.file.mimetype, conversion.output.file.filename], ['animated', 'video/mp4', 'e2e-animated.mp4'], 'animated -> video/mp4');
+  const output = await waitProcessedAs(OWNER, conversion.output.file, 'step 30 MP4');
+  equal([output.kind, output.media.playable, output.width, output.height], ['video', true, 160, 120], 'a playable 160x120 video');
+  check(Math.abs(output.duration - 2000) < 400, 'about 2 s long', output.duration);
+  note(`GIF ${conversion.input_size} bytes -> MP4 ${conversion.output_size} bytes`);
+});
+
+await step('31. video -> mp4 with target_size: 1 MB, two-pass, within 5%', async () => {
+  const video = ffmpeg(['-f', 'lavfi', '-i', 'testsrc2=size=640x360:rate=25:duration=5', '-f', 'lavfi', '-i', 'sine=frequency=440:duration=5',
+    '-vf', 'noise=alls=30:allf=t', '-c:v', 'libx264', '-preset', 'ultrafast', '-b:v', '4M', '-pix_fmt', 'yuv420p', '-c:a', 'aac', '-shortest',
+    '-metadata', `comment=${tag()}`, '-movflags', 'frag_keyframe+empty_moov', '-f', 'mp4']);
+  check(video.length > 1.5 * MB, 'a source well over 1 MB', video.length);
+  const created = await uploadFile(OWNER, { bytes: video, filename: 'e2e-big-video.mp4', type: 'video/mp4' });
+  equal(created.status, 200, 'upload the video');
+  await waitProcessedAs(OWNER, created.data, 'step 31 video');
+  const tooSmall = await OWNER.call('/conversions', { method: 'POST', json: { source: created.data.vanity, target: 'mp4', options: { target_size: 0 } } });
+  equal([tooSmall.status, tooSmall.data.code, tooSmall.data.option], [400, 'INVALID_OPTION', 'target_size'], 'target_size 0: INVALID_OPTION');
+  const conversion = succeeded((await convert(OWNER, { source: created.data.vanity, target: 'mp4', options: { target_size: 1 } }, 'video -> mp4, target_size 1 MB')).conversion, 'target_size');
+  equal(conversion.options.target_size, 1, 'options.target_size');
+  check(conversion.output_size <= 1.05 * MB, 'the output is at most 1 MB + 5%', conversion.output_size);
+  check(conversion.output_size >= 0.5 * MB, 'and uses the budget (at least half of it)', conversion.output_size);
+  note(`target 1,000,000 bytes: ${conversion.output_size} bytes (${(100 * conversion.output_size / MB).toFixed(1)}%), from ${conversion.input_size}`);
+  const output = await waitProcessedAs(OWNER, conversion.output.file, 'step 31 sized MP4');
+  equal([output.kind, output.media.playable, output.media.has_audio], ['video', true, true], 'a playable video with its audio');
+});
+
+await step('32. audio normalise: a quiet tone -> mp3 with loudnorm is louder', async () => {
+  const wav = ffmpeg(['-f', 'lavfi', '-i', 'sine=frequency=330:duration=4', '-af', 'volume=-25dB', '-c:a', 'pcm_s16le', '-metadata', `comment=${tag()}`, '-f', 'wav']);
+  const created = await uploadFile(OWNER, { bytes: wav, filename: 'e2e-quiet.wav', type: 'audio/wav' });
+  equal(created.status, 200, 'upload a quiet WAV');
+  await waitProcessedAs(OWNER, created.data, 'step 32 WAV');
+  const conversion = succeeded((await convert(OWNER, { source: created.data.vanity, target: 'mp3', options: { normalize: true } }, 'audio -> mp3, normalize')).conversion, 'normalize');
+  equal([conversion.source.kind, conversion.options.normalize, conversion.output.file.mimetype], ['audio', true, 'audio/mpeg'], 'audio -> audio/mpeg, normalize');
+  const { bytes } = await ownerBytes(OWNER, conversion.output.file, 'step 32 normalised MP3');
+  const before = volumeOf(wav);
+  const after = volumeOf(bytes);
+  note(`mean volume ${before.mean} dB -> ${after.mean} dB, max ${before.max} dB -> ${after.max} dB`);
+  check(after.mean > before.mean + 10, 'at least 10 dB louder on average', { before, after });
+  check(after.max <= -1, 'and the peak stays under 0 dBFS (true peak -1.5)', after);
+});
+
+await step('33. docx -> PDF on the office service, signed in; anonymous callers are refused (CONVERSION_REQUIRES_ACCOUNT)', async () => {
+  const docx = docxBytes(`run ${tag()}`);
+  const created = await uploadFile(OWNER, { bytes: docx, filename: 'e2e-document.docx', type: DOCX_TYPE });
+  equal(created.status, 200, 'upload a docx');
+  equal(created.data.mimetype, DOCX_TYPE, 'stored as a Word document');
+  const file = m5.docx = created.data;
+  equal((await waitScanned(file, OWNER, 'step 33 docx')).safety.state, 'ok', 'scanned: ok');
+
+  const anonymous = await anonymousConverter();
+  const refused = await anonymous.call('/conversions', { method: 'POST', json: { source: file.vanity, target: 'pdf', turnstile_token: TURNSTILE_TOKEN } });
+  equal([refused.status, refused.data.code, refused.data.sign_in], [403, 'CONVERSION_REQUIRES_ACCOUNT', true], 'anonymous docx -> pdf: 403 CONVERSION_REQUIRES_ACCOUNT { sign_in: true }');
+  const byDefault = await anonymous.call('/conversions', { method: 'POST', json: { source: file.vanity, turnstile_token: TURNSTILE_TOKEN } });
+  equal([byDefault.status, byDefault.data.code], [403, 'CONVERSION_REQUIRES_ACCOUNT'], 'and with the default target (pdf)');
+
+  const conversion = succeeded((await convert(OWNER, { source: file.vanity, target: 'pdf' }, 'docx -> PDF (office)')).conversion, 'docx -> pdf');
+  equal([conversion.source.kind, conversion.output.file.filename, conversion.output.file.mimetype], ['document', 'e2e-document.pdf', 'application/pdf'], 'document -> e2e-document.pdf');
+  const { bytes, item } = await ownerBytes(OWNER, conversion.output.file, 'step 33 PDF');
+  equal(bytes.subarray(0, 5).toString('latin1'), '%PDF-', 'the output is a PDF');
+  // LibreOffice writes an /OpenAction (a "fit page" destination), which the milestone-4 PDF check flags as
+  // pdf_javascript (§5.5): served, with the warning.
+  check(item.safety.state === 'ok' || (item.safety.state === 'flagged' && item.safety.reason === 'pdf_javascript'), 'the PDF output is served (ok, or flagged pdf_javascript for its /OpenAction)', item.safety);
+  note(`the docx -> PDF output was scanned ${item.safety.state}${item.safety.reason ? ` (${item.safety.reason})` : ''}`);
+  const probed = await waitProcessedAs(OWNER, conversion.output.file, 'step 33 PDF probe');
+  equal(probed.media && probed.media.pages, 1, 'one page');
+});
+
+await step('34. document preview: a docx uploaded signed in gets a PDF preview (preview_state done, assets.document, the CDN serves it)', async () => {
+  const file = m5.docx;
+  const withPreview = await poll('the docx preview', async () => {
+    const response = await OWNER.call(`/users/@me/files/${file.id}`);
+    return { done: Boolean(response.data.assets && response.data.assets.document), state: psql(`SELECT preview_state FROM file_hashes WHERE id = (SELECT hash_id FROM files WHERE id = ${BigInt(file.id)})`), item: response.data };
+  }, { timeoutMs: 180_000, intervalMs: 1000 });
+  note(`the preview was there ${(withPreview.waited / 1000).toFixed(1)}s after step 33 finished`);
+  const hashId = hashIdOf(file.id);
+  equal(psql(`SELECT preview_state FROM file_hashes WHERE id = ${hashId}`), 'done', 'preview_state = done (psql)');
+  check(rqLogged(['converter-previews'], `preview-${hashId}`), `converter-previews ran the job preview-${hashId}`);
+  const document = withPreview.item.assets.document;
+  check(document.url.startsWith(`${CDN}/previews/document/${file.vanity}.pdf?v=`), 'assets.document at /previews/document/<vanity>.pdf?v=', document.url);
+  equal([document.pages, typeof document.size], [1, 'number'], 'with its pages and size');
+  const pdf = await request(document.url);
+  equal([pdf.status, pdf.headers.get('content-type')], [200, 'application/pdf'], 'the CDN serves it as application/pdf');
+  equal([pdf.buffer.subarray(0, 5).toString('latin1'), pdf.buffer.length], ['%PDF-', document.size], 'a PDF of the given size');
+  check(/^inline/.test(pdf.headers.get('content-disposition') || 'inline'), 'inline', pdf.headers.get('content-disposition'));
+  const shell = await poll('the viewer to show the preview', async () => {
+    const parsed = parseShell((await page(vanityPath(file))).text);
+    return { done: Boolean(parsed.data && parsed.data.assets && parsed.data.assets.document), state: parsed.state, parsed };
+  });
+  equal(shell.parsed.data.assets.document.url, document.url, '#file-data carries assets.document for the viewer');
+  equal(shell.parsed.data.cdn_url, file.cdn_url, 'and the original stays the download');
+});
+
+await step('35. PDF -> images: an album of the pages signed in, a ZIP anonymously', async () => {
+  const pdf = pdfBytes(3, tag());
+  const created = await uploadFile(OWNER, { bytes: pdf, filename: 'e2e-three-pages.pdf', type: 'application/pdf' });
+  equal(created.status, 200, 'upload a 3-page PDF');
+  await waitProcessedAs(OWNER, created.data, 'step 35 PDF');
+
+  const signedIn = succeeded((await convert(OWNER, { source: created.data.vanity, target: 'png', options: { dpi: 72 } }, 'PDF -> PNG pages (album)')).conversion, 'pdf -> album');
+  equal([signedIn.source.kind, signedIn.output.file], ['pdf', null], 'signed in: no single output file');
+  check(signedIn.output.album && signedIn.output.album.vanity, 'an output album', signedIn.output);
+  const album = await OWNER.call(`/users/@me/albums/${signedIn.output.album.id}`);
+  equal(album.status, 200, 'the album is the caller\'s');
+  equal(album.data.title, 'e2e-three-pages', 'titled after the source');
+  equal(album.data.items.map((item) => [item.filename, item.mimetype]), [1, 2, 3].map((n) => [`e2e-three-pages-p${n}.png`, 'image/png']), 'three pages in order, <name>-p<n>.png');
+  const pageBytes = await ownerBytes(OWNER, album.data.items[0], 'step 35 page 1');
+  equal(pageBytes.bytes.subarray(1, 4).toString('latin1'), 'PNG', 'page 1 is a PNG');
+
+  const anonymous = await anonymousConverter();
+  const zipped = succeeded((await convert(anonymous, { source: created.data.vanity, target: 'png', options: { dpi: 72 }, turnstile_token: TURNSTILE_TOKEN }, 'PDF -> PNG pages, anonymous (ZIP)')).conversion, 'pdf -> zip');
+  equal([zipped.output.album, zipped.output.file.filename, zipped.output.file.mimetype], [null, 'e2e-three-pages-pages.zip', 'application/zip'], 'anonymous: one <name>-pages.zip');
+  check(zipped.output.file.expires_at !== null, 'an anonymous output expires', zipped.output.file);
+  const { bytes } = await ownerBytes(anonymous, zipped.output.file, 'step 35 pages ZIP');
+  const zipPath = join(LOCAL, `e2e-pages-${hex(4)}.zip`);
+  writeFileSync(zipPath, bytes);
+  try {
+    check(/No errors detected/.test(execFileSync('unzip', ['-t', zipPath], { encoding: 'utf8' })), 'unzip -t: no errors');
+    equal(execFileSync('unzip', ['-Z1', zipPath], { encoding: 'utf8' }).trim().split('\n'), [1, 2, 3].map((n) => `e2e-three-pages-p${n}.png`), 'the ZIP holds the three pages in order');
+  } finally {
+    rmSync(zipPath, { force: true });
+  }
+});
+
+await step('36. images -> PDF from an album, in album order', async () => {
+  const ids = [];
+  const vanities = [];
+  for (const [width, height] of [[200, 150], [120, 160]]) {
+    const created = await uploadFile(OWNER, { bytes: noisePng(width, height), filename: `e2e-page-${width}.png`, type: 'image/png' });
+    equal(created.status, 200, `upload a ${width}x${height} PNG`);
+    equal((await waitScanned(created.data, OWNER, `step 36 ${width}x${height} PNG`)).safety.state, 'ok', 'scanned: ok');
+    ids.push(created.data.id);
+    vanities.push(created.data.vanity);
+  }
+  const album = await OWNER.call('/users/@me/albums', { method: 'POST', json: { title: 'e2e scans', file_ids: ids } });
+  equal(album.status, 201, 'an album of the two images');
+  const conversion = succeeded((await convert(OWNER, { album: album.data.vanity, target: 'pdf' }, 'album images -> PDF')).conversion, 'images -> pdf');
+  equal([conversion.source.kind, conversion.source.count, conversion.source.album && conversion.source.album.vanity, conversion.skipped],
+    ['images', 2, album.data.vanity, []], 'source: the album\'s two images, nothing skipped');
+  equal([conversion.output.file.filename, conversion.output.file.mimetype], ['e2e scans.pdf', 'application/pdf'], 'named after the album');
+  const { bytes } = await ownerBytes(OWNER, conversion.output.file, 'step 36 PDF');
+  equal(bytes.subarray(0, 5).toString('latin1'), '%PDF-', 'a PDF');
+  equal((await waitProcessedAs(OWNER, conversion.output.file, 'step 36 PDF probe')).media.pages, 2, 'two pages');
+  m5.images = vanities;
+});
+
+await step('37. batch: one conversion per file with a batch_id, unsupported kinds skipped, items past the concurrent limit held until polled', async () => {
+  const anonymous = await anonymousConverter();
+  const refused = await anonymous.call('/conversions/batch', { method: 'POST', json: { files: m5.images, target: 'webp', turnstile_token: TURNSTILE_TOKEN } });
+  equal([refused.status, refused.data.code, refused.data.sign_in], [403, 'CONVERSION_REQUIRES_ACCOUNT', true], 'anonymous batch: 403 CONVERSION_REQUIRES_ACCOUNT');
+
+  const files = [...m5.images];
+  for (const size of [64, 96]) {
+    const created = await uploadFile(OWNER, { bytes: noisePng(size, size), filename: `e2e-batch-${size}.png`, type: 'image/png' });
+    await waitScanned(created.data, OWNER, `step 37 ${size}px PNG`);
+    files.push(created.data.vanity);
+  }
+  // a video (step 9's, or step 29's when only these steps run) has no webp target
+  const video = (media.mp4 || m5.video).vanity;
+  const started = Date.now();
+  const batch = await OWNER.call('/conversions/batch', { method: 'POST', json: { files: [...files, video], target: 'webp', options: { quality: 70 } } });
+  equal(batch.status, 202, 'POST /api/conversions/batch: 202');
+  const { batch_id: batchId, items, skipped } = batch.data;
+  equal(items.length, 4, 'four conversions (signed-in concurrent limit: 3)');
+  check(items.every((item) => item.batch_id === batchId && item.target === 'webp'), 'sharing the batch_id', items.map((item) => item.batch_id));
+  equal(skipped, [{ source: video, code: 'UNSUPPORTED_CONVERSION' }], 'the video is skipped: UNSUPPORTED_CONVERSION');
+
+  const done = await poll('the batch to finish', async () => {
+    const list = await OWNER.call(`/conversions?batch=${batchId}`);
+    return { done: list.data.items.length === 4 && list.data.items.every((item) => FINISHED.includes(item.status)), state: list.data.items.map((item) => item.status), list: list.data };
+  }, { timeoutMs: 180_000, intervalMs: 1000 });
+  note(`batch of 4 finished in ${((Date.now() - started) / 1000).toFixed(1)}s: ${done.list.items.map((item) => `${item.took} ms`).join(', ')}`);
+  conversionTimes.push({ label: 'batch of 4 images -> webp', ms: Date.now() - started, took: Math.max(...done.list.items.map((item) => item.took)), status: 'succeeded', cached: false });
+  equal(done.list.items.map((item) => item.status), ['succeeded', 'succeeded', 'succeeded', 'succeeded'], 'every item succeeded');
+  equal(done.list.items.map((item) => item.output.file.mimetype), Array(4).fill('image/webp'), 'four WebP files');
+  equal(done.list.batch_id, batchId, 'GET /conversions?batch=<id>');
+  // Held items go on the queue later than they were created (a batch's first 3 go on it in the same transaction).
+  equal(psql(`SELECT count(*) FROM conversions WHERE batch_id = ${BigInt(batchId)} AND queued_at > created_at`), '1', 'one item was held for a free slot and released when polled (psql)');
+});
+
+await step('38. cancel: DELETE a running conversion cancels it, no output is stored, and DELETE again hides it', async () => {
+  const video = ffmpeg(['-f', 'lavfi', '-i', 'testsrc2=size=640x360:rate=25:duration=30', '-c:v', 'libx264', '-preset', 'ultrafast', '-pix_fmt', 'yuv420p',
+    '-metadata', `comment=${tag()}`, '-movflags', 'frag_keyframe+empty_moov', '-f', 'mp4']);
+  const created = await uploadFile(OWNER, { bytes: video, filename: 'e2e-long.mp4', type: 'video/mp4' });
+  equal(created.status, 200, 'upload a 30 s video');
+  await waitProcessedAs(OWNER, created.data, 'step 38 30 s video');
+  const posted = await OWNER.call('/conversions', { method: 'POST', json: { source: created.data.vanity, target: 'webm' } });
+  equal([posted.status, ['queued', 'running'].includes(posted.data.status)], [202, true], 'a VP9 encode of 30 s: 202, still queued or running');
+  const id = posted.data.id;
+  const running = await poll('the conversion to start', async () => {
+    const response = await OWNER.call(`/conversions/${id}`);
+    return { done: response.data.status === 'running' && response.data.stage === 'converting', state: response.data };
+  }, { timeoutMs: 60_000, intervalMs: 250 });
+  note(`running (stage ${running.state.stage}, progress ${running.state.progress}) ${(running.waited / 1000).toFixed(1)}s after the POST`);
+  const cancelled = await OWNER.call(`/conversions/${id}`, { method: 'DELETE' });
+  equal([cancelled.status, cancelled.data.status, cancelled.data.stage, cancelled.data.output.file], [200, 'cancelled', null, null], 'DELETE /api/conversions/<id>: 200 cancelled');
+  // The horse is stopped (rq's stop command): it never stores an output, and the row stays cancelled.
+  await new Promise((resolve) => setTimeout(resolve, 5000));
+  const after = await OWNER.call(`/conversions/${id}`);
+  equal([after.data.status, after.data.output.file], ['cancelled', null], 'still cancelled 5 s later, no output');
+  equal(psql(`SELECT count(*) FROM files WHERE conversion_id = ${BigInt(id)}`), '0', 'no output file was stored (psql)');
+  equal(psql(`SELECT failure_reason FROM conversions WHERE id = ${BigInt(id)}`), 'cancelled', 'failure_reason cancelled (psql)');
+  conversionTimes.push({ label: 'video -> webm, cancelled while running', ms: after.data.took, took: after.data.took, status: 'cancelled', cached: false });
+  // The worker is free again: a quick conversion goes through.
+  succeeded((await convert(OWNER, { source: m5.images[0], target: 'gif' }, 'image -> gif after the cancel')).conversion, 'after cancel');
+  // DELETE on a finished conversion hides it from the history (204), the output untouched.
+  equal((await OWNER.call(`/conversions/${id}`, { method: 'DELETE' })).status, 204, 'DELETE again (finished): 204');
+  equal([(await OWNER.call(`/conversions/${id}`)).status], [404], 'then GET is 404');
+  const history = await OWNER.call('/users/@me/conversions?limit=100');
+  check(history.status === 200 && !history.data.items.some((item) => item.id === id), 'and it left GET /users/@me/conversions', history.data.items.map((item) => item.id));
+});
+
+await step('39. moderation cascade: staff remove a source, and its conversion output is removed too', async () => {
+  // Fresh accounts: a removal is a strike, which mustn't pile up on the shared users over runs.
+  const owner = makeUser('src');
+  const converter = makeUser('conv');
+  const asOwner = new Caller('source owner', { cookie: owner.session.value });
+  const asConverter = new Caller('converter', { cookie: converter.session.value });
+  const created = await uploadFile(asOwner, { bytes: noisePng(160, 120), filename: 'e2e-cascade-source.png', type: 'image/png' });
+  equal(created.status, 200, 'someone uploads an image');
+  const source = created.data;
+  equal((await waitScanned(source, asOwner, 'step 39 source')).safety.state, 'ok', 'scanned: ok');
+  const conversion = succeeded((await convert(asConverter, { source: source.vanity, target: 'webp' }, 'someone else\'s image -> webp')).conversion, 'cascade conversion');
+  const output = conversion.output.file;
+  equal(conversion.source.file && conversion.source.file.vanity, source.vanity, 'source.file is the public payload');
+  equal((await waitScanned(output, asConverter, 'step 39 output')).safety.state, 'ok', 'the output is scanned: ok');
+  equal((await page(vanityPath(output))).status, 200, 'the output is served');
+
+  const removed = await OWNER.call('/admin/actions', { method: 'POST', json: {
+    action: 'remove', target: { type: 'file', id: source.id }, rule: 'spam', note: 'e2e: cascade', message: 'e2e: removed',
+  } });
+  equal(removed.status, 200, 'staff: POST /admin/actions remove the source');
+  const gone = await poll('the output to be removed by the cascade', async () => {
+    const shell = await page(vanityPath(output));
+    return { done: shell.status === 410, state: shell.status, shell };
+  }, { timeoutMs: 60_000 });
+  note(`the output's page was 410 ${(gone.waited / 1000).toFixed(1)}s after the removal (cascade job + lookup cache)`);
+  equal(parseShell(gone.shell.text).state, 'removed', 'the output page is the removed shell');
+  equal(psql(`SELECT moderation_state || ' ' || moderation_rule FROM files WHERE id = ${BigInt(output.id)}`), 'removed derived_from_removed', 'removed with derived_from_removed (psql)');
+  const cdn = await request(output.cdn_url, { method: 'HEAD' });
+  equal(cdn.status, 410, 'the CDN is 410 for the output');
+  equal((await api(`/files/${output.vanity}`)).data.code, 'FILE_REMOVED', 'GET /files/<vanity>: FILE_REMOVED');
+  const again = await asConverter.call('/conversions', { method: 'POST', json: { source: source.vanity, target: 'png' } });
+  equal([again.status, again.data.code], [404, 'SOURCE_UNAVAILABLE'], 'the removed source can\'t be converted again');
+  m5.removed = { output, url: `${MAIN}/${output.vanity}` };
+});
+
+await step('40. anonymous conversions: Turnstile, then 10 a day per guest and per IP', async () => {
+  const created = await uploadFile(OWNER, { bytes: noisePng(96, 72), filename: 'e2e-daily.png', type: 'image/png' });
+  equal((await waitScanned(created.data, OWNER, 'step 40 PNG')).safety.state, 'ok', 'scanned: ok');
+  const ip = clientIp();
+  const anonymous = await visitor(fromIp(ip));
+  const noToken = await anonymous.call('/conversions', { method: 'POST', json: { source: created.data.vanity, target: 'webp' } });
+  equal([noToken.status, noToken.data.code], [403, 'CAPTCHA_INVALID'], 'without a Turnstile token: 403 CAPTCHA_INVALID');
+  // (Cloudflare's always-pass testing secret accepts any token, so a wrong token can't be shown failing here; the API
+  // suite covers that with a mocked siteverify.)
+  const body = { source: created.data.vanity, target: 'webp', turnstile_token: TURNSTILE_TOKEN };
+  const first = succeeded((await convert(anonymous, body, 'anonymous image -> webp (1 of 10)')).conversion, 'first');
+  equal([first.queue, first.output.file.visibility], ['anonymous', 'link'], 'anonymous queue, a link output');
+  // the other nine are cache hits: each still counts (§4.1)
+  for (let n = 2; n <= 10; n++) {
+    const response = await anonymous.call('/conversions', { method: 'POST', json: body });
+    check(response.status === 200 && response.data.cached === true, `conversion ${n} of 10: 200, a cache hit`, response.text.slice(0, 300));
+  }
+  const eleventh = await anonymous.call('/conversions', { method: 'POST', json: body });
+  equal([eleventh.status, eleventh.data.code, eleventh.data.limit, eleventh.data.sign_in], [429, 'CONVERSION_LIMIT_REACHED', 'count', true], 'the 11th: 429 CONVERSION_LIMIT_REACHED { limit: count, sign_in }');
+  check(eleventh.data.retry_after > 0 && eleventh.data.retry_after <= 86400, 'retry_after runs to midnight UTC', eleventh.data.retry_after);
+  const sameIp = await (await visitor(fromIp(ip))).call('/conversions', { method: 'POST', json: body });
+  equal([sameIp.status, sameIp.data.limit], [429, 'count'], 'a new guest from the same IP is refused too (per IP)');
+  const elsewhere = await (await anonymousConverter()).call('/conversions', { method: 'POST', json: body });
+  equal([elsewhere.status, elsewhere.data.cached], [200, true], 'another visitor on another address still converts');
+  const history = await anonymous.call('/users/@me/conversions');
+  equal([history.status, history.data.items.length], [200, 10], 'the visitor\'s own conversions: GET /users/@me/conversions as the guest');
+});
+
+await step('41. a Redis rate limit refuses with 429 RATE_LIMITED and Retry-After (GET /conversions/<id>: 5 per second)', async () => {
+  const user = makeUser('rate');
+  const caller = new Caller('rate-limited', { cookie: user.session.value });
+  const unknown = '1000000000000000000';
+  const responses = await Promise.all(Array.from({ length: 15 }, () => caller.call(`/conversions/${unknown}`)));
+  const statuses = responses.map((response) => response.status);
+  note(`15 concurrent polls: ${statuses.filter((s) => s === 404).length} answered (404), ${statuses.filter((s) => s === 429).length} refused (429)`);
+  check(statuses.every((status) => status === 404 || status === 429), 'each is 404 UNKNOWN_CONVERSION or 429', statuses);
+  check(statuses.filter((status) => status === 404).length <= 5 * 2, 'at most 5 a second get through', statuses);
+  const refused = responses.find((response) => response.status === 429);
+  check(refused, 'some are refused', statuses);
+  equal([refused.data.code, typeof refused.data.retry_after], ['RATE_LIMITED', 'number'], '429 RATE_LIMITED { retry_after }');
+  const header = Number(refused.headers.get('retry-after'));
+  check(Number.isInteger(header) && header >= 1 && header <= 2, 'Retry-After: whole seconds, at least 1', refused.headers.get('retry-after'));
+  equal(responses.find((response) => response.status === 404).data.code, 'UNKNOWN_CONVERSION', 'the ones through are the plain 404');
+  await new Promise((resolve) => setTimeout(resolve, header * 1000 + 200));
+  equal((await caller.call(`/conversions/${unknown}`)).status, 404, 'after Retry-After the window has moved on');
+  const other = await AS_MEMBER.call(`/conversions/${unknown}`);
+  equal(other.status, 404, 'the limit is per caller: another user isn\'t affected');
+});
+
+await step('42. pages: home, changelog, Terms and Privacy signed out; /legal redirects; the removed page\'s Terms link resolves', async () => {
+  for (const [path, title] of [
+    ['/', 'files.gg: share any file with a link'],
+    ['/changelog', 'Changelog · files.gg'],
+    ['/legal/terms', 'Terms of Service · files.gg'],
+    ['/legal/privacy', 'Privacy Policy · files.gg'],
+  ]) {
+    const response = await page(path);
+    equal([response.status, response.headers.get('content-type')], [200, 'text/html; charset=utf-8'], `files.localhost${path}, signed out`);
+    equal((/<title>([^<]*)<\/title>/.exec(response.text) || [])[1], title, `${path}: <title>`);
+    check(/<script type="module"[^>]+src="\/assets\/app-[^"]+\.js"/.test(response.text) && response.text.includes('<div id="root"></div>'), `${path}: the app bundle's page`);
+    check(!response.headers.getSetCookie().length, `${path}: no cookie`);
+  }
+  const legal = await page('/legal');
+  equal([legal.status, legal.headers.get('location')], [302, '/legal/terms'], '/legal: 302 to /legal/terms');
+  const onCdn = await request(`${CDN}/changelog`, { headers: BROWSER });
+  check(!onCdn.text.includes('<title>Changelog'), 'the changelog is on files.localhost only (not on the CDN host)', onCdn.status);
+
+  // The removed-file page (step 39) links to Terms (TERMS_URL in the viewer): the link is in the viewer's code and
+  // resolves against files.localhost.
+  check(m5.removed, 'step 39 left a removed file');
+  const removed = await request(m5.removed.url, { headers: BROWSER });
+  equal([removed.status, parseShell(removed.text).state], [410, 'removed'], 'the removed page');
+  const scripts = [...removed.text.matchAll(/<(?:script type="module"[^>]*src|link rel="modulepreload"[^>]*href)="([^"]+\.js)"/g)].map((m) => m[1]);
+  let found = null;
+  for (const src of scripts) {
+    if ((await request(new URL(src, MAIN).href)).text.includes('/legal/terms')) {
+      found = src;
+      break;
+    }
+  }
+  check(found, 'the viewer code that renders the removed page links /legal/terms', scripts);
+  const terms = await request(new URL('/legal/terms', m5.removed.url).href, { headers: BROWSER });
+  equal([terms.status, (/<title>([^<]*)<\/title>/.exec(terms.text) || [])[1]], [200, 'Terms of Service · files.gg'], 'and the link resolves to the Terms page');
+});
+
+await step('43. upload keys: a single upload of exactly 100,000,000 bytes is accepted, one byte more is 413', async () => {
+  const created = await OWNER.call('/users/@me/upload-keys', { method: 'POST', json: { name: 'e2e 100 MB' } });
+  equal(created.status, 201, 'an upload key');
+  const sharexTool = tool(created.data.secret);
+  try {
+    equal((await limitsOf(OWNER)).rest.max_file_size_single, 100_000_000, 'max_file_size_single: 100,000,000');
+    const bytes = randomBytes(100_000_000);
+    const started = Date.now();
+    const ok = await uploadFile(sharexTool, { bytes, filename: 'e2e-100mb.bin' });
+    equal(ok.status, 200, `100,000,000 bytes through api.files.localhost with the key (${ok.text.slice(0, 200)})`);
+    equal(ok.data.size, 100_000_000, 'stored size');
+    note(`100,000,000 bytes uploaded in ${((Date.now() - started) / 1000).toFixed(1)}s`);
+    let over;
+    try {
+      over = await uploadFile(sharexTool, { bytes: Buffer.concat([bytes, Buffer.from([0x2a])]), filename: 'e2e-100mb-plus-one.bin' });
+    } catch (error) {
+      throw new Error(`the 100,000,001-byte upload didn't get an answer: ${error.cause || error}`);
+    }
+    equal([over.status, over.data && over.data.code, over.data && over.data.limit], [413, 'FILE_TOO_LARGE', 100_000_000], 'one byte more: 413 FILE_TOO_LARGE { limit: 100000000 }');
+    equal((await OWNER.call(`/users/@me/files/${ok.data.id}`, { method: 'DELETE' })).status, 204, '(the 100 MB file is deleted again)');
+  } finally {
+    await OWNER.call(`/users/@me/upload-keys/${created.data.key.id}`, { method: 'DELETE' });
+  }
+});
+
+
 const failed = results.filter((result) => !result.ok);
 const checks = results.reduce((sum, result) => sum + result.checks, 0);
 if (scanTimes.length) {
@@ -1970,6 +2578,12 @@ if (scanTimes.length) {
   const seconds = (ms) => (ms / 1000).toFixed(1) + 's';
   console.log(`\nScan times (upload, or upload completion, to safety.state leaving pending), ${scanTimes.length} files: ` +
     `min ${seconds(sorted[0])}, median ${seconds(sorted[Math.floor(sorted.length / 2)])}, max ${seconds(sorted[sorted.length - 1])}`);
+}
+if (conversionTimes.length) {
+  console.log(`\nConversion times (POST /conversions until GET /conversions/<id> says finished), ${conversionTimes.length} conversions:`);
+  for (const entry of conversionTimes) {
+    console.log(`  ${(entry.ms / 1000).toFixed(1).padStart(6)}s  ${entry.label}: ${entry.status}${entry.cached ? ', cache hit' : ''} (took ${entry.took} ms)`);
+  }
 }
 console.log(`\n${results.length - failed.length}/${results.length} steps passed, ${checks} checks` +
   (failed.length ? `; failed: ${failed.map((result) => result.name.split('.')[0]).join(', ')}` : ''));

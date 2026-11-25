@@ -8,7 +8,7 @@ is idempotent, so a retry finishes what failed:
 3. Preserve evidence: server-side copy `files/<hash_id>` to the evidence bucket at
    `csam/<case_id>/<hash_id>` with Object Lock (compliance) until now + EVIDENCE_RETENTION_DAYS,
    then `evidence_holds`; only after both, delete `files/<hash_id>` (all versions).
-4. Restrict the uploaders: owners suspended (rule csam, no notice, no appeal); fingerprints and IP
+4. Restrict the uploaders: owners suspended (rule csam, no notice, no appeal); guests and IP
    hashes banned without expiry; every other file and album of those owners hidden (rule csam).
 5. Open the case: `hash`, P0, child safety, the vendor references in an action's details.
 6. Record: `csam_match`, `block`, `preserve_evidence`, `suspend_user` and `ban` rows, on the case.
@@ -135,17 +135,17 @@ def snapshot(conn, hash_id, source, outcome):
     h = conn.execute('SELECT blake2b, sha1, md5, size FROM file_hashes WHERE id = %s', (hash_id,)).fetchone()
     files = []
     for row in conn.execute(
-            'SELECT f.id, f.vanity, f.filename, f.extension, f.mimetype_id, f.visibility, f.user_id, f.fingerprint, '
+            'SELECT f.id, f.vanity, f.filename, f.extension, f.mimetype_id, f.visibility, f.user_id, f.guest_id, '
             'f.uploader_abuse_ip_hash, f.uploader_ip_sealed, f.view_count, u.email, u.username '
             'FROM files f LEFT JOIN users u ON u.id = f.user_id WHERE f.hash_id = %s ORDER BY f.id',
             (hash_id,)).fetchall():
-        (file_id, vanity, filename, extension, mimetype, visibility, user_id, fingerprint, ip_hash, sealed, views,
+        (file_id, vanity, filename, extension, mimetype, visibility, user_id, guest_id, ip_hash, sealed, views,
          email, username) = row
         files.append({
             'id': str(file_id), 'vanity': vanity, 'filename': filename + ('.' + extension if extension else ''),
             'mimetype': mimetype, 'uploaded_at': snowflake_seconds(file_id), 'visibility': visibility,
             'user_id': str(user_id) if user_id is not None else None,
-            'fingerprint': str(fingerprint) if fingerprint is not None else None,
+            'guest_id': str(guest_id) if guest_id is not None else None,
             'account': {'email': email, 'username': username, 'created_at': snowflake_seconds(user_id)}
             if user_id is not None else None,
             'abuse_ip_hash': ip_hash.hex() if ip_hash else None,
@@ -180,6 +180,10 @@ def block(conn, hash_id, source, outcome, actor):
                  'next_rescan_at = NULL WHERE id = %s', (json.dumps(document), hash_id))
     delete_assets_later(conn, hash_id)
     core.invalidate_collages(conn, core.albums_of_hash(conn, hash_id))
+    if not already:
+        # milestone-5 §5.4: conversion outputs of the hash's files are removed
+        from safety import cascade
+        cascade.queue(conn, 'remove', hash_id=hash_id)
     case_id = core.open_case(conn, 'hash', 0, hash_id, child_safety=True)
     # step 2: remember (PDQs of the frames that were matched)
     entry = conn.execute(
@@ -245,22 +249,22 @@ def delete_all_versions(client, bucket, key):
     client.delete_object(Bucket=bucket, Key=key)
 
 
-def restrict_uploaders(conn, hash_id, case_id, actor, fingerprints=(), user_ids=(), ip_hashes=()):
-    """Step 4 (and the records of step 6): suspend owners, ban fingerprints and IP hashes, hide
+def restrict_uploaders(conn, hash_id, case_id, actor, guest_ids=(), user_ids=(), ip_hashes=()):
+    """Step 4 (and the records of step 6): suspend owners, ban guests and IP hashes, hide
     the owners' other content. Also soft-deletes the hash's anonymous files (§2.5)."""
     from jobs.gc import after_delete
-    rows = conn.execute('SELECT id, user_id, fingerprint, uploader_abuse_ip_hash, deleted_at FROM files '
+    rows = conn.execute('SELECT id, user_id, guest_id, uploader_abuse_ip_hash, deleted_at FROM files '
                         'WHERE hash_id = %s', (hash_id,)).fetchall() if hash_id is not None else []
     users = set(user_ids) | {r[1] for r in rows if r[1] is not None}
-    prints = set(fingerprints) | {r[2] for r in rows if r[1] is None and r[2] is not None}
+    guests = set(guest_ids) | {r[2] for r in rows if r[1] is None and r[2] is not None}
     ips = set(ip_hashes) | {bytes(r[3]) for r in rows if r[3]}
     for user_id in sorted(users):
         active = [r for r in core.active_restrictions(conn, user_id) if r[1] == 'suspended' and r[2] == 'csam']
         if not active:
             core.restrict(conn, user_id, 'suspended', 'csam', actor=actor, case_id=case_id, notify_owner=False,
                           child_safety=True)
-    for fingerprint in sorted(prints):
-        core.ban(conn, actor, 'csam', fingerprint=fingerprint, source={'hash_id': str(hash_id)}, case_id=case_id,
+    for guest_id in sorted(guests):
+        core.ban(conn, actor, 'csam', guest_id=guest_id, source={'hash_id': str(hash_id)}, case_id=case_id,
                  child_safety=True)
     for ip_hash in sorted(ips):
         core.ban(conn, actor, 'csam', ip_hash=ip_hash, source={'hash_id': str(hash_id)}, case_id=case_id,
@@ -272,13 +276,15 @@ def restrict_uploaders(conn, hash_id, case_id, actor, fingerprints=(), user_ids=
                                'id = ANY(%s) AND deleted_at IS NULL RETURNING id, hash_id', (anonymous,)).fetchall()
         after_delete(conn, [r[0] for r in deleted], [r[1] for r in deleted])
     other = conn.execute(
-        "SELECT id FROM files WHERE (user_id = ANY(%s) OR (user_id IS NULL AND fingerprint = ANY(%s))) "
+        "SELECT id FROM files WHERE (user_id = ANY(%s) OR (user_id IS NULL AND guest_id = ANY(%s))) "
         "AND deleted_at IS NULL AND moderation_state = 'visible' AND hash_id IS DISTINCT FROM %s",
-        (sorted(users), sorted(prints), hash_id)).fetchall()
+        (sorted(users), sorted(guests), hash_id)).fetchall()
     core.set_file_state(conn, [r[0] for r in other], 'hidden', 'csam', auto=True)
+    from safety import cascade
+    cascade.queue(conn, 'hide', [r[0] for r in other])
     albums = conn.execute(
-        "SELECT id FROM albums WHERE (owner_user_id = ANY(%s) OR owner_fingerprint = ANY(%s)) AND deleted_at IS NULL "
-        "AND moderation_state = 'visible'", (sorted(users), sorted(prints))).fetchall()
+        "SELECT id FROM albums WHERE (owner_user_id = ANY(%s) OR owner_guest_id = ANY(%s)) AND deleted_at IS NULL "
+        "AND moderation_state = 'visible'", (sorted(users), sorted(guests))).fetchall()
     core.set_album_state(conn, [r[0] for r in albums], 'hidden', 'csam', auto=True)
     if other or albums:
         core.log_action(conn, actor, 'hide', rule='csam', case_id=case_id, child_safety=True,
@@ -309,7 +315,7 @@ def handle_match(hash_id, source, outcome=None, client=None, actor=core.SYSTEM, 
     return case_id
 
 
-def reupload(conn, entry_id, user_id=None, fingerprint=None, ip_hash=None, attempt=None):
+def reupload(conn, entry_id, user_id=None, guest_id=None, ip_hash=None, attempt=None):
     """§2.5 step 1 for a `csam` entry: the uploader steps of §3.6 (restriction, bans, a P0 case
     with the attempt's metadata). The bytes are already preserved; nothing is stored."""
     existing = conn.execute('SELECT h.id FROM blocked_hashes b JOIN file_hashes h ON h.blake2b = b.blake2b '
@@ -324,6 +330,6 @@ def reupload(conn, entry_id, user_id=None, fingerprint=None, ip_hash=None, attem
     core.log_action(conn, core.SYSTEM, 'csam_match', rule='csam', hash_id=hash_id, user_id=user_id, case_id=case_id,
                     child_safety=True, details={'reupload': True, 'blocked_hash_id': str(entry_id),
                                                 'attempt': attempt or {}})
-    restrict_uploaders(conn, None, case_id, core.SYSTEM, fingerprints=[fingerprint] if fingerprint else [],
+    restrict_uploaders(conn, None, case_id, core.SYSTEM, guest_ids=[guest_id] if guest_id else [],
                        user_ids=[user_id] if user_id else [], ip_hashes=[ip_hash] if ip_hash else [])
     return case_id

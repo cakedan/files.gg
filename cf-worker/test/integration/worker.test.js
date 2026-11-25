@@ -126,22 +126,64 @@ describe('static files from web/dist (routed before any vanity lookup)', () => {
 
 
 describe('viewer shell states', () => {
-  it('/ is home: no state, no data, the default meta tags', async () => {
-    const response = await page('/');
-    assert.equal(response.status, 200);
-    assertShellHeaders(response);
-    const shell = parseShell(response.text);
-    assert.equal(shell.page, 'home');
-    assert.equal(shell.state, undefined);
-    assert.equal(shell.dataId, undefined);
-    assert.equal(shell.meta, DEFAULT_META);
-    assert.equal(lookups('files', ''), 0);
+  it('/ (the home page), /convert, /changelog, /legal/terms and /legal/privacy: app.html with their own title and description, no lookup (milestone-5.md §11, §19.1)', async () => {
+    const pages = {
+      '/': 'files.gg: share any file with a link',
+      '/convert': 'Convert · files.gg',
+      '/changelog': 'Changelog · files.gg',
+      '/legal/terms': 'Terms of Service · files.gg',
+      '/legal/privacy': 'Privacy Policy · files.gg',
+      '/legal/privacy/': 'Privacy Policy · files.gg',
+    };
+    const app = await page('/app');
+    const before = upstream.requests.length;
+    for (const [path, title] of Object.entries(pages)) {
+      const response = await page(path);
+      assert.equal(response.status, 200, path);
+      assert.equal(response.headers['content-type'], 'text/html; charset=utf-8');
+      assert.equal(response.headers['cache-control'], 'no-cache');
+      assert.equal(response.headers['x-frame-options'], 'DENY');
+      // The dashboard entry's scripts, its own head.
+      assert.equal(response.text.match(/<script[^>]*src="[^"]+"/g).join(), app.text.match(/<script[^>]*src="[^"]+"/g).join(), path);
+      assert.doesNotMatch(response.text, /data-page=/, path);
+      assert.match(response.text, new RegExp(`<title>${title}</title>`), path);
+      assert.equal((response.text.match(/<title>/g) || []).length, 1, path);
+      assert.equal((response.text.match(/property="og:title"/g) || []).length, 1, path);
+      assert.match(response.text, new RegExp(`<meta property="og:title" content="${title}">`), path);
+      assert.match(response.text, /<meta name="description" content="[^"]+">/, path);
+      assert.doesNotMatch(response.text, /noindex/, path);
+    }
+    assert.equal(upstream.requests.length, before, 'no API call');
+    // The dashboard itself keeps its own head.
+    assert.match(app.text, /<title>Dashboard · files.gg<\/title>/);
+    assert.match(app.text, /noindex/);
+    // Also on www.
+    assert.match((await worker.request('https://www.files.gg/legal/terms', { headers: browser })).text, /<title>Terms of Service · files.gg<\/title>/);
   });
 
-  it('/convert', async () => {
-    const response = await page('/convert');
-    assert.equal(response.status, 200);
-    assert.deepEqual([parseShell(response.text).page, parseShell(response.text).state], ['convert', undefined]);
+  it('/legal: a 302 to the Terms, query kept; other /legal and /changelog paths are missing without a lookup', async () => {
+    for (const [path, location] of [['/legal', '/legal/terms'], ['/legal/', '/legal/terms'], ['/legal?x=1', '/legal/terms?x=1']]) {
+      const response = await page(path);
+      assert.equal(response.status, 302, path);
+      assert.equal(new URL(response.headers.location, 'https://files.gg').pathname + new URL(response.headers.location, 'https://files.gg').search, location, path);
+    }
+    const before = upstream.requests.length;
+    for (const path of ['/legal/cookies', '/changelog/2026-11-25', '/x/legal']) {
+      const response = await page(path);
+      assert.equal(response.status, 404, path);
+      assert.equal(parseShell(response.text).state, 'missing', path);
+    }
+    assert.equal(upstream.requests.length, before, 'no lookup');
+  });
+
+  it('the changelog and legal pages are never served on cdn.files.gg or api.files.gg', async () => {
+    for (const path of ['/changelog', '/legal', '/legal/terms', '/legal/privacy']) {
+      const cdn = await worker.request('https://cdn.files.gg' + path, { headers: browser });
+      assert.equal(cdn.status, 404, path);
+      assert.doesNotMatch(cdn.text, /id="root"/, path);
+      const api = await worker.request('https://api.files.gg' + path, { headers: browser });
+      assert.doesNotMatch(api.text, /id="root"|<title>/, path);
+    }
   });
 
   it('a link file: file state, the payload, and its own meta tags', async () => {
@@ -448,10 +490,10 @@ describe('bots and embeds (PLAN.md §1.4 item 3, contract §4)', () => {
 
 
 describe('the old frontend is gone (milestone-3.md §0)', () => {
-  it('/auth, /dashboard, /details, /legal and /options are plain vanity lookups now', async () => {
+  it('/auth, /dashboard, /details and /options are plain vanity lookups now', async () => {
     // `/auth/login` and `/dashboard/files` contain reserved segments (milestone-6.md §6.3), so they
-    // are missing without a lookup.
-    for (const path of ['/auth/session', '/auth/verify/tok', '/dashboard', '/dashboard/uploads', '/details/123', '/legal/terms', '/options', '/auth/login', '/dashboard/files']) {
+    // are missing without a lookup. (`/legal` is the Terms again, milestone-5.md §19.1.)
+    for (const path of ['/auth/session', '/auth/verify/tok', '/dashboard', '/dashboard/uploads', '/details/123', '/options', '/auth/login', '/dashboard/files']) {
       const response = await page(path);
       assert.equal(response.status, 404, path);
       assertShellHeaders(response);

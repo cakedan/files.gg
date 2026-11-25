@@ -2,10 +2,10 @@
  * Milestone 6 account calls (docs/redesign/contracts/milestone-6.md §2–§10): signing in,
  * settings, upload keys, domains and data export. Dashboard only, so the viewer's bundles
  * never carry them. Every call is same-origin through lib/api's `request`, which adds
- * the CSRF header on writes and the anonymous fingerprint while signed out (claiming, §4.2).
+ * the CSRF header on writes and the guest token while signed out (claiming, §4.2).
  */
 
-import { request, type Identity, type User, type ViewLimitAction } from './api';
+import { request, type Identity, type UploadDefaults, type User, type ViewLimitAction } from './api';
 import type { UsernameReason } from './usernames';
 
 /** Sign-in responses (§3.2): the cookie is set by the response; the body never has the token. */
@@ -193,7 +193,7 @@ export const accountApi = {
     request<SignInResponse>('/auth/discord/signup', { method: 'POST', body }),
 
   // Profile (§8.1)
-  updateMe: (body: { display_name?: string | null; settings?: { show_name_on_albums?: boolean } }) =>
+  updateMe: (body: { display_name?: string | null; settings?: { show_name_on_albums?: boolean; upload_defaults?: Partial<UploadDefaults> } }) =>
     request<User>('/users/@me', { method: 'PATCH', body }),
   setUsername: (username: string) => request<User>('/users/@me/username', { method: 'PUT', body: { username } }),
   checkUsername: (username: string, signal?: AbortSignal) =>

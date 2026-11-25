@@ -3,10 +3,11 @@
 Jobs: a no-op `ping`, `finalize_upload` (jobs/finalize.py), and (Milestone 3) `probe`,
 `derive` and `album_collage` on the `media` queue (jobs/media.py) and `delete_blob`
 (jobs/gc.py). Scheduled: the snowflake_nodes lease cleanup, the file_view_seen cleanup,
-(Milestone 2) the expiry reaper, the abandoned-upload reaper and the unlock_attempts
-cleanup, (Milestone 3) the album reaper, and (Milestone 4) `scan`, `rescan`, `pdq_sweep`,
-`album_text_scan` and `delete_objects` (safety/scan.py) with their scheduled tasks (safety/tasks.py), and
-(Milestone 6) `domain_delete` and `account_export` with the account tasks (jobs/accounts.py).
+(Milestone 2) the expiry reaper and the abandoned-upload reaper, (Milestone 3) the album reaper,
+and (Milestone 4) `scan`, `rescan`, `pdq_sweep`, `album_text_scan` and `delete_objects` (safety/scan.py)
+with their scheduled tasks (safety/tasks.py), (Milestone 6) `domain_delete` and `account_export` with the
+account tasks (jobs/accounts.py), and (Milestone 5) `moderation_cascade` (safety/cascade.py) with `convert_sweep`
+(every minute: conversions and document previews on RQ, decision 17) and `conversion_cleanup` (hourly).
 """
 
 import logging
@@ -18,6 +19,7 @@ import jobs.gc  # noqa: F401  registers delete_blob
 import jobs.media  # noqa: F401  registers probe, derive, album_collage
 import safety.scan  # noqa: F401  registers scan, rescan, pdq_sweep, album_text_scan, delete_objects
 import jobs.accounts as account_jobs  # registers domain_delete, account_export (Milestone 6)
+import safety.cascade  # noqa: F401  registers moderation_cascade (Milestone 5)
 from safety import tasks as safety_tasks
 from jobs.queue import register
 from utils import snowflake_nodes, storage as storage_module
@@ -31,7 +33,6 @@ VIEW_SEEN_CLEANUP_INTERVAL = 60 * 60
 VIEW_SEEN_KEEP_DAYS = 2
 EXPIRY_REAPER_INTERVAL = 10 * 60
 UPLOAD_REAPER_INTERVAL = 10 * 60
-UNLOCK_ATTEMPTS_CLEANUP_INTERVAL = 60 * 60
 ALBUM_REAPER_INTERVAL = 10 * 60
 # albums with no live items are soft-deleted after this long (contract §6 "Reaper")
 EMPTY_ALBUM_DAYS = 7
@@ -39,6 +40,9 @@ REAPER_BATCH = 1000
 # uploader IP hashes are only needed for the rolling 24 h anonymous cap
 UPLOADER_IP_KEEP_SECONDS = 2 * 24 * 3600
 JOBS_PURGE_INTERVAL = 60 * 60
+# milestone-5 §3.3: the sweeper runs every minute; usage rows and expired upload IP hashes go hourly (§2.5)
+CONVERT_SWEEP_INTERVAL = 60
+CONVERSION_CLEANUP_INTERVAL = 60 * 60
 # done jobs are kept this long (failed ones stay for inspection)
 DONE_JOBS_KEEP_DAYS = 7
 
@@ -70,11 +74,6 @@ def register_scheduled(scheduler):
     def upload_reaper():
         log.info('upload reaper removed %d expired upload session(s)', reap_uploads(conn))
 
-    @scheduler.register('unlock_attempts_cleanup', UNLOCK_ATTEMPTS_CLEANUP_INTERVAL)
-    def unlock_attempts_cleanup():
-        deleted = conn.execute("DELETE FROM unlock_attempts WHERE window_start < now() - interval '1 hour'").rowcount
-        log.info('unlock_attempts cleanup removed %d row(s)', deleted)
-
     @scheduler.register('jobs_purge', JOBS_PURGE_INTERVAL)
     def jobs_purge():
         log.info('jobs purge removed %d done job(s)', purge_done_jobs(conn))
@@ -83,6 +82,17 @@ def register_scheduled(scheduler):
     def album_reaper():
         expired, emptied = reap_albums(conn)
         log.info('album reaper soft-deleted %d expired and %d empty album(s)', expired, emptied)
+
+    @scheduler.register('convert_sweep', CONVERT_SWEEP_INTERVAL)
+    def convert_sweep():
+        from utils import conversions
+        log.info('convert sweep: %r', conversions.sweep(conn))
+
+    @scheduler.register('conversion_cleanup', CONVERSION_CLEANUP_INTERVAL)
+    def conversion_cleanup():
+        from utils import conversions
+        usage, scrubbed = conversions.cleanup(conn)
+        log.info('conversion cleanup removed %d usage row(s), cleared %d upload IP hash list(s)', usage, scrubbed)
 
     safety_tasks.register(scheduler)
     account_jobs.register_scheduled(scheduler)

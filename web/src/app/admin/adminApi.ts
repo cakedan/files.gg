@@ -111,7 +111,7 @@ export interface AuditEntry {
 export interface TargetOwner {
   user_id: string | null;
   username: string | null;
-  fingerprint: string | null;
+  guest_id: string | null;
   account_created_at: number | null;
   anonymous: boolean;
 }
@@ -260,6 +260,13 @@ export interface CaseDetail extends Omit<CaseSummary, 'flags'> {
 }
 
 /** `GET /admin/summary`. */
+/** milestone-5 §3.3: the RQ conversion queues and the job counters (`filesgg:metrics:jobs`). */
+export interface ConversionHealth {
+  queues: Record<string, { length: number; oldest_seconds: number | null }>;
+  /** `jobs:<queue>:<result>`, `failures:<queue>:<reason>`, `errors:<queue>:<code>`, timing buckets… */
+  jobs: Record<string, number | string>;
+}
+
 export interface AdminSummary {
   open: { p0: number; p1: number; p2: number; p3: number };
   unassigned: number;
@@ -271,6 +278,8 @@ export interface AdminSummary {
   /** Child-safety staff only. */
   cybertip_unrecorded: number;
   newest_p0_at: number | null;
+  /** null when Redis can't be read (milestone-5 §3.3). */
+  conversions?: ConversionHealth | null;
 }
 
 export interface CasesParams {
@@ -341,9 +350,9 @@ export interface ActionResult {
 
 export interface Ban {
   id: string;
-  kind: 'fingerprint' | 'ip';
-  /** Where the fingerprint or IP hash came from; never the value itself. */
-  source: { file_id?: string; report_id?: string; fingerprint?: string };
+  kind: 'guest' | 'ip';
+  /** Where the guest or IP hash came from; never the value itself. */
+  source: { file_id?: string; report_id?: string; guest_id?: string };
   rule: string;
   note?: string | null;
   created_at: number;
@@ -352,8 +361,8 @@ export interface Ban {
 }
 
 export interface BanBody {
-  kind: 'fingerprint' | 'ip';
-  from: { file_id: string } | { report_id: string } | { fingerprint: string };
+  kind: 'guest' | 'ip';
+  from: { file_id: string } | { report_id: string } | { guest_id: string };
   /** Seconds; moderators up to 30 days, none (permanent) is admin only. */
   duration?: number;
   rule: string;

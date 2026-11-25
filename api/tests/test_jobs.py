@@ -177,7 +177,9 @@ def test_only_the_known_kinds_are_registered_by_default():
                                             # §3.6, queued with every CSAM match (safety/csam.py)
                                             'csam_handle',
                                             # Milestone 6: Cloudflare hostnames and data exports (jobs/accounts.py)
-                                            'domain_delete', 'account_export'}
+                                            'domain_delete', 'account_export',
+                                            # Milestone 5: the moderation cascade (safety/cascade.py)
+                                            'moderation_cascade'}
 
 
 def test_queues_are_isolated(migrated_db):

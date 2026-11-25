@@ -36,6 +36,7 @@ from utils import accounts, auth as auth_module, errors, mail, params, passwords
 from utils.account_settings import account_settings
 from utils.email_domain import domain_accepts_mail
 from utils.generators import Snowflake
+from utils.ratelimit import ip_key, limiter
 from utils.responses import ApiResponse
 from utils.wrappers import route
 
@@ -103,13 +104,11 @@ async def change_username(request):
 @only_me
 async def check_username(request):
     """Signed out too, so the register form can check as you type: 60 an hour per IP (no Turnstile)."""
-    settings = account_settings()
     name, reason = usernames.check(request.get_args().get('username'))
     current = auth_module.auth_of(request)
     user_id = current.user.id if current.kind == 'session' else None
+    await limiter.hit(request, 'username_check', ip_key(request))
     async with db.connection() as conn:
-        ip, _ = accounts.ip_key(request)
-        await accounts.rate_limited(conn, 'username_check', ip, settings.rate('username_check'))
         if reason is None and not await accounts.username_available(conn, name, user_id):
             reason = 'taken'
     body = {'username': name, 'available': reason is None}

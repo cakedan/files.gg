@@ -18,7 +18,7 @@ from tests.conftest import (
 )
 from utils import credentials
 from utils.generators import Snowflake
-from utils.tokens import FingerprintToken
+from utils.tokens import GuestToken
 
 
 @pytest.fixture(scope='module')
@@ -139,8 +139,8 @@ def test_discord_off_without_its_credentials(client):
 
 def test_sign_up_with_a_verified_unused_email(client, appdb, discord):
     me = discord.user()
-    fingerprint_id = Snowflake.generate()
-    fingerprint = {'X-Fingerprint': FingerprintToken.generate(fingerprint_id)}
+    guest_id = Snowflake.generate()
+    guest = {'Authorization': 'Guest ' + GuestToken.generate(guest_id)}
     response = callback(client)
     body = response.json()
     assert body['status'] == 'signup_required' and 'set-cookie' not in response.headers
@@ -158,7 +158,7 @@ def test_sign_up_with_a_verified_unused_email(client, appdb, discord):
     assert revoke[2] == {'token': token_call[2]['code'].join(['discord-access-', '']), 'token_type_hint': 'access_token'}
     assert [c[1] for c in discord.calls][-1] == '/api/oauth2/token/revoke'
     # sign-up
-    response = signup(client, body, username=me['username'], headers=fingerprint, display_name=None)
+    response = signup(client, body, username=me['username'], headers=guest, display_name=None)
     assert response.status_code == 201, response.text
     user = response.json()['user']
     assert user['email'] == me['email'] and user['email_verified'] is True and user['has_password'] is False
@@ -309,9 +309,9 @@ def test_unlinking_and_the_last_login_method(client, appdb):
 def test_bans_refuse_discord_sign_up(client, appdb, discord):
     discord.user()
     body = callback(client).json()
-    fingerprint = Snowflake.generate()
-    appdb.execute("INSERT INTO bans (fingerprint, rule) VALUES (%s, 'spam')", (fingerprint,))
-    response = signup(client, body, headers={'X-Fingerprint': FingerprintToken.generate(fingerprint)})
+    guest = Snowflake.generate()
+    appdb.execute("INSERT INTO bans (guest_id, rule) VALUES (%s, 'spam')", (guest,))
+    response = signup(client, body, headers={'Authorization': 'Guest ' + GuestToken.generate(guest)})
     assert (response.status_code, response.json()['code']) == (403, 'BANNED')
     bad = signup(client, dict(body, signup_token=body['signup_token'][:-2] + 'xx'))
     assert bad.json()['code'] == 'INVALID_SIGNUP_TOKEN'

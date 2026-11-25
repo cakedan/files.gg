@@ -1,7 +1,7 @@
 """Reports, notices and badges (contract milestone-4 §7, §8):
 
     POST /reports                                   signed in
-    POST /reports/anonymous                         X-Fingerprint optional, turnstile_token required
+    POST /reports/anonymous                         Authorization: Guest optional, turnstile_token required
     GET  /users/@me/reports?status&query&offset&limit
     GET  /users/@me/reports/<id>
     GET  /users/@me/reports/<id>/messages           (marks it read)
@@ -25,13 +25,12 @@ from safety import moderation, reports as report_rules
 from safety.run import in_thread
 from utils import access_token, errors, params, standing
 from utils.email import Email
-from utils.auth import require_session
+from utils.auth import guest_of, require_session
 from utils.helpers import client_ip
 from utils.responses import ApiResponse
 from utils.turnstile import Turnstile
 from utils.wrappers import route
 
-import utils.parameters as parameters
 
 reports = Blueprint('reports', url_prefix='/reports')
 my_safety = Blueprint('my_safety', url_prefix='/users/<me:str>')
@@ -44,10 +43,10 @@ def body_of(request):
     return body if isinstance(body, dict) else {}
 
 
-def reporter_of(request, user=None, fingerprint=None):
+def reporter_of(request, user=None, guest_id=None):
     """Who is reporting, plus the claims of the album token they sent (X-Filesgg-Access), which an
     item of a protected album needs."""
-    return {'user_id': user.id if user else None, 'fingerprint': fingerprint if user is None else None,
+    return {'user_id': user.id if user else None, 'guest_id': guest_id if user is None else None,
             'ip_hash': report_rules.reporter_ip(client_ip(request)),
             'album_claims': access_token.decode(getattr(request.ctx, 'access_token', None),
                                                 request.app.ctx.access_secret)}
@@ -64,12 +63,10 @@ async def create_report(request):
 
 @route(reports, '/anonymous', ['POST'])
 async def create_anonymous_report(request):
-    raw = request.headers.get('x-fingerprint')
-    fingerprint = parameters.fingerprint(raw) if raw else None
     body = body_of(request)
     if not await Turnstile.verify(body.get('turnstile_token'), 'report', client_ip(request)):
         raise errors.captcha_invalid()
-    status, response = await in_thread(report_rules.submit, reporter_of(request, None, fingerprint), body)
+    status, response = await in_thread(report_rules.submit, reporter_of(request, None, guest_of(request)), body)
     return ApiResponse(response, status=status)
 
 

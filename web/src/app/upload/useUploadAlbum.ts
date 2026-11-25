@@ -1,7 +1,7 @@
 import { useQueryClient } from '@tanstack/react-query';
 import { useCallback, useEffect, useRef, useState } from 'react';
 
-import { api, ensureFingerprint, type AccessParams, type OwnerAlbum, type UploadParams, type Visibility } from '../../lib/api';
+import { api, ensureGuest, type AccessParams, type OwnerAlbum, type UploadParams, type Visibility } from '../../lib/api';
 import { queryKeys } from '../../lib/queries';
 import type { QueueItem } from './useUploadQueue';
 
@@ -89,7 +89,7 @@ export function useUploadAlbum(items: QueueItem[], anonymous: boolean) {
       let album = existing;
       try {
         if (!album) {
-          await ensureFingerprint();
+          await ensureGuest();
           album = await api.createAlbum({ ...(batch.title ? { title: batch.title } : {}), file_ids: fileIds });
         }
         let password: string | undefined;

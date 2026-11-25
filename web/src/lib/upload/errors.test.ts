@@ -9,8 +9,8 @@ const err = (status: number, code: string, details: Record<string, unknown> = {}
 
 describe('errorMessage', () => {
   it.each([
-    [err(413, 'FILE_TOO_LARGE', { limit: 26214400 }), 'This file is too large. The limit is 25 MB.'],
-    [err(413, 'STORAGE_LIMIT_REACHED', { limit: 10737418240, used: 10737418000 }), 'Your storage is full (10 GB of 10 GB used). Delete files to make room.'],
+    [err(413, 'FILE_TOO_LARGE', { limit: 25_000_000 }), 'This file is too large. The limit is 25 MB.'],
+    [err(413, 'STORAGE_LIMIT_REACHED', { limit: 10_000_000_000, used: 9_999_999_000 }), 'Your storage is full (10 GB of 10 GB used). Delete files to make room.'],
     [err(400, 'EXPIRY_NOT_ALLOWED', { max_expiry: 1814400 }), "That expiry isn't allowed. The longest is 21 days."],
     [err(403, 'CAPTCHA_INVALID'), "We couldn't confirm you're a person. Try again."],
     [err(429, 'TOO_MANY_ATTEMPTS', { retry_after: 120 }), 'Too many attempts. Try again in 2 minutes.'],

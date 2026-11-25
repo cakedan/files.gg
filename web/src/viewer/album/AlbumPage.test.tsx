@@ -52,7 +52,7 @@ describe('AlbumPage', () => {
   it('renders the header: title, count and size, linkified description, actions', () => {
     render(<AlbumPage album={album()} />);
     expect(screen.getByRole('heading', { name: 'Trip' })).toBeInTheDocument();
-    expect(screen.getByText('3 files · 2.9 KB')).toBeInTheDocument();
+    expect(screen.getByText('3 files · 3 KB')).toBeInTheDocument();
     const link = screen.getByRole('link', { name: 'https://example.com/notes' });
     expect(link).toHaveAttribute('rel', 'nofollow ugc noopener');
     expect(screen.getByRole('link', { name: /download all/i })).toHaveAttribute('href', 'https://cdn.files.gg/albums/download/v1.zip');

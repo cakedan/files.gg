@@ -1,28 +1,46 @@
-import { Download, ExternalLink } from 'lucide-react';
+import { Download, ExternalLink, Wand2 } from 'lucide-react';
 
 import { CopyButton } from '../../components/CopyButton';
+import { PRIVACY_PATH, TERMS_PATH } from '../../components/SiteFooter';
 import { LinkButton } from '../../components/Button';
+import { convertPath, documentLabel, sourceKindOf } from '../../lib/convertKinds';
 import { formatBytes, formatDimensions } from '../../lib/format';
 import { epochMs, epochMsOrNull, formatExpiry, formatFullDate, formatUploaded, RELATIVE_REFRESH_MS } from '../../lib/time';
 import { useNow } from '../../lib/useNow';
+import { hostContext, mainUrl } from '../host/context';
 import type { FileData } from '../types';
 import { downloadUrl, shareUrl } from '../urls';
 import { ReportButton } from './ReportButton';
 import { fileReportTarget } from './reportPath';
 import { viewsLeftLabel } from './viewLimitText';
 
+/**
+ * "Convert" (milestone-5 §13.2): a link to files.gg/convert?source=<vanity>, for any file
+ * of a kind that has targets. A view-limited file can only be converted by its owner, so
+ * a visitor who opened one doesn't get it. On a custom domain it opens files.gg in a new tab.
+ */
+function convertHref(file: FileData, vanity: string | null): string | null {
+  if (!vanity || file.view_limit || !sourceKindOf(file)) return null;
+  return mainUrl(convertPath(vanity));
+}
+
 export function FileFooter({ file }: { file: FileData }) {
   const now = useNow(RELATIVE_REFRESH_MS);
   const uploadedAt = file.uploaded_at > 0 ? epochMs(file.uploaded_at) : null;
   const expiresAt = epochMsOrNull(file.expires_at);
   const expiry = formatExpiry(expiresAt, now);
-  const pages = file.media?.pages;
+  const preview = file.assets?.document;
+  const pages = preview?.pages ?? file.media?.pages;
   const reportTarget = fileReportTarget(file);
+  const convert = convertHref(file, reportTarget?.type === 'file' ? reportTarget.vanity : null);
+  const custom = hostContext().custom;
   const details = [
+    // §9.2: a document shown as its preview PDF says so, with the original type.
+    preview ? `${documentLabel(file.mimetype) ?? 'Document'} · preview` : null,
     formatBytes(file.size),
     formatDimensions(file.width, file.height),
     pages ? `${pages} ${pages === 1 ? 'page' : 'pages'}` : null,
-    file.mimetype,
+    preview ? null : file.mimetype,
   ].filter(Boolean);
 
   return (
@@ -55,12 +73,33 @@ export function FileFooter({ file }: { file: FileData }) {
           <Download aria-hidden className="size-4" />
           Download
         </LinkButton>
+        {convert && (
+          <LinkButton href={convert} variant="ghost" {...(custom ? { target: '_blank', rel: 'noopener' } : {})}>
+            <Wand2 aria-hidden className="size-4" />
+            Convert
+          </LinkButton>
+        )}
         <LinkButton href={file.cdn_url} target="_blank" rel="noopener noreferrer" variant="ghost">
           <ExternalLink aria-hidden className="size-4" />
           Raw
         </LinkButton>
-        {reportTarget && <ReportButton target={reportTarget} />}
       </div>
+      {/* Milestone 5 §19.2: on files.gg and custom domains alike, these go to files.gg. */}
+      <nav aria-label="files.gg" className="mt-1 flex flex-wrap justify-center gap-x-1.5 text-xs text-muted">
+        <a href={mainUrl(TERMS_PATH)} className="hover:text-text hover:underline">
+          Terms
+        </a>
+        <span aria-hidden>·</span>
+        <a href={mainUrl(PRIVACY_PATH)} className="hover:text-text hover:underline">
+          Privacy
+        </a>
+        {reportTarget && (
+          <>
+            <span aria-hidden>·</span>
+            <ReportButton target={reportTarget} plain />
+          </>
+        )}
+      </nav>
     </footer>
   );
 }

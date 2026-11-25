@@ -11,7 +11,8 @@ Daily encrypted backups of files.gg's `postgres` into a [restic](https://restic.
   didn't change dedupe.
 - **Schedule** (`scheduler-ofelia`, from `backup-db`'s labels in `docker-compose.yml`): `backup all` at 02:00 every
   day, and `backup check` (rereads 5% of the stored data) at 05:00 every Sunday.
-- **Retention:** by default the last 14 days, plus one snapshot per week forever, applied after every run. To change
+- **Retention:** by default the last 14 days, plus one snapshot per week for a year (52), applied after every run.
+  The Privacy Policy states this period; change both together. To change
   it, set `DB_BACKUP_KEEP_DAILY`, `_WEEKLY`, `_MONTHLY` and `_YEARLY` in `.env` to a number, or to `unlimited` to keep
   that period forever (0 keeps none).
 - **Monitoring:** set `DB_BACKUP_HEALTHCHECK_URL` to a [healthchecks.io](https://healthchecks.io)-style check to be

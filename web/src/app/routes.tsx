@@ -1,9 +1,10 @@
-import type { RouteObject } from 'react-router';
+import { Navigate, type RouteObject } from 'react-router';
 
 import { AdminGate } from './AdminGate';
 import { AuthLayout } from './auth/AuthLayout';
 import { DiscordPage, ForgotPage, LoginPage, RegisterPage, ResetPage, VerifyPage } from './auth/lazy';
 import { DashboardLayout } from './DashboardLayout';
+import { ChangelogPage, PrivacyPage, TermsPage } from './legal/lazy';
 import {
   AlbumEditorPage,
   AlbumsPage,
@@ -14,14 +15,40 @@ import {
   NoticePage,
   NoticesPage,
   OverviewPage,
+  HomePage,
+  PublicConvertPage,
   ReportPage,
   ReportsPage,
   SettingsPage,
   UploadPage,
 } from './pages/lazy';
+import { PublicLayout } from './PublicLayout';
 
 /** The dashboard is served under /app/*; these paths are relative to that basename. */
 export const APP_BASENAME = '/app';
+
+/** `/app` and `/app/*` use the dashboard's router (`routes`); every other path the public one (`publicRoutes`). */
+export const isDashboardPath = (pathname: string) => pathname === APP_BASENAME || pathname.startsWith(`${APP_BASENAME}/`);
+
+/**
+ * The public pages this entry serves outside /app, without a basename (milestone-5 §19.1): the
+ * Worker sends exactly these paths here, and `/legal` to `/legal/terms` (302).
+ */
+export const publicRoutes: RouteObject[] = [
+  {
+    element: <PublicLayout />,
+    children: [
+      // The home page: what files.gg is, the upload box and what else it does.
+      { path: '/', element: <HomePage /> },
+      // Milestone 5 §13.1: the Convert page without the history.
+      { path: '/convert', element: <PublicConvertPage /> },
+      { path: '/changelog', element: <ChangelogPage /> },
+      { path: '/legal', element: <Navigate to="/legal/terms" replace /> },
+      { path: '/legal/terms', element: <TermsPage /> },
+      { path: '/legal/privacy', element: <PrivacyPage /> },
+    ],
+  },
+];
 
 export const routes: RouteObject[] = [
   {
@@ -47,7 +74,7 @@ export const routes: RouteObject[] = [
       { path: 'albums', element: <AlbumsPage /> },
       { path: 'albums/:id', element: <AlbumEditorPage /> },
       { path: 'integrations', element: <IntegrationsPage /> },
-      // Profile, Security, Domains and Data (milestone-6 §13.3), tabs in the URL.
+      // Profile, Uploads, Security, Domains and Data (milestone-6 §13.3, milestone-5 §21), tabs in the URL.
       { path: 'settings/*', element: <SettingsPage /> },
       { path: 'reports', element: <ReportsPage /> },
       { path: 'reports/:id', element: <ReportPage /> },

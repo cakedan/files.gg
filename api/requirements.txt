@@ -6,7 +6,7 @@ psycopg[binary]==3.3.9
 psycopg-pool==3.3.3
 pydantic==2.14.4
 httpx==0.28.1
-# FingerprintToken only (anonymous uploads); sessions and email links are opaque random tokens (milestone-6)
+# GuestToken only (anonymous uploads); sessions and email links are opaque random tokens (milestone-6)
 itsdangerous==2.2.0
 # MX lookups for sign-up email checks (utils/email_domain.py)
 dnspython==2.9.2
@@ -30,6 +30,12 @@ pillow-heif==1.9.0
 # base image) and sealed boxes for uploader IPs (libsodium, bundled in PyNaCl's abi3 wheels)
 python-magic==0.4.27
 PyNaCl==1.6.2
+# Milestone 5 (contract milestone-5 §3.1): conversions and document previews run on RQ + Redis, as notsobot.api's
+# jobs do (notsobot's pins). The API enqueues and reads queue positions; the converter services run `rq worker-pool`.
+# hiredis is redis-py's optional C parser; it ships cp314 and cp315 wheels for x86_64 and aarch64.
+rq==3.0.0
+redis==8.1.0
+hiredis==3.5.0
 
 # Transitive dependencies:
 aiofiles==25.1.0
@@ -44,6 +50,8 @@ attrs==26.1.0
 botocore==1.43.117
 certifi==2026.11.20
 cffi==2.1.1
+click==8.5.1
+croniter==7.0.0
 frozenlist==1.8.0
 h11==0.16.0
 html5tagger==2.0.0

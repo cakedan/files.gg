@@ -1,10 +1,12 @@
 import { Menu, X } from 'lucide-react';
 import { useQueryClient } from '@tanstack/react-query';
-import { Suspense, useCallback, useEffect, useRef, useState } from 'react';
+import { Suspense, useCallback, useEffect, useId, useRef, useState } from 'react';
 import { Navigate, NavLink, Outlet, useLocation, useNavigate } from 'react-router';
 
 import { Lockup } from '../components/Brand';
+import { SiteFooter } from '../components/SiteFooter';
 import { onAuthEvent, type Badges, type User } from '../lib/api';
+import { useChangelogUnread } from '../lib/changelog';
 import { useBadges } from '../lib/queries';
 import { loginPath, SESSION_QUERY_KEY, signedOut, useSession, useSessionSync } from '../lib/session';
 import { AccountBanner } from './account/AccountBanner';
@@ -13,7 +15,7 @@ import { NeedsUsernameDialog } from './account/NeedsUsernameDialog';
 import { PendingDeletionScreen } from './account/PendingDeletionScreen';
 import { Toaster } from './components/Toaster';
 import { useToast } from './components/toastContext';
-import { ADMIN_NAV_ITEM, NAV_ITEMS, SUSPENDED_PATHS, type NavItem } from './nav';
+import { ADMIN_NAV_ITEM, NAV_GROUPS, NAV_ITEMS, PRIMARY_NAV_PATH, SUSPENDED_PATHS, type NavItem } from './nav';
 import { NoticesBanner, SuspendedBanner } from './notices/NoticesBanner';
 import { CountBadge } from './safety/SafetyBadge';
 
@@ -31,31 +33,72 @@ function badgeFor(item: NavItem, badges: Badges | undefined) {
   return badges.staff ? <CountBadge count={badges.staff.open} urgent={badges.staff.p0 > 0} label={badges.staff.p0 > 0 ? 'open, with P0 cases' : 'open'} /> : null;
 }
 
+function SidebarLink({ item, nav, onNavigate }: { item: NavItem; nav: NavState; onNavigate?: () => void }) {
+  const { path, label, icon: Icon } = item;
+  return (
+    <NavLink
+      to={path}
+      end={path === '/'}
+      onClick={onNavigate}
+      className={({ isActive }) =>
+        `flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors ${
+          isActive ? 'bg-surface-2 text-text' : 'text-muted hover:bg-surface-2/60 hover:text-text'
+        }`
+      }
+    >
+      {({ isActive }) => (
+        <>
+          <Icon aria-hidden className={`size-4 shrink-0 ${isActive ? 'text-gg' : ''}`} />
+          <span className="truncate">{label}</span>
+          {badgeFor(item, nav.badges)}
+        </>
+      )}
+    </NavLink>
+  );
+}
+
+/** Upload, the sidebar's main action, as a full-width button above the sections. */
+function SidebarPrimary({ item, onNavigate }: { item: NavItem; onNavigate?: () => void }) {
+  const { path, label, icon: Icon } = item;
+  return (
+    <NavLink
+      to={path}
+      onClick={onNavigate}
+      className={({ isActive }) =>
+        `mb-2 flex items-center justify-center gap-2 rounded-md px-3 py-2 text-sm font-semibold text-gg-ink transition-colors ${
+          isActive ? 'bg-gg ring-2 ring-gg/40 ring-offset-2 ring-offset-surface' : 'bg-gg hover:bg-gg/90'
+        }`
+      }
+    >
+      <Icon aria-hidden className="size-4 shrink-0" />
+      <span>{label}</span>
+    </NavLink>
+  );
+}
+
 function SidebarNav({ nav, onNavigate }: { nav: NavState; onNavigate?: () => void }) {
+  const primary = nav.items.find((item) => item.path === PRIMARY_NAV_PATH);
+  const top = nav.items.filter((item) => !item.group && item !== primary);
+  // the sidebar is drawn twice (the desktop column and the mobile drawer), so heading ids are per instance
+  const uid = useId();
   return (
     <nav aria-label="Dashboard" className="flex flex-col gap-0.5 px-3">
-      {nav.items.map((item) => {
-        const { path, label, icon: Icon } = item;
+      {primary && <SidebarPrimary item={primary} onNavigate={onNavigate} />}
+      {top.map((item) => (
+        <SidebarLink key={item.path} item={item} nav={nav} onNavigate={onNavigate} />
+      ))}
+      {NAV_GROUPS.map((group) => {
+        const items = nav.items.filter((item) => item.group === group.id);
+        if (items.length === 0) return null;
         return (
-        <NavLink
-          key={path}
-          to={path}
-          end={path === '/'}
-          onClick={onNavigate}
-          className={({ isActive }) =>
-            `flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors ${
-              isActive ? 'bg-surface-2 text-text' : 'text-muted hover:bg-surface-2/60 hover:text-text'
-            }`
-          }
-        >
-          {({ isActive }) => (
-            <>
-              <Icon aria-hidden className={`size-4 shrink-0 ${isActive ? 'text-gg' : ''}`} />
-              <span className="truncate">{label}</span>
-              {badgeFor(item, nav.badges)}
-            </>
-          )}
-        </NavLink>
+          <section key={group.id} aria-labelledby={`${uid}-${group.id}`} className="mt-4 flex flex-col gap-0.5">
+            <h2 id={`${uid}-${group.id}`} className="px-3 pb-1 text-[11px] font-semibold tracking-wider text-muted/80 uppercase">
+              {group.label}
+            </h2>
+            {items.map((item) => (
+              <SidebarLink key={item.path} item={item} nav={nav} onNavigate={onNavigate} />
+            ))}
+          </section>
         );
       })}
     </nav>
@@ -73,9 +116,12 @@ function SidebarHeader() {
 }
 
 function SidebarFooter({ nav, onNavigate }: { nav: NavState; onNavigate?: () => void }) {
+  // milestone-5 §19.2: the site's links, with a dot on Changelog until this browser has seen the newest entry.
+  const changelogUnread = useChangelogUnread();
   return (
     <div className="mt-auto border-t border-line pt-3">
       <AccountMenu user={nav.user} pathname={nav.pathname} onNavigate={onNavigate} />
+      <SiteFooter changelogDot={changelogUnread} className="px-3 pt-3" />
     </div>
   );
 }

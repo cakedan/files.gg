@@ -24,7 +24,18 @@ export interface FileAsset {
   height?: number | undefined;
 }
 
-export type FileAssets = Partial<Record<PreviewKind, FileAsset>>;
+/**
+ * Milestone 5 §9.2: an Office or OpenDocument file's preview, a PDF made by LibreOffice
+ * (`/previews/document/<vanity>.pdf?v=…`, signed like the other previews).
+ */
+export interface DocumentPreview {
+  url: string;
+  /** Bytes. */
+  size?: number | undefined;
+  pages?: number | undefined;
+}
+
+export type FileAssets = Partial<Record<PreviewKind, FileAsset>> & { document?: DocumentPreview | undefined };
 
 /** Audio tags from `probe`. */
 export interface MediaTags {
@@ -194,7 +205,6 @@ export type ReportPageTarget =
   | { type: 'domain'; hostname: string };
 
 export type BootState =
-  | { page: 'home' }
   /** Milestone 6 §10.8: a custom domain's `/` (`data-page="domain-home"`). */
   | { page: 'domain-home' }
   | { page: 'pending'; target: StateTarget }
@@ -203,7 +213,6 @@ export type BootState =
   | { page: 'locked'; target: LockedTarget }
   /** Milestone 6 §19.5: a view-limited file (`data-state="limited"`). */
   | { page: 'limited'; target: LimitedTarget }
-  | { page: 'convert' }
   | { page: 'unavailable' }
   | { page: 'missing' }
   | { page: 'file'; file: FileData }

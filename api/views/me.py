@@ -57,7 +57,7 @@ async def fetch_me(request, user):
 @route(me, '/limits', ['GET'])
 @only_me
 async def fetch_me_limits(request):
-    """Signed in: the user's limits and storage use. Anonymous (X-Fingerprint): the anonymous limits, with
+    """Signed in: the user's limits and storage use. A guest (`Authorization: Guest`): the anonymous limits, with
     `storage.limit` null (their files expire). Milestone 6 (§9.2) adds premium, the configured single-request
     limit, and the custom domain and upload key counts."""
     from utils.auth import auth_of
@@ -66,11 +66,9 @@ async def fetch_me_limits(request):
         raise errors.unauthorized()
     user = current.user if current.kind == 'session' else None
     async with db.connection() as conn:
-        fingerprint = parameters.fingerprint(request.headers.get('x-fingerprint')) \
-            if request.headers.get('x-fingerprint') else None
-        if user is None and fingerprint is None:
+        if user is None and current.guest_id is None:
             raise errors.unauthorized()
-        owner = uploading.Owner(user, fingerprint, helpers.client_ip(request), request.app.ctx.view_hash_secret)
+        owner = uploading.Owner(user, current.guest_id, helpers.client_ip(request), request.app.ctx.view_hash_secret)
         used = await owner.usage(conn)
         domains_used = keys_used = 0
         if user is not None:
@@ -676,12 +674,12 @@ async def create_album(request, args):
     async with db.connection() as conn:
         caller = await caller_of(conn, request)
         # milestone-4 §9.3: bans and upload restrictions also stop album creation
-        await standing.check_uploader(conn, caller.user, caller.fingerprint, abuse_ip.abuse_ip_hash(
+        await standing.check_uploader(conn, caller.user, caller.guest_id, abuse_ip.abuse_ip_hash(
             helpers.client_ip(request), safety_settings().abuse_hash_secret))
         limits = caller.limits
         expires_at = None
         if caller.anonymous:
-            # only right after an upload batch: <= 50 files, all this fingerprint's, from the last hour
+            # only right after an upload batch: <= 50 files, all this guest's, from the last hour
             if not file_ids or len(file_ids) > limits.album_max_files:
                 raise errors.anonymous_album_not_allowed()
             files = await _owner_files(conn, caller, file_ids)
@@ -705,7 +703,7 @@ async def create_album(request, args):
                 vanity = generate_id(album_rules.ALBUM_VANITY_LENGTH)
                 album = await album_queries.create_album(
                     conn, id=Snowflake.generate(), vanity=vanity,
-                    owner_user_id=caller.user.id if caller.user else None, owner_fingerprint=caller.fingerprint,
+                    owner_user_id=caller.user.id if caller.user else None, owner_guest_id=caller.guest_id,
                     title=args.title, description=args.description, layout=args.layout or 'auto',
                     cover_file_id=args.cover_file_id, expires_at=expires_at)
                 if album is not None:

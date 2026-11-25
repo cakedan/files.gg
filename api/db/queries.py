@@ -240,7 +240,7 @@ async def create_file_hash(conn, id, blake2b, md5, sha1, size):
     return await get_file_hash(conn, blake2b, md5, sha1), False
 
 
-async def create_file(conn, id, vanity, mimetype_id, extension, filename, fhash, user, fingerprint, size=None,
+async def create_file(conn, id, vanity, mimetype_id, extension, filename, fhash, user, guest_id, size=None,
                       expires_at=None, visibility='link', password_hash=None, unlock_ttl=3600,
                       password_expires_at=None, uploader_ip_hash=None, nsfw_marked=False,
                       uploader_abuse_ip_hash=None, uploader_ip_sealed=None, upload_key_id=None, view_limit=None,
@@ -248,12 +248,12 @@ async def create_file(conn, id, vanity, mimetype_id, extension, filename, fhash,
     """Insert a file; returns None if the vanity was taken meanwhile."""
     row = await _one(
         conn,
-        'INSERT INTO files AS f (id, vanity, mimetype_id, extension, filename, hash_id, user_id, fingerprint, '
+        'INSERT INTO files AS f (id, vanity, mimetype_id, extension, filename, hash_id, user_id, guest_id, '
         'view_count, size, expires_at, visibility, password_hash, unlock_ttl, password_expires_at, uploader_ip_hash, '
         'nsfw_marked, uploader_abuse_ip_hash, uploader_ip_sealed, upload_key_id, view_limit, view_limit_action) '
         'VALUES (%s, %s, %s, %s, %s, %s, %s, %s, 0, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s) '
         'ON CONFLICT (vanity) DO NOTHING RETURNING {}'.format(FILE_COLUMNS),
-        (id, vanity, mimetype_id, extension, filename, fhash.id, user.id if user else None, fingerprint,
+        (id, vanity, mimetype_id, extension, filename, fhash.id, user.id if user else None, guest_id,
          fhash.size if size is None else size, expires_at, visibility, password_hash, unlock_ttl,
          password_expires_at, uploader_ip_hash, nsfw_marked, uploader_abuse_ip_hash, uploader_ip_sealed,
          upload_key_id, view_limit, view_limit_action),
@@ -285,46 +285,45 @@ async def update_file(conn, file_id, **changes):
 # --- usage and limits ------------------------------------------------------------
 
 RESERVING = "status IN ('open', 'processing')"
+# the quota SQL, shared with the sync conversion outputs (utils/conversion_outputs.py)
+LOCK_QUOTA_SQL = 'SELECT pg_advisory_xact_lock(hashtext(%s))'
+# (user id, user id)
+USER_USAGE_SQL = (
+    'SELECT (SELECT COALESCE(SUM(f.size), 0) FROM files AS f WHERE f.user_id = %s AND ' + LIVE + ') + '
+    '(SELECT COALESCE(SUM(size), 0) FROM upload_sessions WHERE owner_user_id = %s AND ' + RESERVING + ')')
+# (guest_id, since id, guest_id)
+GUEST_USAGE_SQL = (
+    'SELECT (SELECT COALESCE(SUM(f.size), 0) FROM files AS f WHERE f.guest_id = %s AND f.id >= %s) + '
+    '(SELECT COALESCE(SUM(size), 0) FROM upload_sessions WHERE owner_guest_id = %s AND ' + RESERVING + ')')
+# (ip hashes, since id, ip hashes)
+IP_USAGE_SQL = (
+    'SELECT (SELECT COALESCE(SUM(f.size), 0) FROM files AS f WHERE f.uploader_ip_hash = ANY(%s) '
+    'AND f.id >= %s) + (SELECT COALESCE(SUM(size), 0) FROM upload_sessions WHERE owner_ip_hash = ANY(%s) '
+    'AND ' + RESERVING + ')')
 
 
 async def lock_quota(conn, *keys):
     """Serialise quota checks for these owners until the transaction ends."""
     for key in sorted(set(keys)):
-        await conn.execute('SELECT pg_advisory_xact_lock(hashtext(%s))', ('quota:' + key,))
+        await conn.execute(LOCK_QUOTA_SQL, ('quota:' + key,))
 
 
 async def user_usage(conn, user_id):
     """Bytes of the user's live files, plus open upload sessions (reservations)."""
-    row = await _one(
-        conn,
-        'SELECT (SELECT COALESCE(SUM(f.size), 0) FROM files AS f WHERE f.user_id = %s AND ' + LIVE + ') + '
-        '(SELECT COALESCE(SUM(size), 0) FROM upload_sessions WHERE owner_user_id = %s AND ' + RESERVING + ')',
-        (user_id, user_id),
-    )
+    row = await _one(conn, USER_USAGE_SQL, (user_id, user_id))
     return int(row[0])
 
 
-async def anonymous_usage(conn, fingerprint, ip_hashes, since_id):
-    """Bytes uploaded (plus reserved) in the rolling window: (by fingerprint, by IP)."""
-    by_fingerprint = by_ip = 0
-    if fingerprint is not None:
-        row = await _one(
-            conn,
-            'SELECT (SELECT COALESCE(SUM(f.size), 0) FROM files AS f WHERE f.fingerprint = %s AND f.id >= %s) + '
-            '(SELECT COALESCE(SUM(size), 0) FROM upload_sessions WHERE owner_fingerprint = %s AND ' + RESERVING + ')',
-            (fingerprint, since_id, fingerprint),
-        )
-        by_fingerprint = int(row[0])
+async def anonymous_usage(conn, guest_id, ip_hashes, since_id):
+    """Bytes uploaded (plus reserved) in the rolling window: (by guest, by IP)."""
+    by_guest = by_ip = 0
+    if guest_id is not None:
+        row = await _one(conn, GUEST_USAGE_SQL, (guest_id, since_id, guest_id))
+        by_guest = int(row[0])
     if ip_hashes:
-        row = await _one(
-            conn,
-            'SELECT (SELECT COALESCE(SUM(f.size), 0) FROM files AS f WHERE f.uploader_ip_hash = ANY(%s) '
-            'AND f.id >= %s) + (SELECT COALESCE(SUM(size), 0) FROM upload_sessions WHERE owner_ip_hash = ANY(%s) '
-            'AND ' + RESERVING + ')',
-            (list(ip_hashes), since_id, list(ip_hashes)),
-        )
+        row = await _one(conn, IP_USAGE_SQL, (list(ip_hashes), since_id, list(ip_hashes)))
         by_ip = int(row[0])
-    return by_fingerprint, by_ip
+    return by_guest, by_ip
 
 
 # --- upload sessions -----------------------------------------------------------------
@@ -393,25 +392,6 @@ async def get_file(conn, file_id):
     await _attach_users(conn, [fobj])
     await attach_assets(conn, [fobj])
     return fobj
-
-
-# --- unlock rate limiting ----------------------------------------------------------------
-
-async def count_attempt(conn, file_id, scope, ip_hash, window_seconds=60, album_id=None):
-    """Count one attempt in the current window, for a file or (album_id) an album.
-    Returns (count, seconds left)."""
-    column = 'album_id' if album_id is not None else 'file_id'
-    row = await _one(
-        conn,
-        'INSERT INTO unlock_attempts AS a ({0}, scope, ip_hash, window_start, count) '
-        "VALUES (%s, %s, %s, to_timestamp(floor(extract(epoch FROM now()) / %s) * %s), 1) "
-        'ON CONFLICT ({0}, scope, ip_hash, window_start) DO UPDATE SET count = a.count + 1 '
-        'RETURNING count, ceil(extract(epoch FROM (window_start + make_interval(secs => %s::float8) - now())))::int'
-        .format(column),
-        (album_id if album_id is not None else file_id, scope, ip_hash, window_seconds, window_seconds,
-         window_seconds),
-    )
-    return row[0], max(1, row[1])
 
 
 # --- the owner's library (contract milestone-3 §6) ---------------------------------------------------

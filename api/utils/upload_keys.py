@@ -53,13 +53,11 @@ async def authenticate(conn, raw):
     return key, user
 
 
-async def count_upload(conn, key, settings=None):
-    """600 uploads an hour per key (§7.6): POST /files and POST /uploads each count one."""
-    settings = settings or account_settings()
-    limit = settings.upload_key_rate_per_hour
-    count, retry_after = await accounts.rate_hit(conn, 'upload_key', 'key:{:x}'.format(key.id))
-    if count > limit:
-        raise errors.too_many_key_uploads(limit, retry_after)
+async def count_upload(request, key):
+    """600 uploads an hour per key (§7.6, UPLOAD_KEY_RATE_PER_HOUR): POST /files and POST /uploads each count one.
+    On Redis, open (milestone-5 §18.3): 429 TOO_MANY_UPLOADS { limit, retry_after }."""
+    from utils.ratelimit import limiter
+    await limiter.hit(request, 'upload_key', 'key:{:x}'.format(key.id))
 
 
 def state_of(key, now=None):
@@ -135,7 +133,9 @@ def sharex(name, secret, arguments, settings=None):
     if arguments:
         config['Arguments'] = dict(arguments)
     config['FileFormName'] = 'file'
-    config['URL'] = '{json:url_with_password}' if arguments.get('generate_password') == 'true' else '{json:url}'
+    # key uploads always answer `url_with_password` (the plain link when no password was generated), so a generated
+    # password reaches the copied link whether the tool asked for one or the owner's defaults did (milestone-5 §21)
+    config['URL'] = '{json:url_with_password}'
     config['ErrorMessage'] = '{json:message}'
     return config
 

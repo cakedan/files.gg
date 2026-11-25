@@ -126,7 +126,7 @@ describe('API passthrough', () => {
     assert.equal(response.status, 200);
     assert.equal(response.headers['access-control-allow-origin'], '*');
     assert.equal(response.headers['access-control-allow-credentials'], undefined);
-    assert.equal(response.headers['access-control-allow-headers'], 'Authorization, Content-Type, X-Fingerprint, X-Filesgg-Access');
+    assert.equal(response.headers['access-control-allow-headers'], 'Authorization, Content-Type, X-Filesgg-Access');
     assert.match(response.headers['access-control-allow-methods'], /PATCH/);
   });
 

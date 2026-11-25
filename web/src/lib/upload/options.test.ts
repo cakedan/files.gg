@@ -115,3 +115,27 @@ describe('the NSFW mark (milestone-4 §4.3)', () => {
     expect(resolvePickers({ ...defaultPickerState({ anonymous: true }), nsfw: true }, { anonymous: true }).params.nsfw).toBeUndefined();
   });
 });
+
+describe('upload defaults (milestone-5 §21)', () => {
+  const withDefaults = (defaults: PickerContext['defaults'], context: PickerContext = user): PickerContext => ({ ...context, limits: { ...context.limits!, nsfw_allowed: true }, defaults });
+
+  it('signed in, the pickers start from them: a preset, "Password" generated, the adult mark', () => {
+    const state = defaultPickerState(withDefaults({ expires_in: 7 * DAY, visibility: 'password', nsfw: true }));
+    expect(state).toMatchObject({ expiry: 7 * DAY, expiryCustomAt: null, visibility: 'password', generatePassword: true, nsfw: true });
+    expect(defaultPickerState(withDefaults({ expires_in: null, visibility: 'private', nsfw: false }))).toMatchObject({ expiry: 'never', visibility: 'private', generatePassword: false, nsfw: false });
+  });
+
+  it('an expiry that isn’t a preset is a custom date that far away', () => {
+    const now = 1_800_000_000_000;
+    expect(defaultPickerState(withDefaults({ expires_in: 3 * DAY, visibility: 'link', nsfw: false }), now)).toMatchObject({ expiry: 'custom', expiryCustomAt: now + 3 * DAY * 1000 });
+  });
+
+  it('falls back to the plain default for what the limits don’t allow, and ignores them signed out', () => {
+    const capped: PickerContext = { anonymous: false, limits: { max_expiry: DAY, allow_no_expiry: false } };
+    expect(defaultPickerState(withDefaults({ expires_in: 7 * DAY, visibility: 'link', nsfw: false }, capped)).expiry).toBe(DAY);
+    expect(defaultPickerState(withDefaults({ expires_in: null, visibility: 'link', nsfw: false }, capped)).expiry).toBe(DAY);
+    // the adult mark needs `nsfw_allowed`
+    expect(defaultPickerState({ ...user, defaults: { expires_in: null, visibility: 'link', nsfw: true } }).nsfw).toBe(false);
+    expect(defaultPickerState({ ...anon, defaults: { expires_in: 3600, visibility: 'private', nsfw: true } })).toMatchObject({ expiry: 21 * DAY, visibility: 'link', nsfw: false });
+  });
+});

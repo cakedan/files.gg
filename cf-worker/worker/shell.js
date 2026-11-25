@@ -76,11 +76,25 @@ export async function serveSecurityTxt(event) {
   return response;
 }
 
-// /app and /app/*: the dashboard SPA.
-export async function serveApp(event) {
-  const response = await fetchAsset(event, '/app.html');
+// /app and /app/*: the dashboard SPA. With `head` ({ title, meta }, utils/viewer.js publicPageHead), one of
+// its public pages outside /app (milestone-5.md §11, §19.1).
+export async function serveApp(event, head = null) {
+  let response = await fetchAsset(event, '/app.html');
   if (!response.ok) {
     return new Response('Unavailable', { status: 503, headers: { 'Cache-Control': 'private, no-store' } });
+  }
+  if (head) {
+    // A public page (milestone-5.md §19.1): its own <title> and meta tags instead of the dashboard's,
+    // and indexable (the dashboard's `robots: noindex` goes).
+    const remove = { element(meta) { meta.remove(); } };
+    response = new HTMLRewriter()
+      .on('title', { element(title) { title.setInnerContent(head.title); } })
+      .on('meta[name="robots"]', remove)
+      .on('meta[name="description"]', remove)
+      .on('meta[property^="og:"]', remove)
+      .on('meta[name^="twitter:"]', remove)
+      .on('head', { element(element) { element.append(head.meta, { html: true }); } })
+      .transform(response);
   }
   return new Response(event.method === 'HEAD' ? null : response.body, {
     status: 200,

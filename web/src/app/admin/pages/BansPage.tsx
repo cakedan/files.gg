@@ -21,7 +21,7 @@ function Source({ ban }: { ban: Ban }) {
     );
   }
   if (ban.source.report_id) return <span>from a report</span>;
-  return <span>a fingerprint</span>;
+  return <span>a guest</span>;
 }
 
 /** `/app/admin/bans` (§9.3): active bans, by source (never the hash), and Lift for admins. */

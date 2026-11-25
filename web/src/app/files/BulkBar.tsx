@@ -1,9 +1,9 @@
-import { Clock, Eye, EyeOff, Images, Infinity as InfinityIcon, Lock, Trash2, X } from 'lucide-react';
+import { Clock, Eye, EyeOff, Images, Infinity as InfinityIcon, Lock, Trash2, Wand2, X } from 'lucide-react';
 
 import { Button } from '../../components/Button';
 import type { OwnerFile } from '../../lib/api';
 import { formatBytes } from '../../lib/format';
-import type { FileHandlers } from './fileMenu';
+import { canConvert, type FileHandlers } from './fileMenu';
 import { pluralize } from './fileLabels';
 
 /** "N selected · X MB" with the bulk actions. Sticks to the bottom on phones. */
@@ -38,6 +38,12 @@ export function BulkBar({ files, handlers, onClear }: { files: OwnerFile[]; hand
             <Images aria-hidden className="size-4" />
             Add to album…
           </Button>
+          {handlers.convert && (
+            <Button variant="ghost" onClick={() => handlers.convert!(files.filter(canConvert))} disabled={!files.some(canConvert)}>
+              <Wand2 aria-hidden className="size-4" />
+              Convert…
+            </Button>
+          )}
           {handlers.setSensitive && (
             <>
               <Button variant="ghost" onClick={() => handlers.setSensitive!(files, true)}>

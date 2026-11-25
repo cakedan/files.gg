@@ -12,7 +12,7 @@ from datetime import timedelta
 from db.models import epoch
 from safety import core, ip as abuse_ip, moderation, reports as report_rules, states
 from safety.settings import safety_settings
-from utils import errors
+from utils import convert_queue, errors
 from utils.generators import EPOCH
 
 CASE_COLUMNS = ('id', 'kind', 'priority', 'status', 'file_id', 'album_id', 'user_id', 'hash_id', 'warning_id',
@@ -95,7 +95,7 @@ def case_target(conn, case):
 
 def case_summary(conn, case):
     reasons = {}
-    rows = core.all_rows(conn, "SELECT reason, reporter_user_id, reporter_fingerprint, reporter_abuse_ip_hash FROM "
+    rows = core.all_rows(conn, "SELECT reason, reporter_user_id, reporter_guest_id, reporter_abuse_ip_hash FROM "
                                "reports WHERE case_id = %s ORDER BY id", (case['id'],))
     for reason, *_ in rows:
         reasons[reason] = reasons.get(reason, 0) + 1
@@ -354,6 +354,8 @@ def summary(conn, staff, settings=None):
         if staff.child_safety else 0,
         'newest_p0_at': epoch(newest),
         'stalled_since': epoch(stalled_since),
+        # milestone-5 §3.3: conversion queue health from Redis (null when Redis can't be read)
+        'conversions': convert_queue.admin_health(),
     }
 
 
@@ -398,33 +400,33 @@ def audit(conn, staff, filters, cursor=None, limit=50):
 # --- bans (§9.3) -------------------------------------------------------------------------------------------
 
 def own_ban_keys(conn, staff, requester=None, settings=None):
-    """The fingerprints and abuse IP hashes that are the staff member's own: this request's device
+    """The guest ids and abuse IP hashes that are the staff member's own: this request's device
     and network, and those recorded on their own uploads and reports."""
     settings = settings or safety_settings()
     requester = requester or {}
-    fingerprints, ip_hashes = set(), set()
-    if requester.get('fingerprint') is not None:
-        fingerprints.add(int(requester['fingerprint']))
+    guest_ids, ip_hashes = set(), set()
+    if requester.get('guest_id') is not None:
+        guest_ids.add(int(requester['guest_id']))
     current = abuse_ip.abuse_ip_hash(requester.get('ip'), settings.abuse_hash_secret)
     if current:
         ip_hashes.add(bytes(current))
-    rows = core.all_rows(conn, 'SELECT DISTINCT fingerprint, uploader_abuse_ip_hash FROM files WHERE user_id = %s '
-                               'AND (fingerprint IS NOT NULL OR uploader_abuse_ip_hash IS NOT NULL)', (staff.user_id,))
-    rows += core.all_rows(conn, 'SELECT DISTINCT reporter_fingerprint, reporter_abuse_ip_hash FROM reports '
+    rows = core.all_rows(conn, 'SELECT DISTINCT guest_id, uploader_abuse_ip_hash FROM files WHERE user_id = %s '
+                               'AND (guest_id IS NOT NULL OR uploader_abuse_ip_hash IS NOT NULL)', (staff.user_id,))
+    rows += core.all_rows(conn, 'SELECT DISTINCT reporter_guest_id, reporter_abuse_ip_hash FROM reports '
                                 'WHERE reporter_user_id = %s', (staff.user_id,))
-    for fingerprint, ip_hash in rows:
-        if fingerprint is not None:
-            fingerprints.add(int(fingerprint))
+    for guest_id, ip_hash in rows:
+        if guest_id is not None:
+            guest_ids.add(int(guest_id))
         if ip_hash:
             ip_hashes.add(bytes(ip_hash))
-    return fingerprints, ip_hashes
+    return guest_ids, ip_hashes
 
 
-def require_not_own_ban(conn, staff, fingerprint, ip_hash, requester=None, settings=None):
+def require_not_own_ban(conn, staff, guest_id, ip_hash, requester=None, settings=None):
     """Staff never ban, or lift a ban on, their own device or network (§9.1: no acting on your
     own account or content)."""
-    fingerprints, ip_hashes = own_ban_keys(conn, staff, requester, settings)
-    if (fingerprint is not None and int(fingerprint) in fingerprints) or (ip_hash and bytes(ip_hash) in ip_hashes):
+    guest_ids, ip_hashes = own_ban_keys(conn, staff, requester, settings)
+    if (guest_id is not None and int(guest_id) in guest_ids) or (ip_hash and bytes(ip_hash) in ip_hashes):
         raise errors.forbidden("Staff can't ban or unban their own device or network")
 
 
@@ -441,8 +443,8 @@ def require_not_own_ban_source(conn, staff, source):
 
 def create_ban(conn, staff, body, settings=None, requester=None):
     settings = settings or safety_settings()
-    if not isinstance(body, dict) or body.get('kind') not in ('fingerprint', 'ip'):
-        raise errors.invalid_action('kind must be fingerprint or ip')
+    if not isinstance(body, dict) or body.get('kind') not in ('guest', 'ip'):
+        raise errors.invalid_action('kind must be guest or ip')
     rule = body.get('rule')
     if rule not in states.RULES:
         raise errors.invalid_action('Pick a rule')
@@ -456,52 +458,52 @@ def create_ban(conn, staff, body, settings=None, requester=None):
         require_not_own_ban_source(conn, staff, source)
     except (TypeError, ValueError):
         raise errors.invalid_action('Name where the ban comes from')
-    fingerprint = ip_hash = None
+    guest_id = ip_hash = None
     cutoff = core.utcnow() - timedelta(days=settings.abuse_ip_keep_days)
     if source.get('file_id'):
-        row = core.one(conn, 'SELECT fingerprint, user_id, uploader_abuse_ip_hash FROM files WHERE id = %s',
+        row = core.one(conn, 'SELECT guest_id, user_id, uploader_abuse_ip_hash FROM files WHERE id = %s',
                        (int(source['file_id']),))
         if row is None:
             raise errors.unknown_file()
-        fingerprint = row[0] if row[1] is None else None
+        guest_id = row[0] if row[1] is None else None
         ip_hash = row[2]
         label = {'file_id': str(source['file_id'])}
     elif source.get('report_id'):
-        row = core.one(conn, 'SELECT reporter_fingerprint, reporter_abuse_ip_hash, created_at FROM reports '
+        row = core.one(conn, 'SELECT reporter_guest_id, reporter_abuse_ip_hash, created_at FROM reports '
                              'WHERE id = %s', (int(source['report_id']),))
         if row is None:
             raise errors.unknown_report()
-        fingerprint = row[0]
+        guest_id = row[0]
         ip_hash = row[1] if row[2] > cutoff else None
         label = {'report_id': str(source['report_id'])}
-    elif source.get('fingerprint') and body['kind'] == 'fingerprint':
+    elif source.get('guest_id') and body['kind'] == 'guest':
         try:
-            fingerprint = int(source['fingerprint'])
+            guest_id = int(source['guest_id'])
         except (TypeError, ValueError):
-            raise errors.invalid_action('Unknown fingerprint')
-        label = {'fingerprint': str(fingerprint)}
+            raise errors.invalid_action('Unknown guest')
+        label = {'guest_id': str(guest_id)}
     else:
         raise errors.invalid_action('Name where the ban comes from')
     if body['kind'] == 'ip':
         if not ip_hash:
             raise errors.invalid_action('That source has no IP hash any more')
-        fingerprint = None
+        guest_id = None
     else:
-        if fingerprint is None:
-            raise errors.invalid_action('That source has no fingerprint')
+        if guest_id is None:
+            raise errors.invalid_action('That source has no guest')
         ip_hash = None
-    require_not_own_ban(conn, staff, fingerprint, ip_hash, requester, settings)
+    require_not_own_ban(conn, staff, guest_id, ip_hash, requester, settings)
     expires_at = core.utcnow() + timedelta(seconds=duration) if duration else None
-    ban_id, action_id = core.ban(conn, staff.actor, rule, fingerprint=fingerprint, ip_hash=bytes(ip_hash) if ip_hash else None,
-                                 expires_at=expires_at, source=label, note=body.get('note') if isinstance(
-                                     body.get('note'), str) else None)
+    ban_id, action_id = core.ban(conn, staff.actor, rule, guest_id=guest_id,
+                                 ip_hash=bytes(ip_hash) if ip_hash else None, expires_at=expires_at, source=label,
+                                 note=body.get('note') if isinstance(body.get('note'), str) else None)
     return ban_dict(conn, ban_id)
 
 
 def ban_dict(conn, ban_id):
-    row = core.one(conn, 'SELECT id, fingerprint IS NOT NULL, source, rule, created_at, expires_at, lifted_at FROM bans '
+    row = core.one(conn, 'SELECT id, guest_id IS NOT NULL, source, rule, created_at, expires_at, lifted_at FROM bans '
                          'WHERE id = %s', (ban_id,))
-    return {'id': str(row[0]), 'kind': 'fingerprint' if row[1] else 'ip', 'source': row[2], 'rule': row[3],
+    return {'id': str(row[0]), 'kind': 'guest' if row[1] else 'ip', 'source': row[2], 'rule': row[3],
             'created_at': epoch(row[4]), 'expires_at': epoch(row[5]), 'lifted_at': epoch(row[6])}
 
 
@@ -520,7 +522,7 @@ def list_bans(conn, active=True, cursor=None, limit=50):
 
 def lift_ban(conn, staff, ban_id, requester=None, settings=None):
     moderation.require_admin(staff)
-    ban = core.one(conn, 'SELECT fingerprint, abuse_ip_hash, source FROM bans WHERE id = %s AND lifted_at IS NULL '
+    ban = core.one(conn, 'SELECT guest_id, abuse_ip_hash, source FROM bans WHERE id = %s AND lifted_at IS NULL '
                          'FOR UPDATE', (int(ban_id),))
     if ban is None:
         raise errors.invalid_action('Unknown or lifted ban')

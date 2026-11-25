@@ -1,5 +1,7 @@
 # Milestone 2 contract
 
+> Later renamed: the anonymous uploader's *fingerprint* is now a *guest* (`guest_id`, `Authorization: Guest`); see milestone-5.md §20.
+
 This is the shared contract between `api/`, `cf-worker/` and `web/` for Milestone 2. It covers:
 - B2 storage;
 - streaming and chunked uploads;

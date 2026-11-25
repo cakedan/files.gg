@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # Starts the whole files.gg stack locally (e2e/README.md):
-#   Docker: Postgres 19, MinIO (+ the files and the Object Lock evidence buckets), migrations, the
-#           API, `python -m worker`, the Milestone 4 scanner and rescanner, an offline clamd, and a
-#           mock of Cloudflare's custom hostnames API (Milestone 6 custom domains)
+#   Docker: Postgres 19, MinIO (+ the files and the Object Lock evidence buckets), Redis, migrations,
+#           the API, `python -m worker`, the Milestone 4 scanner and rescanner, an offline clamd, a
+#           mock of Cloudflare's custom hostnames API (Milestone 6 custom domains), and (Milestone 5)
+#           the converter services and the network-less office service
 #   Host:   a fresh web build and the Cloudflare Worker under `wrangler dev`
 # on http://files.localhost:8787, http://cdn.files.localhost:8787 and http://api.files.localhost:8787
 # (and any other *.localhost host, which the Worker treats as a custom domain).
@@ -77,6 +78,8 @@ ensure_var E2E_REPORTER_PASSWORD "e2e-reporter-$(openssl rand -hex 8)"
 # Added with Milestone 6: the mock Cloudflare's token and zone (only the API and the mock see them).
 ensure_var CLOUDFLARE_API_TOKEN "e2e-mock-$(openssl rand -hex 16)"
 ensure_var CLOUDFLARE_ZONE_ID "$(openssl rand -hex 16)"
+# Added with Milestone 5: Redis's password (hex, so it fits in REDIS_URL as is).
+ensure_var REDIS_PASSWORD "$(openssl rand -hex 32)"
 # The evidence key pair (milestone-4 §3.6): X25519, libsodium's sealed-box key type. The API gets the
 # raw 32-byte public key as base64; the private key stays in e2e/.local (mode 600).
 if [ ! -f "$LOCAL/evidence-private.pem" ] || ! grep -q '^EVIDENCE_PUBLIC_KEY=' "$LOCAL/.env"; then
@@ -102,14 +105,16 @@ set -a; . "$LOCAL/.env"; set +a
 # --- web: a fresh build with the testing Turnstile key ------------------------------------------
 # Built into $WORKER_DIR/web-dist, never web/dist, so a local build can't be deployed by accident.
 # No VITE_API_URL (milestone-6 §13.1): the dashboard and the viewer call files.localhost/api
-# same-origin, which is the only place the Worker forwards the session cookie.
+# same-origin, which is the only place the Worker forwards the session cookie. The Terms and Privacy drafts
+# still have placeholders, which a production build refuses (milestone-5 §19.6); this local build allows them.
 step "Building web (same-origin /api)"
-(cd "$ROOT/web" && env -u VITE_API_URL VITE_TURNSTILE_SITE_KEY="$TURNSTILE_TEST_SITE_KEY" \
+(cd "$ROOT/web" && env -u VITE_API_URL VITE_TURNSTILE_SITE_KEY="$TURNSTILE_TEST_SITE_KEY" FILESGG_ALLOW_LEGAL_PLACEHOLDERS=1 \
   npx vite build --outDir "$WORKER_DIR/web-dist" --emptyOutDir --logLevel warn)
 
 # --- Docker: Postgres, MinIO, ClamAV, migrations, API, jobs worker, scanner, rescanner ----------
-step "Starting Postgres, MinIO, ClamAV, mock Cloudflare, the API, the jobs worker, the scanner and the rescanner (Docker)"
-"${COMPOSE[@]}" up -d --build --wait --wait-timeout 600 postgres minio clamav cloudflare api worker scanner rescanner
+step "Starting Postgres, MinIO, Redis, ClamAV, mock Cloudflare, the API, the jobs worker, the scanner, the rescanner, the converters and office (Docker)"
+"${COMPOSE[@]}" up -d --build --wait --wait-timeout 600 postgres minio redis clamav cloudflare api worker scanner \
+  rescanner office converter-premium converter converter-previews
 
 step "Creating the e2e users (dev tool) and making e2e staff"
 # `json_field <file> <a.b.c>`: one field of a JSON file
