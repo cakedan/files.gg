@@ -36,6 +36,11 @@ BROWSER_IMAGES = frozenset((
 # never parsed: SVG is served as text/plain and is "other"
 NOT_IMAGES = frozenset(('image/svg+xml',))
 TEXT_EXCLUDED = frozenset(('text/html', 'text/xml', 'text/xsl'))
+# Plain-text formats with application/* types: shown in the text viewer like text/*
+TEXT_APPLICATIONS = frozenset((
+    'application/json', 'application/ld+json', 'application/manifest+json', 'application/geo+json',
+    'application/x-ipynb+json', 'application/x-ndjson', 'application/x-subrip',
+))
 
 # `media.language` from the extension: a fixed map of Shiki language ids, else null
 LANGUAGES = {
@@ -72,7 +77,7 @@ def base_kind(mimetype):
     major = mimetype.split('/', 1)[0]
     if major in ('video', 'audio'):
         return major
-    if major == 'text' and mimetype not in TEXT_EXCLUDED:
+    if (major == 'text' and mimetype not in TEXT_EXCLUDED) or mimetype in TEXT_APPLICATIONS:
         return 'text'
     return 'file'
 

@@ -49,7 +49,6 @@ docker compose -p filesgg-e2e exec -e FILESGG_DEV_TOOLS=1 api \
 | Part | Where it runs | Notes |
 |---|---|---|
 | Postgres 19, MinIO, bucket creation, `python -m migrate`, the API (`sanic`, 2 workers), `python -m worker` | Docker, `docker-compose.e2e.yml` (project `filesgg-e2e`) | Named volumes only, no bind mounts. The API is published on `127.0.0.1:18080` and MinIO on `127.0.0.1:19000`, both for the Worker. |
-| Mimetypes | `seed/mimetypes.sql`, loaded by `up.sh` | The migrations create the tables empty (production has the rows), and uploads need them. |
 | The Worker | `wrangler dev` on `127.0.0.1:8787`, started in the background by `up.sh` | Config generated from `cf-worker/wrangler.toml` without the routes (so `Host` is kept), with `MAIN_HOST`, `CDN_HOST`, `API_HOST` and `PROXY_HOST` set to `files.localhost`, `cdn.files.localhost`, `api.files.localhost` and `proxy.files.localhost`. `API_ORIGIN` points at the API, `S3_ENDPOINT` at MinIO. The GCS fallback is off. |
 | The web app | Built by `up.sh` into `e2e/.local/web-dist` (never `web/dist`) | `VITE_API_URL=http://api.files.localhost:8787`, and Cloudflare's always-pass testing site key from `web/src/lib/config.ts`. |
 | The API's public URLs | `PUBLIC_URL=http://files.localhost:8787`, `CDN_URL=http://cdn.files.localhost:8787` | |

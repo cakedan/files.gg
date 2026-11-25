@@ -17,6 +17,8 @@ export const UPLOAD_ERROR_CODES = [
   'CHUNK_SIZE_MISMATCH',
   'PRIVATE_REQUIRES_ACCOUNT',
   'RESERVED_VANITY',
+  'FILE_TYPE_NOT_ALLOWED',
+  'INVALID_MIMETYPE',
 ] as const;
 
 /** Milestone 3 codes (milestone-3 contract §6): albums and the album ZIP. */
@@ -48,6 +50,10 @@ export function errorMessage(error: unknown): string {
   if (!(error instanceof ApiError)) return 'Something went wrong. Try again.';
   const { body } = error;
   switch (error.code) {
+    case 'FILE_TYPE_NOT_ALLOWED':
+      return "This type of file can't be uploaded. Programs, installers and scripts aren't allowed.";
+    case 'INVALID_MIMETYPE':
+      return "files.gg doesn't accept this type of file.";
     case 'FILE_TOO_LARGE': {
       const limit = num(body, 'limit');
       return limit !== null ? `This file is too large. The limit is ${formatBytes(limit)}.` : 'This file is too large.';

@@ -73,9 +73,6 @@ step "Building web for $API_URL"
 step "Starting Postgres, MinIO, the API and the jobs worker (Docker)"
 "${COMPOSE[@]}" up -d --build --wait --wait-timeout 300 postgres minio api worker
 
-step "Seeding mimetypes"
-"${COMPOSE[@]}" exec -T postgres psql -q -v ON_ERROR_STOP=1 -U filesgg -d filesgg < "$E2E_DIR/seed/mimetypes.sql"
-
 step "Creating the e2e user (dev tool)"
 "${COMPOSE[@]}" exec -T -e FILESGG_DEV_TOOLS=1 api \
   python -m tools.create_user --username e2e --password "$E2E_USER_PASSWORD" > "$LOCAL/e2e-user.json"

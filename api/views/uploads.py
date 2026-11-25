@@ -20,7 +20,7 @@ import db
 import jobs
 from db import queries
 from db.models import epoch
-from utils import errors, limits as limits_module, passwords, payloads, storage as storage_module, uploading
+from utils import errors, filetypes, limits as limits_module, passwords, payloads, storage as storage_module, uploading
 from utils.cdn_signing import Grant
 from utils.generators import Snowflake
 from utils.helpers import client_ip, get_user
@@ -207,6 +207,12 @@ async def put_chunk(request, upload_id, index):
     data = await read_chunk(request, expected)
     if len(data) != expected:
         raise errors.chunk_size_mismatch(expected)
+    if index == 0 and filetypes.sniff_executable(data):
+        # fail the session now rather than after the whole upload; finalize checks again
+        async with db.connection() as conn:
+            await conn.execute("UPDATE upload_sessions SET status = 'failed', error = 'FILE_TYPE_NOT_ALLOWED' "
+                               "WHERE id = %s AND status = 'open'", (session.id,))
+        raise errors.file_type_not_allowed()
 
     etag = await request.app.ctx.storage.upload_part(session.storage_key, session.b2_upload_id, index + 1, data)
     async with db.connection() as conn:

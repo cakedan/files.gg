@@ -13,20 +13,13 @@ from tests.conftest import ServerProcess, hash_of, s3_client, BUCKET
 from utils.tokens import UserToken
 
 
-def seed(temp):
-    temp.execute("INSERT INTO mimetype_types (id) VALUES ('text'), ('application')")
-    temp.execute("INSERT INTO mimetypes (id, flags, type_id) VALUES ('text/plain', 0, 'text'), "
-                 "('application/octet-stream', 0, 'application')")
-    temp.execute("INSERT INTO mimetype_extensions (mimetype_id, extension, priority) VALUES "
-                 "('text/plain', 'txt', 1), ('application/octet-stream', 'bin', 0)")
-
-
 def signed_in(temp, user_id=4242):
     """A user in the server's database, and a token for it (signed-in uploads
     skip Turnstile and get the 100 MB single-request limit)."""
     temp.execute(
-        "INSERT INTO users (id, email, bot, username, discriminator, flags, verified, last_email_reset, "
-        "last_password_reset) VALUES (%s, %s, false, %s, 1, 0, true, 1500000000, 1500000000)",
+        "INSERT INTO users (id, email, bot, username, discriminator, flags, verified, last_email_reset_at, "
+        "last_password_reset_at) VALUES (%s, %s, false, %s, 1, 0, true, to_timestamp(1500000000), "
+        "to_timestamp(1500000000))",
         (user_id, 'u{}@example.com'.format(user_id), 'u{}'.format(user_id)))
     return UserToken.generate(user_id)
 
@@ -57,7 +50,6 @@ def test_three_workers_lease_three_node_ids_and_release_them(migrated_db):
 
 
 async def test_200_concurrent_requests(migrated_db):
-    seed(migrated_db)
     token = signed_in(migrated_db)
     server = ServerProcess(migrated_db, '--workers', '2').wait_ready()
     try:
@@ -95,7 +87,6 @@ def rss_kb(pid, field):
 
 
 async def test_streaming_raw_upload_does_not_buffer_the_body(migrated_db):
-    seed(migrated_db)
     token = signed_in(migrated_db)
     server = ServerProcess(migrated_db, '--single-process').wait_ready()
     size = 50 * 1024 * 1024
@@ -144,7 +135,6 @@ async def test_chunked_upload_at_the_limit_across_two_api_workers(migrated_db):
     import sys
     from tests.conftest import API_DIR, subprocess_env
 
-    seed(migrated_db)
     token = signed_in(migrated_db)
     limits = {'LIMIT_CHUNKED_BYTES': str(40 * 1024 * 1024), 'UPLOAD_CHUNK_SIZE': str(5 * 1024 * 1024)}
     server = ServerProcess(migrated_db, '--workers', '2', env=limits).wait_ready()

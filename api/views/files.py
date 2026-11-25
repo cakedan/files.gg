@@ -141,6 +141,8 @@ async def _create_file(request, args, user, upload, declared):
     try:
         if spooled.size > limits.max_file_size_single:
             raise limits_module.file_too_large(limits.max_file_size_single)
+        # the name and type passed resolve_name; the bytes themselves must not be a program
+        spooled.hasher.check_content()
         fobj = await store_upload(request, owner, spooled, name, extension, mimetype, expires_in, access_columns,
                                   args.vanity, album_id=album_id)
     finally:

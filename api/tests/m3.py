@@ -12,16 +12,6 @@ import pytest
 from tests.conftest import TempDatabase, APP_DATABASE, hash_of
 from tests.test_milestone2 import ORIGIN, anonymous, new_user  # noqa: F401  (re-exported)
 
-MIMETYPES = [
-    ('image', 'image/png', 'png'), ('image', 'image/jpeg', 'jpg'), ('image', 'image/gif', 'gif'),
-    ('image', 'image/heic', 'heic'), ('image', 'image/tiff', 'tiff'), ('image', 'image/webp', 'webp'),
-    ('video', 'video/mp4', 'mp4'), ('video', 'video/x-matroska', 'mkv'), ('video', 'video/webm', 'webm'),
-    ('audio', 'audio/mpeg', 'mp3'), ('audio', 'audio/ogg', 'ogg'), ('audio', 'audio/wav', 'wav'),
-    ('application', 'application/pdf', 'pdf'), ('text', 'text/x-python', 'py'), ('text', 'text/plain', 'txt'),
-    ('application', 'application/octet-stream', 'bin'), ('application', 'application/zip', 'zip'),
-]
-
-
 @pytest.fixture(scope='module')
 def appdb():
     temp = TempDatabase(APP_DATABASE)
@@ -31,13 +21,7 @@ def appdb():
 
 @pytest.fixture
 def media_db(appdb):
-    for type_id in sorted({t for t, _, _ in MIMETYPES}):
-        appdb.execute('INSERT INTO mimetype_types (id) VALUES (%s) ON CONFLICT DO NOTHING', (type_id,))
-    for type_id, mimetype, extension in MIMETYPES:
-        appdb.execute('INSERT INTO mimetypes (id, flags, type_id) VALUES (%s, 0, %s) ON CONFLICT DO NOTHING',
-                      (mimetype, type_id))
-        appdb.execute('INSERT INTO mimetype_extensions (mimetype_id, extension, priority) VALUES (%s, %s, 1) '
-                      'ON CONFLICT DO NOTHING', (mimetype, extension))
+    """The app's database; every mimetype the media tests upload comes from the migrations' seed."""
     return appdb
 
 

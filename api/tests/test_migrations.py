@@ -1,241 +1,58 @@
-import os
 import threading
 
+import psycopg
 import pytest
 
+import media
 import migrate
-from tests.conftest import API_DIR
+from utils import filetypes
 
-LEGACY_FIXTURE = os.path.join(API_DIR, 'tests', 'fixtures', 'legacy_peewee_3_8_1_schema.sql')
-LEGACY_TABLES = (
-    'mimetype_types', 'mimetypes', 'file_hashes', 'users', 'files', 'file_views', 'mimetype_extensions',
-)
-
-
-def snapshot(temp, tables=LEGACY_TABLES):
-    """Everything about the given tables that a migration could change."""
-    tables = list(tables)
-    columns = temp.fetchall(
-        """
-        SELECT table_name, column_name, ordinal_position, data_type, character_maximum_length,
-               is_nullable, column_default
-        FROM information_schema.columns
-        WHERE table_schema = 'public' AND table_name = ANY(%s)
-        ORDER BY table_name, ordinal_position
-        """,
-        (tables,),
-    )
-    indexes = temp.fetchall(
-        "SELECT tablename, indexname, indexdef FROM pg_indexes "
-        "WHERE schemaname = 'public' AND tablename = ANY(%s) ORDER BY tablename, indexname",
-        (tables,),
-    )
-    constraints = temp.fetchall(
-        """
-        SELECT rel.relname, con.conname, pg_get_constraintdef(con.oid)
-        FROM pg_constraint con JOIN pg_class rel ON rel.oid = con.conrelid
-        JOIN pg_namespace ns ON ns.oid = rel.relnamespace
-        WHERE ns.nspname = 'public' AND rel.relname = ANY(%s)
-        ORDER BY rel.relname, con.conname
-        """,
-        (tables,),
-    )
-    return {'columns': columns, 'indexes': indexes, 'constraints': constraints}
+VERSIONS = [('0001', 'schema'), ('0002', 'mimetypes')]
+TABLES = {
+    'schema_migrations', 'mimetype_types', 'mimetypes', 'mimetype_extensions', 'users', 'file_hashes',
+    'file_hash_assets', 'files', 'file_view_days', 'file_view_seen', 'albums', 'album_files', 'upload_sessions',
+    'upload_parts', 'unlock_attempts', 'jobs', 'snowflake_nodes',
+}
+# PLAN.md "Accepted file types", the v1 blocklist: none of these may be accepted
+# one list for the code and the tests: utils/filetypes.py
+BLOCKED_EXTENSIONS = sorted(filetypes.BLOCKED_EXTENSIONS)
+BLOCKED_MIMETYPES = sorted(filetypes.BLOCKED_MIMETYPES)
 
 
 def table_names(temp):
-    return {row[0] for row in temp.fetchall(
-        "SELECT tablename FROM pg_tables WHERE schemaname = 'public'")}
+    return {row[0] for row in temp.fetchall("SELECT tablename FROM pg_tables WHERE schemaname = 'public'")}
 
 
-def load_legacy_schema(temp):
-    with open(LEGACY_FIXTURE) as handle:
-        temp.conn.execute(handle.read())
+def column_names(temp, table):
+    return [r[0] for r in temp.fetchall(
+        "SELECT column_name FROM information_schema.columns WHERE table_schema = 'public' AND table_name = %s "
+        "ORDER BY ordinal_position", (table,))]
 
 
-ALL_VERSIONS = ['0001', '0002', '0003', '0004', '0005', '0006', '0007']
-
-
-def baseline_only(tmp_path):
-    """A migrations directory holding just 0001."""
-    import shutil
-    shutil.copy(os.path.join(migrate.MIGRATIONS_DIR, '0001_baseline.sql'), tmp_path / '0001_baseline.sql')
-    return str(tmp_path)
-
+# --- the runner ----------------------------------------------------------------------------------------------
 
 def test_discovers_migrations_in_order():
-    found = migrate.discover()
-    assert [m.version for m in found] == ALL_VERSIONS
-    assert found[0].name == 'baseline'
+    assert [(m.version, m.name) for m in migrate.discover()] == VERSIONS
 
 
-def test_pending_migrations_are_not_applied():
-    # unnumbered until the release that applies it takes the next free number
-    assert os.path.exists(os.path.join(migrate.MIGRATIONS_DIR, 'pending', 'drop_legacy.sql'))
-    assert all(m.name != 'drop_legacy' for m in migrate.discover())
-
-
-def test_applies_once_and_is_idempotent(empty_db):
+def test_applies_to_an_empty_database_once(empty_db):
     applied = migrate.migrate(empty_db.conn)
-    assert [m.version for m in applied] == ALL_VERSIONS
+    assert [(m.version, m.name) for m in applied] == VERSIONS
+    assert table_names(empty_db) == TABLES
 
+    # idempotent: nothing left to apply, and nothing changes
+    counts = empty_db.fetchone('SELECT (SELECT count(*) FROM mimetypes), (SELECT count(*) FROM mimetype_extensions)')
     assert migrate.migrate(empty_db.conn) == []
     assert migrate.pending(empty_db.conn) == []
+    assert empty_db.fetchone(
+        'SELECT (SELECT count(*) FROM mimetypes), (SELECT count(*) FROM mimetype_extensions)') == counts
 
-    rows = empty_db.fetchall('SELECT version, name FROM schema_migrations ORDER BY version')
-    assert rows == [('0001', 'baseline'), ('0002', 'jobs_and_snowflake_nodes'), ('0003', 'views_timestamps_queues'),
-                    ('0004', 'milestone2'), ('0005', 'milestone2_indexes'), ('0006', 'milestone3'),
-                    ('0007', 'milestone3_indexes')]
-    assert set(LEGACY_TABLES) | {'jobs', 'snowflake_nodes', 'schema_migrations', 'file_view_days',
-                                 'file_view_seen', 'upload_sessions', 'upload_parts',
-                                 'unlock_attempts', 'file_hash_assets', 'albums', 'album_files'} == table_names(empty_db)
-
-
-def test_baseline_is_noop_on_existing_create_tables_schema(empty_db, tmp_path):
-    load_legacy_schema(empty_db)
-    empty_db.execute("INSERT INTO mimetype_types (id) VALUES ('image')")
-    empty_db.execute("INSERT INTO mimetypes (id, flags, type_id) VALUES ('image/png', 0, 'image')")
-    before = snapshot(empty_db)
-
-    applied = migrate.migrate(empty_db.conn, directory=baseline_only(tmp_path))
-
-    assert [m.version for m in applied] == ['0001']
-    assert snapshot(empty_db) == before
-    assert empty_db.fetchall('SELECT id, flags, type_id FROM mimetypes') == [('image/png', 0, 'image')]
-    # and the rest applies on top of the production-shaped schema
-    assert [m.version for m in migrate.migrate(empty_db.conn)] == ['0002', '0003', '0004', '0005', '0006', '0007']
-
-
-def test_baseline_reproduces_create_tables_schema_exactly(empty_db, tmp_path):
-    from tests.conftest import TempDatabase, create_database, drop_database
-    migrate.migrate(empty_db.conn, directory=baseline_only(tmp_path))
-    name = create_database()
-    legacy = TempDatabase(name)
-    try:
-        load_legacy_schema(legacy)
-        assert snapshot(empty_db) == snapshot(legacy)
-    finally:
-        legacy.close()
-        drop_database(name)
-
-
-def test_row_types_match_schema(migrated_db):
-    """The db layer's dataclasses name every column of their table, in table
-    order, except the legacy columns that pending/0004 drops."""
-    from dataclasses import fields
-    from db.models import LEGACY_COLUMNS, ROW_TYPES
-    for row_type in ROW_TYPES:
-        names = [f.name for f in fields(row_type) if not f.metadata.get('virtual')]
-        columns = [r[0] for r in migrated_db.fetchall(
-            "SELECT column_name FROM information_schema.columns WHERE table_schema = 'public' "
-            "AND table_name = %s ORDER BY ordinal_position", (row_type.TABLE,))]
-        columns = [c for c in columns if c not in LEGACY_COLUMNS.get(row_type.TABLE, ())]
-        assert names == columns, row_type.__name__
-
-
-# --- 0003 on production-shaped data ------------------------------------------------------
-
-def test_0003_backfills_views_timestamps_and_queues(empty_db, tmp_path):
-    import random
-    from datetime import datetime, timezone
-
-    load_legacy_schema(empty_db)
-    migrate.migrate(empty_db.conn, directory=baseline_only(tmp_path))
-    pending = tmp_path / 'p2'
-    pending.mkdir()
-    import shutil
-    shutil.copy(os.path.join(migrate.MIGRATIONS_DIR, '0002_jobs_and_snowflake_nodes.sql'), pending)
-    migrate.migrate(empty_db.conn, directory=str(pending))
-
-    conn = empty_db.conn
-    conn.execute("INSERT INTO mimetype_types (id) VALUES ('text')")
-    conn.execute("INSERT INTO mimetypes (id, flags, type_id) VALUES ('text/plain', 0, 'text')")
-    conn.execute("INSERT INTO file_hashes (id, blake2b, sha1, md5, size) VALUES (1, 'b', 's', 'm', 1)")
-    conn.execute(
-        "INSERT INTO files (id, vanity, mimetype_id, filename, hash_id, view_count) "
-        "SELECT n, 'v' || n, 'text/plain', 'f', 1, 0 FROM generate_series(1, 40) n")
-    # 5000 views over 10 UTC days, as Peewee stored them: unix SECONDS, one row per
-    # (file, ip) ever, but an IP can show up again for another file
-    rng = random.Random(1)
-    base = int(datetime(2026, 11, 1, tzinfo=timezone.utc).timestamp())
-    rows, seen = [], set()
-    while len(rows) < 5000:
-        file_id, ip = rng.randint(1, 40), '10.0.{}.{}'.format(rng.randint(0, 3), rng.randint(0, 255))
-        if (file_id, ip) in seen:
-            continue
-        seen.add((file_id, ip))
-        rows.append((file_id, ip, base + rng.randint(0, 10 * 86400 - 1)))
-    with conn.cursor() as cursor:
-        cursor.executemany('INSERT INTO file_views (file_id, ip, "timestamp") VALUES (%s, %s, %s)', rows)
-    conn.execute(
-        "INSERT INTO users (id, email, bot, username, discriminator, flags, verified, last_email_reset, "
-        "last_password_reset) SELECT n, 'u' || n || '@x', false, 'u' || n, 1, 0, true, 1500000000 + n, 1600000000 + n "
-        "FROM generate_series(1, 300) n")
-    conn.execute("INSERT INTO jobs (kind) VALUES ('ping'), ('ping')")
-    conn.execute("INSERT INTO jobs (kind, done_at) VALUES ('scheduled:snowflake_nodes_cleanup', now())")
-
-    expected = {}
-    for file_id, ip, ts in rows:
-        day = datetime.fromtimestamp(ts, timezone.utc).date()
-        views, ips = expected.get((file_id, day), (0, set()))
-        expected[(file_id, day)] = (views + 1, ips | {ip})
-
-    assert [m.version for m in migrate.migrate(conn)] == ['0003', '0004', '0005', '0006', '0007']
-
-    got = {(f, d): (v, u) for f, d, v, u in empty_db.fetchall(
-        'SELECT file_id, day, views, unique_views FROM file_view_days')}
-    assert got == {key: (views, len(ips)) for key, (views, ips) in expected.items()}
-    assert sum(v for v, _ in got.values()) == 5000
-    assert empty_db.fetchone('SELECT count(*) FROM file_views')[0] == 5000  # kept until 0004
-
-    mismatched = empty_db.fetchone(
-        'SELECT count(*) FROM users WHERE extract(epoch FROM last_email_reset_at) <> last_email_reset '
-        'OR extract(epoch FROM last_password_reset_at) <> last_password_reset '
-        'OR last_email_reset_at IS NULL OR last_password_reset_at IS NULL')[0]
-    assert mismatched == 0
-    assert empty_db.fetchone('SELECT last_password_reset_at FROM users WHERE id = 1')[0] == \
-        datetime.fromtimestamp(1600000001, timezone.utc)
-
-    assert empty_db.fetchall('SELECT kind, queue FROM jobs ORDER BY id') == [
-        ('ping', 'default'), ('ping', 'default'), ('scheduled:snowflake_nodes_cleanup', 'scheduler')]
-    indexdef = empty_db.fetchone("SELECT indexdef FROM pg_indexes WHERE indexname = 'jobs_runnable'")[0]
-    assert '(queue, run_at, id)' in indexdef and 'done_at IS NULL' in indexdef
-
-
-def test_0003_keeps_old_and_new_user_timestamps_in_step(migrated_db):
-    """Old servers write only the legacy columns during a rolling deploy."""
-    from datetime import datetime, timezone
-    at = lambda s: datetime.fromtimestamp(s, timezone.utc)  # noqa: E731
-    migrated_db.execute(
-        "INSERT INTO users (id, email, bot, username, discriminator, flags, verified, last_email_reset, "
-        "last_password_reset) VALUES (1, 'a@x', false, 'a', 1, 0, true, 1500000000, 1500000001)")
-    assert migrated_db.fetchone('SELECT last_email_reset_at, last_password_reset_at FROM users') == \
-        (at(1500000000), at(1500000001))
-
-    migrated_db.execute('UPDATE users SET last_password_reset = 1700000000')  # old code: reset
-    assert migrated_db.fetchone('SELECT last_password_reset_at FROM users')[0] == at(1700000000)
-
-    # new code writes both; the trigger leaves its value alone
-    migrated_db.execute('UPDATE users SET last_password_reset = 1700000005, last_password_reset_at = %s',
-                        (at(1700000005),))
-    assert migrated_db.fetchone('SELECT last_password_reset_at FROM users')[0] == at(1700000005)
-    migrated_db.execute('UPDATE users SET verified = false')  # unrelated update: untouched
-    assert migrated_db.fetchone('SELECT last_password_reset_at FROM users')[0] == at(1700000005)
-
-
-def test_pending_drop_legacy_drops_the_legacy_objects(migrated_db, tmp_path):
-    import shutil
-    # as at its release: numbered after the latest applied migration
-    shutil.copy(os.path.join(migrate.MIGRATIONS_DIR, 'pending', 'drop_legacy.sql'), tmp_path / '0008_drop_legacy.sql')
-    assert [m.version for m in migrate.migrate(migrated_db.conn, directory=str(tmp_path))] == ['0008']
-    assert 'file_views' not in table_names(migrated_db)
-    columns = [r[0] for r in migrated_db.fetchall(
-        "SELECT column_name FROM information_schema.columns WHERE table_name = 'users'")]
-    assert 'last_password_reset' not in columns and 'last_password_reset_at' in columns
-    # the code still works against the post-0004 schema
-    migrated_db.execute(
-        "INSERT INTO users (id, email, bot, username, discriminator, flags, verified, last_email_reset_at, "
-        "last_password_reset_at) VALUES (1, 'a@x', false, 'a', 1, 0, true, now(), now())")
+    # each version is recorded with its name and checksum
+    rows = empty_db.fetchall('SELECT version, name, checksum, applied_at FROM schema_migrations ORDER BY version')
+    assert [(v, n) for v, n, _, _ in rows] == VERSIONS
+    assert [c for _, _, c, _ in rows] == [m.checksum for m in migrate.discover()]
+    assert all(at is not None for _, _, _, at in rows)
+    assert migrate.applied_versions(empty_db.conn) == {m.version: m.checksum for m in migrate.discover()}
 
 
 def test_failed_migration_rolls_back(empty_db, tmp_path):
@@ -252,6 +69,24 @@ def test_failed_migration_rolls_back(empty_db, tmp_path):
     # fixing the file lets the runner continue from where it stopped
     (tmp_path / '0002_broken.sql').write_text('CREATE TABLE half_table (id int);')
     assert [m.version for m in migrate.migrate(empty_db.conn, directory=str(tmp_path))] == ['0002']
+
+
+def test_refuses_a_database_with_a_different_history(empty_db, tmp_path):
+    """A database migrated before the squash records 0001 as `baseline`: running today's
+    code on it would mean the wrong schema, so the runner stops instead of warning."""
+    (tmp_path / '0001_baseline.sql').write_text('CREATE TABLE old_table (id int);')
+    (tmp_path / '0002_jobs.sql').write_text('CREATE TABLE old_jobs (id int);')
+    migrate.migrate(empty_db.conn, directory=str(tmp_path))
+
+    with pytest.raises(migrate.HistoryMismatch, match="'baseline' in the database but 'schema' here"):
+        migrate.migrate(empty_db.conn)
+    assert 'mimetypes' not in table_names(empty_db)  # nothing new was applied
+
+    (tmp_path / '0001_baseline.sql').unlink()
+    (tmp_path / '0002_jobs.sql').unlink()
+    (tmp_path / '0001_baseline.sql').write_text('CREATE TABLE old_table (id int);')
+    with pytest.raises(migrate.HistoryMismatch, match='0002 \\(jobs\\) is applied but has no file here'):
+        migrate.migrate(empty_db.conn, directory=str(tmp_path))
 
 
 def test_rejects_badly_named_files(tmp_path):
@@ -276,51 +111,7 @@ def test_concurrent_runners_apply_each_migration_once(empty_db):
     for thread in threads:
         thread.join()
 
-    applied = [m.version for result in results for m in result]
-    assert sorted(applied) == ALL_VERSIONS
-
-
-# --- 0004 / 0005 (Milestone 2) on production-shaped data ------------------------------------
-
-def test_0004_on_existing_data(empty_db, tmp_path):
-    import shutil
-    load_legacy_schema(empty_db)
-    upto = tmp_path / 'upto3'
-    upto.mkdir()
-    for name in ('0001_baseline.sql', '0002_jobs_and_snowflake_nodes.sql', '0003_views_timestamps_queues.sql'):
-        shutil.copy(os.path.join(migrate.MIGRATIONS_DIR, name), upto)
-    migrate.migrate(empty_db.conn, directory=str(upto))
-
-    conn = empty_db.conn
-    conn.execute("INSERT INTO mimetype_types (id) VALUES ('text')")
-    conn.execute("INSERT INTO mimetypes (id, flags, type_id) VALUES ('text/plain', 0, 'text')")
-    conn.execute("INSERT INTO file_hashes (id, blake2b, sha1, md5, size) "
-                 "SELECT n, 'b' || n, 's' || n, 'm' || n, n * 100 FROM generate_series(1, 50) n")
-    conn.execute("INSERT INTO files (id, vanity, mimetype_id, filename, hash_id, view_count) "
-                 "SELECT n, 'v' || n, 'text/plain', 'f', 1 + n % 50, 0 FROM generate_series(1, 3000) n")
-
-    assert [m.version for m in migrate.migrate(conn)] == ['0004', '0005', '0006', '0007']
-
-    # size backfilled from the blob, in one statement
-    assert empty_db.fetchone('SELECT count(*) FROM files f JOIN file_hashes h ON h.id = f.hash_id '
-                             'WHERE f.size IS DISTINCT FROM h.size')[0] == 0
-    # existing rows: link, version 0, 1 h
-    assert empty_db.fetchone("SELECT count(*) FROM files WHERE visibility = 'link' AND access_version = 0 "
-                             "AND unlock_ttl = 3600 AND NOT show_name_when_locked")[0] == 3000
-    # every blob is on B2 (the import copies them): no storage backend column
-    assert empty_db.fetchone("SELECT count(*) FROM information_schema.columns WHERE table_name = 'file_hashes' "
-                             "AND column_name = 'storage_backend'")[0] == 0
-    # the CHECKs are validated, and every index from 0005 exists and is valid
-    assert empty_db.fetchall("SELECT conname FROM pg_constraint WHERE conrelid = 'files'::regclass "
-                             "AND contype = 'c' AND NOT convalidated") == []
-    indexes = dict(empty_db.fetchall(
-        "SELECT c.relname, i.indisvalid FROM pg_index i JOIN pg_class c ON c.oid = i.indexrelid "
-        "WHERE i.indrelid = 'files'::regclass"))
-    for name in ('files_user_id_desc', 'files_fingerprint_id_desc', 'files_user_mimetype', 'files_user_size',
-                 'files_expires_at', 'files_filename_trgm', 'files_uploader_ip', 'file_hash_id'):
-        assert indexes.get(name) is True, name
-    with pytest.raises(Exception):
-        conn.execute("UPDATE files SET visibility = 'public' WHERE id = 1")
+    assert sorted(m.version for result in results for m in result) == [v for v, _ in VERSIONS]
 
 
 def test_no_transaction_migration_recovers_an_invalid_index(empty_db, tmp_path):
@@ -337,3 +128,272 @@ def test_no_transaction_migration_recovers_an_invalid_index(empty_db, tmp_path):
     assert [m.version for m in migrate.migrate(empty_db.conn, directory=str(tmp_path))] == ['0001']
     assert empty_db.fetchone("SELECT indisvalid FROM pg_index i JOIN pg_class c ON c.oid = i.indexrelid "
                              "WHERE c.relname = 't_id'")[0] is True
+
+
+# --- the schema ------------------------------------------------------------------------------------------------
+
+def test_row_types_match_schema(migrated_db):
+    """The db layer's dataclasses name every column of their table, in table order."""
+    from dataclasses import fields
+    from db.models import ROW_TYPES
+    for row_type in ROW_TYPES:
+        names = [f.name for f in fields(row_type) if not f.metadata.get('virtual')]
+        assert names == column_names(migrated_db, row_type.TABLE), row_type.__name__
+
+
+def test_no_legacy_objects(migrated_db):
+    assert 'file_views' not in table_names(migrated_db)
+    users = column_names(migrated_db, 'users')
+    assert 'last_email_reset' not in users and 'last_password_reset' not in users
+    assert {'last_email_reset_at', 'last_password_reset_at'} <= set(users)
+    for table, column in (('file_hashes', 'storage_backend'), ('file_hashes', 'width'), ('file_hashes', 'height'),
+                          ('file_hashes', 'duration')):
+        assert column not in column_names(migrated_db, table)
+    # no triggers, and no functions of our own (pg_trgm's belong to the extension)
+    assert migrated_db.fetchall("SELECT tgname FROM pg_trigger WHERE NOT tgisinternal") == []
+    assert migrated_db.fetchall(
+        "SELECT p.proname FROM pg_proc p WHERE p.pronamespace = 'public'::regnamespace AND NOT EXISTS "
+        "(SELECT 1 FROM pg_depend d WHERE d.classid = 'pg_proc'::regclass AND d.objid = p.oid AND d.deptype = 'e')"
+    ) == []
+    # every constraint is validated, and every index valid
+    assert migrated_db.fetchall("SELECT conname FROM pg_constraint WHERE connamespace = 'public'::regnamespace "
+                                "AND NOT convalidated") == []
+    assert migrated_db.fetchall("SELECT indexrelid::regclass FROM pg_index WHERE NOT indisvalid") == []
+
+
+def test_column_types_are_idiomatic(migrated_db):
+    types = migrated_db.fetchall(
+        "SELECT table_name, column_name, data_type FROM information_schema.columns WHERE table_schema = 'public'")
+    assert [t for t in types if t[2] in ('character varying', 'character', 'timestamp without time zone')] == []
+    by_column = {(t, c): d for t, c, d in types}
+    # Snowflake ids are bigint
+    for table in ('users', 'file_hashes', 'files', 'albums', 'upload_sessions'):
+        assert by_column[(table, 'id')] == 'bigint', table
+    for table, column in (('files', 'hash_id'), ('files', 'user_id'), ('files', 'size'), ('file_hashes', 'size'),
+                          ('album_files', 'file_id'), ('unlock_attempts', 'album_id')):
+        assert by_column[(table, column)] == 'bigint', (table, column)
+
+
+def foreign_keys(temp):
+    """{(table, column): (referenced table, on delete)} for single-column foreign keys."""
+    rows = temp.fetchall(
+        """
+        SELECT con.conrelid::regclass::text, a.attname, con.confrelid::regclass::text, con.confdeltype
+        FROM pg_constraint con JOIN pg_attribute a ON a.attrelid = con.conrelid AND a.attnum = con.conkey[1]
+        WHERE con.contype = 'f' AND con.connamespace = 'public'::regnamespace AND cardinality(con.conkey) = 1
+        """)
+    actions = {'a': 'no action', 'r': 'restrict', 'c': 'cascade', 'n': 'set null', 'd': 'set default'}
+    return {(t, c): (ref, actions[action]) for t, c, ref, action in rows}
+
+
+def test_foreign_keys(migrated_db):
+    assert foreign_keys(migrated_db) == {
+        ('mimetypes', 'type_id'): ('mimetype_types', 'no action'),
+        ('mimetype_extensions', 'mimetype_id'): ('mimetypes', 'cascade'),
+        ('file_hash_assets', 'hash_id'): ('file_hashes', 'cascade'),
+        # blob garbage collection deletes the files before their hash (jobs/gc.py)
+        ('files', 'hash_id'): ('file_hashes', 'no action'),
+        ('files', 'mimetype_id'): ('mimetypes', 'no action'),
+        ('files', 'user_id'): ('users', 'no action'),
+        ('file_view_days', 'file_id'): ('files', 'cascade'),
+        ('file_view_seen', 'file_id'): ('files', 'cascade'),
+        ('albums', 'owner_user_id'): ('users', 'cascade'),
+        ('albums', 'cover_file_id'): ('files', 'set null'),
+        ('album_files', 'album_id'): ('albums', 'cascade'),
+        ('album_files', 'file_id'): ('files', 'cascade'),
+        ('upload_sessions', 'owner_user_id'): ('users', 'cascade'),
+        ('upload_sessions', 'mimetype_id'): ('mimetypes', 'no action'),
+        ('upload_sessions', 'file_id'): ('files', 'set null'),
+        ('upload_sessions', 'album_id'): ('albums', 'set null'),
+        ('upload_parts', 'session_id'): ('upload_sessions', 'cascade'),
+        ('unlock_attempts', 'file_id'): ('files', 'cascade'),
+        ('unlock_attempts', 'album_id'): ('albums', 'cascade'),
+    }
+
+
+def insert_file(temp, file_id, **columns):
+    values = {'id': file_id, 'vanity': 'v{}'.format(file_id), 'mimetype_id': 'text/plain', 'filename': 'f',
+              'hash_id': 1, 'size': 1, **columns}
+    temp.execute('INSERT INTO files ({}) VALUES ({})'.format(', '.join(values), ', '.join(['%s'] * len(values))),
+                 list(values.values()))
+
+
+@pytest.mark.parametrize('sql', [
+    "UPDATE files SET visibility = 'public'",
+    'UPDATE files SET unlock_ttl = 0',
+    'UPDATE files SET size = NULL',
+    'UPDATE files SET size = -1',
+    "UPDATE files SET filename = repeat('a', 129)",
+    "UPDATE files SET vanity = repeat('a', 129)",
+    "UPDATE files SET extension = 'abcdefghijklm'",
+    "UPDATE files SET mimetype_id = 'application/x-msdownload'",
+    "UPDATE file_hashes SET processing_state = 'unknown'",
+    "INSERT INTO file_hashes (id, blake2b, sha1, md5, size) VALUES (2, 'b', 's', 'm', 1)",
+    "INSERT INTO unlock_attempts (file_id, album_id, scope, ip_hash, window_start) VALUES (1, NULL, 'nope', '\\x00', now())",
+    "INSERT INTO unlock_attempts (file_id, album_id, scope, ip_hash, window_start) VALUES (NULL, NULL, 'unlock', '\\x00', now())",
+    "INSERT INTO mimetypes (id, type_id) VALUES ('Image/X-Thing', 'image')",
+    "INSERT INTO mimetypes (id, type_id) VALUES ('image/x-thing', 'video')",
+    "INSERT INTO mimetype_extensions (mimetype_id, extension) VALUES ('text/plain', 'TXT2')",
+    "INSERT INTO mimetype_extensions (mimetype_id, extension) VALUES ('text/plain', '.txt2')",
+    "INSERT INTO users (id, email, bot, username, discriminator, flags, verified) "
+    "VALUES (2, 'a@x', false, repeat('u', 33), 1, 0, false)",
+    "UPDATE albums SET moderation_state = 'gone'",
+])
+def test_constraints(migrated_db, sql):
+    migrated_db.execute("INSERT INTO file_hashes (id, blake2b, sha1, md5, size) VALUES (1, 'b', 's', 'm', 1)")
+    insert_file(migrated_db, 1, extension='txt')
+    migrated_db.execute("INSERT INTO albums (id, vanity, owner_fingerprint) VALUES (1, 'a1', 7)")
+    with pytest.raises(psycopg.errors.IntegrityError):
+        migrated_db.execute(sql)
+
+
+def test_deleting_a_blobs_rows(migrated_db):
+    """What jobs/gc.py relies on: a hash can't go while a file uses it, and a file's rows
+    go with it."""
+    migrated_db.execute("INSERT INTO file_hashes (id, blake2b, sha1, md5, size) VALUES (1, 'b', 's', 'm', 1)")
+    migrated_db.execute("INSERT INTO file_hash_assets (hash_id, kind, storage_key, content_type, size) "
+                        "VALUES (1, 'thumb', 'derived/1/thumb.webp', 'image/webp', 1)")
+    insert_file(migrated_db, 1)
+    migrated_db.execute("INSERT INTO albums (id, vanity, owner_fingerprint, cover_file_id) VALUES (1, 'a1', 7, 1)")
+    migrated_db.execute('INSERT INTO album_files (album_id, file_id, position) VALUES (1, 1, 0)')
+    migrated_db.execute("INSERT INTO file_view_days (file_id, day, views) VALUES (1, '2026-11-25', 1)")
+    migrated_db.execute("INSERT INTO unlock_attempts (file_id, scope, ip_hash, window_start) "
+                        "VALUES (1, 'unlock', '\\x00', now())")
+    with pytest.raises(psycopg.errors.ForeignKeyViolation):
+        migrated_db.execute('DELETE FROM file_hashes WHERE id = 1')
+
+    migrated_db.execute('DELETE FROM files WHERE hash_id = 1')
+    migrated_db.execute('DELETE FROM file_hashes WHERE id = 1')
+    assert migrated_db.fetchone(
+        'SELECT (SELECT count(*) FROM album_files) + (SELECT count(*) FROM file_view_days) + '
+        '(SELECT count(*) FROM unlock_attempts) + (SELECT count(*) FROM file_hash_assets)')[0] == 0
+    assert migrated_db.fetchone('SELECT cover_file_id FROM albums WHERE id = 1')[0] is None
+
+
+# --- the mimetype seed ---------------------------------------------------------------------------------------
+
+def extensions_by_mimetype(temp):
+    out = {}
+    for mimetype, extension, priority in temp.fetchall(
+            'SELECT mimetype_id, extension, priority FROM mimetype_extensions ORDER BY ctid'):
+        out.setdefault(mimetype, []).append((extension, priority))
+    return out
+
+
+def first_mimetype(temp, extension):
+    """What an extension on its own resolves to (db/queries.py get_extension)."""
+    row = temp.fetchone('SELECT mimetype_id FROM mimetype_extensions WHERE extension = %s ORDER BY ctid LIMIT 1',
+                        (extension,))
+    return row and row[0]
+
+
+def test_seed_accepts_a_wide_set_of_types(migrated_db):
+    extensions = extensions_by_mimetype(migrated_db)
+    for mimetype, extension in (
+            ('image/heic', 'heic'), ('image/heif', 'heif'), ('image/avif', 'avif'), ('image/tiff', 'tif'),
+            ('image/vnd.adobe.photoshop', 'psd'), ('image/svg+xml', 'svg'), ('video/mp4', 'mp4'),
+            ('video/quicktime', 'mov'), ('video/x-matroska', 'mkv'), ('audio/flac', 'flac'), ('audio/mp4', 'm4a'),
+            ('application/pdf', 'pdf'),
+            ('application/vnd.openxmlformats-officedocument.wordprocessingml.document', 'docx'),
+            ('application/zip', 'zip'), ('application/x-7z-compressed', '7z'), ('application/vnd.rar', 'rar'),
+            ('text/plain', 'txt'), ('text/x-python', 'py'), ('text/javascript', 'js'), ('text/html', 'html'),
+            ('application/xml', 'xml'), ('application/json', 'json'), ('font/woff2', 'woff2'),
+            ('model/gltf-binary', 'glb'), ('model/stl', 'stl'), ('application/octet-stream', 'bin')):
+        assert extension in [e for e, _ in extensions.get(mimetype, [])], mimetype
+
+
+def test_seed_has_no_executables(migrated_db):
+    mimetypes = {r[0] for r in migrated_db.fetchall('SELECT id FROM mimetypes')}
+    assert mimetypes.isdisjoint(BLOCKED_MIMETYPES)
+    assert not any('macroenabled' in m for m in mimetypes)
+    blocked = migrated_db.fetchall('SELECT mimetype_id, extension FROM mimetype_extensions WHERE extension = ANY(%s)',
+                                   (BLOCKED_EXTENSIONS,))
+    assert blocked == []
+
+
+def test_seed_covers_the_media_code_and_the_viewer(migrated_db):
+    extensions = extensions_by_mimetype(migrated_db)
+    # every name the media pipeline treats as an image
+    for mimetype in media.BROWSER_IMAGES | {'application/x-photoshop', 'application/photoshop', 'application/psd'}:
+        assert mimetype in extensions, mimetype
+        assert media.probe_kind(mimetype) == 'image', mimetype
+    # each viewer kind (web: image, pdf, video, audio, text) has types, and so do the other images
+    kinds = {}
+    for mimetype in extensions:
+        kinds.setdefault(media.base_kind(mimetype), set()).add(mimetype)
+        if media.is_other_image(mimetype):
+            kinds.setdefault('other image', set()).add(mimetype)
+    assert {'image', 'pdf', 'video', 'audio', 'text', 'file', 'other image'} <= set(kinds)
+    assert {'image/heic', 'image/tiff', 'image/vnd.adobe.photoshop'} <= kinds['other image']
+    # HTML and XML are uploadable, but not `kind: text` (the CDN serves them as text/plain)
+    assert media.base_kind('text/html') == 'file' and 'text/html' in extensions
+    # every highlighted language's extension is accepted, as text (minus the blocked Windows scripts)
+    for extension in set(media.LANGUAGES) - set(BLOCKED_EXTENSIONS):
+        mimetype = first_mimetype(migrated_db, extension)
+        assert mimetype is not None, extension
+        assert media.base_kind(mimetype) == 'text' or mimetype in ('application/xml', 'text/html'), (extension, mimetype)
+    # JSON and subtitles are text even though their types aren't text/* (the viewer highlights them)
+    for mimetype in ('application/json', 'application/ld+json', 'application/x-ipynb+json', 'application/x-subrip'):
+        assert mimetype in extensions and media.base_kind(mimetype) == 'text', mimetype
+        assert media.probe_kind(mimetype) == 'text', mimetype
+
+
+def test_seed_extensions(migrated_db):
+    extensions = extensions_by_mimetype(migrated_db)
+    for mimetype, rows in extensions.items():
+        # one preferred extension per type, listed first (GET /mimetypes/<type> shows that order)
+        assert [p for _, p in rows].count(1) == 1 and rows[0][1] == 1, mimetype
+    assert extensions['text/plain'][0] == ('txt', 1)
+    assert migrated_db.fetchall('SELECT id FROM mimetypes WHERE NOT EXISTS '
+                                '(SELECT 1 FROM mimetype_extensions WHERE mimetype_id = id)') == []
+    # an extension on its own resolves to the canonical type, never an alias
+    for extension, mimetype in (('jpg', 'image/jpeg'), ('png', 'image/png'), ('ico', 'image/vnd.microsoft.icon'),
+                                ('psd', 'image/vnd.adobe.photoshop'), ('csv', 'text/csv'), ('py', 'text/x-python'),
+                                ('ts', 'text/typescript'), ('m4a', 'audio/mp4'), ('xml', 'application/xml')):
+        assert first_mimetype(migrated_db, extension) == mimetype, extension
+
+
+@pytest.mark.parametrize('filename, declared, expected', [
+    ('photo.heic', 'image/heic', ('photo', 'heic', 'image/heic')),
+    ('photo.HEIC', 'application/octet-stream', ('photo', 'heic', 'image/heic')),
+    ('clip.mov', 'video/quicktime', ('clip', 'mov', 'video/quicktime')),
+    # names browsers send that aren't listed fall back to the extension
+    ('song.m4a', 'audio/x-m4a', ('song', 'm4a', 'audio/mp4')),
+    ('archive.zip', 'application/x-zip-compressed', ('archive', 'zip', 'application/zip')),
+    ('app.ts', 'video/mp2t', ('app', 'ts', 'text/typescript')),
+    ('main.rs', 'application/octet-stream', ('main', 'rs', 'text/x-rust')),
+    # a text file sent as text/plain keeps its extension
+    ('notes.py', 'text/plain', ('notes', 'py', 'text/plain')),
+    ('data.csv', 'application/vnd.ms-excel', ('data', 'csv', 'application/vnd.ms-excel')),
+    # no extension: the type's preferred one
+    ('screenshot', 'image/jpg', ('screenshot', 'jpg', 'image/jpg')),
+    ('page', 'text/html', ('page', 'html', 'text/html')),
+])
+async def test_seed_resolves_upload_names(migrated_db, filename, declared, expected):
+    from utils.uploading import resolve_name
+    async with await psycopg.AsyncConnection.connect(migrated_db.url, autocommit=True) as conn:
+        assert await resolve_name(conn, filename, None, declared) == expected
+
+
+@pytest.mark.parametrize('filename, declared', [
+    ('setup.exe', 'application/x-msdownload'),
+    ('setup.exe', 'application/vnd.microsoft.portable-executable'),
+    ('installer.msi', 'application/x-ms-installer'),
+    ('run.bat', 'application/x-bat'),
+    ('script.ps1', 'application/x-powershell'),
+    ('app.apk', 'application/vnd.android.package-archive'),
+    ('tool.jar', 'application/java-archive'),
+    ('disk.iso', 'application/x-iso9660-image'),
+    ('report.docm', 'application/vnd.ms-word.document.macroenabled.12'),
+    ('blob', 'application/x-msdownload'),
+    # sent as a generic binary: used to be stored as setup.exe.bin
+    ('setup.exe', 'application/octet-stream'),
+    ('Setup.EXE', 'application/octet-stream'),
+])
+async def test_seed_refuses_executables(migrated_db, filename, declared):
+    from utils.responses import ApiError
+    from utils.uploading import resolve_name
+    async with await psycopg.AsyncConnection.connect(migrated_db.url, autocommit=True) as conn:
+        with pytest.raises(ApiError) as error:
+            await resolve_name(conn, filename, None, declared)
+    assert error.value.code == 'FILE_TYPE_NOT_ALLOWED'

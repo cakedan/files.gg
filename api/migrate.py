@@ -111,6 +111,26 @@ def _applied(conn):
     return dict(conn.execute('SELECT version, checksum FROM schema_migrations').fetchall())
 
 
+class HistoryMismatch(RuntimeError):
+    """The database was migrated with a different set of migrations than the ones on disk
+    (for example one created before the 2026-11-25 schema squash). Running new code on it
+    would silently use the wrong schema, so the runner refuses."""
+
+
+def _check_history(conn, migrations):
+    on_disk = {m.version: m.name for m in migrations}
+    recorded = dict(conn.execute('SELECT version, name FROM schema_migrations').fetchall())
+    problems = []
+    for version, name in sorted(recorded.items()):
+        if version not in on_disk:
+            problems.append('version {} ({}) is applied but has no file here'.format(version, name))
+        elif on_disk[version] != name:
+            problems.append('version {} is {!r} in the database but {!r} here'.format(version, name, on_disk[version]))
+    if problems:
+        raise HistoryMismatch('this database has a different migration history: {}. Recreate it '
+                              '(there is no upgrade path from a pre-squash database).'.format('; '.join(problems)))
+
+
 def applied_versions(conn):
     return _applied(conn)
 
@@ -132,6 +152,7 @@ def migrate(conn, directory=MIGRATIONS_DIR):
         time.sleep(0.2)
     try:
         applied = _applied(conn)
+        _check_history(conn, migrations)
         for migration in migrations:
             if migration.version in applied:
                 if applied[migration.version] != migration.checksum:

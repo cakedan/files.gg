@@ -137,11 +137,9 @@ def test_worker_entrypoint_runs_jobs_and_exits_cleanly(migrated_db):
 def test_file_view_seen_cleanup_keeps_two_days(migrated_db):
     from datetime import date
     from jobs import tasks
-    migrated_db.execute("INSERT INTO mimetype_types (id) VALUES ('text')")
-    migrated_db.execute("INSERT INTO mimetypes (id, flags, type_id) VALUES ('text/plain', 0, 'text')")
     migrated_db.execute("INSERT INTO file_hashes (id, blake2b, sha1, md5, size) VALUES (1, 'b', 's', 'm', 1)")
-    migrated_db.execute("INSERT INTO files (id, vanity, mimetype_id, filename, hash_id, view_count) "
-                        "VALUES (1, 'v', 'text/plain', 'f', 1, 0)")
+    migrated_db.execute("INSERT INTO files (id, vanity, mimetype_id, filename, hash_id, size) "
+                        "VALUES (1, 'v', 'text/plain', 'f', 1, 1)")
     for day in ('2026-11-20', '2026-11-21', '2026-11-22', '2026-11-23', '2026-11-24'):
         migrated_db.execute("INSERT INTO file_view_seen (file_id, day, ip_hash) VALUES (1, %s, '\\x00')", (day,))
     assert tasks.cleanup_view_seen(migrated_db.conn, today=date(2026, 11, 24)) == 2

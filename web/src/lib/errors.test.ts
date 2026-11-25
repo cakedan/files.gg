@@ -6,6 +6,15 @@ import { ALBUM_ERROR_CODES, errorMessage } from './errors';
 const err = (status: number, code: string | null, details: Record<string, unknown> = {}) =>
   new ApiError(status, code, 'raw server message', { code, ...details });
 
+describe('errorMessage: file types', () => {
+  it('explains why an executable was refused', () => {
+    expect(errorMessage(err(400, 'FILE_TYPE_NOT_ALLOWED'))).toBe(
+      "This type of file can't be uploaded. Programs, installers and scripts aren't allowed.",
+    );
+    expect(errorMessage(err(400, 'INVALID_MIMETYPE'))).toBe("files.gg doesn't accept this type of file.");
+  });
+});
+
 describe('errorMessage: Milestone 3 codes', () => {
   it.each([
     [err(404, 'UNKNOWN_ALBUM'), "This album doesn't exist or was deleted."],

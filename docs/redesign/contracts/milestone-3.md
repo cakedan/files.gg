@@ -33,7 +33,7 @@ The design behind each item is in [`../PLAN.md`](../PLAN.md) ("Media processing"
 
 ---
 
-## 1. Schema (migration `0006_milestone3.sql`, indexes in `0007_milestone3_indexes.sql` with `CONCURRENTLY`)
+## 1. Schema (now part of `api/migrations/0001_schema.sql`, after the 2026-11-25 squash)
 
 **`file_hashes` gains:**
 
@@ -337,6 +337,7 @@ For a password album the Worker renders the `locked` shell; for a private one, `
 | `ALBUM_LIMIT_REACHED` | 400 | `limit` |
 | `ANONYMOUS_ALBUM_NOT_ALLOWED` | 403 | |
 | `ZIP_TOO_LARGE` | 413 | `limit` (Worker) |
+| `FILE_TYPE_NOT_ALLOWED` | 400 | Executables and malware-style files, refused by filename extension, declared mimetype **or content** (PE, ELF, Mach-O, Java class and `.lnk` headers), on `POST /files`, `POST /uploads`, chunk 0 and finalize (`api/utils/filetypes.py`). |
 
 ---
 

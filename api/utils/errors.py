@@ -69,6 +69,11 @@ def invalid_mimetype():
     return coded('INVALID_MIMETYPE', 400, 'Invalid mimetype')
 
 
+def file_type_not_allowed():
+    """Executables and malware-style files (utils/filetypes.py), by name, type or content."""
+    return coded('FILE_TYPE_NOT_ALLOWED', 400, "This type of file can't be uploaded")
+
+
 def unknown_type():
     return coded('UNKNOWN_TYPE', 404, 'Unknown type')
 

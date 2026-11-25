@@ -40,8 +40,7 @@ class User:
     password: Optional[str]
     flags: int
     verified: bool
-    # timestamptz since 0003; the legacy unix-seconds columns (last_email_reset,
-    # last_password_reset) are only written, for old servers, until 0004 drops them
+    # tokens issued before these (whole seconds) are rejected; None = never reset
     last_email_reset_at: Optional[datetime]
     last_password_reset_at: Optional[datetime]
     # manual storage limit bump (PLAN.md "Limits"); None = the default
@@ -106,10 +105,8 @@ class FileHash:
     sha1: str
     md5: str
     size: int
-    height: Optional[int]
-    width: Optional[int]
-    duration: Optional[int]
-    # Milestone 3: the probe output, and pending -> probed -> done (or failed / skipped)
+    # the probe output (width, height, duration, ...), and pending -> probed -> done (or
+    # failed / skipped)
     media: Optional[dict] = None
     processing_state: str = 'pending'
     probed_at: Optional[datetime] = None
@@ -276,8 +273,6 @@ class AlbumFile:
     added_at: datetime
 
 
-# Row types and the table columns they deliberately leave out (legacy columns
-# that only exist until pending/0004_drop_legacy.sql).
+# Every row type; each names all of its table's columns, in table order (tests/test_migrations.py).
 ROW_TYPES = (User, MimetypeExtension, Mimetype, FileHash, File, FileViewDay, UploadSession, UploadPart, FileHashAsset,
              Album, AlbumFile)
-LEGACY_COLUMNS = {'users': ('last_email_reset', 'last_password_reset')}

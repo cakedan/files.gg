@@ -101,10 +101,6 @@ def delete_blob(hash_id, client=None, conn=None):
             keys = derived + [storage_module.blob_key(hash_id)]
             for key in keys:
                 client.delete_object(Bucket=bucket(), Key=key)
-            if conn.execute("SELECT to_regclass('file_views')").fetchone()[0] is not None:
-                # the legacy view rows have no cascade (dropped by pending/drop_legacy.sql)
-                conn.execute('DELETE FROM file_views WHERE file_id IN (SELECT id FROM files WHERE hash_id = %s)',
-                             (hash_id,))
             conn.execute('DELETE FROM files WHERE hash_id = %s', (hash_id,))
             conn.execute('DELETE FROM file_hashes WHERE id = %s', (hash_id,))
     log.info('deleted blob %s and %d derived object(s)', hash_id, len(derived))

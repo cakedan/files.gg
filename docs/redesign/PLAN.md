@@ -29,7 +29,7 @@ The exact cross-service formats are in [`contracts/milestone-2.md`](contracts/mi
 | **e2e** (`e2e/`) | A one-command local stack (`e2e/up.sh`: Postgres, MinIO, API, worker, `wrangler dev`, web build) on `*.localhost`, with named volumes only, and `e2e/run.mjs`. | 9 steps and 136 checks green. Also walked through by hand in a browser: anonymous upload with a generated password, then lock screen, wrong password, unlock (token expiry = the 1 h setting), reload via the stored token, the CDN without a token (401, `private, no-store`), and a `#pw=` link auto-unlock with the fragment stripped. |
 
 **Found in the Milestone 2 checks (to do):**
-- **Mimetype tables are empty after the migrations.** A fresh database refuses every upload. Needs a curated seed in the migrations (no old data is migrated); the e2e stack uses `e2e/seed/mimetypes.sql` for now. **Blocks any fresh environment.**
+- ~~**Mimetype tables are empty after the migrations.**~~ Fixed by the 2026-11-25 squash: `0002_mimetypes.sql` seeds 228 curated types, and the e2e seed file is gone.
 - **Access changes take up to ~30 s to reach the CDN,** because of the Worker's lookup cache (contract §2). The plan promises immediate revocation. Options: shorten the cache to ~5 s, or have the API bump a purge key the Worker checks. Decide before launch.
 - ~~**`#pw=` / `#t=` pasted into an already-open tab of the same file** leaves the password visible in the address bar.~~ Fixed on `redesign/milestone-3`: the viewer also handles `hashchange` (`watchFragmentSecrets`), strips the fragment and re-mounts the page with it.
 - `test_three_workers_lease…` is flaky: a Sanic shutdown race. It was flaky before Milestone 2.
@@ -86,7 +86,22 @@ The exact formats are in [`contracts/milestone-3.md`](contracts/milestone-3.md).
    
    The kind comes before the vanity, so a vanity named `thumb`, or one with slashes, can't be misread. No ids in URLs.
 
-**Next:** squash the migrations into one clean schema, and seed the mimetype tables from a curated list. Account passwords move to argon2id with Milestone 6.
+**Schema squashed (2026-11-25):**
+- `api/migrations/` is now `0001_schema.sql` (the whole schema, written cleanly) and `0002_mimetypes.sql` (228 curated types, 456 extensions, with no executables or malware-style types).
+- Gone: `file_views`, the users timestamp-sync trigger and its integer columns, `storage_backend`, `file_hashes.width/height/duration` (the probe's `media` holds them), and redundant indexes.
+- `varchar(n)` became `text` with CHECKs.
+- **The runner refuses a database with a different history** (for example one migrated before the squash), instead of warning and running new code on the old schema. Recreate such databases.
+- JSON, notebooks, NDJSON and SRT subtitles open in the text viewer.
+- **No executables, by name, type or content** (`api/utils/filetypes.py`, error `FILE_TYPE_NOT_ALLOWED`):
+  - the filename's extension (an `.exe` sent as `application/octet-stream` used to be stored as `.bin`);
+  - the declared mimetype;
+  - the first 64 KiB of the bytes: Windows PE (`MZ` plus a real `PE\0\0` header), ELF, Mach-O, Java class and `.lnk`.
+  
+  Checked on single uploads, at `POST /uploads`, at chunk 0 (failing the session early), and again at finalize. Executables inside archives are Milestone 4's scanning.
+- Earlier sections that mention `0003`, `0004` and so on describe how the schema got here, not files that still exist.
+- **Still open:**
+  - real MPEG-TS video (`video/mp2t`) is refused, because macOS browsers declare TypeScript `.ts` files as `video/mp2t`;
+  - account passwords move to argon2id with Milestone 6.
 
 **Version policy** (decided 2026-11-24: "latest everything"):
 - **Everything starts on the latest stable release, pinned exactly:** Docker images by digest with a date comment (as in `notsobot.api`), Python and npm packages by exact version with lockfiles.

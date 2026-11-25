@@ -24,13 +24,9 @@ def appdb():
 
 
 def seed_mimetypes(appdb):
-    appdb.execute("INSERT INTO mimetype_types (id) VALUES ('text'), ('application') ON CONFLICT DO NOTHING")
-    appdb.execute(
-        "INSERT INTO mimetypes (id, flags, type_id) VALUES ('text/plain', 0, 'text'), "
-        "('application/x-thing', 0, 'application') ON CONFLICT DO NOTHING")
-    appdb.execute(
-        "INSERT INTO mimetype_extensions (mimetype_id, extension, priority) VALUES ('text/plain', 'txt', 1) "
-        "ON CONFLICT DO NOTHING")
+    """text/plain comes from the migrations' seed; add a type with no extensions."""
+    appdb.execute("INSERT INTO mimetypes (id, flags, type_id) VALUES ('application/x-thing', 0, 'application') "
+                  "ON CONFLICT DO NOTHING")
 
 
 def make_file(appdb, extension):
@@ -42,12 +38,12 @@ def make_file(appdb, extension):
         (hash_id, content, content[:40], content[:32]))
     vanity = 'v' + uuid.uuid4().hex[:10]
     appdb.execute(
-        'INSERT INTO files (id, vanity, mimetype_id, extension, filename, hash_id, view_count) '
-        'VALUES (%s, %s, %s, %s, %s, %s, 0)',
+        'INSERT INTO files (id, vanity, mimetype_id, extension, filename, hash_id, size) '
+        'VALUES (%s, %s, %s, %s, %s, %s, 5)',
         (file_id, vanity, 'application/x-thing' if extension is None else 'text/plain', extension, 'thing', hash_id))
     return File(id=file_id, vanity=vanity, mimetype_id='application/x-thing' if extension is None else 'text/plain',
                 extension=extension, filename='thing', hash_id=hash_id, user_id=None, fingerprint=None,
-                view_count=0, hash=FileHash(hash_id, content, content[:40], content[:32], 5, None, None, None))
+                view_count=0, size=5, hash=FileHash(hash_id, content, content[:40], content[:32], 5))
 
 
 def make_user(appdb):
@@ -55,7 +51,8 @@ def make_user(appdb):
     user_id = Snowflake.generate()
     appdb.execute(
         'INSERT INTO users (id, email, bot, username, discriminator, password, flags, verified, '
-        'last_email_reset, last_password_reset) VALUES (%s, %s, false, %s, 1, %s, 0, false, 1500000000, 1500000000)',
+        'last_email_reset_at, last_password_reset_at) VALUES (%s, %s, false, %s, 1, %s, 0, false, '
+        'to_timestamp(1500000000), to_timestamp(1500000000))',
         (user_id, 'u{}@example.com'.format(suffix), 'user' + suffix, helpers.hash_password('password1')))
     return user_id, 'u{}@example.com'.format(suffix)
 
@@ -290,18 +287,17 @@ def test_views_are_daily_counts_without_raw_ips(client, appdb, monkeypatch):
     assert hashes == {hashed('198.51.100.10', date(2026, 11, 24)), hashed('198.51.100.11', date(2026, 11, 24)),
                       hashed('198.51.100.10', date(2026, 11, 25))}
     assert hashed('198.51.100.10', date(2026, 11, 24)) != hashed('198.51.100.10', date(2026, 11, 25))
-    assert appdb.fetchone('SELECT count(*) FROM file_views WHERE file_id = %s', (fobj.id,))[0] == 0
 
 
 def test_token_check_around_a_password_reset(client, appdb, monkeypatch):
-    """Tokens issued before the last password reset are rejected, from the new
-    timestamptz column, exactly as before: 1 s before fails, 1 s after works."""
+    """Tokens issued before the last password reset are rejected, in whole seconds:
+    1 s before fails, the same second and later work."""
     import time as time_module
     from datetime import datetime, timezone
     user_id, _ = make_user(appdb)
     reset = int(time_module.time()) - 100
-    appdb.execute('UPDATE users SET last_password_reset_at = %s, last_password_reset = %s WHERE id = %s',
-                  (datetime.fromtimestamp(reset, timezone.utc), reset, user_id))
+    appdb.execute('UPDATE users SET last_password_reset_at = %s WHERE id = %s',
+                  (datetime.fromtimestamp(reset, timezone.utc), user_id))
 
     real_time = time_module.time
 
@@ -318,7 +314,7 @@ def test_token_check_around_a_password_reset(client, appdb, monkeypatch):
     assert me(token_at(reset + 1)) == 200
 
 
-def test_password_reset_writes_both_timestamp_columns(client, appdb):
+def test_password_reset_revokes_older_tokens(client, appdb):
     import time as time_module
     from utils.tokens import EmailForgotToken
     user_id, email = make_user(appdb)
@@ -329,9 +325,8 @@ def test_password_reset_writes_both_timestamp_columns(client, appdb):
     time_module.sleep(1.1)  # the reset must land in a later second than the old token
     response = client.post('/auth/forgot/reset', json={'token': token, 'password': 'brand-new-pw'})
     assert response.status_code == 204, response.text
-    at, legacy = appdb.fetchone('SELECT last_password_reset_at, last_password_reset FROM users WHERE id = %s',
-                                (user_id,))
-    assert int(at.timestamp()) == legacy and abs(legacy - time_module.time()) < 5
+    at = appdb.fetchone('SELECT last_password_reset_at FROM users WHERE id = %s', (user_id,))[0]
+    assert at.microsecond == 0 and abs(at.timestamp() - time_module.time()) < 5
     assert client.get('/users/@me', headers={'Authorization': old_token}).status_code == 401
     time_module.sleep(1)  # the reset second is rounded (as Peewee did), so it may be the next one
     assert client.get('/users/@me', headers={'Authorization': UserToken.generate(user_id)}).status_code == 200

@@ -14,7 +14,7 @@ from urllib.parse import parse_qs
 from sanic.request.parameters import RequestParameters
 
 from db import queries
-from utils import limits as limits_module
+from utils import filetypes, limits as limits_module
 from utils import passwords, view_hash
 from utils import errors
 from utils.generators import EPOCH
@@ -73,17 +73,28 @@ def unlock_ttl(value):
 
 
 class Hasher:
+    """Digests and size of an upload as it streams through, plus its first bytes
+    (`head`) for the executable sniffer in utils/filetypes.py."""
+
     def __init__(self):
         self.blake2b = hashlib.blake2b()
         self.md5 = hashlib.md5()
         self.sha1 = hashlib.sha1()
         self.size = 0
+        self.head = bytearray()
 
     def update(self, data):
+        if len(self.head) < filetypes.SNIFF_BYTES:
+            self.head += data[:filetypes.SNIFF_BYTES - len(self.head)]
         self.blake2b.update(data)
         self.md5.update(data)
         self.sha1.update(data)
         self.size += len(data)
+
+    def check_content(self):
+        """Raises FILE_TYPE_NOT_ALLOWED when the bytes are an executable, whatever the name says."""
+        if filetypes.sniff_executable(self.head):
+            raise errors.file_type_not_allowed()
 
     def digests(self):
         return self.blake2b.hexdigest(), self.md5.hexdigest(), self.sha1.hexdigest()
@@ -93,7 +104,11 @@ class Hasher:
 
 async def resolve_name(conn, filename, fextension, mimetype):
     """(name, extension, mimetype) as `POST /files` always resolved them.
-    Raises INVALID_MIMETYPE for types files.gg doesn't accept."""
+    Raises FILE_TYPE_NOT_ALLOWED for executables and malware-style names or types (even
+    when declared as application/octet-stream), and INVALID_MIMETYPE for anything else
+    files.gg doesn't accept."""
+    if filetypes.blocked_name(filename, fextension) or filetypes.blocked_mimetype(mimetype):
+        raise errors.file_type_not_allowed()
     if filename is None:
         fname = [generate_vanity()]
     else:

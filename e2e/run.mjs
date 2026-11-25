@@ -719,6 +719,28 @@ await step('12. library: list, filters, keep forever, delete removes from albums
   equal(previewGone.state, 404, 'a deleted file\'s previews are gone (after the lookup cache)');
 });
 
+await step('13. executables are refused: by name, disguised as an image, and in a chunked upload', async () => {
+  // A minimal Windows PE header: "MZ", the PE offset at 0x3C, then "PE\0\0" there.
+  const pe = Buffer.alloc(4096, 0xcc);
+  pe.write('MZ', 0, 'latin1');
+  pe.writeUInt32LE(0x80, 0x3c);
+  pe.write('PE\0\0', 0x80, 'latin1');
+  const refused = (response, what) => equal([response.status, response.data && response.data.code], [400, 'FILE_TYPE_NOT_ALLOWED'], what);
+
+  refused(await uploadFile(OWNER, { bytes: Buffer.from('not really a program'), filename: 'setup.exe', type: 'application/octet-stream' }), 'setup.exe sent as a generic binary');
+  refused(await uploadFile(OWNER, { bytes: pe, filename: 'photo.png', type: 'image/png' }), 'a program renamed photo.png');
+  refused(await uploadFile(OWNER, { bytes: Buffer.from('hello'), filename: 'photo.png', type: 'application/x-msdownload' }), 'declared as a Windows program');
+
+  const session = await api('/uploads', { method: 'POST', headers: OWNER, json: { filename: 'tool.bin', size: pe.length } });
+  equal(session.status, 201, 'a chunked upload with a harmless name starts');
+  refused(await request(`${API}/uploads/${session.data.upload_id}/chunks/0`, { method: 'PUT', headers: OWNER, body: pe }), 'its first chunk is a program');
+  const state = await api(`/uploads/${session.data.upload_id}`, { headers: OWNER });
+  equal([state.data.status, state.data.error], ['failed', 'FILE_TYPE_NOT_ALLOWED'], 'and the session is failed');
+
+  const ok = await uploadFile(OWNER, { bytes: Buffer.from('MZ was here.\n'), filename: 'mz.txt', type: 'text/plain' });
+  equal(ok.status, 200, 'a text file that merely starts with "MZ" is fine');
+});
+
 const failed = results.filter((result) => !result.ok);
 const checks = results.reduce((sum, result) => sum + result.checks, 0);
 console.log(`\n${results.length - failed.length}/${results.length} steps passed, ${checks} checks` +

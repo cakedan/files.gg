@@ -66,3 +66,6 @@ db-dumps/
 .data/
 .cache/
 .restore/
+
+# macOS Finder metadata
+.DS_Store

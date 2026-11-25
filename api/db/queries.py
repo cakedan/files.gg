@@ -64,45 +64,39 @@ async def get_users(conn, user_ids):
     return {row[0]: from_row(User, row) for row in rows}
 
 
-def _timestamp(seconds):
-    """(timestamptz, legacy unix seconds) for the same whole second. Token
-    checks compare whole seconds, as they did with the old BIGINT columns."""
-    return datetime.fromtimestamp(seconds, timezone.utc), seconds
+def _whole_second(seconds):
+    """A timestamptz on a whole second: token checks compare whole seconds."""
+    return datetime.fromtimestamp(seconds, timezone.utc)
 
-
-# The *_at columns are the ones the code reads. The legacy unix-seconds columns
-# are dual-written so servers still on the previous release (which read them)
-# see the same values during a rolling deploy; pending/0004 drops them.
 
 async def create_user(conn, id, email, username, discriminator, password):
-    # Peewee's TimestampField default (datetime.now) was stored truncated to seconds
-    at, seconds = _timestamp(int(time.time()))
+    # truncated to the second, as Peewee's TimestampField default stored it
+    at = _whole_second(int(time.time()))
     row = await _one(
         conn,
         'INSERT INTO users (id, email, bot, username, discriminator, password, flags, verified, '
-        'last_email_reset_at, last_password_reset_at, last_email_reset, last_password_reset) '
-        'VALUES (%s, %s, false, %s, %s, %s, 0, false, %s, %s, %s, %s) '
+        'last_email_reset_at, last_password_reset_at) '
+        'VALUES (%s, %s, false, %s, %s, %s, 0, false, %s, %s) '
         'RETURNING {}'.format(USER_COLUMNS),
-        (id, email, username, discriminator, password, at, at, seconds, seconds),
+        (id, email, username, discriminator, password, at, at),
     )
     return from_row(User, row)
 
 
 async def mark_email_verified(conn, user_id, email):
-    # an explicit time.time() was stored rounded by Peewee
-    at, seconds = _timestamp(int(round(time.time())))
+    # rounded to the second, as Peewee stored an explicit time.time()
+    at = _whole_second(int(round(time.time())))
     await conn.execute(
-        'UPDATE users SET email = %s, last_email_reset_at = %s, last_email_reset = %s, verified = true '
-        'WHERE id = %s',
-        (email, at, seconds, user_id),
+        'UPDATE users SET email = %s, last_email_reset_at = %s, verified = true WHERE id = %s',
+        (email, at, user_id),
     )
 
 
 async def set_password(conn, user_id, password_hash):
-    at, seconds = _timestamp(int(round(time.time())))
+    at = _whole_second(int(round(time.time())))
     await conn.execute(
-        'UPDATE users SET password = %s, last_password_reset_at = %s, last_password_reset = %s WHERE id = %s',
-        (password_hash, at, seconds, user_id),
+        'UPDATE users SET password = %s, last_password_reset_at = %s WHERE id = %s',
+        (password_hash, at, user_id),
     )
 
 
@@ -164,7 +158,9 @@ async def list_mimetypes(conn, type_id=None):
 
 
 async def get_extension(conn, extension, mimetype_id=None):
-    sql = 'SELECT {} FROM mimetype_extensions WHERE extension = %s'.format(EXTENSION_COLUMNS)
+    """The extension's row for `mimetype_id`, or without one its first row: the seed
+    (migrations/0002_mimetypes.sql) lists each extension's canonical type first."""
+    sql = 'SELECT {} FROM mimetype_extensions WHERE extension = %s ORDER BY ctid'.format(EXTENSION_COLUMNS)
     params = [extension]
     if mimetype_id is not None:
         sql = 'SELECT {} FROM mimetype_extensions WHERE mimetype_id = %s AND extension = %s'.format(EXTENSION_COLUMNS)

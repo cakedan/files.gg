@@ -34,20 +34,16 @@ def appdb():
 
 @pytest.fixture
 def seeded(appdb):
-    appdb.execute("INSERT INTO mimetype_types (id) VALUES ('text'), ('application') ON CONFLICT DO NOTHING")
-    appdb.execute("INSERT INTO mimetypes (id, flags, type_id) VALUES ('text/plain', 0, 'text'), "
-                  "('application/octet-stream', 0, 'application') ON CONFLICT DO NOTHING")
-    appdb.execute("INSERT INTO mimetype_extensions (mimetype_id, extension, priority) VALUES "
-                  "('text/plain', 'txt', 1), ('application/octet-stream', 'bin', 0) ON CONFLICT DO NOTHING")
+    """The app's database (its mimetypes come from the migrations' seed)."""
     return appdb
 
 
 def new_user(appdb, override=None):
     user_id = Snowflake.generate()
     appdb.execute(
-        'INSERT INTO users (id, email, bot, username, discriminator, flags, verified, last_email_reset, '
-        'last_password_reset, storage_limit_override) VALUES (%s, %s, false, %s, 1, 0, true, 1500000000, '
-        '1500000000, %s)', (user_id, 'm2{}@example.com'.format(user_id), 'm2{}'.format(user_id), override))
+        'INSERT INTO users (id, email, bot, username, discriminator, flags, verified, last_email_reset_at, '
+        'last_password_reset_at, storage_limit_override) VALUES (%s, %s, false, %s, 1, 0, true, '
+        "to_timestamp(1500000000), to_timestamp(1500000000), %s)", (user_id, 'm2{}@example.com'.format(user_id), 'm2{}'.format(user_id), override))
     return user_id, {'Authorization': UserToken.generate(user_id)}
 
 

@@ -21,6 +21,7 @@ import db
 import jobs.media as media_jobs
 from db.models import UploadSession, columns, from_row
 from jobs.queue import register
+from utils import filetypes
 from utils import storage as storage_module
 from utils.generators import Snowflake
 from utils.uploading import Hasher
@@ -85,6 +86,8 @@ def finalize(upload_id, conn=None, client=None):
             hasher = _hash_staging(client, name, session.storage_key)
             if hasher.size != session.size:
                 raise UploadProblem('SIZE_MISMATCH')
+            if filetypes.sniff_executable(hasher.head):
+                raise UploadProblem('FILE_TYPE_NOT_ALLOWED')
         except UploadProblem as problem:
             _fail(conn, upload_id, problem.code)
             return None
