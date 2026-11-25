@@ -5,7 +5,8 @@ from sanic import Blueprint
 import db
 from db import queries
 from utils.params import Arg, Args
-from utils.responses import ApiError, ApiResponse
+from utils import errors
+from utils.responses import ApiResponse
 from utils.wrappers import authenticate, parse_args, route
 
 mimetypes = Blueprint('mimetypes', url_prefix='/mimetypes')
@@ -22,7 +23,7 @@ async def fetch_mimetypes(request):
 async def fetch_mimetype_types(request, mtype):
     async with db.connection() as conn:
         if not await queries.mimetype_type_exists(conn, mtype):
-            raise ApiError('Unknown Type', status=404)
+            raise errors.unknown_type()
         group = await queries.list_mimetypes(conn, type_id=mtype)
     return ApiResponse([x.to_dict() for x in group])
 
@@ -32,7 +33,7 @@ async def fetch_mimetype(request, mtype, subtype):
     async with db.connection() as conn:
         mimetype = await queries.get_mimetype(conn, '{}/{}'.format(mtype, subtype), with_extensions=True)
     if mimetype is None:
-        raise ApiError('Unknown Mimetype', status=404)
+        raise errors.unknown_mimetype()
     return ApiResponse(mimetype.to_dict())
 
 
@@ -41,7 +42,7 @@ async def fetch_mimetype(request, mtype, subtype):
 @route(mimetypes, '/<mtype:str>', ['PUT'])
 @authenticate()
 async def put_type(request, mtype, user):
-    raise ApiError(status=403)
+    raise errors.forbidden()
 
 
 class PutMimetypeArgs(Args):
@@ -54,4 +55,4 @@ class PutMimetypeArgs(Args):
 @parse_args(PutMimetypeArgs)
 @authenticate()
 async def put_mimetype(request, args, mtype, subtype, user):
-    raise ApiError(status=403)
+    raise errors.forbidden()

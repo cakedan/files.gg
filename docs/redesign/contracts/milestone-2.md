@@ -98,7 +98,7 @@ X-Filesgg-Origin-Secret: <ORIGIN_SHARED_SECRET>
 
 - **`visibility`** is `"link"`, `"password"` or `"private"`.
 - **`password_expires_at`** is epoch seconds, or `null`.
-- **`storage.backend`** is `"b2"` or `"gcs"` (GCS only as a read fallback during the migration; PLAN.md "Moving off GCS").
+- **`storage.backend`**: removed in Milestone 3, which is B2 only (milestone-3.md §5).
 - **`owner_user_id`** is `null` for anonymous uploads.
 
 The album lookup returns `{ "album": {…album payload, web/README.md §4…}, "access": {…}, "items_access": { "<file id>": { "visibility": …, "access_version": … } } }`.

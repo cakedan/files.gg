@@ -13,7 +13,7 @@ x-api-environment: &api-environment
   RPC_KEY: ${RPC_KEY:?run e2e/up.sh}
   ORIGIN_SHARED_SECRET: ${ORIGIN_SHARED_SECRET:?run e2e/up.sh}
   VIEW_HASH_SECRET: ${VIEW_HASH_SECRET:?run e2e/up.sh}
-  CDN_TOKEN_SECRET: ${CDN_TOKEN_SECRET:?run e2e/up.sh}
+  CDN_SIGNING_SECRET: ${CDN_SIGNING_SECRET:?run e2e/up.sh}
   # Cloudflare's documented always-pass Turnstile testing secret: siteverify is the real one (the
   # stack needs internet), and only the testing site key's dummy token passes it.
   TURNSTILE_SECRET: 1x0000000000000000000000000000000AA
@@ -120,13 +120,20 @@ services:
       timeout: 5s
       retries: 60
 
-  # Background jobs (finalising chunked uploads) and the scheduled tasks (the expiry reaper).
+  # Background jobs (finalising chunked uploads; probe, derive and album collages on the `media`
+  # queue) and the scheduled tasks (the expiry and album reapers). The `worker` target is the API
+  # image plus ffmpeg and poppler (api/Dockerfile).
   worker:
     <<: *api-service
+    build:
+      context: ../api
+      target: worker
+    image: filesgg-worker:e2e
     command: ["python", "-m", "worker"]
     environment:
       <<: *api-environment
       WORKER_POLL_INTERVAL: "0.5"
+      WORKER_QUEUES: default,media
     depends_on:
       migrate:
         condition: service_completed_successfully

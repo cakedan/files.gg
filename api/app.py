@@ -17,8 +17,9 @@ log = logging.getLogger('files.gg')
 
 REQUIRED_SECRETS = (
     'SECRET_KEY', 'RPC_KEY', 'VIEW_HASH_SECRET',
-    # Milestone 2: shared with the CDN Worker (contract §1), Turnstile, and the B2 files bucket
-    'CDN_TOKEN_SECRET', 'TURNSTILE_SECRET',
+    # signs CDN URLs for protected files and albums, shared with the Worker (milestone-3 §3);
+    # Turnstile; the B2 files bucket
+    'CDN_SIGNING_SECRET', 'TURNSTILE_SECRET',
     'S3_ENDPOINT', 'S3_BUCKET_FILES', 'S3_ACCESS_KEY_ID', 'S3_SECRET_ACCESS_KEY',
 )
 DEFAULT_ALLOWED_ORIGINS = 'https://files.gg'
@@ -58,7 +59,7 @@ def create_app(name='filesgg', database_url=None, storage=None):
     from sanic_ext import Extend
 
     import db
-    from utils import client_ip, http, tokens
+    from utils import cdn_signing, client_ip, http, tokens
     from utils.generators import EPOCH, Snowflake
     from utils.email import Email
     from utils.access import ACCESS_HEADER
@@ -71,7 +72,6 @@ def create_app(name='filesgg', database_url=None, storage=None):
     from views.auth import auth
     from views.files import files
     from views.albums import albums
-    from views.google import google
     from views.internal import internal
     from views.uploads import uploads
     from views.health import health
@@ -134,15 +134,18 @@ def create_app(name='filesgg', database_url=None, storage=None):
         sender=os.getenv('EMAIL_FROM'),
         stream=os.getenv('POSTMARK_MESSAGE_STREAM'),
     )
-    # Turnstile replaces reCAPTCHA (contract §8); tokens must be issued for these hostnames
+    # Turnstile (milestone-2 §8): tokens must be issued for these hostnames
     hostnames = [h.strip() for h in os.getenv('TURNSTILE_HOSTNAMES', 'files.gg').split(',') if h.strip()]
     if debug:
         hostnames.append('localhost')
     Turnstile.configure(os.environ['TURNSTILE_SECRET'], hostnames)
-    app.ctx.cdn_token_secret = os.environ['CDN_TOKEN_SECRET']
+    # the API's own unlock tokens (X-Filesgg-Access, refresh, #t= owner passes) are signed with
+    # SECRET_KEY; CDN URLs with CDN_SIGNING_SECRET (milestone-3 §3)
+    app.ctx.access_secret = os.environ['SECRET_KEY']
+    cdn_signing.configure(os.environ['CDN_SIGNING_SECRET'])
     Snowflake.set_epoch(EPOCH)
 
-    for blueprint in (auth, files, google, health, me, mimetypes, users, uploads, internal, albums):
+    for blueprint in (auth, files, health, me, mimetypes, users, uploads, internal, albums):
         app.blueprint(blueprint)
 
     # --- per-worker resources ------------------------------------------------
@@ -205,8 +208,9 @@ def create_app(name='filesgg', database_url=None, storage=None):
             if isinstance(error, SanicException):
                 error = ApiError(status=error.status_code)
             else:
+                # never the exception's own text: it can carry internals
                 log.exception('unhandled error', exc_info=error)
-                error = ApiError(str(error), 500)
+                error = ApiError(status=500)
         return error.response
 
     return app

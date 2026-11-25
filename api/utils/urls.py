@@ -1,10 +1,9 @@
 """The public URLs the API writes into responses and emails.
 
     PUBLIC_URL   the site, default https://files.gg       (file pages, #pw= and #t= links, email links)
-    CDN_URL      the CDN, default https://cdn.files.gg    (file bytes: urls.cdn and cdnUrl)
+    CDN_URL      the CDN, default https://cdn.files.gg    (cdn_url, previews, collages, ZIPs)
 
-Read on every call, so the defaults keep production (and the golden responses)
-byte-identical, and a local or staging stack only sets two variables.
+Read on every call, so a local or staging stack only sets two variables.
 """
 
 import os

@@ -85,7 +85,7 @@ export default function PdfRenderer({ file, context = 'card' }: RendererProps) {
 
   useEffect(() => {
     let cancelled = false;
-    const task = openDocument(file.cdnUrl);
+    const task = openDocument(file.cdn_url);
     task.onPassword = (update: (password: string) => void, reason: number) => {
       if (cancelled) return;
       setState({
@@ -119,7 +119,7 @@ export default function PdfRenderer({ file, context = 'card' }: RendererProps) {
       cancelled = true;
       void task.destroy();
     };
-  }, [file.cdnUrl]);
+  }, [file.cdn_url]);
 
   switch (state.status) {
     case 'loading':
@@ -151,7 +151,7 @@ export default function PdfRenderer({ file, context = 'card' }: RendererProps) {
                 ? 'Download it to open it with the password in another app.'
                 : 'It may be damaged or use features the viewer doesn’t support. You can still download it.'}
             </p>
-            <LinkButton href={downloadUrl(file.cdnUrl)} download={file.filename} variant="primary">
+            <LinkButton href={downloadUrl(file.cdn_url)} download={file.filename} variant="primary">
               <Download aria-hidden className="size-4" />
               Download
             </LinkButton>

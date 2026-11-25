@@ -2,8 +2,6 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import {
   accessStorageKey,
-  albumWithAccessToken,
-  appendToken,
   clearAccess,
   loadAccess,
   readFragmentSecrets,
@@ -14,8 +12,7 @@ import {
   saveAccess,
   takeFragmentSecrets,
   targetFromPath,
-  urlSwapDelay,
-  withAccessToken,
+  watchFragmentSecrets,
 } from './access';
 
 // Contract §1 test vector (secret `test-cdn-token-secret`).
@@ -75,11 +72,6 @@ describe('refresh timing', () => {
     expect(refreshExtended({ token: 'a', expires_at: 100 }, { token: 'b', expires_at: 200 })).toBe(true);
     expect(refreshExtended({ token: 'a', expires_at: 200 }, { token: 'b', expires_at: 200 })).toBe(false);
   });
-
-  it('swaps media URLs to a new token only 2 minutes before theirs expires', () => {
-    expect(urlSwapDelay((now + 10 * 60_000) / 1000, now)).toBe(8 * 60_000);
-    expect(urlSwapDelay((now + 60_000) / 1000, now)).toBe(0);
-  });
 });
 
 describe('claims', () => {
@@ -91,50 +83,6 @@ describe('claims', () => {
     expect(readTokenClaims('nope')).toBeNull();
     expect(readTokenClaims('a.b.c')).toBeNull();
     expect(readTokenClaims('e30.sig')).toBeNull();
-  });
-});
-
-describe('URL tokens', () => {
-  it('appends t, keeping other parameters', () => {
-    expect(appendToken('https://cdn.files.gg/files/a.png', 'tok')).toBe('https://cdn.files.gg/files/a.png?t=tok');
-    expect(appendToken('https://cdn.files.gg/files/a.png?download=true', 'tok')).toBe(
-      'https://cdn.files.gg/files/a.png?download=true&t=tok',
-    );
-    expect(appendToken('https://cdn.files.gg/files/a.png?t=old', 'new')).toBe('https://cdn.files.gg/files/a.png?t=new');
-  });
-
-  const file = {
-    cdnUrl: 'https://cdn.files.gg/files/a.pdf',
-    url: 'https://files.gg/a.pdf',
-    thumbnail: { url: 'https://cdn.files.gg/files/a/thumb.webp', type: 'thumb' },
-    hover_url: 'https://cdn.files.gg/files/a/hover.mp4',
-  };
-
-  it('signs every media URL of a protected file, never the share link', () => {
-    const signed = withAccessToken({ ...file, visibility: 'password' as const }, 'tok');
-    expect(signed.cdnUrl).toBe('https://cdn.files.gg/files/a.pdf?t=tok');
-    expect(signed.thumbnail.url).toBe('https://cdn.files.gg/files/a/thumb.webp?t=tok');
-    expect(signed.hover_url).toBe('https://cdn.files.gg/files/a/hover.mp4?t=tok');
-    expect(signed.url).toBe('https://files.gg/a.pdf');
-  });
-
-  it('adds no ?t= to `link` files', () => {
-    const linkFile = { ...file, visibility: 'link' as const };
-    expect(withAccessToken(linkFile, 'tok')).toBe(linkFile);
-  });
-
-  it('signs album covers and protected items, and keeps the token for Download all', () => {
-    const album = {
-      cover: { url: 'https://cdn.files.gg/c.webp' },
-      items: [
-        { cdnUrl: 'https://cdn.files.gg/1.png', visibility: 'password' as const },
-        { cdnUrl: 'https://cdn.files.gg/2.png', visibility: 'link' as const },
-      ],
-    };
-    const signed = albumWithAccessToken(album, 'tok');
-    expect(signed.cover?.url).toBe('https://cdn.files.gg/c.webp?t=tok');
-    expect(signed.items.map((i) => i.cdnUrl)).toEqual(['https://cdn.files.gg/1.png?t=tok', 'https://cdn.files.gg/2.png']);
-    expect((signed as { accessToken?: string }).accessToken).toBe('tok');
   });
 });
 
@@ -159,6 +107,25 @@ describe('fragments', () => {
     const replace = vi.spyOn(window.history, 'replaceState');
     takeFragmentSecrets();
     expect(replace).not.toHaveBeenCalled();
+  });
+
+  it('strips and hands on secrets that arrive by a later hash change', () => {
+    window.history.replaceState(null, '', '/abc123');
+    const seen: unknown[] = [];
+    const stop = watchFragmentSecrets((secrets) => seen.push(secrets));
+    window.history.replaceState(null, '', '/abc123#pw=late-pass&page=2');
+    window.dispatchEvent(new HashChangeEvent('hashchange'));
+    expect(seen).toEqual([{ password: 'late-pass', rest: '#page=2' }]);
+    expect(window.location.hash).toBe('#page=2');
+
+    window.history.replaceState(null, '', '/abc123#page=5');
+    window.dispatchEvent(new HashChangeEvent('hashchange'));
+    expect(seen).toHaveLength(1); // no secrets, nothing to do
+
+    stop();
+    window.history.replaceState(null, '', '/abc123#pw=after-stop');
+    window.dispatchEvent(new HashChangeEvent('hashchange'));
+    expect(seen).toHaveLength(1);
   });
 
   it('finds the target from the path', () => {

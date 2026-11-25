@@ -35,7 +35,7 @@ export function UploadRow({ item, onRemove }: { item: QueueItem; onRemove: () =>
   const { phase, loaded, total, result } = snapshot;
   const percent = total > 0 ? Math.round((loaded / total) * 100) : 0;
   const active = phase === 'uploading' || phase === 'verifying' || phase === 'processing';
-  const link = result?.urls?.main;
+  const link = result?.url;
 
   return (
     <li className="flex flex-col gap-2 rounded-lg border border-line bg-surface p-3" aria-label={file.name}>

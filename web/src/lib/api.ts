@@ -1,22 +1,23 @@
 /**
- * files.gg API client for the dashboard.
+ * files.gg API client for the dashboard (and the lazy lock-screen chunk).
  *
  * - Base URL: `VITE_API_URL`, default https://api.files.gg.
- * - Auth: `Authorization` from localStorage `token`; `X-Fingerprint` from
- *   localStorage `fingerprint` (anonymous uploads). Same keys and JSON encoding
- *   as the old Mithril app, so sessions carry over on the same origin.
- * - Errors: non-2xx responses throw `ApiError` with the `{ code, message }` body.
+ * - Auth: `Authorization` from localStorage `filesgg.token`; `X-Fingerprint` from
+ *   localStorage `filesgg.fingerprint` (anonymous uploads). Both are plain strings.
+ * - Errors: non-2xx responses throw `ApiError` with the `{ code, message, status, ... }`
+ *   body, where `code` is a string such as `FILE_TOO_LARGE`.
  *
- * Response shapes follow docs/redesign/PLAN.md (Phase 1); endpoints marked
- * "planned" don't exist on the API yet.
+ * Response shapes follow docs/redesign/contracts/milestone-2.md and milestone-3.md
+ * (milestone-3 §0, §3–§5 win): snake_case payloads, times in epoch seconds, and URLs
+ * that are ready to use. Fields marked "planned" don't exist on the API yet.
  */
 
-import { getLegacyString, setLegacyString } from './storage';
+import { getItem, setItem } from './storage';
 
 export const DEFAULT_API_URL = 'https://api.files.gg';
 
-export const TOKEN_KEY = 'token';
-export const FINGERPRINT_KEY = 'fingerprint';
+export const TOKEN_KEY = 'filesgg.token';
+export const FINGERPRINT_KEY = 'filesgg.fingerprint';
 
 /**
  * The API origin. A path such as `/__mock-api` (the dev mock, see vite.plugins.ts)
@@ -34,13 +35,14 @@ export const CLIENT_ERROR = {
   invalidResponse: 'INVALID_RESPONSE',
 } as const;
 
-export type ApiErrorCode = string | number | null;
+/** A string code such as `FILE_TOO_LARGE`, or null when the body had none. */
+export type ApiErrorCode = string | null;
 
 export class ApiError extends Error {
   override readonly name = 'ApiError';
   /** HTTP status; 0 when the request never got a response. */
   readonly status: number;
-  /** API error code (numeric today, string codes like FILE_TOO_LARGE planned), or null. */
+  /** API error code (`FILE_TOO_LARGE`, `UNLOCK_EXPIRED`, …), or null. */
   readonly code: ApiErrorCode;
   /** The parsed error body, for extra fields such as `limit` and `used`. */
   readonly body: unknown;
@@ -84,25 +86,27 @@ export function apiErrorFromText(status: number, statusText: string, text: strin
 
   if (typeof body === 'object' && body !== null) {
     const { code, message } = body as { code?: unknown; message?: unknown };
-    const parsedCode = typeof code === 'string' || typeof code === 'number' ? code : null;
+    const parsedCode = typeof code === 'string' && code ? code : null;
     const parsedMessage = typeof message === 'string' && message ? message : fallback;
     return new ApiError(status, parsedCode, parsedMessage, body);
   }
   return new ApiError(status, null, fallback, body);
 }
 
-export const hasToken = (): boolean => Boolean(getLegacyString(TOKEN_KEY));
+const stored = (key: string): string | null => getItem(key) || null;
+
+export const hasToken = (): boolean => Boolean(stored(TOKEN_KEY));
 
 /** Auth headers from localStorage. Storage failures simply mean "no header". */
 export function authHeaders(): Record<string, string> {
   const headers: Record<string, string> = {};
-  const token = getLegacyString(TOKEN_KEY);
+  const token = stored(TOKEN_KEY);
   if (token) {
     headers.Authorization = token;
   }
-  const fingerprint = getLegacyString(FINGERPRINT_KEY);
-  // Like the old app: the fingerprint identifies anonymous uploads, so it is only
-  // sent while signed out. Fingerprint files are claimed on login.
+  const fingerprint = stored(FINGERPRINT_KEY);
+  // The fingerprint identifies anonymous uploads, so it is only sent while signed
+  // out. Fingerprint files are claimed on login.
   if (fingerprint && !token) {
     headers['X-Fingerprint'] = fingerprint;
   }
@@ -123,16 +127,16 @@ export interface RequestOptions {
 }
 
 /**
- * Anonymous uploads and limits need a fingerprint (contract §6). Reuses the old
- * app's stored one, or asks the API for a new one (`GET /auth/fingerprint`).
+ * Anonymous uploads and limits need a fingerprint (contract §6). Reuses the stored
+ * one, or asks the API for a new one (`GET /auth/fingerprint`).
  */
 export async function ensureFingerprint(): Promise<string | null> {
   if (hasToken()) return null;
-  const existing = getLegacyString(FINGERPRINT_KEY);
+  const existing = stored(FINGERPRINT_KEY);
   if (existing) return existing;
-  const { fingerprint } = await request<{ fingerprint: string | number }>('/auth/fingerprint', { auth: false });
+  const { fingerprint } = await request<{ fingerprint: string }>('/auth/fingerprint', { auth: false });
   const value = String(fingerprint);
-  setLegacyString(FINGERPRINT_KEY, value);
+  setItem(FINGERPRINT_KEY, value);
   return value;
 }
 
@@ -221,10 +225,88 @@ export interface Me {
   needs_username?: boolean;
 }
 
-/** One file, as `File.to_dict()` returns it, plus the Milestone 2 fields. */
-export interface UserFile {
+/** `sort_by` (milestone-3 contract §6). `-created` is the default. */
+export const FILE_SORTS = ['-created', 'created', '-size', 'size', 'name', '-name'] as const;
+export type FileSort = (typeof FILE_SORTS)[number];
+/** `type` filter, by `kind` (`other` is `kind: "file"`). */
+export const FILE_TYPE_FILTERS = ['image', 'video', 'audio', 'text', 'pdf', 'other'] as const;
+export type FileTypeFilter = (typeof FILE_TYPE_FILTERS)[number];
+
+export interface MyFilesParams {
+  query?: string | undefined;
+  sort_by?: FileSort | undefined;
+  type?: FileTypeFilter | undefined;
+  visibility?: Visibility | undefined;
+  /** Only files with an `expires_at`. */
+  temporary?: boolean | undefined;
+  offset?: number | undefined;
+  /** 1–100, default 25. */
+  limit?: number | undefined;
+}
+
+/**
+ * `GET /users/@me/files`. `count`/`size` describe the matched set (search and
+ * filters applied); `total` describes everything the user owns.
+ */
+export interface MyFilesResponse {
+  count: number;
+  items: OwnerFile[];
+  size: number;
+  total: { count: number; size: number };
+}
+
+// ---------------------------------------------------------------------------
+// Milestone 3: media, owner files and albums (milestone-3 contract §4, §6)
+// ---------------------------------------------------------------------------
+
+export type FileKind = 'image' | 'video' | 'audio' | 'text' | 'pdf' | 'file';
+
+/** Preview kinds (contract §3), the keys of `assets`. */
+export const PREVIEW_KINDS = ['thumb', 'thumb-2x', 'display', 'poster', 'cover', 'waveform', 'peaks', 'hover'] as const;
+export type PreviewKind = (typeof PREVIEW_KINDS)[number];
+
+/**
+ * One ready preview. The URL is ready to use (contract §4): plain for `link` files,
+ * signed (`expires=…&sig=…`, 1 h in owner payloads) for protected ones. Never changed here.
+ */
+export interface MediaAsset {
+  url: string;
+  width?: number | undefined;
+  height?: number | undefined;
+}
+
+export interface Thumbnail extends MediaAsset {
+  type: 'thumb' | 'poster' | 'cover' | 'waveform' | (string & {});
+}
+
+/** `probe` output (contract §2). Every key is optional; `snippet` is owner-only. */
+export interface FileMedia {
+  width?: number;
+  height?: number;
+  /** Milliseconds. */
+  duration?: number;
+  framecount?: number;
+  fps?: number;
+  playable?: boolean;
+  has_audio?: boolean;
+  codecs?: string[];
+  container?: string;
+  tags?: { title?: string; artist?: string; album?: string; track?: number };
+  pages?: number;
+  lines?: number;
+  language?: string | null;
+  /** First ~12 lines of a text file. Only in the owner list. */
+  snippet?: string;
+}
+
+/**
+ * The file payload (contract §4). One shape everywhere: `/files/<vanity>`, upload
+ * responses, unlock, `/view`, refresh, album items and the owner list.
+ */
+export interface FilePayload {
   id: string;
   vanity: string;
+  kind: FileKind;
   mimetype: string;
   extension: string;
   /** Name without the extension. */
@@ -232,38 +314,151 @@ export interface UserFile {
   /** `name` + `.` + `extension`. */
   filename: string;
   size: number;
-  width: number | null;
-  height: number | null;
+  width?: number | null;
+  height?: number | null;
   /** Milliseconds. */
-  duration: number | null;
-  urls: { main: string; cdn: string };
-  views: number;
-  /** Epoch seconds, or null when the file never expires (contract §6). */
-  expires_at?: number | null;
-  visibility?: Visibility;
-}
-
-export type FileSort = 'newest' | 'oldest' | 'largest' | 'name';
-export type FileTypeFilter = 'image' | 'video' | 'audio' | 'text' | 'other';
-
-export interface MyFilesParams {
-  query?: string;
-  sort_by?: FileSort;
-  type?: FileTypeFilter;
-  temporary?: boolean;
-  offset?: number;
-  limit?: number;
+  duration?: number | null;
+  framecount?: number | null;
+  /** The share link, `https://files.gg/<vanity>.<ext>`. */
+  url: string;
+  /** The file on the CDN, ready to use (signed when protected). Download adds `?download=true`. */
+  cdn_url: string;
+  /** Epoch seconds. */
+  uploaded_at: number;
+  /** Epoch seconds, or null when the file never expires. */
+  expires_at: number | null;
+  visibility: Visibility;
+  media?: FileMedia | null;
+  /** True while `probe`/`derive` haven't finished. */
+  processing?: boolean;
+  assets?: Partial<Record<PreviewKind, MediaAsset>>;
+  thumbnail?: Thumbnail | null;
+  hover_url?: string | null;
+  nsfw?: boolean;
+  views?: number;
 }
 
 /**
- * `GET /users/@me/files` (planned). `count`/`size` describe the matched set
- * (search applied); `total` describes everything the user owns.
+ * The owner file (contract §6): the payload plus the access settings, `media.snippet`
+ * and the albums it's in. Every URL in it is signed for 1 h, so refetch before then.
  */
-export interface MyFilesResponse {
+export interface OwnerFile extends FilePayload {
+  access_version: number;
+  /** Seconds. */
+  unlock_ttl: number;
+  /** Epoch seconds, or null. */
+  password_expires_at: number | null;
+  show_name_when_locked: boolean;
+  albums: AlbumRef[];
+}
+
+export interface AlbumRef {
+  id: string;
+  vanity: string;
+  title: string;
+}
+
+/** A generated password comes back once (contract M2 §6). */
+export interface GeneratedPassword {
+  password?: string;
+  url_with_password?: string;
+}
+
+export type AlbumLayout = 'auto' | 'grid' | 'list' | 'tracklist';
+export const ALBUM_LAYOUTS: readonly AlbumLayout[] = ['auto', 'grid', 'list', 'tracklist'];
+
+export interface Collage extends MediaAsset {
+  width: number;
+  height: number;
+}
+
+/** `GET /users/@me/albums` items. */
+export interface OwnerAlbumSummary {
+  id: string;
+  vanity: string;
+  url: string;
+  title: string;
+  layout: AlbumLayout;
+  visibility: Visibility;
   count: number;
-  items: UserFile[];
-  size: number;
-  total: { count: number; size: number };
+  cover?: Thumbnail | null;
+  collage?: Collage | null;
+  /** Epoch seconds. */
+  created_at: number;
+  updated_at: number;
+}
+
+export interface OwnerAlbumItem extends OwnerFile {
+  position: number;
+  caption: string;
+  /** False when the public album page hides it (contract §4). */
+  shown: boolean;
+}
+
+/** `GET /users/@me/albums/<id>`: every item (≤ 500), hidden ones included. */
+export interface OwnerAlbum extends Omit<OwnerAlbumSummary, 'count'> {
+  description: string;
+  nsfw?: boolean;
+  /** "Download all": `https://cdn.files.gg/albums/download/<vanity>.zip`, signed when protected. */
+  download_url?: string;
+  /** Epoch seconds, or null (anonymous albums). */
+  expires_at?: number | null;
+  count?: number;
+  access_version: number;
+  unlock_ttl: number;
+  password_expires_at: number | null;
+  show_name_when_locked: boolean;
+  cover_file_id: string | null;
+  items: OwnerAlbumItem[];
+}
+
+export interface MyAlbumsParams {
+  query?: string | undefined;
+  sort_by?: string | undefined;
+  offset?: number | undefined;
+  limit?: number | undefined;
+}
+
+export interface MyAlbumsResponse {
+  count: number;
+  items: OwnerAlbumSummary[];
+}
+
+/** Access fields shared by file and album `PATCH`, and the bulk access call. */
+export interface AccessParams {
+  visibility?: Visibility;
+  password?: string;
+  generate_password?: boolean;
+  unlock_ttl?: UnlockTtl;
+  /** Epoch seconds, or null for "never" (`PATCH` only). */
+  password_expires_at?: number | null;
+  password_expires_in?: number;
+  show_name_when_locked?: boolean;
+}
+
+export interface PatchFileBody extends AccessParams {
+  /** Renames the name only; the extension stays. */
+  filename?: string;
+}
+
+export interface PatchAlbumBody extends AccessParams {
+  title?: string;
+  description?: string;
+  layout?: AlbumLayout;
+  cover_file_id?: string | null;
+}
+
+export interface CreateAlbumBody {
+  title?: string;
+  description?: string;
+  layout?: AlbumLayout;
+  file_ids: string[];
+  cover_file_id?: string;
+}
+
+/** `POST /users/@me/{files|albums}/<id>/pass`: `url` is `https://files.gg/<vanity>#t=<token>`. */
+export interface OwnerPass extends AccessGrant {
+  url: string;
 }
 
 /** `GET /users/@me/limits` (contract §6). Anonymous callers get the anonymous values. */
@@ -275,6 +470,10 @@ export interface MyLimitsResponse {
   max_expiry: number | null;
   allow_no_expiry: boolean;
   anonymous: boolean;
+  /** Milestone 3: 500, or 50 anonymous. */
+  album_max_files?: number;
+  /** Milestone 3: 1000, or null anonymous. */
+  albums_max?: number | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -290,18 +489,17 @@ export interface AccessGrant {
   expires_at: number;
 }
 
-/** `POST /{files|albums}/<vanity>/unlock`: the token plus the full payload (`file` or `album`). */
+/**
+ * `POST …/unlock`, `GET …/view` and `POST …/unlock/refresh` (milestone-3 §3): the
+ * payload (`file` or `album`) with URLs signed for this visitor, plus the token for the
+ * API and its expiry.
+ */
 export interface UnlockResponse extends AccessGrant {
   file?: unknown;
   album?: unknown;
 }
 
-/** `GET /{files|albums}/<vanity>/view` with `X-Filesgg-Access`. */
-export interface ViewResponse {
-  file?: unknown;
-  album?: unknown;
-  expires_at: number;
-}
+export type ViewResponse = UnlockResponse;
 
 const accessBase = (kind: AccessKind, vanity: string) =>
   `/${kind === 'album' ? 'albums' : 'files'}/${vanity.split('/').map(encodeURIComponent).join('/')}`;
@@ -324,12 +522,12 @@ export interface UploadParams {
   password_expires_in?: number;
   /** Anonymous uploads only, action `upload`. */
   turnstile_token?: string;
+  /** Milestone 3: append to one of your albums (by vanity) once stored. */
+  album?: string;
 }
 
-/** `POST /files` response, and `file` in a completed upload session. */
-export interface UploadedFile extends UserFile {
-  expires_at: number | null;
-  visibility: Visibility;
+/** `POST /files` response, and `file` in a completed upload session: the file payload plus a generated password. */
+export interface UploadedFile extends FilePayload {
   /** Only with `generate_password`, shown once. */
   password?: string;
   /** `https://files.gg/<vanity>#pw=<password>`, only with `generate_password`. */
@@ -354,11 +552,56 @@ export interface UploadStatus {
   error?: string;
 }
 
+const fileUrl = (id: string) => `/users/@me/files/${encodeURIComponent(id)}`;
+const albumUrl = (id: string) => `/users/@me/albums/${encodeURIComponent(id)}`;
+
 export const api = {
   me: (signal?: AbortSignal) => request<Me>('/users/@me', { signal }),
+  myLimits: (signal?: AbortSignal) => request<MyLimitsResponse>('/users/@me/limits', { signal }),
+
+  // Owner files (milestone-3 contract §6)
   myFiles: (params: MyFilesParams = {}, signal?: AbortSignal) =>
     request<MyFilesResponse>('/users/@me/files', { query: { limit: 25, ...params }, signal }),
-  myLimits: (signal?: AbortSignal) => request<MyLimitsResponse>('/users/@me/limits', { signal }),
+  updateFile: (id: string, body: PatchFileBody) =>
+    request<OwnerFile & GeneratedPassword>(fileUrl(id), { method: 'PATCH', body }),
+  deleteFile: (id: string) => request<void>(fileUrl(id), { method: 'DELETE' }),
+  /** At most 100 ids; ids you don't own are skipped. */
+  deleteFiles: (fileIds: string[]) =>
+    request<{ deleted: string[] }>('/users/@me/files/delete', { method: 'POST', body: { file_ids: fileIds } }),
+  /** `expiresIn: null` is Keep forever (signed in only). */
+  setFilesExpiry: (fileIds: string[], expiresIn: number | null) =>
+    request<{ items: OwnerFile[] }>('/users/@me/files/expiry', { method: 'POST', body: { file_ids: fileIds, expires_in: expiresIn } }),
+  /** One generated password is shared by the batch and returned once. */
+  setFilesAccess: (fileIds: string[], access: AccessParams & { visibility: Visibility }) =>
+    request<{ items: OwnerFile[]; password?: string }>('/users/@me/files/access', {
+      method: 'POST',
+      body: { file_ids: fileIds, ...access },
+    }),
+  filePass: (id: string) => request<OwnerPass>(`${fileUrl(id)}/pass`, { method: 'POST' }),
+
+  // Albums
+  createAlbum: (body: CreateAlbumBody) => request<OwnerAlbum>('/users/@me/albums', { method: 'POST', body }),
+  myAlbums: (params: MyAlbumsParams = {}, signal?: AbortSignal) =>
+    request<MyAlbumsResponse>('/users/@me/albums', { query: { ...params }, signal }),
+  album: (id: string, signal?: AbortSignal) => request<OwnerAlbum>(albumUrl(id), { signal }),
+  updateAlbum: (id: string, body: PatchAlbumBody) =>
+    request<OwnerAlbum & GeneratedPassword>(albumUrl(id), { method: 'PATCH', body }),
+  deleteAlbum: (id: string, deleteFiles = false) =>
+    request<void>(albumUrl(id), { method: 'DELETE', query: { delete_files: deleteFiles || undefined } }),
+  /** Sets the exact list and order. */
+  setAlbumFiles: (id: string, fileIds: string[]) =>
+    request<OwnerAlbum>(`${albumUrl(id)}/files`, { method: 'PUT', body: { file_ids: fileIds } }),
+  /** Appends (or inserts at `position`); files already in the album are skipped. */
+  addAlbumFiles: (id: string, fileIds: string[], position?: number) =>
+    request<OwnerAlbum>(`${albumUrl(id)}/files`, {
+      method: 'POST',
+      body: position === undefined ? { file_ids: fileIds } : { file_ids: fileIds, position },
+    }),
+  removeAlbumFile: (id: string, fileId: string) =>
+    request<OwnerAlbum>(`${albumUrl(id)}/files/${encodeURIComponent(fileId)}`, { method: 'DELETE' }),
+  setAlbumCaption: (id: string, fileId: string, caption: string) =>
+    request<OwnerAlbum>(`${albumUrl(id)}/files/${encodeURIComponent(fileId)}`, { method: 'PATCH', body: { caption } }),
+  albumPass: (id: string) => request<OwnerPass>(`${albumUrl(id)}/pass`, { method: 'POST' }),
 
   unlock: (kind: AccessKind, vanity: string, password: string, turnstileToken: string) =>
     request<UnlockResponse>(`${accessBase(kind, vanity)}/unlock`, {
@@ -366,12 +609,9 @@ export const api = {
       body: { password, turnstile_token: turnstileToken },
       auth: false,
     }),
-  /**
-   * Contract §5 defines this for files only. Albums use the symmetric
-   * `/albums/<vanity>/unlock/refresh`, which still needs adding to the contract.
-   */
+  /** A new token and the payload again, with freshly signed URLs (milestone-3 §3). */
   refreshUnlock: (kind: AccessKind, vanity: string, token: string) =>
-    request<AccessGrant>(`${accessBase(kind, vanity)}/unlock/refresh`, { method: 'POST', body: { token }, auth: false }),
+    request<UnlockResponse>(`${accessBase(kind, vanity)}/unlock/refresh`, { method: 'POST', body: { token }, auth: false }),
   view: (kind: AccessKind, vanity: string, token: string) =>
     request<ViewResponse>(`${accessBase(kind, vanity)}/view`, { headers: { 'X-Filesgg-Access': token }, auth: false }),
 

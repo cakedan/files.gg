@@ -24,7 +24,8 @@ DEFAULT_STREAM = 'outbound'
 
 class EmailUnavailable(ApiError):
     status = 503
-    message = "Email isn't available right now. Try again in a few minutes."
+    code = 'EMAIL_UNAVAILABLE'
+    message = "Email isn't available right now. Try again in a few minutes"
 
 
 def _header_value(value):

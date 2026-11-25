@@ -1,9 +1,10 @@
 """Job handlers and scheduled tasks registered by the worker.
 
-Jobs: a no-op `ping` and `finalize_upload` (jobs/finalize.py). Scheduled: the
-snowflake_nodes lease cleanup, the file_view_seen cleanup, and (Milestone 2) the
-expiry reaper, the abandoned-upload reaper and the unlock_attempts cleanup. The
-media jobs (`probe`, `derive`, `scan`, `delete_blob`) arrive with their features.
+Jobs: a no-op `ping`, `finalize_upload` (jobs/finalize.py), and (Milestone 3) `probe`,
+`derive` and `album_collage` on the `media` queue (jobs/media.py) and `delete_blob`
+(jobs/gc.py). Scheduled: the snowflake_nodes lease cleanup, the file_view_seen cleanup,
+(Milestone 2) the expiry reaper, the abandoned-upload reaper and the unlock_attempts
+cleanup, and (Milestone 3) the album reaper. `scan` arrives with Milestone 4.
 """
 
 import logging
@@ -11,6 +12,8 @@ import logging
 from datetime import timedelta
 
 import jobs.finalize  # noqa: F401  registers finalize_upload
+import jobs.gc  # noqa: F401  registers delete_blob
+import jobs.media  # noqa: F401  registers probe, derive, album_collage
 from jobs.queue import register
 from utils import snowflake_nodes, storage as storage_module
 from utils.uploading import snowflake_since
@@ -24,6 +27,9 @@ VIEW_SEEN_KEEP_DAYS = 2
 EXPIRY_REAPER_INTERVAL = 10 * 60
 UPLOAD_REAPER_INTERVAL = 10 * 60
 UNLOCK_ATTEMPTS_CLEANUP_INTERVAL = 60 * 60
+ALBUM_REAPER_INTERVAL = 10 * 60
+# albums with no live items are soft-deleted after this long (contract §6 "Reaper")
+EMPTY_ALBUM_DAYS = 7
 REAPER_BATCH = 1000
 # uploader IP hashes are only needed for the rolling 24 h anonymous cap
 UPLOADER_IP_KEEP_SECONDS = 2 * 24 * 3600
@@ -61,6 +67,11 @@ def register_scheduled(scheduler):
         deleted = conn.execute("DELETE FROM unlock_attempts WHERE window_start < now() - interval '1 hour'").rowcount
         log.info('unlock_attempts cleanup removed %d row(s)', deleted)
 
+    @scheduler.register('album_reaper', ALBUM_REAPER_INTERVAL)
+    def album_reaper():
+        expired, emptied = reap_albums(conn)
+        log.info('album reaper soft-deleted %d expired and %d empty album(s)', expired, emptied)
+
     return scheduler
 
 
@@ -74,18 +85,45 @@ def _batched(conn, sql, params=()):
 
 
 def reap_expired(conn):
-    """Soft-delete expired files in batches (reads already treat them as gone),
-    and clear uploader IP hashes older than 2 days."""
-    deleted = _batched(
-        conn,
-        'UPDATE files SET deleted_at = now() WHERE id IN (SELECT id FROM files WHERE expires_at <= now() '
-        'AND deleted_at IS NULL LIMIT {})'.format(REAPER_BATCH))
+    """Soft-delete expired files in batches (reads already treat them as gone), as a
+    delete does: they leave their albums, and blobs left without a live file get their
+    `delete_blob` (jobs/gc.py). Also clear uploader IP hashes older than 2 days."""
+    deleted = 0
+    while True:
+        with conn.transaction():
+            rows = conn.execute(
+                'UPDATE files SET deleted_at = now() WHERE id IN (SELECT id FROM files WHERE expires_at <= now() '
+                'AND deleted_at IS NULL LIMIT {} FOR UPDATE SKIP LOCKED) RETURNING id, hash_id'.format(
+                    REAPER_BATCH)).fetchall()
+            jobs.gc.after_delete(conn, [r[0] for r in rows], [r[1] for r in rows])
+        deleted += len(rows)
+        if len(rows) < REAPER_BATCH:
+            break
     scrubbed = _batched(
         conn,
         'UPDATE files SET uploader_ip_hash = NULL WHERE id IN (SELECT id FROM files WHERE uploader_ip_hash IS NOT NULL '
         'AND id < %s LIMIT {})'.format(REAPER_BATCH),
         (snowflake_since(UPLOADER_IP_KEEP_SECONDS),))
     return deleted, scrubbed
+
+
+def reap_albums(conn):
+    """Expired albums (anonymous ones expire with their last file) are soft-deleted at
+    once; albums with no live items are marked `empty_since` and soft-deleted 7 days later."""
+    expired = _batched(
+        conn,
+        'UPDATE albums SET deleted_at = now() WHERE id IN (SELECT id FROM albums WHERE expires_at <= now() '
+        'AND deleted_at IS NULL LIMIT {})'.format(REAPER_BATCH))
+    live_item = ('EXISTS (SELECT 1 FROM album_files af JOIN files f ON f.id = af.file_id WHERE af.album_id = a.id '
+                 'AND f.deleted_at IS NULL AND (f.expires_at IS NULL OR f.expires_at > now()))')
+    conn.execute('UPDATE albums a SET empty_since = NULL WHERE empty_since IS NOT NULL AND deleted_at IS NULL '
+                 'AND ' + live_item)
+    conn.execute('UPDATE albums a SET empty_since = now() WHERE empty_since IS NULL AND deleted_at IS NULL '
+                 'AND NOT ' + live_item)
+    emptied = conn.execute(
+        "UPDATE albums SET deleted_at = now() WHERE deleted_at IS NULL AND empty_since <= now() - "
+        "make_interval(days => %s)", (EMPTY_ALBUM_DAYS,)).rowcount
+    return expired, emptied
 
 
 def reap_uploads(conn, client=None):

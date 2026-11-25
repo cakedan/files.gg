@@ -43,20 +43,21 @@ describe('apiBaseUrl', () => {
 });
 
 describe('authHeaders', () => {
-  it('reads JSON-encoded values written by the old app', () => {
-    localStorage.setItem('token', JSON.stringify('tok.en'));
+  it('reads the token from filesgg.token, as a plain string', () => {
+    localStorage.setItem('filesgg.token', 'tok.en');
     expect(authHeaders()).toEqual({ Authorization: 'tok.en' });
   });
 
-  it('accepts raw (non-JSON) values', () => {
-    localStorage.setItem('token', 'raw-token');
-    expect(authHeaders()).toEqual({ Authorization: 'raw-token' });
+  it('ignores the old app\'s keys', () => {
+    localStorage.setItem('token', JSON.stringify('old'));
+    localStorage.setItem('fingerprint', JSON.stringify('123'));
+    expect(authHeaders()).toEqual({});
   });
 
-  it('sends X-Fingerprint only while signed out, like the old app', () => {
-    localStorage.setItem('fingerprint', JSON.stringify('1234567890'));
+  it('sends X-Fingerprint only while signed out', () => {
+    localStorage.setItem('filesgg.fingerprint', '1234567890');
     expect(authHeaders()).toEqual({ 'X-Fingerprint': '1234567890' });
-    localStorage.setItem('token', JSON.stringify('tok'));
+    localStorage.setItem('filesgg.token', 'tok');
     expect(authHeaders()).toEqual({ Authorization: 'tok' });
   });
 
@@ -85,7 +86,7 @@ describe('authHeaders', () => {
 
 describe('request', () => {
   it('sends auth headers and parses JSON', async () => {
-    localStorage.setItem('token', JSON.stringify('tok'));
+    localStorage.setItem('filesgg.token', 'tok');
     const fetchMock = mockFetch(json({ id: '1', username: 'dan' }));
     await expect(api.me()).resolves.toEqual({ id: '1', username: 'dan' });
     expect(fetchMock.mock.calls[0]?.[0]).toBe('https://api.files.gg/users/@me');
@@ -104,8 +105,8 @@ describe('request', () => {
 
   it('defaults the files list to 25 per page', async () => {
     const fetchMock = mockFetch(json({ count: 0, items: [], size: 0, total: { count: 0, size: 0 } }));
-    await api.myFiles({ query: 'cat', sort_by: 'largest' });
-    expect(fetchMock.mock.calls[0]?.[0]).toBe('https://api.files.gg/users/@me/files?limit=25&query=cat&sort_by=largest');
+    await api.myFiles({ query: 'cat', sort_by: '-size' });
+    expect(fetchMock.mock.calls[0]?.[0]).toBe('https://api.files.gg/users/@me/files?limit=25&query=cat&sort_by=-size');
   });
 
   it('serialises object bodies as JSON', async () => {
@@ -124,9 +125,9 @@ describe('request', () => {
     expect((error as ApiError).body).toMatchObject({ limit: 100, used: 5 });
   });
 
-  it('keeps numeric codes from the current API', async () => {
+  it('accepts only string codes: a numeric one is dropped', async () => {
     mockFetch(json({ code: 140401, message: 'Unknown File', status: 404 }, { status: 404, statusText: 'Not Found' }));
-    await expect(request('/files/x')).rejects.toMatchObject({ status: 404, code: 140401, message: 'Unknown File' });
+    await expect(request('/files/x')).rejects.toMatchObject({ status: 404, code: null, message: 'Unknown File' });
   });
 
   it('falls back to statusText for non-JSON error bodies', async () => {
@@ -162,7 +163,7 @@ describe('parseApiError', () => {
 
 describe('Milestone 2 endpoints', () => {
   it('unlock posts password + Turnstile token without auth headers', async () => {
-    localStorage.setItem('token', JSON.stringify('tok'));
+    localStorage.setItem('filesgg.token', 'tok');
     const fetchMock = mockFetch(json({ token: 't', expires_at: 1, file: {} }));
     await api.unlock('album', 'v1', 'pw', 'XXXX.DUMMY.TOKEN.XXXX');
     expect(fetchMock.mock.calls[0]?.[0]).toBe('https://api.files.gg/albums/v1/unlock');
@@ -170,19 +171,65 @@ describe('Milestone 2 endpoints', () => {
   });
 
   it('view sends the token in X-Filesgg-Access, never the query string', async () => {
-    const fetchMock = mockFetch(json({ file: {}, expires_at: 1 }));
+    const fetchMock = mockFetch(json({ file: {}, token: 'secret-token', expires_at: 1 }));
     await api.view('file', 'abcd/xyz', 'secret-token');
     expect(fetchMock.mock.calls[0]?.[0]).toBe('https://api.files.gg/files/abcd/xyz/view');
     expect(sentHeaders(fetchMock)['X-Filesgg-Access']).toBe('secret-token');
   });
 
   it('ensureFingerprint reuses a stored fingerprint or fetches and stores one', async () => {
-    const fetchMock = mockFetch(json({ fingerprint: 123 }));
+    const fetchMock = mockFetch(json({ fingerprint: '123' }));
     await expect(ensureFingerprint()).resolves.toBe('123');
-    expect(localStorage.getItem('fingerprint')).toBe('"123"');
+    expect(localStorage.getItem('filesgg.fingerprint')).toBe('123');
     await expect(ensureFingerprint()).resolves.toBe('123');
     expect(fetchMock).toHaveBeenCalledTimes(1);
-    localStorage.setItem('token', JSON.stringify('t'));
+    localStorage.setItem('filesgg.token', 't');
     await expect(ensureFingerprint()).resolves.toBeNull();
+  });
+});
+
+describe('Milestone 3 owner endpoints (milestone-3 contract §6)', () => {
+  const lastCall = (fn: ReturnType<typeof mockFetch>) => {
+    const [url, init] = fn.mock.calls.at(-1)!;
+    return { url, method: init?.method, body: init?.body ? JSON.parse(String(init.body)) : undefined };
+  };
+
+  it.each([
+    ['updateFile', () => api.updateFile('7', { filename: 'new' }), 'PATCH', '/users/@me/files/7', { filename: 'new' }],
+    ['deleteFile', () => api.deleteFile('7'), 'DELETE', '/users/@me/files/7', undefined],
+    ['deleteFiles', () => api.deleteFiles(['1', '2']), 'POST', '/users/@me/files/delete', { file_ids: ['1', '2'] }],
+    ['setFilesExpiry (keep forever)', () => api.setFilesExpiry(['1'], null), 'POST', '/users/@me/files/expiry', { file_ids: ['1'], expires_in: null }],
+    [
+      'setFilesAccess',
+      () => api.setFilesAccess(['1'], { visibility: 'password', generate_password: true }),
+      'POST',
+      '/users/@me/files/access',
+      { file_ids: ['1'], visibility: 'password', generate_password: true },
+    ],
+    ['filePass', () => api.filePass('7'), 'POST', '/users/@me/files/7/pass', undefined],
+    ['createAlbum', () => api.createAlbum({ file_ids: ['1'] }), 'POST', '/users/@me/albums', { file_ids: ['1'] }],
+    ['album', () => api.album('9'), 'GET', '/users/@me/albums/9', undefined],
+    ['updateAlbum', () => api.updateAlbum('9', { cover_file_id: null }), 'PATCH', '/users/@me/albums/9', { cover_file_id: null }],
+    ['deleteAlbum', () => api.deleteAlbum('9'), 'DELETE', '/users/@me/albums/9', undefined],
+    ['deleteAlbum with files', () => api.deleteAlbum('9', true), 'DELETE', '/users/@me/albums/9?delete_files=true', undefined],
+    ['setAlbumFiles', () => api.setAlbumFiles('9', ['2', '1']), 'PUT', '/users/@me/albums/9/files', { file_ids: ['2', '1'] }],
+    ['addAlbumFiles', () => api.addAlbumFiles('9', ['3'], 0), 'POST', '/users/@me/albums/9/files', { file_ids: ['3'], position: 0 }],
+    ['removeAlbumFile', () => api.removeAlbumFile('9', '3'), 'DELETE', '/users/@me/albums/9/files/3', undefined],
+    ['setAlbumCaption', () => api.setAlbumCaption('9', '3', 'Hi'), 'PATCH', '/users/@me/albums/9/files/3', { caption: 'Hi' }],
+    ['albumPass', () => api.albumPass('9'), 'POST', '/users/@me/albums/9/pass', undefined],
+    ['myAlbums', () => api.myAlbums({ query: 'trip', offset: 0, limit: 10 }), 'GET', '/users/@me/albums?query=trip&offset=0&limit=10', undefined],
+  ] as const)('%s', async (_name, call, method, path, body) => {
+    const fetchMock = mockFetch(json({}));
+    await call();
+    const sent = lastCall(fetchMock);
+    expect(sent.url).toBe(`https://api.files.gg${path}`);
+    expect(sent.method ?? 'GET').toBe(method);
+    expect(sent.body).toEqual(body);
+  });
+
+  it('maps an album error body to an ApiError with its details', async () => {
+    mockFetch(json({ code: 'INVALID_ALBUM_FILES', message: 'nope', status: 400, file_ids: ['5'] }, { status: 400 }));
+    const error = await api.addAlbumFiles('9', ['5']).catch((e: unknown) => e);
+    expect(error).toMatchObject({ status: 400, code: 'INVALID_ALBUM_FILES', body: { file_ids: ['5'] } });
   });
 });

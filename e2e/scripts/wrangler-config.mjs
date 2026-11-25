@@ -44,11 +44,6 @@ const config = {
     S3_ENDPOINT: `http://127.0.0.1:${env('E2E_MINIO_PORT', '19000')}`,
     S3_REGION: 'us-east-1',
     S3_BUCKET_FILES: 'filesgg',
-    // Everything is in MinIO; never fall back to the production GCS bucket.
-    STORAGE_GCS_FALLBACK: 'false',
-    // The old frontend's assets (legacy /auth pages) aren't available locally; point the GCS
-    // origin at MinIO so nothing reaches the production bucket.
-    STORAGE_ORIGIN: `http://127.0.0.1:${env('E2E_MINIO_PORT', '19000')}`,
   },
   dev: { ip: '127.0.0.1', port: Number(port), local_protocol: 'http' },
 };

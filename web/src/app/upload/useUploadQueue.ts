@@ -36,7 +36,7 @@ export function useUploadQueue(deps: UploadDeps) {
   }, [items]);
 
   const add = useCallback(
-    (files: File[], params: UploadParams, reject: (file: File, index: number) => ApiError | null) => {
+    (files: File[], params: UploadParams, reject: (file: File, index: number) => ApiError | null): number[] => {
       const added: QueueItem[] = files.map((file, index) => {
         const id = nextId++;
         const rejected = reject(file, index);
@@ -62,6 +62,7 @@ export function useUploadQueue(deps: UploadDeps) {
         return { id, file, task, snapshot: task.state };
       });
       setItems((list) => [...added, ...list]);
+      return added.map((item) => item.id);
     },
     [update],
   );

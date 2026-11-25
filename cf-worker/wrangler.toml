@@ -1,6 +1,7 @@
 #:schema node_modules/wrangler/config-schema.json
-# files.gg edge Worker: files.gg pages (the new viewer and dashboard from web/dist), cdn.files.gg
-# bytes (B2, with a GCS fallback), the api.files.gg passthrough and proxy.files.gg. See README.md.
+# files.gg edge Worker: files.gg pages (the viewer and dashboard from web/dist), cdn.files.gg (files,
+# previews, album collages and ZIPs from B2), the api.files.gg passthrough and proxy.files.gg.
+# See README.md.
 #
 # Build order: `npm run build` in ../web first (it writes ../web/dist), then deploy this Worker.
 name = "files-gg"
@@ -41,22 +42,20 @@ not_found_handling = "none"
 # MAIN_HOST origin.
 CORS_ALLOWED_ORIGINS = "https://files.gg"
 
-# B2 (S3-compatible) for cdn.files.gg reads, e.g. S3_ENDPOINT = "https://s3.us-west-004.backblazeb2.com".
-# Until all three are set (plus the two read-key secrets below), the CDN reads from GCS only.
+# B2 (S3-compatible), the only storage cdn.files.gg reads, e.g.
+# S3_ENDPOINT = "https://s3.us-west-004.backblazeb2.com". Until all three are set (plus the two
+# read-key secrets below), the CDN answers 503 for every file, preview and ZIP.
 S3_ENDPOINT = ""
 S3_REGION = ""
 S3_BUCKET_FILES = ""
-
-# Objects missing from B2 are retried on the old GCS bucket while blobs are being migrated.
-# Set to "false" once every blob is in B2 (PLAN.md "Moving off GCS", step 5).
-STORAGE_GCS_FALLBACK = "true"
 
 # Secrets are never stored here. Set each one once per Worker with `npx wrangler secret put <NAME>`:
 #
 #   ORIGIN_SHARED_SECRET       Must equal the API's. Sent as X-Filesgg-Origin-Secret on every API
 #                              request and on the internal lookups. Unset: pages say "unavailable".
-#   CDN_TOKEN_SECRET           Must equal the API's. Verifies ?t= access tokens for password and
-#                              private files. Unset: protected files can't be opened on the CDN.
+#   CDN_SIGNING_SECRET         Must equal the API's. Verifies signed CDN URLs (expires & sig) for
+#                              password and private files and albums. The Worker never signs.
+#                              Unset: protected targets can't be opened on the CDN (401/404).
 #   S3_READ_ACCESS_KEY_ID      B2 application key id with readFiles only, scoped to the files bucket.
 #   S3_READ_SECRET_ACCESS_KEY  Its secret.
 #   PROXY_SECRET               Callers of proxy.files.gg send it as X-Proxy-Token. Unset: 403.

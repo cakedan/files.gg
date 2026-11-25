@@ -1,12 +1,12 @@
 # files.gg web
 
-The new files.gg frontend (redesign Milestone 1): React 19, Vite, TypeScript, Tailwind CSS v4, react-router, TanStack Query and lucide. It replaces `frontend/` (the Mithril app) once the worker switches over. The spec is `docs/redesign/PLAN.md` (Phase 2, Phase 3, Phase 4 and Appendix A).
+The files.gg frontend: React 19, Vite, TypeScript, Tailwind CSS v4, react-router, TanStack Query and lucide. It replaces the old Mithril app outright, with nothing kept for it (milestone-3 contract §0). The spec is `docs/redesign/PLAN.md` (Phase 2, Phase 3, Phase 4 and Appendix A).
 
 It builds two entry points:
 
 | Entry | Served at | What it is |
 |---|---|---|
-| `viewer.html` | `files.gg/`, `files.gg/<vanity>[.<ext>]`, `files.gg/a/<vanity>[/<n>]` and `files.gg/convert` | The file viewer and album page. A small bundle that boots from data the worker inlines into the HTML, with no API call. The PDF viewer, the album page and the video/audio renderers are lazy chunks. |
+| `viewer.html` | `files.gg/`, `files.gg/<vanity>[.<ext>]`, `files.gg/a/<vanity>[/<n>]` and `files.gg/convert` | The file viewer and album page. A small bundle that boots from data the worker inlines into the HTML, with no API call. The PDF viewer, the album page, the video/audio player and the text viewer (with Shiki) are lazy chunks. |
 | `app.html` | `files.gg/app` and `files.gg/app/*` | The dashboard SPA. Every page is its own lazy-loaded chunk. |
 
 The viewer never imports dashboard code, react-router, TanStack Query or the API client. ESLint enforces this (`no-restricted-imports` on `src/viewer/**` and `src/components/**`), and each entry has its own CSS file that only scans its own sources.
@@ -38,7 +38,7 @@ In dev and preview, `/app` and `/app/*` serve `app.html`, and `/`, `/convert` an
 
 ### Mock API (dev only)
 
-`mock-api.ts` is a Vite middleware at `/__mock-api` that implements the Milestone 2 contract in memory, so the whole flow works with no backend. It's never part of a build.
+`mock-api.ts` is a Vite middleware at `/__mock-api` that implements the Milestone 2 and 3 contracts in memory, so the whole flow works with no backend. It's never part of a build.
 
 **Endpoints:**
 - `GET /auth/fingerprint`, `GET /users/@me` and `GET /users/@me/limits`. Without `Authorization` you get the anonymous values; with any `Authorization` you're "Mock User".
@@ -46,15 +46,27 @@ In dev and preview, `/app` and `/app/*` serve `app.html`, and `/`, `/convert` an
 - The chunked `POST /uploads`, `PUT …/chunks/<i>`, `GET`, `complete` (moves to `complete` after 1.5 s) and `DELETE`.
 - `POST /{files|albums}/<vanity>/unlock`, `…/unlock/refresh` and `GET …/view`.
 - `POST /users/@me/{files|albums}/<id or vanity>/pass`, for owner passes.
+- Milestone 3 (contract §6):
+  - the owner library: `GET /users/@me/files` (search, sort, type, access and temporary filters, paging, totals), `PATCH` and `DELETE /users/@me/files/<id>`, and the bulk `POST …/files/delete`, `…/files/expiry` and `…/files/access`;
+  - albums: `POST` and `GET /users/@me/albums`, `GET`/`PATCH`/`DELETE …/albums/<id>`, and `PUT`/`POST …/<id>/files`, `DELETE`/`PATCH …/<id>/files/<file id>`;
+  - the public `GET /albums/<vanity>` (locked payload for password albums), and album unlock, refresh and view;
+  - `album=<vanity>` on uploads.
+
+**Seeded library:** signed in, you start with about 30 files of every kind (images, a HEIC with a `display` preview, a GIF, playable and unplayable videos, tagged audio, PDFs, text with snippets, archives), some password-protected, private, temporary or still `processing`, and three albums (one with a hidden password item, a tracklist, and a password album). Every signed-in token shares this one library; the password for protected seed files and albums is `files.gg`.
+- `assets` point at generated SVG placeholders (data: URLs) or the `web/fixtures/` media. There's no hover clip, since nothing can generate an MP4 here.
+- Text files are served from `/__mock-api/raw/<vanity>`, standing in for the CDN.
+- New uploads join the uploader's library and stay `processing` for `MOCK_DERIVE_MS`, then get placeholder assets.
 
 **Behaviour:**
-- Tokens are real contract §1 tokens, signed with the contract's test secret. `mock-api.test.ts` checks them against the test vectors.
+- Payloads follow milestone-3 §4: snake_case, times in epoch seconds, preview kinds `thumb`, `thumb-2x`, `display`, `poster`, `cover`, `waveform`, `peaks` and `hover`.
+- Protected files' and albums' http(s) URLs are signed like the API signs them (milestone-3 §3: `expires` and `sig` over the path, `album=` on album items), with the contract's test secret: until the unlock expires for unlock, `/view` and refresh, and for 1 h in owner payloads. The dev server ignores the query, so the fixtures still load; `data:` placeholders stay unsigned. `mock-api.test.ts` checks the signatures against the contract's test vectors.
+- Unlock tokens keep the milestone-2 §1 format (checked against those vectors too); they only travel between the browser and the API.
 - Turnstile, rate limits (5 a minute), expiry and the size limits follow the contract.
-- Every §7 error code the uploads can hit is reproducible.
+- Every §7 error code the uploads can hit is reproducible, and so are the album codes (`INVALID_ALBUM_FILES`, `ALBUM_FULL`, `ANONYMOUS_ALBUM_NOT_ALLOWED`, …).
 
-**Knobs (env):** `MOCK_CHUNK_DELAY_MS` (default 400), `MOCK_CHUNK_FAIL_RATE` (default 0, which exercises retries) and `MOCK_PROCESSING_MS`.
+**Knobs (env):** `MOCK_CHUNK_DELAY_MS` (default 400), `MOCK_CHUNK_FAIL_RATE` (default 0, which exercises retries), `MOCK_PROCESSING_MS` and `MOCK_DERIVE_MS` (default 6000).
 
-**To be signed in:** run `localStorage.token = '"mock"'` in the console.
+**To be signed in:** run `localStorage['filesgg.token'] = 'mock'` in the console.
 
 **Owner pass:**
 ```bash
@@ -82,8 +94,28 @@ With no backend, the viewer has nothing to boot from. In `npm run dev`, add `?fi
 | `/viewer.html?fixture=locked` | A password file (`locked1234`), named on the lock screen. The password is `files.gg`, and `#pw=files.gg` unlocks it automatically. |
 | `/viewer.html?fixture=locked-short` | A password PDF whose mock `unlock_ttl` is 90 s, to watch the refresh run out and the lock screen return. |
 | `/viewer.html?fixture=locked-expired` | `password_expired: true`: "This link's password has expired". |
-| `/viewer.html?fixture=locked-album` | A password album (`lockedalbum`, password `files.gg`). One item is a `link` file, so it gets no `?t=`. |
+| `/viewer.html?fixture=locked-album` | A password album (`lockedalbum`, password `files.gg`). Every item, a `link` file included, comes back signed with the album grant (`album=lockedalbum`). |
 | `/private123?fixture=private` | A private file: "doesn't exist", unless the URL has a `#t=` owner pass. |
+
+**Milestone 3** (contract §7). Previews in these fixtures are local files with a `?v=` (production URLs are `https://cdn.files.gg/previews/<kind>/<vanity>.<ext>?v=…`); text files, the peaks file and the video clip are `blob:` URLs made in the browser by `src/viewer/fixtureMedia.ts`, so `web/fixtures/` is unchanged. URLs that are never fetched use the real shapes (`/albums/collage/<vanity>.webp`, `/albums/download/<vanity>.zip`):
+
+| URL | Shows |
+|---|---|
+| `/viewer.html?fixture=video` | The video player with a poster. The clip is a 3 s WebM recorded from a canvas when the page loads (a WAV stands in where `MediaRecorder` is missing). |
+| `/viewer.html?fixture=video-unplayable` | `playable: false` (HEVC in MKV): "This video can't play in the browser" with Download. |
+| `/viewer.html?fixture=processing` | A video still `processing`: no poster yet, so the type icon holds the space. |
+| `/viewer.html?fixture=audio-cover` | Audio with cover art, the "Artist: Title" line and a peaks waveform seek bar. |
+| `/viewer.html?fixture=audio-waveform` | Audio without art: the waveform strip (a stand-in image) and peaks. |
+| `/viewer.html?fixture=audio-unplayable` | `playable: false` (WMA): Download instead of a player. |
+| `/viewer.html?fixture=image-heic` | A HEIC image, shown from `assets.display`. |
+| `/viewer.html?fixture=text` | Python, language from `media.language`. Add `#L5-L9` to select lines. |
+| `/viewer.html?fixture=text-typescript`, `text-rust`, `text-json`, `text-markdown` | Other languages (TypeScript from the extension alone). |
+| `/viewer.html?fixture=text-plain` | Plain text: no Shiki, long lines for the wrap toggle. |
+| `/viewer.html?fixture=text-huge` | 3 MB: "Too large to preview" without fetching. |
+| `/viewer.html?fixture=text-lines` | 25,000 short lines: "Too large to preview" once fetched. |
+| `/viewer.html?fixture=album-huge` | An album over 2 GB: Download all offers per-item downloads. |
+
+`album-grid` also has a `thumb`/`thumb-2x` item (`srcset`) and an item that's still processing.
 
 Add `/<n>` to an album path, for example `/a/demo1234/3?fixture=album-grid`, to open item 3 in the lightbox.
 
@@ -99,7 +131,7 @@ The dev server serves that folder at `/fixtures/` with Range support. It isn't i
 
 ## Worker contract (viewer boot data)
 
-The Cloudflare worker (`cf-worker/worker/domains/stable.js`) implements this in the worker milestone. The client side is `src/viewer/boot.ts`, which has tests.
+The Cloudflare worker (`cf-worker/worker/domains/stable.js`) renders the viewer shell. The client side is `src/viewer/boot.ts`, which has tests. **The payload formats live in the contract, not here:** [`docs/redesign/contracts/milestone-3.md`](../docs/redesign/contracts/milestone-3.md) §3 (CDN and signed URLs), §4 (the file and album payloads) and §5 (the Worker's internal lookups), plus [`milestone-2.md`](../docs/redesign/contracts/milestone-2.md) §4–§5 for the locked shell and unlock flow. Where they disagree, milestone-3 §0 and §3–§5 win.
 
 ### 1. Routing
 
@@ -111,9 +143,9 @@ Handle these in this order, before any vanity lookup:
      - It also includes `/assets/pdfjs/<version>/{cmaps,standard_fonts,wasm,iccs}/*`. Serve `.wasm` as `application/wasm`. These paths are versioned, so they can be cached as immutable too.
    - Root files: `/favicon.ico`, `/favicon.svg`, `/favicon-16.png`, `/favicon-32.png`, `/favicon-48.png`, `/apple-touch-icon.png`, `/icon-192.png`, `/icon-512.png` and `/og-image.png`. Match these **exact paths** first. Otherwise the vanity router reads `files.gg/favicon.ico` as the vanity `favicon`.
 2. **`/app` and `/app/*`** serve `dist/app.html` with `Cache-Control: no-cache`. The plan (§1.4 item 2) still needs `app` and `api` added to `blacklisted_ids`.
-3. **`/`** serves `dist/viewer.html` with the `home` state, and **`/convert`** serves it with `data-page="convert"`. The plan's "File conversion" design replaces this later; `convert` needs to be reserved like `app`.
+3. **`/`** serves `dist/viewer.html` with the `home` state, and **`/convert`** serves it with `data-page="convert"`. `convert` needs to be reserved like `app`.
 4. **`/a/<vanity>` and `/a/<vanity>/<n>`** serve `dist/viewer.html` with the album state (below). `a` is reserved (§1.4 item 2). The client reads `<n>` from the path, so the worker returns the same album page for every `<n>`.
-5. **`/<vanity>[.<anything>]`** serves `dist/viewer.html` with the `file`, `missing` or `unavailable` state. Keep the existing bot, ShareX, Telegram and `Accept: image/*` redirects to the CDN exactly as they are now (§1.4 item 3). They happen before the shell is rendered.
+5. **`/<vanity>[.<anything>]`** serves `dist/viewer.html` with the `file`, `missing`, `locked` or `unavailable` state. The bot, ShareX, Telegram and `Accept: image/*` redirects to the CDN happen before the shell is rendered.
 
 The HTML shell must be served with `Content-Type: text/html; charset=utf-8` and `Cache-Control: no-cache` (or `private, no-store` for `unavailable`), because the hashed asset names inside it change on every deploy.
 
@@ -121,15 +153,17 @@ The HTML shell must be served with `Content-Type: text/html; charset=utf-8` and 
 
 `dist/viewer.html` contains a bare `<div id="root"></div>`. Use `HTMLRewriter` on `#root` to set these attributes:
 
-| Case | `data-page` | `data-state` | `#file-data` | HTTP status |
+| Case | `data-page` | `data-state` | Script tag | HTTP status |
 |---|---|---|---|---|
 | `/` | `home` | (omit) | (omit) | 200 |
-| File found and not expired | `file` | `file` | file JSON | 200 |
-| Unknown, deleted or expired (`expires_at <= now`) | `file` | `missing` | `null` | 404 |
+| File found and not expired | `file` | `file` | `#file-data`: the file payload | 200 |
+| Password file | `file` | `locked` | `#file-data`: `{ vanity, protected: "password", filename?, password_expired? }` | 200 |
+| Unknown, deleted, expired or private | `file` | `missing` | `#file-data`: `null` | 404 |
 | API unreachable, timed out or 5xx | `file` | `unavailable` | (omit) | 503 |
 | `/convert` | `convert` | (omit) | (omit) | 200 |
-| `/a/<vanity>` with at least one visible item | `album` | `album` | `#album-data`: album JSON | 200 |
-| Album unknown, deleted, expired, or with no visible items | `album` | `missing` | (omit) | 404 |
+| `/a/<vanity>` with at least one item to show | `album` | `album` | `#album-data`: the album payload | 200 |
+| Password album | `album` | `locked` | `#album-data`: `{ vanity, protected: "password", title? }` | 200 |
+| Album unknown, deleted, expired, private, or with nothing to show | `album` | `missing` | (omit) | 404 |
 | Album API unreachable | `album` | `unavailable` | (omit) | 503 |
 
 The client checks them in this order:
@@ -137,98 +171,48 @@ The client checks them in this order:
 1. `data-page="home"` shows home, and `data-page="convert"` shows the Convert placeholder.
 2. `data-state="unavailable"` shows unavailable.
 3. `data-state="missing"` shows missing.
-4. `data-page="album"` shows the album when `#album-data` holds a valid album with at least one visible item, and missing otherwise.
-5. A valid file payload shows the file.
-6. Anything else shows missing: a `null` payload, no script tag, invalid JSON, or a payload without `filename` or `cdnUrl`.
+4. `data-state="locked"` shows the lock screen when the script tag holds a valid locked payload, and missing otherwise.
+5. `data-page="album"` shows the album when `#album-data` holds a valid album with at least one unexpired item, and missing otherwise.
+6. A valid file payload shows the file.
+7. Anything else shows missing: a `null` payload, no script tag, invalid JSON, or a payload without `filename` or `cdn_url`.
 
 `unavailable` must never be served for a file that really is missing. It tells the user the file still exists.
 
-### 3. The `#file-data` script
+### 3. The `#file-data` and `#album-data` scripts
 
-Insert it right after `#root`, with `element.after(html, { html: true })`:
+Insert them right after `#root`, with `element.after(html, { html: true })`:
 
 ```html
 <script id="file-data" type="application/json">{"kind":"image",...}</script>
 ```
 
-**Escape the JSON before inlining it.** Run `JSON.stringify(payload)`, then replace `<` with `\u003c`, `>` with `\u003e`, `&` with `\u0026`, U+2028 with `\u2028` and U+2029 with `\u2029` (each written as those six ASCII characters). Filenames, titles and captions are user input, so none of them may be able to close the tag with `</script>`. The output is still valid JSON. The same applies to `#album-data`.
+**Escape the JSON before inlining it.** Run `JSON.stringify(payload)`, then replace `<` with `\u003c`, `>` with `\u003e`, `&` with `\u0026`, U+2028 with `\u2028` and U+2029 with `\u2029` (each written as those six ASCII characters). Filenames, titles and captions are user input, so none of them may be able to close the tag with `</script>`. The output is still valid JSON.
 
-Payload fields (`src/viewer/types.ts`, Appendix A):
+**The payloads are the API's, passed through as they are** (milestone-3 §4): the file payload for `#file-data`, the album payload (items are file payloads plus `position` and `caption`) for `#album-data`. The parser reads that one shape only, snake_case with times in epoch seconds (`cdn_url`, `uploaded_at`, `expires_at`, `hover_url`, `download_url`, `total_size`, `next_cursor`); camelCase and ISO dates are ignored. Unknown preview kinds, invalid items and expired items (`expires_at <= now`) drop out, and items are sorted by `position`. What the viewer uses from it:
+- `kind` picks the renderer (unknown kinds fall back to `file`); `width`/`height` reserve the media's `aspect-ratio`; `processing` shows type icons;
+- `cdn_url` is the `src`, Raw and, with `download=true` appended, Download;
+- `assets` (`thumb`, `thumb-2x`, `display`, `poster`, `cover`, `waveform`, `peaks`, `hover`) and `thumbnail` drive tiles, posters, cover art, the waveform and the HEIC/TIFF/PSD stand-in;
+- `media` (`playable`, `tags`, `pages`, `lines`, `language`) drives the players, the tracklist, the PDF footer and the text viewer;
+- `url` is what Copy link copies (else `origin + pathname`); albums also use it for Report;
+- `download_url` is Download all (no button without it); `collage` is for embeds.
 
-| Field | Type | Required | Source / notes |
-|---|---|---|---|
-| `kind` | `"image" \| "video" \| "audio" \| "text" \| "pdf" \| "file"` | yes | From the mimetype. Use `image` only for types browsers can display (png, jpeg, gif, webp, avif, bmp, ico). SVG is **`file`**, since the CDN forces it to `text/plain`. Unknown values fall back to `file`. |
-| `filename` | string | **yes** | `file.filename` (name + extension). |
-| `cdnUrl` | string (absolute URL) | **yes** | `file.urls.cdn`. Download appends `?download=true`; Raw opens it in a new tab. |
-| `url` | string (absolute URL) | recommended | `file.urls.main`, the canonical link that "Copy link" copies. Without it, the client copies `origin + pathname`. |
-| `mimetype` | string | yes | Defaults to `application/octet-stream`. |
-| `extension` | string | yes | Derived from `filename` if missing. |
-| `size` | number (bytes) | yes | Defaults to 0. |
-| `width`, `height` | number (px) | when known | Both are needed to reserve the media's `aspect-ratio` before it loads. |
-| `duration` | number (ms) | when known | For video and audio (later milestone). |
-| `framecount` | number | when known | Above 1 means animated (later milestone). |
-| `thumbnail` | `{ url, type, width?, height? }` | optional | PLAN.md "Media processing": `thumb`, `poster` (video), `cover` (audio, larger art box) or `waveform`. Album tiles use it, and so do the video poster and audio art. |
-| `media` | object | optional | `probe` output: `{ width, height, duration, framecount, playable, has_audio, codecs, tags: { title, artist, album, track }, pages, lines }`. `pages` shows as "12 pages" in the footer. `playable: false` makes video show "Can't play this video in the browser" with Download. Tracklists use `tags`. |
-| `hover_url` | string | optional | The 3 s muted clip that plays on video tiles on hover. |
-| `processing` | boolean | optional | `true` until `derive` finishes. |
-| `id`, `vanity` | string | optional | Not used yet. |
-| `uploadedAt` | number (ms epoch) | yes | No `created_at` exists yet, so decode the snowflake: `Number(BigInt(id) >> 22n) + 1550102400000`. |
-| `expiresAt` | number (ms epoch) \| `null` | yes | `null` means the file never expires. |
+**URLs are used exactly as they arrive.** The client never builds, signs or changes a CDN URL, apart from appending `download=true`. Public (`link`) files and albums have plain URLs; anything protected arrives signed (`expires=…&sig=…`, plus `album=` on album items).
 
-Numeric strings are accepted for numbers, and invalid or non-positive dimensions are dropped. Timestamps may also be ISO-8601 strings. The parser also accepts the snake_case spellings `cdn_url`, `expires_at` and `uploaded_at`/`created_at`, so the worker can pass API objects through.
-
-### 4. The `#album-data` script (albums)
-
-Insert it after `#root` the same way, with the same escaping:
-
-```html
-<script id="album-data" type="application/json">{"vanity":"Ab3dE6gH","items":[...]}</script>
-```
-
-The payload is the album from `GET /albums/:vanity` (PLAN.md Phase 1 "Albums"). Each item is a file payload as in the table above, plus `position` and `caption`. The client is `parseAlbumData` in `src/viewer/boot.ts`.
-
-| Field | Type | Required | Notes |
-|---|---|---|---|
-| `vanity` | string | **yes** | Used for `/a/<vanity>/<n>` URL sync. |
-| `url` | string | recommended | The canonical `https://files.gg/a/<vanity>`, used by Copy link, Download all (`<url>/download.zip`) and Report (`/report?url=<url>`). |
-| `title` | string | no | Up to 100 characters, plain text. If it's empty, a tracklist uses the album tag, and anything else shows "Untitled album". |
-| `description` | string | no | Up to 2,000 characters, **plain text**. Newlines are kept, and http(s) URLs become links with `rel="nofollow ugc noopener"`. |
-| `layout` | `"auto" \| "grid" \| "list" \| "tracklist"` | no | `auto` means a grid, or a tracklist when every item is audio. An explicit `tracklist` falls back to a grid if any item isn't audio. |
-| `nsfw` | boolean | no | `true` shows one interstitial for the whole album. |
-| `cover` | `{ url, type, width?, height? }` | no | The resolved cover (from `cover_file_id`, or automatic). Tracklists fall back to the first track's `cover`. |
-| `expires_at` / `expiresAt` | ms or ISO \| `null` | no | Shown in the header. If it is in the past, the client shows missing. |
-| `count`, `total_size` / `totalSize` | number | no | All visible items and their total bytes. When the payload is paginated, these can exceed `items`; otherwise they default to `items.length` and the sum of item sizes. |
-| `next_cursor` / `nextCursor` | string \| `null` | no | When set, the page says "Showing the first N of M files". Loading more is a later milestone. |
-| `items[]` | file payload + `position` (number), `caption` (string, ≤ 500) | **yes** | Only visible items should be sent. The client also drops invalid items and expired ones (`expiresAt <= now`), then sorts the rest by `position`. |
-
-The owner's username is never shown, so don't send it unless "Show my name on albums" is on (later milestone).
-
-### 4b. Milestone 2: protected files and albums
-
-This follows `docs/redesign/contracts/milestone-2.md` §4 and §5; the client is `src/viewer/locked/` (a lazy chunk).
+### 4. Protected files and albums (lazy `src/viewer/locked/`)
 
 **Loading:**
-- `data-state="locked"` takes `{ vanity, protected: "password", filename? | title?, password_expired? }` in `#file-data` or `#album-data`.
+- `data-state="locked"` shows the lock screen for a password file or album. A private file is plain `missing`.
 - On boot, `#pw=` and `#t=` are read and immediately stripped from the address bar with `replaceState`.
 
 **Order of attempts:**
-1. **A `#t=` owner pass:** `GET /{files|albums}/<vanity>/view` with `X-Filesgg-Access`. There's no unlock call and it's never stored. It refreshes through `/unlock/refresh` with the same timing, capped at 12 h from minting.
+1. **A `#t=` owner pass:** `GET /{files|albums}/<vanity>/view` with `X-Filesgg-Access`. There's no unlock call and it's never stored. It refreshes through `/unlock/refresh` like an unlock, capped at 12 h from minting.
 2. **A stored unlock token** (`localStorage["filesgg.access.<kind>.<vanity>"]`, kept until it expires): the same `/view` call. `401` drops the token.
-3. **Otherwise the lock screen:**
-   - a password field with a show toggle;
-   - managed Turnstile (action `unlock`, `interaction-only`) on every attempt;
-   - a `#pw=` password is tried once automatically when Turnstile passes;
-   - errors for `WRONG_PASSWORD`, `TOO_MANY_ATTEMPTS` (with a live countdown), `PASSWORD_EXPIRED` and `CAPTCHA_INVALID` (with Retry the check).
-
-**Private files:** the shell is `missing`. With `#t=` in the URL, the vanity comes from the path, and `404` or `401` show "doesn't exist".
+3. **Otherwise the lock screen:** a password field with a show toggle, managed Turnstile (action `unlock`) on every attempt, a `#pw=` password tried once automatically, and messages for `WRONG_PASSWORD`, `TOO_MANY_ATTEMPTS` (with a live countdown), `PASSWORD_EXPIRED` and `CAPTCHA_INVALID`.
 
 **After unlocking:**
-- Every media URL gets `?t=`. That covers `cdnUrl`, so Download and Raw carry it too, plus the thumbnail, the hover clip, album covers and album items.
-- `link` files never get `?t=`, and the share link never does.
-- Album "Download all" gets `?t=` too.
-- The token refreshes 5 minutes before expiry (or at half-life if less is left).
-- Refreshing stops once the server stops extending the token (its cap). `UNLOCK_EXPIRED`, or reaching expiry, returns to the lock screen.
-- Media URLs move to a newer token only 2 minutes before theirs expires, so a refresh never reloads the image, restarts the video or reopens the PDF.
+- Unlock, `/view` and refresh all return the payload with URLs signed for this visitor, plus `token` and `expires_at`. The token is only for the API; it never goes into a URL.
+- The token refreshes 5 minutes before expiry (or at half-life if less is left), and stops once the server stops extending it (its cap). `UNLOCK_EXPIRED`, or reaching expiry, returns to the lock screen.
+- Each refresh brings fresh URLs, but the page keeps the ones it shows until they're about to expire (2 minutes before their `expires`), then swaps to the newest payload. A refresh never reloads an image, restarts a video or reopens a PDF (`lib/signedUrls.ts`, `useSignedValue`).
 
 ### 5. Meta tags
 
@@ -253,11 +237,14 @@ src/
   app/          dashboard: routes, DashboardLayout (sidebar / mobile drawer), lazy pages
   viewer/       viewer: boot parsing, fixtures, state cards, file card, renderers/
     pdf/        lazy PDF chunk: pdf.js loader, pdfState.ts (pure, tested), viewer, pages, sidebar
-    album/      lazy album chunk: layouts, justified grid, lightbox, tracklist, URL sync
+    album/      lazy album chunk: layouts, justified grid, lightbox, tracklist, URL sync, Download all
+    media/      lazy video/audio player: controls, keyboard, saved volume, peaks seek bar
+    text/       lazy text viewer: limits, line anchors, languages; Shiki in a further chunk
   components/   shared by both entries and viewer-safe: Button, CopyButton, Brand (lockup/mark)
     locked/     lazy chunk: lock screen, unlock / view / refresh, owner passes
   lib/          api client, TanStack Query client and hooks, storage, time and format helpers
-    access.ts   access tokens: storage, refresh timing, ?t= signing, #pw= / #t= fragments
+    access.ts   unlock tokens: storage, refresh timing, #pw= / #t= fragments
+    signedUrls.ts  reading signed URLs' expiry; useSignedValue keeps on-screen URLs until they near expiry
     upload/     chunk scheduler, upload task, resume store, picker rules, error messages, limits check
   styles/       theme.css (tokens), viewer.css and app.css (one per entry)
   test/         Vitest setup
@@ -268,9 +255,10 @@ src/
 `src/viewer/renderers/index.ts` maps `kind` to a component, and anything without an entry gets a generic download card:
 - `image`: checkerboard, a click-to-zoom lightbox, Esc to close, and in the album carousel a click toggles fit and actual size;
 - `pdf`: pdf.js, lazy;
-- `video` and `audio`: native elements for now, lazy.
+- `video` and `audio` (`media/`, lazy): the custom player (below);
+- `text` (`text/`, lazy): the Shiki viewer (below).
 
-The text viewer (Shiki) registers there later, with `lazy()`. `FileCard`, album lists and the album carousel wrap renderers in `<Suspense>` with a fallback that holds the media's size. A renderer gets a `context` prop:
+`renderers/assets.ts` picks previews from the payload (never building URLs): `display` for images browsers can't show (HEIC, TIFF, PSD, …), the poster, cover and waveform, and `thumb`/`thumb-2x` for tiles. `FileCard`, album lists and the album carousel wrap renderers in `<Suspense>` with a fallback that holds the media's size. A renderer gets a `context` prop:
 - `card`: the single-file page, which may own page-wide keys and `#page=N`;
 - `list`: an album's list layout;
 - `lightbox`: the album carousel, which owns ←/→ and Esc.
@@ -307,8 +295,9 @@ It also gets an optional `onOpen`, so albums can open their own lightbox.
 
 `src/viewer/album/` is a lazy chunk:
 - **Header:** title, plain-text description with safe links, count and size, expiry, Copy link, Download all and Report.
+  - **Download all** uses the payload's `download_url` as it is (signed for a protected album), and isn't shown without one. It sends a `HEAD` first (or skips it when the album is known to be over 2 GiB): on `413` it shows "This album is too large to download as one file" with per-item downloads, instead of letting the browser save the JSON error. Any other answer, or a failed check, downloads as usual.
 - **Layouts:**
-  - a justified grid (`layout.ts`, `justifyRows`), with video, audio, PDF and file tiles, captions under the items, and hover clips;
+  - a justified grid (`layout.ts`, `justifyRows`), with video, audio, PDF and file tiles, captions under the items, and hover clips. Tiles use `thumb` with `thumb-2x` in `srcset` when derived, and a type icon while an item is processing;
   - a list, where each item uses its normal renderer at full width;
   - a tracklist: cover, tag artist and album, numbered tracks, and a bottom player bar with prev, next, shuffle and repeat on a plain `<audio>` element.
 - **Lightbox:** a carousel with ←/→, swipe and Esc, plus per-item Download, Raw and Copy link.
@@ -316,7 +305,28 @@ It also gets an optional `onOpen`, so albums can open their own lightbox.
   - The URL logic is `useAlbumLightbox`.
 - **NSFW:** one interstitial for the whole album.
 
-Each lazy chunk has its own utility stylesheet (`pdf/pdf.css`, `album/album.css`, built with `@reference` against the shared tokens), so their classes stay out of the viewer's entry CSS.
+### Video and audio player
+
+`src/viewer/media/` is a lazy chunk shared by both renderers:
+- **Controls:** play/pause, seek with the buffered range (a native range input over a drawn track, so it's keyboard- and screen-reader-friendly), time, mute and volume, speed 0.25×–2× with a "Keep pitch" toggle (`preservesPitch`), and fullscreen (video; iOS falls back to `webkitEnterFullscreen`).
+- **Video:** the poster from a `poster` thumbnail (else `assets.poster`). Controls overlay the bottom and hide after 2.5 s without movement while playing. A click toggles play; a double-click toggles fullscreen.
+- **Audio:** the cover as large art, else the `waveform` strip, then "Artist: Title". `assets.peaks.url` is fetched and drawn as a waveform seek bar, with a plain bar while it loads or if it fails.
+- **Keyboard** (`keys.ts`): Space or `k`, ←/→ (5 s), `m`, `f`. On a single-file page they work when focus is in the player or on nothing; in albums, only with focus in the player. Space on a focused button presses the button; arrows on the volume slider change the volume.
+- **Saved volume:** `filesgg.volume` and `filesgg.muted`, through `lib/storage` (never throws).
+- **Not playable** (`media.playable === false`, or a load error): "This video can't play in the browser" (or audio) with Download.
+- **Processing:** no poster or cover yet, so the type icon shows.
+
+### Text viewer
+
+`src/viewer/text/` is a lazy chunk. The plain text shows first; Shiki loads after it in its own chunk.
+- **Shiki, fine-grained:** `shiki/core` with the JavaScript regex engine (no wasm), files.gg's own small theme (`theme.ts`, from the design tokens) and one grammar chunk per language from a fixed list (`languages.ts`). Plain text never loads Shiki.
+- **Language:** `media.language`, else a known filename (`Dockerfile`, `Makefile`, …) or the extension, else plain text. A language outside the list shows as plain text.
+- **Limits:** over 1 MiB or 20,000 lines (from `size` / `media.lines`, else after fetching) it shows "Too large to preview" with Download and Raw. Over 512 KiB the preview stays unhighlighted, to stay fast.
+- **Fetching:** from `cdn_url` as it is (already signed for protected files).
+- **Line anchors:** clicking a line number sets `#L5`, shift-click `#L5-L9`, with `replaceState`. Anchors in the URL are highlighted and scrolled to on load and on hash changes. In albums, the selection stays local and the URL is left alone. `#L…` anchors are not touched by the `#pw=` / `#t=` watcher in `main.tsx`.
+- **Toolbar:** language, line count, Wrap toggle and Copy.
+
+Each lazy chunk has its own utility stylesheet (`pdf/pdf.css`, `album/album.css`, `media/media.css`, `text/text.css`, built with `@reference` against the shared tokens), so their classes stay out of the viewer's entry CSS.
 
 ### Design tokens
 
@@ -326,17 +336,19 @@ Each lazy chunk has its own utility stylesheet (`pdf/pdf.css`, `album/album.css`
 
 `src/lib/api.ts`:
 
-- Sends `Authorization` from localStorage `token`, and `X-Fingerprint` from `fingerprint`. These are the old app's keys and JSON encoding, so logins carry over on the same origin.
-- As in the old app, the fingerprint is only sent while signed out.
-- Every localStorage access goes through `src/lib/storage.ts`, which never throws.
-- A non-2xx response throws `ApiError { status, code, message, body }`, parsed from the `{ code, message }` body. Network failures become `status: 0, code: "NETWORK_ERROR"`.
+- Sends `Authorization` from localStorage `filesgg.token`, and `X-Fingerprint` from `filesgg.fingerprint` (plain strings). The fingerprint is only sent while signed out.
+- Every localStorage access goes through `src/lib/storage.ts`, which never throws. The other keys are `filesgg.access.<kind>.<vanity>` (unlock tokens), `filesgg.uploads` (resumable uploads), `filesgg.volume` and `filesgg.muted`.
+- A non-2xx response throws `ApiError { status, code, message, body }`, parsed from the `{ code: "STRING", message, status, ...details }` body; a body without a string code gets `code: null`, and the message falls back on the status. Network failures become `status: 0, code: "NETWORK_ERROR"`.
+- Types follow milestone-3 §4 and §6: one `FilePayload` (snake_case, epoch seconds, URLs ready to use), `OwnerFile` on top of it.
 
-`src/lib/queries.ts` has the TanStack Query hooks (`useMe`, `useMyFiles`, `useMyLimits`).
+`src/lib/queries.ts` has the TanStack Query hooks (`useMe`, `useMyFiles`, `useMyLimits`, `useMyAlbums`, `useAlbum`) and the dashboard's mutations. Owner payloads carry URLs signed for 1 h, so the files and album queries refetch every 40 minutes, and on focus once older than that; an image whose signed URL has expired triggers a refetch too. File mutations update every cached list optimistically, roll back on error and refetch when settled; album mutations do the same on the album's cache entry. Generated passwords are never kept in the cache.
 
 The Milestone 2 calls are typed from the contract:
 - `unlock`, `refreshUnlock` and `view`;
 - `createUpload`, `uploadStatus`, `completeUpload` and `abortUpload`;
 - `ensureFingerprint`.
+
+The Milestone 3 owner calls (contract §6) are `myFiles`, `updateFile`, `deleteFile`, `deleteFiles`, `setFilesExpiry`, `setFilesAccess`, `filePass`, `createAlbum`, `myAlbums`, `album`, `updateAlbum`, `deleteAlbum`, `setAlbumFiles`, `addAlbumFiles`, `removeAlbumFile`, `setAlbumCaption` and `albumPass`. `src/lib/errors.ts` maps every error code, the album codes included, to its message.
 
 Uploads use XHR (`lib/upload/xhr.ts`) for progress, with the same headers and `ApiError` parsing.
 
@@ -365,7 +377,36 @@ Uploads use XHR (`lib/upload/xhr.ts`) for progress, with the same headers and `A
 **Results:**
 - Copy link, plus "Copy link with password" (`url_with_password`).
 - A generated password is shown once.
-- Every contract §7 code has its own message (`lib/upload/errors.ts`).
+- Every contract §7 code has its own message (`lib/errors.ts`).
+
+**"Put these in an album"** (Milestone 3, `upload/useUploadAlbum.ts`):
+- Shown while the batch has more than one file, on by default, with an optional title. Files added while a batch is still going join it.
+- When every file in the batch has finished, `POST /users/@me/albums` gets the successful ids, and the album link shows above the per-file links. Fewer than two successes make no album.
+- Anonymous uploads work too (up to 50 files). Signed in, a password or private batch's album gets the same access with a `PATCH` (a generated password gets the album its own one, shown once). Anonymous albums can't be edited, so a protected anonymous batch isn't offered an album.
+
+### Dashboard (Milestone 3)
+
+**Files** (`/app/files`, `pages/FilesPage.tsx`, `app/files/`):
+- A table by default, a grid toggle, and a card list below 640 px. Page, sort, search (debounced), type chips, access and "Temporary" live in the URL (`lib/files/urlState.ts`).
+- Thumbnails follow `lib/files/thumbnail.ts`.
+  - Owner payloads' URLs are signed for 1 h, so password and private files show their media like public ones. A refetch re-signs them; each thumbnail keeps its URLs until they near expiry, so lists don't reload every image.
+  - The video hover clip plays on hover and on keyboard focus.
+- Multi-select with shift-click ranges and select all on the page (`lib/files/selection.ts`). The "N selected · X MB" bar sticks to the bottom on phones.
+- Row actions: Copy link, Open, Open as owner, Rename (inline, the name only), Set expiry, Keep forever, Change access, Add to album and Delete.
+- Clicking a row opens a drawer that shows the file with the viewer's renderers, from the owner payload's URLs.
+- "Open as owner" (protected files) mints an owner pass (`POST …/pass`) and opens its `#t=` page URL.
+
+**Change access** (`access/AccessDialog.tsx`): one dialog for a file, a selection or an album.
+- It shares its fields with the upload pickers (`access/AccessFields.tsx`), and its rules are in `lib/files/accessForm.ts`.
+- An empty password keeps the current one, and the timing fields are only sent once changed.
+- It warns when saving would break existing password links.
+
+**Albums** (`/app/albums`, `/app/albums/<id>`):
+- The editor reorders with dnd-kit (pointer or keyboard). The order saves with `PUT …/files` 600 ms after the last move, and rolls back if that fails.
+- Captions save on blur. Items the public page hides get a note saying why.
+
+**Overview** (`/app`): the storage meter (amber at 80%, red at 95%, and an explanation at 100%), counts by type, files expiring within 7 days, and recent uploads.
+- The expiring list reads the first 100 temporary files, since the list has no sort by expiry.
 
 ## Assets
 

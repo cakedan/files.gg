@@ -1,6 +1,6 @@
-import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useState } from 'react';
 
-import { albumWithAccessToken, clearAccess, loadAccess, saveAccess, withAccessToken } from '../../lib/access';
+import { clearAccess, loadAccess, saveAccess } from '../../lib/access';
 import { api, ApiError, type AccessGrant, type AccessKind, type UnlockResponse } from '../../lib/api';
 import { FileCard } from '../components/FileCard';
 import { MissingCard, UnavailableCard } from '../components/StateCards';
@@ -45,30 +45,24 @@ function Unlocked({
   vanity: string;
   onExpired: () => void;
 }) {
-  const urlGrant = useAccessRefresh(grant, { kind, vanity, scope, onExpired });
-  const signed = useMemo(
-    () =>
-      content.kind === 'file'
-        ? ({ kind: 'file', file: withAccessToken(content.file, urlGrant.token) } as const)
-        : ({ kind: 'album', album: albumWithAccessToken(content.album, urlGrant.token) } as const),
-    [content, urlGrant.token],
-  );
+  // The payload's URLs are already signed for this visitor; they're used as they are.
+  const shown = useAccessRefresh({ grant, content }, { kind, vanity, scope, onExpired });
 
-  const title = signed.kind === 'file' ? signed.file.filename : null;
+  const title = shown.kind === 'file' ? shown.file.filename : null;
   useEffect(() => {
     if (title) document.title = `${title} · files.gg`;
   }, [title]);
 
-  if (signed.kind === 'album') {
+  if (shown.kind === 'album') {
     return (
       <Suspense fallback={<main className="min-h-dvh" aria-busy="true" />}>
-        <AlbumPage album={signed.album} />
+        <AlbumPage album={shown.album} />
       </Suspense>
     );
   }
   return (
     <main className="flex min-h-dvh items-center justify-center px-3 py-6">
-      <FileCard file={signed.file} />
+      <FileCard file={shown.file} />
     </main>
   );
 }
@@ -77,6 +71,7 @@ function Unlocked({
  * Protected files and albums (lazy chunk). In order:
  * 1. a `#t=` owner pass: `GET …/view` with it, no unlock call;
  * 2. a stored unlock token for this vanity: `GET …/view`;
+ * unlock and `/view` both return the payload with signed URLs, plus `token` and `expires_at`;
  * 3. otherwise the lock screen (`password`), or "doesn't exist" (`private`).
  * `401 UNLOCK_EXPIRED` drops the stored token; `404` means missing.
  */
@@ -100,12 +95,9 @@ export default function LockedPage({ kind, vanity, protection, name, passwordExp
           const content = contentFrom(kind, response);
           if (cancelled) return;
           if (content) {
-            setPhase({
-              status: 'unlocked',
-              content,
-              grant: { token: candidate.token, expires_at: response.expires_at },
-              scope: candidate.scope,
-            });
+            const grant = { token: response.token, expires_at: response.expires_at };
+            if (candidate.scope === 'unlock') saveAccess(kind, vanity, grant);
+            setPhase({ status: 'unlocked', content, grant, scope: candidate.scope });
             return;
           }
         } catch (error) {

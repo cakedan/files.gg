@@ -16,10 +16,11 @@ import type { Renderer } from './types';
 export const renderers: Partial<Record<FileKind, Renderer>> = {
   image: ImageRenderer,
   pdf: lazy(() => import('../pdf/PdfRenderer')),
-  // Native <video>/<audio> for now; the custom player replaces these in a later milestone.
-  video: lazy(() => import('./VideoRenderer')),
-  audio: lazy(() => import('./AudioRenderer')),
-  // text: lazy(() => import('./TextRenderer')),    (milestone: Shiki viewer)
+  // The custom player (media/), shared by both through a common chunk.
+  video: lazy(() => import('../media/VideoRenderer')),
+  audio: lazy(() => import('../media/AudioRenderer')),
+  // Shiki read-only viewer; Shiki itself and each grammar are further lazy chunks.
+  text: lazy(() => import('../text/TextRenderer')),
 };
 
 export function getRenderer(kind: FileKind): Renderer {

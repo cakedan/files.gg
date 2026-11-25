@@ -6,13 +6,13 @@ from werkzeug.security import check_password_hash
 import db
 from db import queries
 from utils.generators import Snowflake
-from utils import email_templates
+from utils import email_templates, errors
 from utils.email import Email
 from utils.email_domain import domain_accepts_mail
 from utils.params import Arg, Args
 from utils.turnstile import Turnstile
 from utils.urls import public_url
-from utils.responses import ApiError, ApiResponse
+from utils.responses import ApiResponse
 from utils.tokens import FingerprintToken, EmailForgotToken, EmailVerifyToken, UserToken
 from utils.wrappers import authenticate, parse_args, route
 
@@ -24,15 +24,14 @@ auth = Blueprint('auth', url_prefix='/auth')
 Fingerprint = Annotated[Optional[int], Arg('x-fingerprint', location='headers', type=parameters.fingerprint)]
 
 
-# Turnstile (contract §8) replaced reCAPTCHA. These endpoints predate Milestone 2,
-# so they keep their error shape: the token arrives as `turnstile_token` (or the
-# legacy `captcha` field) and failures are reported under `captcha`.
-Captcha = Annotated[Optional[str], Arg('captcha', aliases=('turnstile_token',))]
+# Turnstile (milestone-2 §8): the token arrives as `turnstile_token`; a failure is
+# 403 CAPTCHA_INVALID, as everywhere else.
+Captcha = Annotated[Optional[str], Arg('turnstile_token')]
 
 
 async def verify_captcha(request, token, action):
     if not await Turnstile.verify(token, action, helpers.client_ip(request)):
-        raise ApiError(metadata={'errors': {'captcha': 'Invalid Captcha'}})
+        raise errors.captcha_invalid()
 
 
 class FingerprintArgs(Args):
@@ -59,22 +58,22 @@ async def auth_fingerprint(request, args):
 class LoginArgs(Args):
     email: Annotated[Optional[str], Arg(type=parameters.email)]
     password: Annotated[Optional[str], Arg(type=parameters.password)]
-    captcha: Captcha
+    turnstile_token: Captcha = None
     fingerprint: Fingerprint = None
 
 
 @route(auth, '/login', ['POST'])
 @parse_args(LoginArgs)
 async def auth_login(request, args):
-    await verify_captcha(request, args.captcha, 'login')
+    await verify_captcha(request, args.turnstile_token, 'login')
 
     async with db.connection() as conn:
         user = await queries.get_user_by_email(conn, args.email)
         if user is None:
-            raise ApiError('Invalid Email or Password')
+            raise errors.invalid_credentials()
 
         if not user.password or not check_password_hash(user.password, args.password):
-            raise ApiError('Invalid Email or Password')
+            raise errors.invalid_credentials()
 
         if args.fingerprint is not None:
             await queries.claim_fingerprint_files(conn, user.id, args.fingerprint)
@@ -94,7 +93,7 @@ class RegisterArgs(Args):
     email: Annotated[Optional[str], Arg(type=parameters.email)]
     username: Annotated[Optional[str], Arg(type=parameters.username)]
     password: Annotated[Optional[str], Arg(type=parameters.password)]
-    captcha: Captcha
+    turnstile_token: Captcha = None
     fingerprint: Fingerprint = None
 
 
@@ -112,19 +111,19 @@ async def auth_register(request, args):
     discriminator = 1
     async with db.connection() as conn:
         if await queries.user_exists(conn, args.username, discriminator):
-            raise ApiError(metadata={'errors': {'username': 'Already taken'}})
+            raise errors.username_taken()
 
-    await verify_captcha(request, args.captcha, 'register')
+    await verify_captcha(request, args.turnstile_token, 'register')
 
     # Postmark has no mailbox check: reject domains that can't receive mail (keeps bounces low);
     # the verification email is the real proof the mailbox exists
     if not await domain_accepts_mail(args.email):
-        raise ApiError(metadata={'errors': {'email': 'Invalid Email'}})
+        raise errors.invalid_email()
 
     fingerprint = args.fingerprint
     async with db.connection() as conn:
         if await queries.get_user_by_email(conn, args.email):
-            raise ApiError(metadata={'errors': {'email': 'Already Taken'}})
+            raise errors.email_taken()
 
         if fingerprint is not None:
             if await queries.get_user(conn, fingerprint) is not None:
@@ -164,12 +163,12 @@ async def auth_verify(request, args):
         try:
             user = await queries.get_user(conn, args.payload['user_id'])
             if not user:
-                raise ValueError('Invalid Token')
+                raise ValueError('Invalid or expired link')
             min_timestamp = helpers.epoch_seconds(user.last_email_reset_at) - EmailVerifyToken.epoch
             if not EmailVerifyToken.validate(args.token, min_timestamp=min_timestamp):
-                raise ValueError('Invalid Token')
-        except Exception as error:
-            raise ApiError(metadata={'errors': {'token': str(error)}})
+                raise ValueError('Invalid or expired link')
+        except Exception:
+            raise errors.invalid_token()
 
         await queries.mark_email_verified(conn, user.id, args.payload['email'])
     return ApiResponse(status=204)
@@ -185,8 +184,8 @@ async def auth_verify_resend(request, user):
 
 class ForgotArgs(Args):
     email: Annotated[Optional[str], Arg(type=parameters.email)]
-    # optional here so an unknown email still answers as before; checked before any email is sent
-    captcha: Annotated[Optional[str], Arg('captcha', aliases=('turnstile_token',))] = None
+    # optional here so an unknown email answers UNKNOWN_EMAIL first; checked before any email is sent
+    turnstile_token: Annotated[Optional[str], Arg('turnstile_token')] = None
 
 
 @route(auth, '/forgot', ['POST'])
@@ -195,8 +194,8 @@ async def auth_forgot(request, args):
     async with db.connection() as conn:
         user = await queries.get_user_by_email(conn, args.email)
     if user is None:
-        raise ApiError(metadata={'errors': {'email': 'Email not in use'}})
-    await verify_captcha(request, args.captcha, 'forgot')
+        raise errors.unknown_email()
+    await verify_captcha(request, args.turnstile_token, 'forgot')
 
     token = EmailForgotToken.generate({'user_id': user.id, 'email': user.email})
     subject, html, text = email_templates.reset_password(
@@ -219,15 +218,15 @@ async def auth_forgot_reset(request, args):
         try:
             user = await queries.get_user(conn, args.payload['user_id'])
             if not user:
-                raise ValueError('Invalid Token')
+                raise ValueError('Invalid or expired link')
             min_timestamp = helpers.epoch_seconds(user.last_password_reset_at) - EmailForgotToken.epoch
             if not EmailForgotToken.validate(args.token, min_timestamp=min_timestamp):
-                raise ValueError('Invalid Token')
-        except Exception as error:
-            raise ApiError(metadata={'errors': {'token': str(error)}})
+                raise ValueError('Invalid or expired link')
+        except Exception:
+            raise errors.invalid_token()
 
-        if check_password_hash(user.password, args.password):
-            raise ApiError(metadata={'errors': {'password': 'Cannot use the same password again'}})
+        if user.password and check_password_hash(user.password, args.password):
+            raise errors.same_password()
 
         await queries.set_password(conn, user.id, helpers.hash_password(args.password))
     return ApiResponse(status=204)

@@ -684,7 +684,7 @@ export function PdfViewer({ file, doc, firstPageSize, globalKeys, syncHash }: Pd
             {fullscreen || fakeFullscreen ? <Minimize aria-hidden className="size-4" /> : <Maximize aria-hidden className="size-4" />}
           </ToolButton>
           <a
-            href={downloadUrl(file.cdnUrl)}
+            href={downloadUrl(file.cdn_url)}
             download={file.filename}
             aria-label="Download"
             title="Download"
@@ -693,7 +693,7 @@ export function PdfViewer({ file, doc, firstPageSize, globalKeys, syncHash }: Pd
             <Download aria-hidden className="size-4" />
           </a>
           <a
-            href={file.cdnUrl}
+            href={file.cdn_url}
             target="_blank"
             rel="noopener noreferrer"
             aria-label="Raw"

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { normalizeKind, parseAlbumData, parseBoot, parseFileData, parseTimestamp, readBootInput } from './boot';
+import { normalizeKind, parseAlbumData, parseBoot, parseFileData, readBootInput } from './boot';
 
 const file = {
   kind: 'image',
@@ -10,10 +10,10 @@ const file = {
   size: 1234,
   width: 800,
   height: 600,
-  cdnUrl: 'https://cdn.files.gg/files/abc.png',
+  cdn_url: 'https://cdn.files.gg/files/abc.png',
   url: 'https://files.gg/abc.png',
-  uploadedAt: 1_700_000_000_000,
-  expiresAt: null,
+  uploaded_at: 1_700_000_000,
+  expires_at: null,
 };
 
 describe('parseBoot', () => {
@@ -33,7 +33,7 @@ describe('parseBoot', () => {
     const state = parseBoot({ page: 'file', state: 'file', fileJson: JSON.stringify(file) });
     expect(state.page).toBe('file');
     if (state.page === 'file') {
-      expect(state.file).toMatchObject({ kind: 'image', filename: 'cat.png', width: 800, height: 600, expiresAt: null });
+      expect(state.file).toMatchObject({ kind: 'image', filename: 'cat.png', width: 800, height: 600, uploaded_at: 1_700_000_000, expires_at: null });
     }
   });
 
@@ -43,7 +43,7 @@ describe('parseBoot', () => {
     ['an empty script tag', '   '],
     ['malformed JSON', '{"kind":'],
     ['an array', '[]'],
-    ['a payload without cdnUrl', JSON.stringify({ ...file, cdnUrl: undefined })],
+    ['a payload without cdn_url', JSON.stringify({ ...file, cdn_url: undefined })],
     ['a payload without filename', JSON.stringify({ ...file, filename: '' })],
   ])('treats %s as missing', (_label, fileJson) => {
     expect(parseBoot({ page: 'file', fileJson })).toEqual({ page: 'missing' });
@@ -60,23 +60,52 @@ describe('parseFileData', () => {
     expect(normalizeKind(undefined)).toBe('file');
   });
 
-  it('drops invalid dimensions and coerces numeric strings', () => {
-    const parsed = parseFileData({ ...file, width: 0, height: -5, size: '2048', expiresAt: '1700000000000' });
+  it('drops invalid dimensions; numbers must be numbers', () => {
+    const parsed = parseFileData({ ...file, width: 0, height: -5, size: '2048', expires_at: 1_800_000_000 });
     expect(parsed?.width).toBeUndefined();
     expect(parsed?.height).toBeUndefined();
-    expect(parsed?.size).toBe(2048);
-    expect(parsed?.expiresAt).toBe(1_700_000_000_000);
+    expect(parsed?.size).toBe(0);
+    expect(parsed?.expires_at).toBe(1_800_000_000);
+  });
+
+  it('reads only the snake_case payload (contract §4), not the old camelCase or ISO spellings', () => {
+    const old = {
+      kind: 'image',
+      filename: 'cat.png',
+      cdnUrl: 'https://cdn.files.gg/files/abc.png',
+      uploadedAt: 1_700_000_000_000,
+      expiresAt: 1_800_000_000_000,
+      hoverUrl: 'https://cdn.files.gg/x.mp4',
+    };
+    expect(parseFileData(old)).toBeNull();
+    const parsed = parseFileData({ ...old, cdn_url: old.cdnUrl, created_at: 1_700_000_000, expires_at: '2026-11-24T00:00:00Z' });
+    expect(parsed).toMatchObject({ uploaded_at: 0, expires_at: null, hover_url: undefined });
+  });
+
+  it('keeps signed URLs exactly as they arrive', () => {
+    const signed = (path: string) => `https://cdn.files.gg${path}?v=5&expires=1795603600&sig=2S-9Yql24QX8cbVBEPtMDgeEaeiOl7iXlH3fXrkd4q8`;
+    const parsed = parseFileData({
+      ...file,
+      visibility: 'password',
+      cdn_url: 'https://cdn.files.gg/files/abc.png?expires=1795603600&sig=2S-9Yql24QX8cbVBEPtMDgeEaeiOl7iXlH3fXrkd4q8',
+      assets: { thumb: { url: signed('/previews/thumb/abc.webp') }, hover: { url: signed('/previews/hover/abc.mp4') } },
+      thumbnail: { url: signed('/previews/thumb/abc.webp'), type: 'thumb' },
+    });
+    expect(parsed?.cdn_url).toBe('https://cdn.files.gg/files/abc.png?expires=1795603600&sig=2S-9Yql24QX8cbVBEPtMDgeEaeiOl7iXlH3fXrkd4q8');
+    expect(parsed?.assets?.thumb?.url).toBe(signed('/previews/thumb/abc.webp'));
+    expect(parsed?.thumbnail?.url).toBe(signed('/previews/thumb/abc.webp'));
+    expect(parsed?.hover_url).toBe(signed('/previews/hover/abc.mp4'));
   });
 
   it('derives extension and mimetype defaults', () => {
-    const parsed = parseFileData({ filename: 'notes.tar.gz', cdnUrl: 'https://cdn.files.gg/files/x.gz' });
+    const parsed = parseFileData({ filename: 'notes.tar.gz', cdn_url: 'https://cdn.files.gg/files/x.gz' });
     expect(parsed).toMatchObject({
       kind: 'file',
       extension: 'gz',
       mimetype: 'application/octet-stream',
       size: 0,
-      uploadedAt: 0,
-      expiresAt: null,
+      uploaded_at: 0,
+      expires_at: null,
     });
   });
 
@@ -107,7 +136,9 @@ describe('readBootInput', () => {
 });
 
 describe('parseBoot: convert and album pages', () => {
+  /** ms; payload times are seconds. */
   const NOW = 1_800_000_000_000;
+  const NOW_S = NOW / 1000;
   const album = {
     vanity: 'Ab3dE6gH',
     url: 'https://files.gg/a/Ab3dE6gH',
@@ -133,7 +164,7 @@ describe('parseBoot: convert and album pages', () => {
       expect(state.album.items.map((i) => i.filename)).toEqual(['a.png', 'b.png']);
       expect(state.album.items[0]?.caption).toBe('first');
       expect(state.album.count).toBe(2);
-      expect(state.album.totalSize).toBe(2468);
+      expect(state.album.total_size).toBe(2468);
     }
   });
 
@@ -149,8 +180,9 @@ describe('parseBoot: convert and album pages', () => {
     ['no vanity', JSON.stringify({ ...album, vanity: '' })],
     ['no items', JSON.stringify({ ...album, items: [] })],
     ['only invalid items', JSON.stringify({ ...album, items: [{ filename: 'x' }] })],
-    ['an expired album', JSON.stringify({ ...album, expires_at: NOW - 1 })],
-    ['only expired items', JSON.stringify({ ...album, items: [{ ...file, expiresAt: NOW - 1 }] })],
+    ['an expired album', JSON.stringify({ ...album, expires_at: NOW_S - 1 })],
+    ['an album expiring right now', JSON.stringify({ ...album, expires_at: NOW_S })],
+    ['only expired items', JSON.stringify({ ...album, items: [{ ...file, expires_at: NOW_S - 1 }] })],
   ])('treats an album with %s as missing', (_label, albumJson) => {
     expect(parseBoot({ page: 'album', albumJson }, NOW)).toEqual({ page: 'missing' });
   });
@@ -158,21 +190,26 @@ describe('parseBoot: convert and album pages', () => {
 
 describe('parseAlbumData', () => {
   const NOW = Date.UTC(2026, 10, 24);
+  const NOW_S = NOW / 1000;
   const base = { vanity: 'v', items: [{ ...file, position: 0 }] };
 
   it('drops expired items but keeps the rest', () => {
     const parsed = parseAlbumData(
-      { ...base, items: [{ ...file, expiresAt: NOW - 1 }, { ...file, filename: 'ok.png', expiresAt: NOW + 1 }] },
+      { ...base, items: [{ ...file, expires_at: NOW_S - 1 }, { ...file, filename: 'ok.png', expires_at: NOW_S + 1 }] },
       NOW,
     );
     expect(parsed?.items.map((i) => i.filename)).toEqual(['ok.png']);
   });
 
-  it('accepts camelCase and snake_case, ISO and ms timestamps', () => {
-    const iso = new Date(NOW + 60_000).toISOString();
-    expect(parseAlbumData({ ...base, expires_at: iso }, NOW)?.expiresAt).toBe(NOW + 60_000);
-    expect(parseAlbumData({ ...base, expiresAt: NOW + 5 }, NOW)?.expiresAt).toBe(NOW + 5);
-    expect(parseAlbumData({ ...base, total_size: 99, next_cursor: 'c2' }, NOW)).toMatchObject({ totalSize: 99, nextCursor: 'c2' });
+  it('reads snake_case fields with epoch-second times only', () => {
+    expect(parseAlbumData({ ...base, expires_at: NOW_S + 60 }, NOW)?.expires_at).toBe(NOW_S + 60);
+    expect(parseAlbumData({ ...base, expires_at: new Date(NOW + 60_000).toISOString() }, NOW)?.expires_at).toBeNull();
+    expect(parseAlbumData({ ...base, total_size: 99, next_cursor: 'c2' }, NOW)).toMatchObject({ total_size: 99, next_cursor: 'c2' });
+    expect(parseAlbumData({ ...base, totalSize: 99, nextCursor: 'c2', downloadUrl: 'https://x' }, NOW)).toMatchObject({
+      total_size: 1234,
+      next_cursor: null,
+      download_url: undefined,
+    });
   });
 
   it('defaults layout, nsfw, title and captions, and caps text lengths', () => {
@@ -200,7 +237,7 @@ describe('parseAlbumData', () => {
             ...file,
             kind: 'audio',
             hover_url: 'https://cdn/x/hover.mp4',
-            media: { duration: '4000', tags: { title: 'Song', artist: 'Band', track: 2 }, pages: 0, playable: true },
+            media: { duration: 4000, tags: { title: 'Song', artist: 'Band', track: 2 }, pages: 0, playable: true },
             thumbnail: { url: 'https://cdn/x/cover.webp', type: 'cover', width: 400, height: 400 },
           },
         ],
@@ -213,16 +250,6 @@ describe('parseAlbumData', () => {
     expect(item?.media?.pages).toBeUndefined();
     expect(item?.duration).toBe(4000);
     expect(item?.thumbnail).toEqual({ url: 'https://cdn/x/cover.webp', type: 'cover', width: 400, height: 400 });
-  });
-});
-
-describe('parseTimestamp', () => {
-  it('accepts ms numbers, numeric strings and ISO strings', () => {
-    expect(parseTimestamp(5)).toBe(5);
-    expect(parseTimestamp('5')).toBe(5);
-    expect(parseTimestamp('2026-11-24T00:00:00Z')).toBe(Date.UTC(2026, 10, 24));
-    expect(parseTimestamp('nope')).toBeUndefined();
-    expect(parseTimestamp(null)).toBeUndefined();
   });
 });
 
@@ -262,5 +289,69 @@ describe('parseBoot: locked (contract §4)', () => {
   it('keeps visibility on file payloads', () => {
     expect(parseFileData({ ...file, visibility: 'password' })?.visibility).toBe('password');
     expect(parseFileData({ ...file, visibility: 'public' })?.visibility).toBeUndefined();
+  });
+});
+
+describe('milestone 3 payload fields', () => {
+  it('parses assets, keeping only the contract §3 preview kinds with a URL', () => {
+    const parsed = parseFileData({
+      ...file,
+      assets: {
+        thumb: { url: 'https://cdn.files.gg/previews/thumb/abc.webp?v=2', width: 320, height: 240 },
+        'thumb-2x': { url: 'https://cdn.files.gg/previews/thumb-2x/abc.webp?v=2', width: -1 },
+        display: { url: 'https://cdn.files.gg/previews/display/abc.webp?v=2' },
+        poster: 'https://cdn.files.gg/previews/poster/abc.webp?v=2',
+        'thumb@2x': { url: 'https://cdn.files.gg/old/thumb@2x.webp' },
+        preview: { url: 'https://cdn.files.gg/old/preview.webp' },
+        peaks: { url: '' },
+        bogus: { url: 'https://cdn.files.gg/x' },
+        hover: null,
+      },
+    });
+    expect(parsed?.assets).toEqual({
+      thumb: { url: 'https://cdn.files.gg/previews/thumb/abc.webp?v=2', width: 320, height: 240 },
+      'thumb-2x': { url: 'https://cdn.files.gg/previews/thumb-2x/abc.webp?v=2', width: undefined, height: undefined },
+      display: { url: 'https://cdn.files.gg/previews/display/abc.webp?v=2', width: undefined, height: undefined },
+    });
+  });
+
+  it('drops assets that are empty or not an object, and fills hover_url from assets.hover', () => {
+    expect(parseFileData({ ...file, assets: {} })?.assets).toBeUndefined();
+    expect(parseFileData({ ...file, assets: ['x'] })?.assets).toBeUndefined();
+    const parsed = parseFileData({ ...file, assets: { hover: { url: 'https://cdn.files.gg/previews/hover/abc.mp4?v=2' } } });
+    expect(parsed?.hover_url).toBe('https://cdn.files.gg/previews/hover/abc.mp4?v=2');
+  });
+
+  it('parses media.language (lowercased) and snippet', () => {
+    const parsed = parseFileData({ ...file, kind: 'text', media: { lines: 40, language: 'Python', snippet: 'import os\n' } });
+    expect(parsed?.media).toMatchObject({ lines: 40, language: 'python', snippet: 'import os\n' });
+    expect(parseFileData({ ...file, media: { language: null, snippet: 3 } })?.media).toMatchObject({
+      language: undefined,
+      snippet: undefined,
+    });
+  });
+
+  it('parses the album id, visibility, collage and download_url, signed URLs untouched', () => {
+    const sig = 'expires=1796204800&sig=wGA5TVhWGADqYzNbG7Og11zjDW3n4A9cw5dKtfI4FFA';
+    const album = parseAlbumData({
+      id: '987654321098765432',
+      vanity: 'Ab3dE6gH',
+      visibility: 'password',
+      collage: { url: `https://cdn.files.gg/albums/collage/Ab3dE6gH.webp?v=5&${sig}`, width: 1200, height: 630 },
+      download_url: `https://cdn.files.gg/albums/download/Ab3dE6gH.zip?${sig}`,
+      items: [{ ...file, cdn_url: `https://cdn.files.gg/files/abc.png?album=Ab3dE6gH&${sig}` }],
+    });
+    expect(album).toMatchObject({
+      id: '987654321098765432',
+      visibility: 'password',
+      collage: { url: `https://cdn.files.gg/albums/collage/Ab3dE6gH.webp?v=5&${sig}`, width: 1200, height: 630 },
+      download_url: `https://cdn.files.gg/albums/download/Ab3dE6gH.zip?${sig}`,
+    });
+    expect(album?.items[0]?.cdn_url).toBe(`https://cdn.files.gg/files/abc.png?album=Ab3dE6gH&${sig}`);
+    const bare = parseAlbumData({ id: 123, vanity: 'v1', visibility: 'secret', collage: { width: 1 }, items: [file] });
+    expect(bare?.id).toBeUndefined();
+    expect(bare?.visibility).toBeUndefined();
+    expect(bare?.collage).toBeUndefined();
+    expect(bare?.download_url).toBeUndefined();
   });
 });

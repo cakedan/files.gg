@@ -1,7 +1,7 @@
 from werkzeug.security import generate_password_hash
 
 from db import queries
-from utils.responses import ApiError
+from utils import errors
 from utils.tokens import UserToken
 
 import utils.parameters as parameters
@@ -11,26 +11,26 @@ async def get_user(conn, token, allow_user=True, allow_bot=False):
     try:
         parsed = parameters.token_authorization(token)
     except Exception:
-        raise ApiError(status=401)
+        raise errors.unauthorized()
 
     auth_type, user_id, token = parsed
     if auth_type == 'user':
         if not allow_user:
-            raise ApiError('Users cannot use this endpoint.', status=401)
+            raise errors.unauthorized("Users can't use this endpoint")
         user = await queries.get_user(conn, user_id, bot=False)
         if user is None:
-            raise ApiError('Unknown User', status=404)
+            raise errors.unknown_user()
 
         # tokens issued before the last password reset are rejected (whole seconds)
         min_timestamp = epoch_seconds(user.last_password_reset_at) - UserToken.epoch
         if not UserToken.validate(token, min_timestamp):
-            raise ApiError(status=401)
+            raise errors.unauthorized()
     elif auth_type == 'bot':
         if not allow_bot:
-            raise ApiError('Bots cannot use this endpoint.', status=401)
-        raise ApiError('Bots are not supported currently.', status=401)
+            raise errors.unauthorized("Bots can't use this endpoint")
+        raise errors.unauthorized("Bots aren't supported yet")
     else:
-        raise ApiError(status=401)
+        raise errors.unauthorized()
     return user
 
 

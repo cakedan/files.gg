@@ -79,7 +79,7 @@ export function AlbumTracklist({ album, title }: { album: AlbumData; title: stri
           {artist && <p className="text-sm">{artist}</p>}
           <p className="text-sm text-muted">
             {tracks.length} {tracks.length === 1 ? 'track' : 'tracks'}
-            {totalMs > 0 && ` · ${formatDuration(totalMs)}`} · {formatBytes(album.totalSize)}
+            {totalMs > 0 && ` · ${formatDuration(totalMs)}`} · {formatBytes(album.total_size)}
           </p>
           <div className="mt-2">
             <button
@@ -99,7 +99,7 @@ export function AlbumTracklist({ album, title }: { album: AlbumData; title: stri
           const active = started && index === queue.current;
           const trackArtist = track.media?.tags?.artist;
           return (
-            <li key={`${track.cdnUrl}-${index}`} className="flex items-center gap-1 border-b border-line last:border-b-0">
+            <li key={`${track.vanity ?? track.filename}-${index}`} className="flex items-center gap-1 border-b border-line last:border-b-0">
               <button
                 type="button"
                 onClick={() => play(index)}
@@ -118,7 +118,7 @@ export function AlbumTracklist({ album, title }: { album: AlbumData; title: stri
                 <span className="shrink-0 text-sm text-muted tabular-nums">{formatDuration(trackDuration(track))}</span>
               </button>
               <a
-                href={downloadUrl(track.cdnUrl)}
+                href={downloadUrl(track.cdn_url)}
                 download={track.filename}
                 aria-label={`Download ${track.filename}`}
                 className="mr-2 rounded p-2 text-muted hover:bg-surface-2 hover:text-text"
@@ -179,7 +179,7 @@ export function AlbumTracklist({ album, title }: { album: AlbumData; title: stri
           </div>
           <audio
             ref={audioRef}
-            src={current.cdnUrl}
+            src={current.cdn_url}
             controls
             preload="metadata"
             onPlay={() => setPlaying(true)}

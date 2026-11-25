@@ -5,7 +5,7 @@ _stack = []  # see db._stack
 
 
 def open_client(timeout=15.0):
-    """One outbound httpx.AsyncClient per Sanic worker (Postmark, reCAPTCHA)."""
+    """One outbound httpx.AsyncClient per Sanic worker (Postmark, Turnstile)."""
     global _client
     if _client is not None:
         _stack.append(_client)

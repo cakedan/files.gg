@@ -7,6 +7,7 @@ export const FilesPage = lazy(() => import('./FilesPage'));
 export const UploadPage = lazy(() => import('./UploadPage'));
 export const ConvertPage = lazy(() => import('./ConvertPage'));
 export const AlbumsPage = lazy(() => import('./AlbumsPage'));
+export const AlbumEditorPage = lazy(() => import('./AlbumEditorPage'));
 export const IntegrationsPage = lazy(() => import('./IntegrationsPage'));
 export const SettingsPage = lazy(() => import('./SettingsPage'));
 export const ReportsPage = lazy(() => import('./ReportsPage'));

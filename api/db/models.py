@@ -1,15 +1,9 @@
-"""Row types for the baseline tables, and their API JSON shapes.
-
-`to_dict()` output must stay byte-identical to the Flask/Peewee version
-(tests/fixtures/golden/flask_responses.json): the frontend and ShareX depend
-on it, including key order.
-"""
+"""Row types for the tables. A file's JSON shape is in utils/payloads.py (one shape for
+every endpoint); users and mimetypes keep their small `to_dict()`."""
 
 from dataclasses import dataclass, field, fields
 from datetime import datetime
 from typing import List, Optional
-
-from utils import urls
 
 
 def columns(cls, alias=None):
@@ -115,8 +109,14 @@ class FileHash:
     height: Optional[int]
     width: Optional[int]
     duration: Optional[int]
-    # 'b2', or 'gcs' for blobs uploaded before B2 (read by the Worker's fallback)
-    storage_backend: str = 'b2'
+    # Milestone 3: the probe output, and pending -> probed -> done (or failed / skipped)
+    media: Optional[dict] = None
+    processing_state: str = 'pending'
+    probed_at: Optional[datetime] = None
+    # also the version of the previews (?v=)
+    derived_at: Optional[datetime] = None
+    # file_hash_assets rows, when loaded (queries.attach_assets)
+    assets: List['FileHashAsset'] = virtual(factory=list)
 
 
 @dataclass
@@ -144,31 +144,18 @@ class File:
     uploader_ip_hash: Optional[bytes] = None
     hash: Optional[FileHash] = virtual()
     user: Optional[User] = virtual()
+    # [(album id, vanity, title)] for the owner's view, when loaded
+    albums: Optional[list] = virtual()
 
-    def to_dict(self):
-        # No "hash" (the blob id): it revealed which links share content, private
-        # files included. Only the internal lookup exposes the storage key.
-        extension = self.extension or 'unknown'
-        # no extension: the URL is just the vanity, with no trailing dot
-        suffix = '.' + self.extension if self.extension else ''
-        return {
-            'id': str(self.id),
-            'vanity': self.vanity,
-            'mimetype': self.mimetype_id,
-            'extension': extension,
-            'name': self.filename,
-            'filename': '{}.{}'.format(self.filename, extension),
-            'size': self.hash.size,
-            'height': self.hash.height,
-            'width': self.hash.width,
-            'duration': self.hash.duration,
-            'user': self.user and self.user.to_dict(),
-            'urls': {
-                'main': urls.public_url('/' + self.vanity + suffix),
-                'cdn': urls.cdn_url('/files/' + self.vanity + suffix),
-            },
-            'views': self.view_count,
-        }
+    @property
+    def suffix(self):
+        """'.<extension>', or '' without one (the URL is then just the vanity)."""
+        return '.' + self.extension if self.extension else ''
+
+    @property
+    def full_filename(self):
+        """The name plus the extension: what downloads and the ZIP use."""
+        return self.filename + self.suffix
 
 
 def epoch(value):
@@ -203,6 +190,8 @@ class UploadSession:
     file_id: Optional[int]
     created_at: datetime
     expires_at: datetime
+    # Milestone 3: `album=<vanity>` on POST /uploads; the file joins it when finalized
+    album_id: Optional[int] = None
 
     def chunk_length(self, index):
         """The exact size chunk `index` must have."""
@@ -232,7 +221,63 @@ class FileViewDay:
     unique_views: int
 
 
+@dataclass
+class FileHashAsset:
+    TABLE = 'file_hash_assets'
+
+    hash_id: int
+    # a preview kind (media.PREVIEW_KINDS): thumb, thumb-2x, display, poster, cover, ...
+    kind: str
+    storage_key: str
+    content_type: str
+    size: int
+    width: Optional[int]
+    height: Optional[int]
+    created_at: datetime
+
+
+@dataclass
+class Album:
+    TABLE = 'albums'
+
+    id: int
+    vanity: str
+    owner_user_id: Optional[int]
+    owner_fingerprint: Optional[int]
+    title: Optional[str]
+    description: Optional[str]
+    cover_file_id: Optional[int]
+    layout: str
+    nsfw: bool
+    expires_at: Optional[datetime]
+    created_at: datetime
+    updated_at: datetime
+    deleted_at: Optional[datetime]
+    moderation_state: str
+    visibility: str
+    password_hash: Optional[str]
+    access_version: int
+    unlock_ttl: int
+    password_expires_at: Optional[datetime]
+    show_name_when_locked: bool
+    collage_key: Optional[str]
+    collage_version: Optional[int]
+    empty_since: Optional[datetime]
+
+
+@dataclass
+class AlbumFile:
+    TABLE = 'album_files'
+
+    album_id: int
+    file_id: int
+    position: int
+    caption: Optional[str]
+    added_at: datetime
+
+
 # Row types and the table columns they deliberately leave out (legacy columns
 # that only exist until pending/0004_drop_legacy.sql).
-ROW_TYPES = (User, MimetypeExtension, Mimetype, FileHash, File, FileViewDay, UploadSession, UploadPart)
+ROW_TYPES = (User, MimetypeExtension, Mimetype, FileHash, File, FileViewDay, UploadSession, UploadPart, FileHashAsset,
+             Album, AlbumFile)
 LEGACY_COLUMNS = {'users': ('last_email_reset', 'last_password_reset')}

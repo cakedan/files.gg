@@ -1,8 +1,9 @@
 /**
- * Signed access tokens on the client (contract §1, §5): storing unlock tokens per
- * vanity, refresh timing, appending `?t=` to media URLs, and the `#pw=` / `#t=`
- * fragments. The token is opaque here except for reading its claims (never trusted
- * for anything but timing: the CDN and API verify the signature).
+ * Unlock tokens on the client (milestone-2 §5, milestone-3 §3): storing them per vanity,
+ * refresh timing, and the `#pw=` / `#t=` fragments. A token is the visitor's proof for
+ * the API only (`X-Filesgg-Access` on `/view`, the body of `/unlock/refresh`); it never
+ * goes into a CDN URL. Media URLs arrive signed in the payloads (lib/signedUrls.ts).
+ * The token is opaque here except for reading its claims, for timing only.
  */
 
 import type { AccessGrant, AccessKind } from './api';
@@ -44,8 +45,6 @@ export function clearAccess(kind: AccessKind, vanity: string): void {
 
 /** Refresh this long before expiry (or at half the remaining life, if shorter). */
 export const REFRESH_LEAD_MS = 5 * 60 * 1000;
-/** Media URLs switch to a newer token only when theirs has less than this left. */
-export const URL_SWAP_LEAD_MS = 2 * 60 * 1000;
 /** After a failed refresh (network), try again after this long. */
 export const REFRESH_RETRY_MS = 30 * 1000;
 
@@ -62,15 +61,6 @@ export function refreshDelay(expiresAt: number, nowMs: number): number {
  * let the token run out.
  */
 export const refreshExtended = (previous: AccessGrant, next: AccessGrant): boolean => next.expires_at > previous.expires_at;
-
-/**
- * Media URLs keep the token they were built with (changing them would reload images,
- * restart video and re-open PDFs). They move to the freshest token only when theirs
- * is about to expire. Returns the delay until that swap.
- */
-export function urlSwapDelay(urlExpiresAt: number, nowMs: number): number {
-  return Math.max(0, urlExpiresAt * 1000 - URL_SWAP_LEAD_MS - nowMs);
-}
 
 // ---------------------------------------------------------------------------
 // Claims (contract §1), read without verification, for timing and routing only
@@ -113,57 +103,6 @@ export function readTokenClaims(token: string): TokenClaims | null {
 }
 
 // ---------------------------------------------------------------------------
-// URLs
-// ---------------------------------------------------------------------------
-
-/** Sets `t=<token>` on a URL, keeping its other parameters (`download=true` and so on). */
-export function appendToken(url: string, token: string): string {
-  try {
-    const parsed = new URL(url);
-    parsed.searchParams.set('t', token);
-    return parsed.toString();
-  } catch {
-    const [base = '', hash] = url.split('#', 2);
-    const joined = `${base}${base.includes('?') ? '&' : '?'}t=${encodeURIComponent(token)}`;
-    return hash === undefined ? joined : `${joined}#${hash}`;
-  }
-}
-
-interface Tokenisable {
-  cdnUrl: string;
-  thumbnail?: { url: string } | undefined;
-  hover_url?: string | undefined;
-  visibility?: string | undefined;
-}
-
-/**
- * The payload with `?t=` on every media URL: `cdnUrl` (so Download and Raw, which
- * derive from it, carry it too), the thumbnail and the hover clip. `link` files are
- * public, so they never get a token. The share `url` is never touched.
- */
-export function withAccessToken<T extends Tokenisable>(file: T, token: string): T {
-  if (file.visibility === 'link') return file;
-  return {
-    ...file,
-    cdnUrl: appendToken(file.cdnUrl, token),
-    thumbnail: file.thumbnail ? { ...file.thumbnail, url: appendToken(file.thumbnail.url, token) } : file.thumbnail,
-    hover_url: file.hover_url ? appendToken(file.hover_url, token) : file.hover_url,
-  };
-}
-
-export function albumWithAccessToken<
-  A extends { items: T[]; cover?: { url: string } | undefined; accessToken?: string | undefined },
-  T extends Tokenisable,
->(album: A, token: string): A {
-  return {
-    ...album,
-    accessToken: token,
-    cover: album.cover ? { ...album.cover, url: appendToken(album.cover.url, token) } : album.cover,
-    items: album.items.map((item) => withAccessToken(item, token)),
-  };
-}
-
-// ---------------------------------------------------------------------------
 // Fragments: #pw=<password> and #t=<owner pass>
 // ---------------------------------------------------------------------------
 
@@ -198,6 +137,23 @@ export function takeFragmentSecrets(loc: Location = window.location, history: Hi
     history.replaceState(history.state, '', `${loc.pathname}${loc.search}${secrets.rest}`);
   }
   return secrets;
+}
+
+/**
+ * Pasting a `#pw=` / `#t=` link into a tab already on that page is a same-document
+ * hash change: no reload, so the load-time `takeFragmentSecrets` never sees it. This
+ * strips it the same way and hands it on. Returns the unsubscribe function.
+ */
+export function watchFragmentSecrets(
+  onSecrets: (secrets: FragmentSecrets) => void,
+  win: Window = window,
+): () => void {
+  const handle = () => {
+    const secrets = takeFragmentSecrets(win.location, win.history);
+    if (secrets.password !== undefined || secrets.ownerPass !== undefined) onSecrets(secrets);
+  };
+  win.addEventListener('hashchange', handle);
+  return () => win.removeEventListener('hashchange', handle);
 }
 
 /**

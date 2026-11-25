@@ -12,10 +12,10 @@ A model declares one field per argument:
 converted (`type`, `choices`, `help`, whitespace trimming). The adapter in
 `parse()` collects raw values the way flask_restful's reqparse did (JSON body
 first, then the query string, then the form; headers; route params) and lets
-pydantic validate them. Validation errors become the old 400 response:
-`{"errors": {name: message}, "code": 0, "message": "Bad Request", "status": 400}`,
-with the same messages ("Missing required parameter in ...", the converter's
-own ValueError text, or the argument's `help`).
+pydantic validate them. Validation errors become
+`{"errors": {name: message}, "code": "INVALID_PARAMETERS", "message", "status": 400}`,
+with a message per field ("Missing required parameter in ...", the converter's own
+ValueError text, or the argument's `help`).
 """
 
 import json
@@ -45,8 +45,7 @@ class Arg:
     def __init__(self, name=None, location=DEFAULT_LOCATION, type=str, choices=None, help=None, trim=True,
                  aliases=()):
         self.name = name
-        # other request names tried first, in order; errors are still reported
-        # under `name` (e.g. turnstile_token for the legacy captcha field)
+        # other request names tried first, in order; errors are still reported under `name`
         self.aliases = tuple(aliases)
         self.location = (location,) if isinstance(location, str) else tuple(location)
         self.type = type
@@ -196,7 +195,7 @@ def parse(request, model, view_args=None, form=True):
             if arg.help:
                 message = arg.help.format(error_msg=message)
             errors[name] = message
-        raise ApiError(status=400, metadata={'errors': errors})
+        raise ApiError('Some fields are invalid', 400, code='INVALID_PARAMETERS', metadata={'errors': errors})
 
 
 # --- OpenAPI ---------------------------------------------------------------------

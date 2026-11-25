@@ -17,7 +17,7 @@ export function GenericRenderer({ file }: RendererProps) {
         </span>
         <span className="text-xs text-muted">No preview available for this file type.</span>
       </div>
-      <LinkButton href={downloadUrl(file.cdnUrl)} variant="primary" download={file.filename}>
+      <LinkButton href={downloadUrl(file.cdn_url)} variant="primary" download={file.filename}>
         <Download aria-hidden className="size-4" />
         Download
       </LinkButton>

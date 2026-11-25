@@ -28,7 +28,7 @@ function renderPage() {
 
 beforeEach(() => {
   installTurnstile();
-  localStorage.setItem('fingerprint', JSON.stringify('fp1'));
+  localStorage.setItem('filesgg.fingerprint', 'fp1');
   vi.stubGlobal(
     'fetch',
     vi.fn(async (url: string) => (String(url).endsWith('/users/@me/limits') ? json(anonymousLimits) : json({}, 404))),

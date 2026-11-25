@@ -5,3 +5,45 @@
 @source '../app';
 @source '../components';
 @source '../lib';
+/* The Files drawer reuses the viewer's renderers (lazy chunks such as the PDF viewer
+   bring their own stylesheet). */
+@source '../viewer/renderers';
+@source '../viewer/components';
+
+/*
+ * The viewer's media classes (styles/viewer.css), for renderers shown in the Files
+ * drawer. Keep these in step with viewer.css; the drawer sets its own size limits.
+ */
+.file-drawer {
+  --footer-height: 0px;
+  --media-max-width: min(100%, 100vw - 2rem);
+  --media-max-height: 60dvh;
+  --media-min-width: 0px;
+}
+
+@layer components {
+  .viewer-well {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background-color: var(--well);
+  }
+
+  .viewer-media-sized {
+    width: min(
+      calc(var(--media-w) * 1px),
+      var(--media-max-width),
+      calc(var(--media-max-height) * var(--media-w) / var(--media-h))
+    );
+    aspect-ratio: var(--media-w) / var(--media-h);
+  }
+
+  .viewer-media-free {
+    max-width: var(--media-max-width);
+    max-height: var(--media-max-height);
+  }
+
+  .checkerboard {
+    background: repeating-conic-gradient(#26282c 0 25%, #1e2023 0 50%) 0 0 / 16px 16px;
+  }
+}

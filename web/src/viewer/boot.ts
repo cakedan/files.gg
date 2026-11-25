@@ -3,7 +3,8 @@
  *
  * Inputs are the `#root` element's data attributes and the text of the
  * `<script id="file-data">` / `<script id="album-data">` JSON, as injected by the
- * worker. Precedence:
+ * worker. The payloads have one shape (contract §4: snake_case, epoch seconds).
+ * Precedence:
  *   1. data-page="home"           -> home (landing card)
  *   2. data-page="convert"        -> convert (placeholder)
  *   3. data-state="unavailable"   -> unavailable (Retry button)
@@ -19,10 +20,13 @@
 import {
   ALBUM_LAYOUTS,
   FILE_KINDS,
+  PREVIEW_KINDS,
   type AlbumData,
   type AlbumItem,
   type AlbumLayout,
   type BootState,
+  type FileAsset,
+  type FileAssets,
   type FileData,
   type FileKind,
   type FileThumbnail,
@@ -48,35 +52,19 @@ const isObject = (value: unknown): value is JsonObject =>
 const nonEmptyString = (value: unknown): string | undefined =>
   typeof value === 'string' && value.length > 0 ? value : undefined;
 
-const finiteNumber = (value: unknown): number | undefined => {
-  if (typeof value === 'number' && Number.isFinite(value)) return value;
-  if (typeof value === 'string' && value.trim() !== '' && Number.isFinite(Number(value))) return Number(value);
-  return undefined;
-};
+const finiteNumber = (value: unknown): number | undefined =>
+  typeof value === 'number' && Number.isFinite(value) ? value : undefined;
 
 const positiveNumber = (value: unknown): number | undefined => {
   const n = finiteNumber(value);
   return n !== undefined && n > 0 ? n : undefined;
 };
 
-/** ms epoch from a number, a numeric string, or an ISO-8601 string. */
-export function parseTimestamp(value: unknown): number | undefined {
-  const n = finiteNumber(value);
-  if (n !== undefined) return n;
-  if (typeof value === 'string' && value.length >= 10) {
-    const parsed = Date.parse(value);
-    return Number.isNaN(parsed) ? undefined : parsed;
-  }
-  return undefined;
-}
+/** Payload times are epoch seconds (contract §4). */
+const epochSeconds = (value: unknown): number | undefined => finiteNumber(value);
 
-/** First defined value among camelCase / snake_case spellings of a field. */
-const pick = (obj: JsonObject, ...keys: string[]): unknown => {
-  for (const key of keys) {
-    if (obj[key] !== undefined && obj[key] !== null) return obj[key];
-  }
-  return undefined;
-};
+/** True when an epoch-seconds expiry has passed at `nowMs`. */
+export const hasExpired = (expiresAt: number | null, nowMs: number): boolean => expiresAt !== null && expiresAt * 1000 <= nowMs;
 
 const parseJson = (text: string | null | undefined): unknown => {
   if (typeof text !== 'string' || text.trim() === '') return undefined;
@@ -103,6 +91,30 @@ function parseThumbnail(value: unknown): FileThumbnail | undefined {
   };
 }
 
+function parseAsset(value: unknown): FileAsset | undefined {
+  if (!isObject(value)) return undefined;
+  const url = nonEmptyString(value.url);
+  if (!url) return undefined;
+  return { url, width: positiveNumber(value.width), height: positiveNumber(value.height) };
+}
+
+/**
+ * `assets` (contract §4): `{ "<kind>": { url, width?, height? } }`. Unknown kinds and
+ * entries without a URL are dropped.
+ */
+export function parseAssets(value: unknown): FileAssets | undefined {
+  if (!isObject(value)) return undefined;
+  const assets: FileAssets = {};
+  for (const kind of PREVIEW_KINDS) {
+    const asset = parseAsset(value[kind]);
+    if (asset) assets[kind] = asset;
+  }
+  return Object.keys(assets).length > 0 ? assets : undefined;
+}
+
+const parseVisibility = (value: unknown) =>
+  value === 'link' || value === 'password' || value === 'private' ? value : undefined;
+
 function parseTags(value: unknown): MediaTags | undefined {
   if (!isObject(value)) return undefined;
   const tags: MediaTags = {
@@ -127,22 +139,26 @@ export function parseMedia(value: unknown): MediaInfo | undefined {
     tags: parseTags(value.tags),
     pages: positiveNumber(value.pages),
     lines: positiveNumber(value.lines),
+    language: nonEmptyString(value.language)?.toLowerCase(),
+    snippet: typeof value.snippet === 'string' ? value.snippet : undefined,
   };
 }
 
 /**
- * Validates and normalises a parsed payload. Returns null when it can't be shown
- * (not an object, or missing `cdnUrl` / `filename`).
+ * Validates and normalises a file payload (contract §4). Returns null when it can't be
+ * shown (not an object, or missing `cdn_url` / `filename`). URLs are kept exactly as
+ * they arrive: signed ones must not be touched.
  */
 export function parseFileData(value: unknown): FileData | null {
   if (!isObject(value)) return null;
-  const cdnUrl = nonEmptyString(pick(value, 'cdnUrl', 'cdn_url'));
+  const cdn_url = nonEmptyString(value.cdn_url);
   const filename = nonEmptyString(value.filename);
-  if (!cdnUrl || !filename) return null;
+  if (!cdn_url || !filename) return null;
 
   const extension =
     nonEmptyString(value.extension) ?? (filename.includes('.') ? (filename.split('.').pop() ?? '') : '');
   const media = parseMedia(value.media);
+  const assets = parseAssets(value.assets);
 
   return {
     kind: normalizeKind(value.kind),
@@ -150,7 +166,7 @@ export function parseFileData(value: unknown): FileData | null {
     mimetype: nonEmptyString(value.mimetype) ?? 'application/octet-stream',
     extension,
     size: finiteNumber(value.size) ?? 0,
-    cdnUrl,
+    cdn_url: cdn_url,
     url: nonEmptyString(value.url),
     id: nonEmptyString(value.id),
     vanity: nonEmptyString(value.vanity),
@@ -160,14 +176,12 @@ export function parseFileData(value: unknown): FileData | null {
     framecount: positiveNumber(value.framecount) ?? media?.framecount,
     thumbnail: parseThumbnail(value.thumbnail),
     media,
-    hover_url: nonEmptyString(pick(value, 'hover_url', 'hoverUrl')),
+    assets,
+    hover_url: nonEmptyString(value.hover_url) ?? assets?.hover?.url,
     processing: value.processing === true ? true : undefined,
-    visibility:
-      value.visibility === 'link' || value.visibility === 'password' || value.visibility === 'private'
-        ? value.visibility
-        : undefined,
-    uploadedAt: parseTimestamp(pick(value, 'uploadedAt', 'uploaded_at', 'created_at')) ?? 0,
-    expiresAt: parseTimestamp(pick(value, 'expiresAt', 'expires_at')) ?? null,
+    visibility: parseVisibility(value.visibility),
+    uploaded_at: epochSeconds(value.uploaded_at) ?? 0,
+    expires_at: epochSeconds(value.expires_at) ?? null,
   };
 }
 
@@ -184,15 +198,15 @@ export function parseAlbumData(value: unknown, now: number = Date.now()): AlbumD
   const vanity = nonEmptyString(value.vanity);
   if (!vanity) return null;
 
-  const expiresAt = parseTimestamp(pick(value, 'expiresAt', 'expires_at')) ?? null;
-  if (expiresAt !== null && expiresAt <= now) return null;
+  const expiresAt = epochSeconds(value.expires_at) ?? null;
+  if (hasExpired(expiresAt, now)) return null;
 
   const rawItems = Array.isArray(value.items) ? value.items : [];
   const items: AlbumItem[] = [];
   rawItems.forEach((raw, index) => {
     const file = parseFileData(raw);
     if (!file || !isObject(raw)) return;
-    if (file.expiresAt !== null && file.expiresAt <= now) return;
+    if (hasExpired(file.expires_at, now)) return;
     items.push({
       ...file,
       position: finiteNumber(raw.position) ?? index,
@@ -204,19 +218,21 @@ export function parseAlbumData(value: unknown, now: number = Date.now()): AlbumD
 
   const summedSize = items.reduce((total, item) => total + item.size, 0);
   return {
+    id: nonEmptyString(value.id),
     vanity,
+    visibility: parseVisibility(value.visibility),
     url: nonEmptyString(value.url),
     title: typeof value.title === 'string' ? value.title.slice(0, 100) : '',
     description: typeof value.description === 'string' ? value.description.slice(0, 2000) : '',
     layout: normalizeLayout(value.layout),
     nsfw: value.nsfw === true,
     cover: parseThumbnail(value.cover),
-    expiresAt,
-    createdAt: parseTimestamp(pick(value, 'createdAt', 'created_at')),
-    updatedAt: parseTimestamp(pick(value, 'updatedAt', 'updated_at')),
+    collage: parseAsset(value.collage),
+    download_url: nonEmptyString(value.download_url),
+    expires_at: expiresAt,
     count: Math.max(finiteNumber(value.count) ?? 0, items.length),
-    totalSize: finiteNumber(pick(value, 'totalSize', 'total_size')) ?? summedSize,
-    nextCursor: nonEmptyString(pick(value, 'nextCursor', 'next_cursor')) ?? null,
+    total_size: finiteNumber(value.total_size) ?? summedSize,
+    next_cursor: nonEmptyString(value.next_cursor) ?? null,
     items,
   };
 }

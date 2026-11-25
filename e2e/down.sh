@@ -10,12 +10,18 @@ LOCAL="$E2E_DIR/.local"
 "$E2E_DIR/scripts/stop-worker.sh" "$LOCAL/wrangler.pid"
 
 # compose needs the variables to parse the file; any value will do for `down`
-env_file="$LOCAL/.env"
-if [ ! -f "$env_file" ]; then
-  env_file="$(mktemp)"
-  printf 'POSTGRES_PASSWORD=x\nSECRET_KEY=x\nRPC_KEY=x\nORIGIN_SHARED_SECRET=x\nVIEW_HASH_SECRET=x\nCDN_TOKEN_SECRET=x\nMINIO_ROOT_PASSWORD=x\n' > "$env_file"
+# By project name, not the compose file: tearing down must never depend on .env having every
+# variable the current compose file requires (an old .env from before a secret was renamed
+# used to make `down` fail silently and leave the old database volume behind).
+if ! docker compose -p filesgg-e2e down --volumes --remove-orphans; then
+  echo "e2e/down.sh: docker compose down failed; e2e/.local is kept so you can retry." >&2
+  exit 1
 fi
-docker compose -f "$E2E_DIR/docker-compose.e2e.yml" --env-file "$env_file" down --volumes --remove-orphans
+leftover="$(docker volume ls -q --filter label=com.docker.compose.project=filesgg-e2e)"
+if [ -n "$leftover" ]; then
+  echo "e2e/down.sh: volumes are still there: $leftover" >&2
+  exit 1
+fi
 
 rm -rf "$LOCAL"
 echo "files.gg e2e stack stopped; its volumes and e2e/.local are deleted."

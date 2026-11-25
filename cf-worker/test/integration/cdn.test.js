@@ -1,10 +1,13 @@
-// cdn.files.gg on the real Worker (workerd): access checks, B2 with SigV4, the GCS fallback,
-// Range, the edge cache and the hardening headers. The API, GCS and B2 are local mocks.
+// cdn.files.gg/files/* on the real Worker (workerd): signed URLs, B2 with SigV4, Range, the edge
+// cache and the hardening headers. The API and B2 are local mocks.
+import { createHmac } from 'node:crypto';
 import { after, before, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { signToken } from '../../worker/utils/token.js';
-import { ALBUMS, FILES, NOW_S, S3_BUCKET, SECRETS, startS3, startUpstream, startWorker } from '../support/worker.js';
+import { DAY_S, signUrl } from '../support/signing.js';
+import {
+  ALBUMS, FILES, NOW_S, S3_BUCKET, SECRETS, signedForFile, signedThroughAlbum, startS3, startUpstream, startWorker,
+} from '../support/worker.js';
 
 
 const SANDBOX = "sandbox; default-src 'none'; img-src 'self' data:; media-src 'self'; style-src 'unsafe-inline'; frame-ancestors https://files.gg";
@@ -20,12 +23,13 @@ function assertCdnHeaders(headers) {
   assert.equal(headers['access-control-expose-headers'], 'Accept-Ranges, Content-Disposition, Content-Length, Content-Range');
 }
 
-const token = (vanity, overrides = {}) => signToken({
-  k: 'file', t: FILES[vanity].file.id, s: 'unlock', v: FILES[vanity].access.access_version,
-  u: NOW_S() - 10, e: NOW_S() + 600, ...overrides,
-}, SECRETS.CDN_TOKEN_SECRET);
-
 const s3Gets = (vanity) => s3.requests.filter((r) => r.path === `/${S3_BUCKET}/${FILES[vanity].storage.key}`);
+
+// An old milestone 2 `?t=` token (base64url(claims).base64url(HMAC)), which the CDN no longer reads.
+function oldToken(claims, secret) {
+  const body = Buffer.from(JSON.stringify(claims)).toString('base64url');
+  return `${body}.${createHmac('sha256', secret).update(body).digest('base64url')}`;
+}
 
 
 let upstream;
@@ -165,60 +169,32 @@ describe('Range and conditional requests', () => {
 });
 
 
-describe('GCS fallback (contract §3)', () => {
-  it('reads a storage.backend "gcs" file from GCS when B2 doesn\'t have it', async () => {
-    const response = await cdn('/files/gcsonly.txt');
-    assert.equal(response.status, 200);
-    assert.equal(response.text, 'bytes of legacy.txt');
-    assert.equal(response.headers['x-goog-generation'], undefined);
-    assert.ok(upstream.requests.some((r) => r.path === '/' + FILES.gcsonly.storage.key));
-  });
-
-  it('during the migration, retries any object B2 doesn\'t have on GCS', async () => {
-    const response = await cdn('/files/migrating.txt');
-    assert.equal(response.status, 200);
-    assert.equal(response.text, 'bytes of not-copied-yet.txt');
-    assert.equal(s3Gets('migrating').length, 1);
-  });
-
-  it('passes Range through to GCS too', async () => {
-    const response = await cdn('/files/gcsonly.txt', { headers: { range: 'bytes=0-4' } });
-    assert.equal(response.status, 206);
-    assert.equal(response.text, 'bytes');
-  });
-
-  it('404s, sandboxed, when neither has the object', async () => {
+describe('B2 only (milestone-3.md §0)', () => {
+  it('404s, sandboxed, when B2 doesn\'t have the object', async () => {
     const response = await cdn('/files/nowhere.txt');
     assert.equal(response.status, 404);
     assertCdnHeaders(response.headers);
+    assert.equal(s3Gets('nowhere').length, 1);
   });
 
-  it('with STORAGE_GCS_FALLBACK=false, only storage.backend "gcs" files fall back', async () => {
-    const strict = await startWorker({ upstream, s3 }, { vars: { STORAGE_GCS_FALLBACK: 'false' } });
+  it('503 (not 404) without the S3 bindings, and nothing else is tried', async () => {
+    const before = upstream.requests.length;
+    const unconfigured = await startWorker({ upstream, s3: null }, { vars: { S3_ENDPOINT: '' } });
     try {
-      assert.equal((await strict.request('https://cdn.files.gg/files/migrating.txt')).status, 404);
-      assert.equal((await strict.request('https://cdn.files.gg/files/gcsonly.txt')).status, 200);
+      const response = await unconfigured.request('https://cdn.files.gg/files/img1.png');
+      assert.equal(response.status, 503);
+      assertCdnHeaders(response.headers);
+      // Only the internal lookup reached the upstream: no other bucket.
+      assert.deepEqual(upstream.requests.slice(before).map((r) => r.path), ['/internal/files/img1']);
     } finally {
-      await strict.close();
-    }
-  });
-
-  it('reads from GCS only when the S3 bindings are not set', async () => {
-    const before = s3.requests.length;
-    const gcs = await startWorker({ upstream, s3: null }, { vars: { S3_ENDPOINT: '' } });
-    try {
-      const response = await gcs.request('https://cdn.files.gg/files/gcsonly.txt');
-      assert.equal(response.status, 200);
-      assert.equal(s3.requests.length, before);
-    } finally {
-      await gcs.close();
+      await unconfigured.close();
     }
   });
 });
 
 
-describe('password files (contract §1)', () => {
-  it('401 without a token, with no bytes read', async () => {
+describe('password files: signed URLs (contract §3)', () => {
+  it('401 without a signature, with no bytes read', async () => {
     const before = s3Gets('pw1').length;
     const response = await cdn('/files/pw1.png');
     assert.equal(response.status, 401);
@@ -227,67 +203,113 @@ describe('password files (contract §1)', () => {
     assert.equal(s3Gets('pw1').length, before);
   });
 
-  it('200 with a valid token, and never publicly cacheable', async () => {
-    const response = await cdn(`/files/pw1.png?t=${await token('pw1')}`);
+  it('200 with a URL signed with the file grant, and never publicly cacheable', async () => {
+    const response = await cdn(signedForFile('pw1', '/files/pw1.png'));
     assert.equal(response.status, 200);
     assert.equal(response.text, 'bytes of secret.png');
+    assert.equal(response.headers['content-disposition'], `inline; filename="secret.png"; filename*=UTF-8''secret.png`);
     assert.equal(response.headers['cache-control'], 'private, no-store');
     assertCdnHeaders(response.headers);
   });
 
-  it('an owner pass works too', async () => {
-    assert.equal((await cdn(`/files/pw1.png?t=${await token('pw1', { s: 'owner' })}`)).status, 200);
+  it('?download=true on the same signed URL downloads it (not part of the signature)', async () => {
+    const url = signedForFile('pw1', '/files/pw1.png');
+    const response = await cdn(`${url}&download=true`);
+    assert.equal(response.status, 200);
+    assert.match(response.headers['content-disposition'], /^attachment; filename="secret\.png"/);
+    assert.equal(response.headers['cache-control'], 'private, no-store');
+    assert.equal((await cdn(`/files/pw1.png?download=true&${url.split('?')[1]}`)).status, 200, 'parameter order doesn\'t matter');
   });
 
-  it('401 for an expired token', async () => {
-    const expired = await token('pw1', { u: NOW_S() - 7200, e: NOW_S() - 1 });
-    assert.equal((await cdn(`/files/pw1.png?t=${expired}`)).status, 401);
+  it('a multi-segment vanity: signed for its exact path', async () => {
+    const url = signedForFile('deep/pw', '/files/deep/pw.mp4');
+    assert.equal((await cdn(url)).status, 200);
+    assert.equal((await cdn(url.replace('/files/deep/pw.mp4', '/files/deep/pw.mov'))).status, 401);
   });
 
-  it('401 for a token from before the access_version changed', async () => {
+  it('401 for an expired URL, and one past the 31-day cap', async () => {
+    assert.equal((await cdn(signedForFile('pw1', '/files/pw1.png', { expires: NOW_S() - 1 }))).status, 401);
+    assert.equal((await cdn(signedForFile('pw1', '/files/pw1.png', { expires: NOW_S() + 30 * DAY_S }))).status, 200);
+    const tooFar = await cdn(signedForFile('pw1', '/files/pw1.png', { expires: NOW_S() + 32 * DAY_S }));
+    assert.equal(tooFar.status, 401);
+    assert.equal(tooFar.headers['cache-control'], 'private, no-store');
+  });
+
+  it('401 for a URL signed before the access_version changed', async () => {
     assert.equal(FILES.pw1.access.access_version, 2);
-    assert.equal((await cdn(`/files/pw1.png?t=${await token('pw1', { v: 1 })}`)).status, 401);
+    assert.equal((await cdn(signedForFile('pw1', '/files/pw1.png', { version: 1 }))).status, 401);
+    assert.equal((await cdn(signedForFile('pw1', '/files/pw1.png', { version: 3 }))).status, 401);
   });
 
-  it('401 for another file\'s token, a tampered token, or one signed with another secret', async () => {
-    const other = await token('pwname');
-    const good = await token('pw1');
-    const [body, signature] = good.split('.');
-    const tamperedBody = Buffer.from(JSON.stringify({ ...JSON.parse(Buffer.from(body, 'base64url')), v: 3 })).toString('base64url');
-    const foreign = await signToken({ k: 'file', t: FILES.pw1.file.id, s: 'unlock', v: 2, u: NOW_S(), e: NOW_S() + 60 }, 'not-the-secret');
-    for (const bad of [other, `${tamperedBody}.${signature}`, foreign, 'garbage', '']) {
-      assert.equal((await cdn(`/files/pw1.png?t=${encodeURIComponent(bad)}`)).status, 401, bad.slice(0, 20));
+  it('401 for another file\'s URL, an edited path or expiry, another secret, or garbage', async () => {
+    const good = signedForFile('pw1', '/files/pw1.png');
+    const query = new URLSearchParams(good.split('?')[1]);
+    const other = signedForFile('pwname', '/files/pwname.png');
+    const bad = [
+      `/files/pw1.png?${other.split('?')[1]}`,
+      good.replace('/files/pw1.png', '/files/pw1.jpg'),
+      `/files/pw1.png?expires=${Number(query.get('expires')) + 1}&sig=${query.get('sig')}`,
+      `/files/pw1.png?expires=${query.get('expires')}&sig=${query.get('sig').slice(0, -2)}AA`,
+      signUrl('/files/pw1.png', `file:${FILES.pw1.file.id}:2`, { secret: 'not-the-secret' }),
+      signUrl('/files/pw1.png', `album:${FILES.pw1.file.id}:2`),
+      `/files/pw1.png?expires=${query.get('expires')}`,
+      `/files/pw1.png?sig=${query.get('sig')}`,
+      '/files/pw1.png?expires=garbage&sig=garbage',
+    ];
+    for (const url of bad) {
+      const response = await cdn(url);
+      assert.equal(response.status, 401, url);
+      assert.equal(response.headers['cache-control'], 'private, no-store');
     }
   });
 
-  it('an album token passes with the album\'s id and current access_version', async () => {
-    const claims = { k: 'album', t: ALBUMS.albpw.album.id, s: 'unlock', v: 3, u: NOW_S(), e: NOW_S() + 600 };
-    assert.deepEqual(FILES.pwalb.albums, [{ id: ALBUMS.albpw.album.id, access_version: 3 }]);
-    assert.equal((await cdn(`/files/pwalb.png?t=${await signToken(claims, SECRETS.CDN_TOKEN_SECRET)}`)).status, 200);
-    // One lookup only: never an album lookup by id.
-    assert.ok(!upstream.requests.some((r) => r.path === `/internal/albums/${ALBUMS.albpw.album.id}`));
+  it('?t= no longer opens anything, however it was signed', async () => {
+    const { file, access } = FILES.pw1;
+    const claims = { e: NOW_S() + 600, k: 'file', s: 'owner', t: file.id, u: NOW_S(), v: access.access_version };
+    for (const secret of ['test-cdn-token-secret', SECRETS.CDN_SIGNING_SECRET]) {
+      const response = await cdn(`/files/pw1.png?t=${oldToken(claims, secret)}`);
+      assert.equal(response.status, 401);
+    }
+    assert.equal((await cdn(`/files/priv1.png?t=${oldToken({ ...claims, t: FILES.priv1.file.id, v: 0 }, 'test-cdn-token-secret')}`)).status, 404);
+    // ...and a stray ?t= next to a good signature changes nothing.
+    assert.equal((await cdn(`${signedForFile('pw1', '/files/pw1.png')}&t=x`)).status, 200);
   });
 
-  it('an album token fails with a stale access_version (the album\'s password changed)', async () => {
-    const claims = { k: 'album', t: ALBUMS.albpw.album.id, s: 'unlock', v: 2, u: NOW_S(), e: NOW_S() + 600 };
-    assert.equal((await cdn(`/files/pwalb.png?t=${await signToken(claims, SECRETS.CDN_TOKEN_SECRET)}`)).status, 401);
+  it('through an album: album=<vanity> and the album grant, when the file is shown in it', async () => {
+    assert.deepEqual(FILES.pwalb.albums, [{ id: ALBUMS.albpw.album.id, vanity: 'albpw', access_version: 3 }]);
+    const response = await cdn(signedThroughAlbum('albpw', '/files/pwalb.png'));
+    assert.equal(response.status, 200);
+    assert.equal(response.headers['cache-control'], 'private, no-store');
+    // One lookup only: never an album lookup.
+    assert.ok(!upstream.requests.some((r) => r.path === '/internal/albums/albpw'));
   });
 
-  it('an album token fails for an unlisted album, or when albums is missing', async () => {
-    const claims = { k: 'album', t: ALBUMS.albpw.album.id, s: 'unlock', v: 3, u: NOW_S(), e: NOW_S() + 600 };
-    const albumToken = await signToken(claims, SECRETS.CDN_TOKEN_SECRET);
+  it('through an album: a stale album version is refused', async () => {
+    assert.equal((await cdn(signedThroughAlbum('albpw', '/files/pwalb.png', { version: 2 }))).status, 401);
+  });
+
+  it('through an album: refused for an album the file isn\'t in, or when albums is missing', async () => {
     assert.deepEqual(FILES.pw1.albums, []);
-    assert.equal((await cdn(`/files/pw1.png?t=${albumToken}`)).status, 401);
+    assert.equal((await cdn(signedThroughAlbum('albpw', '/files/pw1.png'))).status, 401);
     assert.equal(FILES.noalbums.albums, undefined);
-    assert.equal((await cdn(`/files/noalbums.png?t=${albumToken}`)).status, 401);
+    assert.equal((await cdn(signedThroughAlbum('albpw', '/files/noalbums.png'))).status, 401);
   });
 
-  it('a lookup without file.id denies every token (fail closed)', async () => {
+  it('through an album: the grant must match album=, and an album grant needs album=', async () => {
+    const viaAlbum = signedThroughAlbum('albpw', '/files/pwalb.png');
+    // album= swapped for another album: that album's grant is computed, and doesn't match.
+    assert.equal((await cdn(viaAlbum.replace('album=albpw', 'album=albmedia'))).status, 401);
+    // The album grant without album=: the file grant is computed instead.
+    assert.equal((await cdn(viaAlbum.replace('album=albpw&', ''))).status, 401);
+    // The file grant with album=: the album grant is computed instead.
+    assert.equal((await cdn(`${signedForFile('pwalb', '/files/pwalb.png')}&album=albpw`)).status, 401);
+  });
+
+  it('a lookup without file.id denies every URL (fail closed)', async () => {
     assert.equal(FILES.noid.file.id, undefined);
-    const fileToken = await signToken({ k: 'file', t: '1', s: 'owner', v: 0, u: NOW_S(), e: NOW_S() + 600 }, SECRETS.CDN_TOKEN_SECRET);
-    for (const query of ['', `?t=${fileToken}`]) {
-      const response = await cdn(`/files/noid.png${query}`);
-      assert.equal(response.status, 401, query);
+    for (const url of ['/files/noid.png', signUrl('/files/noid.png', 'file:undefined:0'), signUrl('/files/noid.png', 'file::0'), signedThroughAlbum('albnoid', '/files/noid.png')]) {
+      const response = await cdn(url);
+      assert.equal(response.status, 401, url);
       assert.equal(response.headers['cache-control'], 'private, no-store');
     }
   });
@@ -295,7 +317,7 @@ describe('password files (contract §1)', () => {
 
 
 describe('private files', () => {
-  it('404 without a token (existence not revealed), whatever the client', async () => {
+  it('404 without a signature (existence not revealed), whatever the client', async () => {
     for (const headers of [{}, { 'user-agent': 'ShareX/15.0' }, { 'user-agent': 'Discordbot/2.0', accept: 'image/*' }]) {
       const response = await cdn('/files/priv1.png', { headers });
       assert.equal(response.status, 404);
@@ -304,13 +326,33 @@ describe('private files', () => {
     }
   });
 
-  it('200 with an owner pass', async () => {
-    const response = await cdn(`/files/priv1.png?t=${await token('priv1', { s: 'owner' })}`);
+  it('200 with the owner\'s signed URL (the file grant)', async () => {
+    const response = await cdn(signedForFile('priv1', '/files/priv1.png'));
     assert.equal(response.status, 200);
     assert.equal(response.headers['cache-control'], 'private, no-store');
   });
+
+  it('404 for a bad or expired signature', async () => {
+    assert.equal((await cdn(signedForFile('priv1', '/files/priv1.png', { expires: NOW_S() - 1 }))).status, 404);
+    assert.equal((await cdn(signedForFile('priv1', '/files/priv1.png', { version: 1 }))).status, 404);
+  });
+
+  it('a link album never opens its private item', async () => {
+    assert.ok(!FILES.priv1.albums.some((album) => album.vanity === 'alb1'));
+    assert.equal((await cdn(signedThroughAlbum('alb1', '/files/priv1.png'))).status, 404);
+  });
 });
 
+
+describe('link files ignore signatures', () => {
+  it('a link file is public with or without one, and stays publicly cacheable', async () => {
+    const plain = await cdn('/files/img1.png');
+    const signed = await cdn(signUrl('/files/img1.png', 'file:1:0', { expires: NOW_S() - 1 }));
+    assert.equal(plain.status, 200);
+    assert.equal(signed.status, 200);
+    assert.equal(signed.headers['cache-control'], 'public, max-age=3600');
+  });
+});
 
 describe('edge cache and lookups', () => {
   it('caches whole blobs by key: the second GET never reaches B2', async () => {
@@ -321,9 +363,9 @@ describe('edge cache and lookups', () => {
     assert.equal(s3Gets('cached1').length, 1);
   });
 
-  it('checks access before the cache: a cached protected blob still needs a token', async () => {
-    assert.equal((await cdn(`/files/pw1.png?t=${await token('pw1')}`)).status, 200);
-    assert.equal((await cdn(`/files/pw1.png?t=${await token('pw1')}`)).status, 200);
+  it('checks access before the cache: a cached protected blob still needs a signature', async () => {
+    assert.equal((await cdn(signedForFile('pw1', '/files/pw1.png'))).status, 200);
+    assert.equal((await cdn(signedForFile('pw1', '/files/pw1.png'))).status, 200);
     assert.equal((await cdn('/files/pw1.png')).status, 401);
   });
 
@@ -358,16 +400,18 @@ describe('everything else on cdn.files.gg', () => {
     assertCdnHeaders(response.headers);
   });
 
-  it('turns a storage 403 on a raw path into a 404, still sandboxed', async () => {
-    const response = await cdn('/nothing/here');
-    assert.equal(response.status, 404);
-    assertCdnHeaders(response.headers);
-  });
-
-  it('forces markup from the raw storage route to text/plain', async () => {
-    const response = await cdn('/assets/stable/evil.html');
-    assert.equal(response.headers['content-type'], 'text/plain');
-    assertCdnHeaders(response.headers);
+  it('anything that isn\'t one of the four URL shapes is a 404, with no lookup and no storage read', async () => {
+    const before = { upstream: upstream.requests.length, s3: s3.requests.length };
+    for (const path of [
+      '/', '/nothing/here', '/assets/stable/evil.html', '/assets/stable/favicon.ico', '/favicon.ico', '/files/', '/files',
+      `/media/${FILES.mvid.file.id}/thumb.webp`, `/albums/${ALBUMS.albmedia.album.id}/collage.webp`, `/albums/${ALBUMS.albzip.album.id}/download.zip`,
+      '/files/%E0%A4%A.png', '/previews/original/img1.png',
+    ]) {
+      const response = await cdn(path);
+      assert.equal(response.status, 404, path);
+      assertCdnHeaders(response.headers);
+    }
+    assert.deepEqual({ upstream: upstream.requests.length, s3: s3.requests.length }, before);
   });
 
   it('never serves the app\'s files from web/dist', async () => {
@@ -388,12 +432,5 @@ describe('everything else on cdn.files.gg', () => {
     assert.equal(response.status, 204);
     assertCdnHeaders(response.headers);
     assert.equal(upstream.requests.length, before);
-  });
-
-  it('serves the old favicon with the CDN headers', async () => {
-    const response = await cdn('/favicon.ico');
-    assert.equal(response.status, 200);
-    assert.equal(response.text, 'ICO');
-    assertCdnHeaders(response.headers);
   });
 });

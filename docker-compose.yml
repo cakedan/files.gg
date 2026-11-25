@@ -2,7 +2,7 @@
 # start if a required one is missing (the API also refuses to boot without them).
 #   POSTGRES_PASSWORD, SECRET_KEY, RPC_KEY, ORIGIN_SHARED_SECRET, VIEW_HASH_SECRET,
 #   DB_BACKUP_RESTIC_PASSWORD, S3_BACKUP_ACCESS_KEY_ID, S3_BACKUP_SECRET_ACCESS_KEY,
-#   POSTMARK_SERVER_TOKEN, CDN_TOKEN_SECRET, TURNSTILE_SECRET,
+#   POSTMARK_SERVER_TOKEN, CDN_SIGNING_SECRET, TURNSTILE_SECRET,
 #   S3_ENDPOINT, S3_REGION, S3_BUCKET_FILES, S3_ACCESS_KEY_ID, S3_SECRET_ACCESS_KEY
 #
 # Order on `docker compose up`: postgres becomes healthy, migrate runs once and must succeed,
@@ -18,14 +18,12 @@ x-api-environment: &api-environment
   # Defaults to the postgres service below; override to point at another host (e.g. over a
   # private network when the API runs on several servers).
   DATABASE_URL: ${DATABASE_URL:-postgresql://filesgg:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}@postgres:5432/filesgg}
-  GOOGLE_APPLICATION_CREDENTIALS: /credentials
   # account email through Postmark (api/utils/email.py). Send from the mail.files.gg subdomain with SPF, DKIM
   # and DMARC set up in Postmark; receiving (abuse@, support@) is Cloudflare Email Routing, not this.
   POSTMARK_SERVER_TOKEN: ${POSTMARK_SERVER_TOKEN:?POSTMARK_SERVER_TOKEN must be set (Postmark server API token)}
   EMAIL_FROM: ${EMAIL_FROM:-files.gg <noreply@mail.files.gg>}
   RPC_KEY: ${RPC_KEY:?RPC_KEY must be set}
   SECRET_KEY: ${SECRET_KEY:?SECRET_KEY must be set}
-  STORAGE_BUCKET: filesgg
   ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-https://files.gg}
   # The public site and CDN origins written into file URLs, #pw=/#t= links, owner passes and email links
   # (api/utils/urls.py). Change them only for another deployment (staging, or the local stack in e2e/).
@@ -38,8 +36,9 @@ x-api-environment: &api-environment
   ORIGIN_SHARED_SECRET: ${ORIGIN_SHARED_SECRET:?ORIGIN_SHARED_SECRET must be set (openssl rand -hex 32)}
   # Keys the daily rotating HMAC for unique-view counting (no IPs are stored). Same value on every API server.
   VIEW_HASH_SECRET: ${VIEW_HASH_SECRET:?VIEW_HASH_SECRET must be set (openssl rand -hex 32)}
-  # Signs unlock and owner-pass tokens (contract §1); the same value is the Worker's CDN_TOKEN_SECRET secret.
-  CDN_TOKEN_SECRET: ${CDN_TOKEN_SECRET:?CDN_TOKEN_SECRET must be set (openssl rand -hex 32, shared with the Worker)}
+  # Signs CDN URLs for password and private files and albums (milestone-3 §3); the Worker's CDN_SIGNING_SECRET
+  # secret must be the same value. The API's own unlock tokens are signed with SECRET_KEY.
+  CDN_SIGNING_SECRET: ${CDN_SIGNING_SECRET:?CDN_SIGNING_SECRET must be set (openssl rand -hex 32, shared with the Worker)}
   # Cloudflare Turnstile secret key (contract §8); the site key goes in web/ config.
   TURNSTILE_SECRET: ${TURNSTILE_SECRET:?TURNSTILE_SECRET must be set (Cloudflare Turnstile secret key)}
   # The files bucket on B2 (S3-compatible API), with the API's write/delete application key (contract §3).
@@ -56,8 +55,6 @@ x-api-service: &api-service
     target: runtime
   image: filesgg-api:latest
   environment: *api-environment
-  volumes:
-    - ./gconfig.json:/credentials:ro
 
 services:
   postgres:
@@ -161,9 +158,19 @@ services:
       timeout: 5s
       retries: 3
 
-  # Background jobs (uploads finalising, media processing, scans) and the scheduler.
+  # Background jobs (uploads finalising, media processing, scans) and the scheduler. Its own image
+  # target (api/Dockerfile `worker`) adds ffmpeg and poppler-utils; the API image has neither.
+  # `default` carries finalize_upload and delete_blob, `media` probe / derive / album_collage
+  # (milestone-3 §2); a dedicated media worker can be split out later with WORKER_QUEUES=media.
   worker:
     <<: *api-service
+    build:
+      context: ./api/
+      target: worker
+    image: filesgg-worker:latest
+    environment:
+      <<: *api-environment
+      WORKER_QUEUES: default,media
     command: ["python", "-m", "worker"]
     depends_on:
       postgres:
@@ -182,16 +189,3 @@ services:
     ports:
       - 80:80
       - 443:443
-
-  # Only for the one-time move off Cloud SQL (PLAN.md §2.1 item 8). Not started by default:
-  #   docker compose --profile cloudsql up -d cloud-sql-proxy
-  #   docker compose run --rm postgres pg_dump -Fc -h cloud-sql-proxy -p 5433 ... > db-dumps/cloudsql.dump
-  cloud-sql-proxy:
-    image: gcr.io/cloudsql-docker/gce-proxy:1.13
-    profiles: ["cloudsql"]
-    command: /cloud_sql_proxy -instances=myinstance:us-central1:myproject=tcp:0.0.0.0:5433 -credential_file=/credentials
-    volumes:
-      - ./gconfig.json:/credentials
-    expose:
-      - 5433
-

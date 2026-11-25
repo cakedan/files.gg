@@ -18,6 +18,7 @@ import logging
 from datetime import datetime, timedelta, timezone
 
 import db
+import jobs.media as media_jobs
 from db.models import UploadSession, columns, from_row
 from jobs.queue import register
 from utils import storage as storage_module
@@ -91,6 +92,7 @@ def finalize(upload_id, conn=None, client=None):
         blake2b, md5, sha1 = hasher.digests()
         row = conn.execute('SELECT id FROM file_hashes WHERE blake2b = %s AND md5 = %s AND sha1 = %s',
                            (blake2b, md5, sha1)).fetchone()
+        new_hash = False
         if row is not None:
             hash_id = row[0]
         else:
@@ -106,6 +108,8 @@ def finalize(upload_id, conn=None, client=None):
                 client.delete_object(Bucket=name, Key=key)
                 hash_id = conn.execute('SELECT id FROM file_hashes WHERE blake2b = %s AND md5 = %s AND sha1 = %s',
                                        (blake2b, md5, sha1)).fetchone()[0]
+            else:
+                new_hash = True
 
         now = datetime.now(timezone.utc)
         expires_at = now + timedelta(seconds=session.expires_in) if session.expires_in else None
@@ -129,11 +133,31 @@ def finalize(upload_id, conn=None, client=None):
                     break
             conn.execute("UPDATE upload_sessions SET status = 'complete', file_id = %s WHERE id = %s",
                          (file_id, upload_id))
+            # Milestone 3: media processing for new content only, and `album=` on POST /uploads
+            if new_hash:
+                media_jobs.queue_probe(conn, hash_id)
+            if session.album_id is not None:
+                append_to_album(conn, session.album_id, file_id, session.owner_user_id)
         try:
             client.delete_object(Bucket=name, Key=session.storage_key)
         except Exception:
             log.warning('could not delete staging object %s; the upload reaper will retry', session.storage_key)
         return file_id
+
+
+def append_to_album(conn, album_id, file_id, owner_user_id):
+    """Append the new file to the session's album if it's still the owner's and not full."""
+    from utils import limits as limits_module
+    limit = limits_module.defaults()['album_files']
+    appended = conn.execute(
+        'INSERT INTO album_files (album_id, file_id, position) '
+        'SELECT %s, %s, COALESCE(max(af.position) + 1, 0) FROM album_files af WHERE af.album_id = %s '
+        'HAVING count(*) < %s AND EXISTS (SELECT 1 FROM albums WHERE id = %s AND owner_user_id = %s '
+        'AND deleted_at IS NULL) ON CONFLICT DO NOTHING RETURNING 1',
+        (album_id, file_id, album_id, limit, album_id, owner_user_id)).fetchone()
+    if appended:
+        conn.execute('UPDATE albums SET updated_at = now(), empty_since = NULL WHERE id = %s', (album_id,))
+        media_jobs.queue_collage(conn, album_id)
 
 
 class _borrowed:

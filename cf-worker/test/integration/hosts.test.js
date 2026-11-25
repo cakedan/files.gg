@@ -4,8 +4,7 @@
 import { after, before, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { signToken } from '../../worker/utils/token.js';
-import { FILES, NOW_S, SECRETS, startS3, startUpstream, startWorker } from '../support/worker.js';
+import { signedForFile, startS3, startUpstream, startWorker } from '../support/worker.js';
 
 
 const HOSTS = {
@@ -48,7 +47,7 @@ describe('configurable hosts', () => {
   });
 
   it('uses the MAIN_HOST origin for the default og:image', async () => {
-    const response = await worker.request(`${MAIN}/gcsonly.txt`, { headers: browser });
+    const response = await worker.request(`${MAIN}/txt1.txt`, { headers: browser });
     assert.equal(response.status, 200);
     assert.match(response.text, /<meta property="og:image" content="http:\/\/files\.localhost:8787\/og-image\.png">/);
   });
@@ -60,11 +59,9 @@ describe('configurable hosts', () => {
     assert.equal(response.headers['access-control-allow-origin'], '*');
   });
 
-  it('checks tokens on CDN_HOST', async () => {
-    const { file, access } = FILES.pw1;
+  it('checks signed URLs on CDN_HOST (the signature covers the path, not the host)', async () => {
     assert.equal((await worker.request('http://cdn.files.localhost:8787/files/pw1.png')).status, 401);
-    const token = await signToken({ k: 'file', t: file.id, s: 'unlock', v: access.access_version, u: NOW_S(), e: NOW_S() + 60 }, SECRETS.CDN_TOKEN_SECRET);
-    assert.equal((await worker.request(`http://cdn.files.localhost:8787/files/pw1.png?t=${token}`)).status, 200);
+    assert.equal((await worker.request(`http://cdn.files.localhost:8787${signedForFile('pw1', '/files/pw1.png')}`)).status, 200);
   });
 
   it('passes API_HOST through with credentialed CORS for the MAIN_HOST origin', async () => {

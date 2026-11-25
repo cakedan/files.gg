@@ -1,9 +1,13 @@
-"""Signed access tokens (contract §1): password unlocks and owner passes.
+"""The API's unlock tokens (contract milestone-3 §3, milestone-2 §5): password unlocks and
+owner passes. They're the visitor's proof for the API only (`X-Filesgg-Access` on /view,
+the body of /unlock/refresh, `#t=` owner passes) and never appear in a CDN URL; the CDN
+gets signed URLs instead (utils/cdn_signing.py).
 
-    base64url(body_json) + "." + base64url(HMAC_SHA256(secret, base64url(body_json)))
+    base64url(body_json) + "." + base64url(HMAC_SHA256(SECRET_KEY, base64url(body_json)))
 
 body_json is json.dumps(claims, separators=(',', ':'), sort_keys=True); base64url
-has no padding. The CDN Worker mints and verifies the same bytes.
+has no padding. Claims: k (file | album), t (target id), s (unlock | owner),
+v (access_version), u (unlocked at), e (expires at).
 """
 
 import base64
@@ -65,7 +69,7 @@ def decode(token, secret):
 
 
 def valid_for(claims, kind, target_id, access_version, now=None, scopes=SCOPES):
-    """Rules 2-4 of contract §1 for a direct target (album membership is M3)."""
+    """Rules 2-4 of milestone-2 §1 for a direct target (album membership: utils/access.py)."""
     now = int(time.time()) if now is None else now
     return (claims is not None and claims['e'] > now and claims['k'] == kind
             and claims['t'] == str(target_id) and claims['v'] == int(access_version)

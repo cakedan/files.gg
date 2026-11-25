@@ -3,7 +3,6 @@
 import { DEFAULT_HOSTS, getHosts } from './hosts.js';
 
 export const DEFAULT_API_ORIGIN = `https://${DEFAULT_HOSTS.api}`;
-export const DEFAULT_STORAGE_ORIGIN = 'https://filesgg.storage.googleapis.com';
 
 // A non-empty string binding, or undefined.
 export function getStringBinding(env, name) {
@@ -20,9 +19,4 @@ function origin(env, name, fallback) {
 // subrequest to its own route goes to the origin). Production leaves API_ORIGIN unset.
 export function apiOrigin(env) {
   return origin(env, 'API_ORIGIN', `https://${getHosts(env).api}`);
-}
-
-// The storage bucket files and assets are streamed from. Only tests override STORAGE_ORIGIN.
-export function storageOrigin(env) {
-  return origin(env, 'STORAGE_ORIGIN', DEFAULT_STORAGE_ORIGIN);
 }

@@ -17,7 +17,7 @@ export function AlbumList({ items, onOpen }: { items: AlbumItem[]; onOpen: (inde
   return (
     <ol className="flex flex-col items-center gap-6" style={listVars}>
       {items.map((item, index) => (
-        <li key={`${item.cdnUrl}-${index}`} className="flex w-full max-w-[62.5rem] flex-col gap-2">
+        <li key={`${item.vanity ?? item.filename}-${index}`} className="flex w-full max-w-[62.5rem] flex-col gap-2">
           <div className="flex justify-center overflow-hidden rounded-lg border border-line bg-well">
             <Suspense fallback={<RendererFallback file={item} />}>
               {createElement(getRenderer(item.kind), {

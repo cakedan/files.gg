@@ -53,7 +53,7 @@ def load_legacy_schema(temp):
         temp.conn.execute(handle.read())
 
 
-ALL_VERSIONS = ['0001', '0002', '0003', '0004', '0005']
+ALL_VERSIONS = ['0001', '0002', '0003', '0004', '0005', '0006', '0007']
 
 
 def baseline_only(tmp_path):
@@ -84,10 +84,11 @@ def test_applies_once_and_is_idempotent(empty_db):
 
     rows = empty_db.fetchall('SELECT version, name FROM schema_migrations ORDER BY version')
     assert rows == [('0001', 'baseline'), ('0002', 'jobs_and_snowflake_nodes'), ('0003', 'views_timestamps_queues'),
-                    ('0004', 'milestone2'), ('0005', 'milestone2_indexes')]
+                    ('0004', 'milestone2'), ('0005', 'milestone2_indexes'), ('0006', 'milestone3'),
+                    ('0007', 'milestone3_indexes')]
     assert set(LEGACY_TABLES) | {'jobs', 'snowflake_nodes', 'schema_migrations', 'file_view_days',
                                  'file_view_seen', 'upload_sessions', 'upload_parts',
-                                 'unlock_attempts'} == table_names(empty_db)
+                                 'unlock_attempts', 'file_hash_assets', 'albums', 'album_files'} == table_names(empty_db)
 
 
 def test_baseline_is_noop_on_existing_create_tables_schema(empty_db, tmp_path):
@@ -102,7 +103,7 @@ def test_baseline_is_noop_on_existing_create_tables_schema(empty_db, tmp_path):
     assert snapshot(empty_db) == before
     assert empty_db.fetchall('SELECT id, flags, type_id FROM mimetypes') == [('image/png', 0, 'image')]
     # and the rest applies on top of the production-shaped schema
-    assert [m.version for m in migrate.migrate(empty_db.conn)] == ['0002', '0003', '0004', '0005']
+    assert [m.version for m in migrate.migrate(empty_db.conn)] == ['0002', '0003', '0004', '0005', '0006', '0007']
 
 
 def test_baseline_reproduces_create_tables_schema_exactly(empty_db, tmp_path):
@@ -179,7 +180,7 @@ def test_0003_backfills_views_timestamps_and_queues(empty_db, tmp_path):
         views, ips = expected.get((file_id, day), (0, set()))
         expected[(file_id, day)] = (views + 1, ips | {ip})
 
-    assert [m.version for m in migrate.migrate(conn)] == ['0003', '0004', '0005']
+    assert [m.version for m in migrate.migrate(conn)] == ['0003', '0004', '0005', '0006', '0007']
 
     got = {(f, d): (v, u) for f, d, v, u in empty_db.fetchall(
         'SELECT file_id, day, views, unique_views FROM file_view_days')}
@@ -225,8 +226,8 @@ def test_0003_keeps_old_and_new_user_timestamps_in_step(migrated_db):
 def test_pending_drop_legacy_drops_the_legacy_objects(migrated_db, tmp_path):
     import shutil
     # as at its release: numbered after the latest applied migration
-    shutil.copy(os.path.join(migrate.MIGRATIONS_DIR, 'pending', 'drop_legacy.sql'), tmp_path / '0006_drop_legacy.sql')
-    assert [m.version for m in migrate.migrate(migrated_db.conn, directory=str(tmp_path))] == ['0006']
+    shutil.copy(os.path.join(migrate.MIGRATIONS_DIR, 'pending', 'drop_legacy.sql'), tmp_path / '0008_drop_legacy.sql')
+    assert [m.version for m in migrate.migrate(migrated_db.conn, directory=str(tmp_path))] == ['0008']
     assert 'file_views' not in table_names(migrated_db)
     columns = [r[0] for r in migrated_db.fetchall(
         "SELECT column_name FROM information_schema.columns WHERE table_name = 'users'")]
@@ -298,17 +299,17 @@ def test_0004_on_existing_data(empty_db, tmp_path):
     conn.execute("INSERT INTO files (id, vanity, mimetype_id, filename, hash_id, view_count) "
                  "SELECT n, 'v' || n, 'text/plain', 'f', 1 + n % 50, 0 FROM generate_series(1, 3000) n")
 
-    assert [m.version for m in migrate.migrate(conn)] == ['0004', '0005']
+    assert [m.version for m in migrate.migrate(conn)] == ['0004', '0005', '0006', '0007']
 
     # size backfilled from the blob, in one statement
     assert empty_db.fetchone('SELECT count(*) FROM files f JOIN file_hashes h ON h.id = f.hash_id '
                              'WHERE f.size IS DISTINCT FROM h.size')[0] == 0
-    # existing rows: link, version 0, 1 h, blobs still on GCS; new hashes default to B2
+    # existing rows: link, version 0, 1 h
     assert empty_db.fetchone("SELECT count(*) FROM files WHERE visibility = 'link' AND access_version = 0 "
                              "AND unlock_ttl = 3600 AND NOT show_name_when_locked")[0] == 3000
-    assert empty_db.fetchone("SELECT count(*) FROM file_hashes WHERE storage_backend = 'gcs'")[0] == 50
-    conn.execute("INSERT INTO file_hashes (id, blake2b, sha1, md5, size) VALUES (999, 'x', 'y', 'z', 1)")
-    assert empty_db.fetchone('SELECT storage_backend FROM file_hashes WHERE id = 999')[0] == 'b2'
+    # every blob is on B2 (the import copies them): no storage backend column
+    assert empty_db.fetchone("SELECT count(*) FROM information_schema.columns WHERE table_name = 'file_hashes' "
+                             "AND column_name = 'storage_backend'")[0] == 0
     # the CHECKs are validated, and every index from 0005 exists and is valid
     assert empty_db.fetchall("SELECT conname FROM pg_constraint WHERE conrelid = 'files'::regclass "
                              "AND contype = 'c' AND NOT convalidated") == []

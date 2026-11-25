@@ -10,8 +10,10 @@ import { queryKeys, useMe } from '../../lib/queries';
 import { checkLimits } from '../../lib/upload/limits';
 import { defaultPickerState, resolvePickers, type PickerContext, type PickerState } from '../../lib/upload/options';
 import { fileKey, forgetUpload, listResumable, type ResumableUpload } from '../../lib/upload/resumeStore';
+import { UploadAlbumResult, UploadAlbumToggle } from '../upload/UploadAlbumPanel';
 import { UploadOptions } from '../upload/UploadOptions';
 import { UploadRow } from '../upload/UploadRow';
+import { useUploadAlbum } from '../upload/useUploadAlbum';
 import { useUploadQueue } from '../upload/useUploadQueue';
 
 /** PLAN.md Phase 3 "Upload": drop anywhere, paste or pick; chunked and resumable above 10 MiB. */
@@ -48,6 +50,8 @@ export default function UploadPage() {
   const { items, add, remove, clearFinished } = useUploadQueue({
     getTurnstileToken: anonymous ? takeTurnstile : undefined,
   });
+  const albums = useUploadAlbum(items, anonymous);
+  const { track } = albums;
 
   const [resumable, setResumable] = useState<ResumableUpload[]>(() => listResumable());
   const [notice, setNotice] = useState<string | null>(null);
@@ -65,15 +69,16 @@ export default function UploadPage() {
         .filter((item) => !item.rejected && !['done', 'error', 'cancelled'].includes(item.snapshot.phase))
         .reduce((sum, item) => sum + item.file.size, 0);
       let pending = queued;
-      add(files, params, (file) => {
+      const ids = add(files, params, (file) => {
         const problem = checkLimits(file.size, limits.data, pending);
         if (!problem) pending += file.size;
         return problem;
       });
+      track(ids);
       const keys = new Set(files.map(fileKey));
       setResumable((list) => list.filter((entry) => !keys.has(entry.key)));
     },
-    [add, invalid, items, limits.data, params],
+    [add, invalid, items, limits.data, params, track],
   );
 
   // Drop anywhere on the page, and paste.
@@ -238,6 +243,24 @@ export default function UploadPage() {
           </ul>
         </section>
       )}
+
+      {albums.showToggle && (
+        <UploadAlbumToggle
+          enabled={albums.enabled}
+          onEnabled={albums.setEnabled}
+          title={albums.title}
+          onTitle={albums.setTitle}
+          blocked={albums.blocked}
+          tooMany={albums.tooMany}
+        />
+      )}
+
+      {albums.batches
+        .filter((batch) => batch.step.status !== 'idle')
+        .reverse()
+        .map((batch) => (
+          <UploadAlbumResult key={batch.key} batch={batch} anonymous={anonymous} onRetry={() => albums.retry(batch)} />
+        ))}
 
       {items.length > 0 && (
         <section aria-label="Uploads" className="flex flex-col gap-2">

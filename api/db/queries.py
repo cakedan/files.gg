@@ -9,7 +9,8 @@ import time
 from datetime import datetime, timezone
 
 from db.models import (
-    File, FileHash, Mimetype, MimetypeExtension, UploadPart, UploadSession, User, columns, from_row, width,
+    File, FileHash, FileHashAsset, Mimetype, MimetypeExtension, UploadPart, UploadSession, User, columns, from_row,
+    width,
 )
 
 USER_COLUMNS = columns(User)
@@ -162,14 +163,6 @@ async def list_mimetypes(conn, type_id=None):
     return await _prefetch(conn, 'FROM mimetypes AS m WHERE m.type_id = %s', (type_id,))
 
 
-async def list_user_mimetypes(conn, user_id):
-    # one row per file, as the Peewee query returned (duplicates included)
-    return await _prefetch(
-        conn, 'FROM mimetypes AS m RIGHT OUTER JOIN files AS f ON (f.mimetype_id = m.id) WHERE (f.user_id = %s) '
-        'AND ' + LIVE,
-        (user_id,), order='f.ctid')
-
-
 async def get_extension(conn, extension, mimetype_id=None):
     sql = 'SELECT {} FROM mimetype_extensions WHERE extension = %s'.format(EXTENSION_COLUMNS)
     params = [extension]
@@ -191,22 +184,6 @@ async def get_top_extension(conn, mimetype_id):
 
 # --- files ------------------------------------------------------------------
 
-def _owner_filter(user_id, fingerprint):
-    if user_id is not None:
-        return 'f.user_id = %s AND ' + LIVE, user_id
-    return 'f.fingerprint = %s AND ' + LIVE, fingerprint
-
-
-def _type_join(type_id):
-    # Peewee joined with RIGHT OUTER JOINs; with the WHERE on the type they
-    # behave as inner joins, and are kept as they were.
-    if type_id is None:
-        return '', []
-    return ((' RIGHT OUTER JOIN mimetypes AS m ON (m.id = f.mimetype_id)'
-             ' RIGHT OUTER JOIN mimetype_types AS t ON (t.id = m.type_id)'),
-            ['t.id = %s'])
-
-
 async def _attach_users(conn, files):
     users = await get_users(conn, {f.user_id for f in files if f.user_id is not None})
     for f in files:
@@ -214,52 +191,46 @@ async def _attach_users(conn, files):
     return files
 
 
-async def list_files(conn, user_id=None, fingerprint=None, type_id=None, mimetype_id=None,
-                     after=None, before=None, limit=100):
-    owner_sql, owner_param = _owner_filter(user_id, fingerprint)
-    join_sql, type_where = _type_join(type_id)
-    where, params = [owner_sql] + type_where, [owner_param] + ([type_id] if type_id is not None else [])
-    if mimetype_id is not None:
-        where.append('f.mimetype_id = %s')
-        params.append(mimetype_id)
-    count_where, count_params = list(where), list(params)
-    if after is not None:
-        where.append('f.id > %s')
-        params.append(after)
-    elif before is not None:
-        where.append('f.id < %s')
-        params.append(before)
-
-    rows = await _all(
-        conn,
-        'SELECT {}, {} FROM files AS f INNER JOIN file_hashes AS h ON (f.hash_id = h.id){} WHERE {} '
-        'ORDER BY f.id DESC LIMIT %s'.format(FILE_COLUMNS, HASH_COLUMNS, join_sql, ' AND '.join(where)),
-        params + [limit],
-    )
-    files = []
+async def attach_assets(conn, files):
+    """Load each file's previews (file_hash_assets) onto `file.hash.assets`."""
+    hashes = {f.hash.id: f.hash for f in files if f.hash is not None}
+    if not hashes:
+        return files
+    rows = await _all(conn, 'SELECT {} FROM file_hash_assets WHERE hash_id = ANY(%s) ORDER BY kind'.format(
+        columns(FileHashAsset)), (list(hashes),))
+    for fhash in hashes.values():
+        fhash.assets = []
     for row in rows:
-        fobj = from_row(File, row)
-        fobj.hash = from_row(FileHash, row, width(File))
-        files.append(fobj)
+        asset = from_row(FileHashAsset, row)
+        hashes[asset.hash_id].assets.append(asset)
+    # files sharing a hash share its row object only when loaded together; copy across
+    for f in files:
+        if f.hash is not None and f.hash is not hashes[f.hash.id]:
+            f.hash.assets = hashes[f.hash.id].assets
+    return files
+
+
+def file_from_row(row):
+    fobj = from_row(File, row)
+    fobj.hash = from_row(FileHash, row, width(File))
+    return fobj
+
+
+async def files_where(conn, where, params, order='f.id DESC', limit=None, offset=None, live=True):
+    """Files (with hash, user and assets) matching `where`."""
+    sql = 'SELECT {}, {} FROM files AS f INNER JOIN file_hashes AS h ON (f.hash_id = h.id) WHERE {}{} ORDER BY {}'.format(
+        FILE_COLUMNS, HASH_COLUMNS, where, (' AND ' + LIVE) if live else '', order)
+    params = list(params)
+    if limit is not None:
+        sql += ' LIMIT %s'
+        params.append(limit)
+    if offset:
+        sql += ' OFFSET %s'
+        params.append(offset)
+    files = [file_from_row(row) for row in await _all(conn, sql, params)]
     await _attach_users(conn, files)
-
-    total = (await _one(
-        conn,
-        'SELECT COUNT(f.id) FROM files AS f{} WHERE {}'.format(join_sql, ' AND '.join(count_where)),
-        count_params,
-    ))[0]
-    return total, files
-
-
-async def count_files(conn, user_id=None, fingerprint=None, type_id=None, mimetype_id=None):
-    owner_sql, owner_param = _owner_filter(user_id, fingerprint)
-    join_sql, type_where = _type_join(type_id)
-    where, params = [owner_sql] + type_where, [owner_param] + ([type_id] if type_id is not None else [])
-    if mimetype_id is not None:
-        where.append('f.mimetype_id = %s')
-        params.append(mimetype_id)
-    row = await _one(conn, 'SELECT COUNT(1) FROM files AS f{} WHERE {}'.format(join_sql, ' AND '.join(where)), params)
-    return row[0]
+    await attach_assets(conn, files)
+    return files
 
 
 async def _get_file(conn, where, params):
@@ -271,9 +242,9 @@ async def _get_file(conn, where, params):
     )
     if row is None:
         return None
-    fobj = from_row(File, row)
-    fobj.hash = from_row(FileHash, row, width(File))
+    fobj = file_from_row(row)
     await _attach_users(conn, [fobj])
+    await attach_assets(conn, [fobj])
     return fobj
 
 
@@ -482,22 +453,45 @@ async def get_file(conn, file_id):
             FILE_COLUMNS, HASH_COLUMNS), (file_id,))
     if row is None:
         return None
-    fobj = from_row(File, row)
-    fobj.hash = from_row(FileHash, row, width(File))
+    fobj = file_from_row(row)
     await _attach_users(conn, [fobj])
+    await attach_assets(conn, [fobj])
     return fobj
 
 
 # --- unlock rate limiting ----------------------------------------------------------------
 
-async def count_attempt(conn, file_id, scope, ip_hash, window_seconds=60):
-    """Count one attempt in the current window. Returns (count, seconds left)."""
+async def count_attempt(conn, file_id, scope, ip_hash, window_seconds=60, album_id=None):
+    """Count one attempt in the current window, for a file or (album_id) an album.
+    Returns (count, seconds left)."""
+    column = 'album_id' if album_id is not None else 'file_id'
     row = await _one(
         conn,
-        'INSERT INTO unlock_attempts AS a (file_id, scope, ip_hash, window_start, count) '
+        'INSERT INTO unlock_attempts AS a ({0}, scope, ip_hash, window_start, count) '
         "VALUES (%s, %s, %s, to_timestamp(floor(extract(epoch FROM now()) / %s) * %s), 1) "
-        'ON CONFLICT (file_id, scope, ip_hash, window_start) DO UPDATE SET count = a.count + 1 '
-        'RETURNING count, ceil(extract(epoch FROM (window_start + make_interval(secs => %s::float8) - now())))::int',
-        (file_id, scope, ip_hash, window_seconds, window_seconds, window_seconds),
+        'ON CONFLICT ({0}, scope, ip_hash, window_start) DO UPDATE SET count = a.count + 1 '
+        'RETURNING count, ceil(extract(epoch FROM (window_start + make_interval(secs => %s::float8) - now())))::int'
+        .format(column),
+        (album_id if album_id is not None else file_id, scope, ip_hash, window_seconds, window_seconds,
+         window_seconds),
     )
     return row[0], max(1, row[1])
+
+
+# --- the owner's library (contract milestone-3 §6) ---------------------------------------------------
+
+async def count_where(conn, where, params):
+    """(count, total bytes) of live files matching `where`."""
+    row = await _one(conn, 'SELECT count(*), COALESCE(sum(f.size), 0) FROM files AS f WHERE {} AND {}'.format(
+        where, LIVE), params)
+    return int(row[0]), int(row[1])
+
+
+async def soft_delete_files(conn, where, params):
+    """Soft-delete the live files matching `where` (in the caller's transaction) and do
+    what a delete implies (jobs/gc.py). Returns the deleted ids."""
+    from jobs.gc import after_delete_async
+    rows = await _all(conn, 'UPDATE files AS f SET deleted_at = now() WHERE {} AND f.deleted_at IS NULL '
+                            'RETURNING f.id, f.hash_id'.format(where), params)
+    await after_delete_async(conn, [r[0] for r in rows], [r[1] for r in rows])
+    return [r[0] for r in rows]

@@ -7,20 +7,45 @@ JSON = 'application/json'
 
 
 def ApiResponse(data=None, status=None):
-    """JSON response, serialised exactly as the Flask version did
-    (`json.dumps` defaults). No data means 204."""
+    """JSON response (`json.dumps` defaults). No data means 204."""
     if data is None:
-        # Sanic only adds content-type to statuses with a body; Flask always sent it
         return HTTPResponse(b'', status=status or 204, headers={'content-type': JSON})
-    if hasattr(data, 'to_dict'):
-        data = data.to_dict()
     return HTTPResponse(json.dumps(data), status=status or 200, content_type=JSON)
 
 
+# the code an error gets from its status alone, when nothing more specific applies
+STATUS_CODES = {
+    400: 'BAD_REQUEST',
+    401: 'UNAUTHORIZED',
+    403: 'FORBIDDEN',
+    404: 'NOT_FOUND',
+    405: 'METHOD_NOT_ALLOWED',
+    408: 'REQUEST_TIMEOUT',
+    411: 'LENGTH_REQUIRED',
+    413: 'PAYLOAD_TOO_LARGE',
+    416: 'RANGE_NOT_SATISFIABLE',
+    429: 'TOO_MANY_REQUESTS',
+    500: 'INTERNAL_ERROR',
+    503: 'SERVICE_UNAVAILABLE',
+}
+# the default message by status (sentence case)
+STATUS_MESSAGES = {
+    400: 'Bad request',
+    401: 'Sign in to do that',
+    403: "You can't do that",
+    404: 'Not found',
+    405: 'Method not allowed',
+    413: 'Request too large',
+    429: 'Too many requests',
+    500: 'Something went wrong',
+    503: 'Service unavailable',
+}
+
+
 class ApiError(Exception):
-    """Raised anywhere in a request; rendered as
-    `{**metadata, "code", "message", "status"}`."""
-    code = 0
+    """Raised anywhere in a request; rendered as `{**details, "code", "message", "status"}`.
+    Every code is an UPPER_SNAKE string (contract milestone-3 §0)."""
+    code = None
     message = None
     status = 400
 
@@ -32,11 +57,12 @@ class ApiError(Exception):
         if message is not None:
             self.message = message
         elif self.message is None:
-            # Werkzeug's reason phrases, as Flask used them
-            self.message = HTTP_STATUS_CODES.get(self.status, 'Unknown Error')
+            self.message = STATUS_MESSAGES.get(self.status) or HTTP_STATUS_CODES.get(self.status, 'Error')
 
         if kwargs.get('code') is not None:
             self.code = kwargs.get('code')
+        elif self.code is None:
+            self.code = STATUS_CODES.get(self.status, 'ERROR')
 
         self.data = dict(kwargs.pop('metadata', None) or {})
         self.data.update({'code': self.code, 'message': self.message, 'status': self.status})

@@ -1,21 +1,21 @@
-// File bytes for cdn.files.gg (docs/redesign/contracts/milestone-2.md §3): SigV4-signed GET/HEAD to
-// B2's S3 endpoint with a read-only key, falling back to the old GCS bucket during the migration,
-// plus an edge cache keyed by the object key (files/<hash_id>). Callers check access FIRST.
+// Bytes for cdn.files.gg (docs/redesign/contracts/milestone-2.md §3, milestone-3.md §0): SigV4-signed
+// GET/HEAD to B2's S3 endpoint with a read-only key, plus an edge cache keyed by the object key
+// (files/<hash_id>, derived/...). B2 only. Callers check access FIRST.
 
 import { AwsClient } from 'aws4fetch';
 
-import { getStringBinding, storageOrigin } from './utils/env.js';
+import { getStringBinding } from './utils/env.js';
 
 // Only these client headers reach storage.
 export const PASSTHROUGH_HEADERS = Object.freeze(['range', 'if-none-match', 'if-modified-since']);
-// Storage response headers worth keeping; everything else (x-amz-*, x-bz-*, x-goog-*...) is dropped.
+// Storage response headers worth keeping; everything else (x-amz-*, x-bz-*...) is dropped.
 const KEPT_HEADERS = Object.freeze(['accept-ranges', 'content-length', 'content-range', 'etag', 'last-modified']);
 const BLOB_CACHE_NAME = 'filesgg-blobs';
 // Cache API keys only. Blobs are content-addressed and never change.
 const BLOB_CACHE_KEY_BASE = 'https://cdn.files.gg/__blob-cache/v1/';
 const BLOB_CACHE_CONTROL = 'public, max-age=31536000, immutable';
 
-let warnedNoB2 = false;
+let warnedNoStorage = false;
 let client = null;
 let clientKey = null;
 
@@ -29,12 +29,6 @@ export function b2Config(env) {
     secretAccessKey: getStringBinding(env, 'S3_READ_SECRET_ACCESS_KEY'),
   };
   return Object.values(config).every(Boolean) ? config : null;
-}
-
-// During the migration (contract §3) any object missing from B2 is retried on GCS. Set
-// STORAGE_GCS_FALLBACK to "false" once every blob is copied (PLAN.md "Moving off GCS", step 5).
-export function gcsFallbackEnabled(env) {
-  return (getStringBinding(env, 'STORAGE_GCS_FALLBACK') || 'true').toLowerCase() !== 'false';
 }
 
 function getClient(config) {
@@ -87,17 +81,13 @@ async function fromB2(config, method, key, headers) {
   return await fetch(signed);
 }
 
-async function fromGcs(env, method, key, headers) {
-  const url = new URL(storageOrigin(env));
-  url.pathname = '/' + String(key).replace(/^\/+/, '');
-  return await fetch(url, { method, headers });
-}
-
-
-// Returns the storage response for `storage` ({ backend, key }) with only safe headers, or a
+// Returns the storage response for `storage` ({ key }) with only safe headers, or a
 // status-only Response: 404 when the object is missing (storage 403s become 404s), else the
 // storage status. 2xx and 304 keep their bodies and range/validator headers.
-export async function fetchBlob({ env, request, storage, waitUntil }) {
+// `cacheVersion`: part of the edge-cache key, for objects whose key is reused (previews are
+// rewritten in place by a re-derive; previews_version tells them apart). `cacheWrite: false` reads
+// the edge cache but never fills it (the album ZIP, which would otherwise tee every blob).
+export async function fetchBlob({ env, request, storage, waitUntil, cacheVersion = null, cacheWrite = true }) {
   const method = (request.method === 'HEAD') ? 'HEAD' : 'GET';
   const key = storage && storage.key;
   if (typeof(key) !== 'string' || !key || key.includes('..')) {
@@ -108,7 +98,8 @@ export async function fetchBlob({ env, request, storage, waitUntil }) {
 
   // Edge cache: whole-object GETs only. Range and conditional requests go to storage.
   let cache = null;
-  const cacheKey = new Request(BLOB_CACHE_KEY_BASE + key.split('/').map(encodeURIComponent).join('/'));
+  const version = (cacheVersion === null || cacheVersion === undefined) ? '' : `?v=${encodeURIComponent(String(cacheVersion))}`;
+  const cacheKey = new Request(BLOB_CACHE_KEY_BASE + key.split('/').map(encodeURIComponent).join('/') + version);
   if (plainGet) {
     cache = await caches.open(BLOB_CACHE_NAME).catch(() => null);
     const hit = cache && await cache.match(cacheKey).catch(() => null);
@@ -118,24 +109,20 @@ export async function fetchBlob({ env, request, storage, waitUntil }) {
   }
 
   const config = b2Config(env);
-  let response = null;
-  if (config) {
-    try {
-      response = await fromB2(config, method, key, headers);
-    } catch (error) {
-      console.error('B2 fetch failed', String(error));
-      response = new Response(null, { status: 502 });
+  if (!config) {
+    // A misconfiguration must not look like deleted files.
+    if (!warnedNoStorage) {
+      warnedNoStorage = true;
+      console.error('S3_* bindings are not set: cdn.files.gg can\'t read any bytes (503)');
     }
-  } else if (!warnedNoB2) {
-    warnedNoB2 = true;
-    console.warn('S3_* bindings are not set: cdn.files.gg reads from GCS only');
+    return new Response(null, { status: 503 });
   }
-
-  const useGcs = !config
-    || (response.status === 404 && (storage.backend === 'gcs' || gcsFallbackEnabled(env)));
-  if (useGcs) {
-    await response?.body?.cancel().catch(() => {});
-    response = await fromGcs(env, method, key, headers);
+  let response;
+  try {
+    response = await fromB2(config, method, key, headers);
+  } catch (error) {
+    console.error('B2 fetch failed', String(error));
+    response = new Response(null, { status: 502 });
   }
 
   if (response.status === 403 || response.status === 404) {
@@ -148,7 +135,7 @@ export async function fetchBlob({ env, request, storage, waitUntil }) {
   }
 
   response = cleanResponse(response);
-  if (cache && response.status === 200) {
+  if (cache && cacheWrite && response.status === 200) {
     const [forClient, forCache] = response.body ? response.body.tee() : [null, null];
     const cached = new Response(forCache, { status: 200, headers: response.headers });
     cached.headers.set('Cache-Control', BLOB_CACHE_CONTROL);

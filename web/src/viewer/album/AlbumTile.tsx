@@ -1,6 +1,7 @@
 import { FileText, Music, Play } from 'lucide-react';
 import { useRef, useState } from 'react';
 
+import { tileImage } from '../renderers/assets';
 import { FileTypeIcon } from '../renderers/FileTypeIcon';
 import type { AlbumItem } from '../types';
 
@@ -13,19 +14,25 @@ interface AlbumTileProps {
   onOpen: (index: number) => void;
 }
 
-/** One grid tile: image, video poster + ▶ + hover clip, audio cover, PDF thumb, or a type tile. */
+/**
+ * One grid tile: image, video poster + ▶ + hover clip, audio cover, PDF thumb, or a type
+ * tile. Derived `thumb` / `thumb-2x` are used through `srcset` when present; while an
+ * item is still processing it has none, so the type icon shows instead.
+ */
 export function AlbumTile({ item, index, count, width, height, onOpen }: AlbumTileProps) {
   const [hovering, setHovering] = useState(false);
   const [broken, setBroken] = useState(false);
   const videoRef = useRef<HTMLVideoElement>(null);
-  const thumb = item.thumbnail?.url;
-  const image = item.kind === 'image' ? (thumb ?? item.cdnUrl) : thumb;
+  const image = tileImage(item, width);
+  const hoverClip = item.hover_url && (item.kind === 'video' || item.kind === 'image') ? item.hover_url : undefined;
 
   let body;
   if (image && !broken) {
     body = (
       <img
-        src={image}
+        src={image.src}
+        srcSet={image.srcSet}
+        sizes={image.sizes}
         alt=""
         loading="lazy"
         decoding="async"
@@ -63,10 +70,10 @@ export function AlbumTile({ item, index, count, width, height, onOpen }: AlbumTi
       style={{ width, height }}
     >
       {body}
-      {item.kind === 'video' && item.hover_url && hovering && (
+      {hoverClip && hovering && (
         <video
           ref={videoRef}
-          src={item.hover_url}
+          src={hoverClip}
           muted
           loop
           autoPlay

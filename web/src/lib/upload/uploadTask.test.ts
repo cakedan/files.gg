@@ -5,7 +5,7 @@ import { fileKey, findResumable, rememberUpload } from './resumeStore';
 import { CHUNKED_THRESHOLD, UploadTask, type UploadSnapshot } from './uploadTask';
 
 const MB = 1024 * 1024;
-const result = { id: '1', urls: { main: 'https://files.gg/x.bin', cdn: '' } } as UploadedFile;
+const result = { id: '1', url: 'https://files.gg/x.bin', cdn_url: 'https://cdn.files.gg/files/x.bin' } as UploadedFile;
 
 function bigFile(size = 25 * MB, name = 'big.bin') {
   // A small backing buffer is enough: only `size` and `slice` matter here.

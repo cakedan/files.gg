@@ -3,6 +3,7 @@ import { Suspense, useCallback, useEffect, useRef, useState } from 'react';
 import { NavLink, Outlet, useLocation } from 'react-router';
 
 import { Lockup } from '../components/Brand';
+import { Toaster } from './components/Toaster';
 import { NAV_ITEMS } from './nav';
 
 function SidebarNav({ onNavigate }: { onNavigate?: () => void }) {
@@ -106,36 +107,38 @@ export function DashboardLayout() {
   const closeDrawer = useCallback(() => setDrawerOpen(false), []);
 
   return (
-    <div className="flex min-h-dvh">
-      <aside className="sticky top-0 hidden h-dvh w-64 shrink-0 flex-col border-r border-line bg-surface lg:flex">
-        <SidebarHeader />
-        <SidebarNav />
-      </aside>
+    <Toaster>
+      <div className="flex min-h-dvh">
+        <aside className="sticky top-0 hidden h-dvh w-64 shrink-0 flex-col border-r border-line bg-surface lg:flex">
+          <SidebarHeader />
+          <SidebarNav />
+        </aside>
 
-      <div className="flex min-w-0 flex-1 flex-col">
-        <header className="sticky top-0 z-30 flex h-14 items-center gap-2 border-b border-line bg-bg/95 px-2 backdrop-blur lg:hidden">
-          <button
-            type="button"
-            onClick={() => setDrawerOpen(true)}
-            aria-label="Open navigation"
-            aria-expanded={drawerOpen}
-            className="rounded-md p-2 text-muted hover:bg-surface-2 hover:text-text"
-          >
-            <Menu aria-hidden className="size-5" />
-          </button>
-          <a href="/" aria-label="files.gg home" className="rounded-sm">
-            <Lockup className="h-8 w-auto" />
-          </a>
-        </header>
+        <div className="flex min-w-0 flex-1 flex-col">
+          <header className="sticky top-0 z-30 flex h-14 items-center gap-2 border-b border-line bg-bg/95 px-2 backdrop-blur lg:hidden">
+            <button
+              type="button"
+              onClick={() => setDrawerOpen(true)}
+              aria-label="Open navigation"
+              aria-expanded={drawerOpen}
+              className="rounded-md p-2 text-muted hover:bg-surface-2 hover:text-text"
+            >
+              <Menu aria-hidden className="size-5" />
+            </button>
+            <a href="/" aria-label="files.gg home" className="rounded-sm">
+              <Lockup className="h-8 w-auto" />
+            </a>
+          </header>
 
-        <main className="mx-auto w-full max-w-6xl min-w-0 flex-1 px-4 py-6 sm:px-6 lg:px-10 lg:py-10">
-          <Suspense fallback={<PageFallback />}>
-            <Outlet />
-          </Suspense>
-        </main>
+          <main className="mx-auto w-full max-w-6xl min-w-0 flex-1 px-4 py-6 sm:px-6 lg:px-10 lg:py-10">
+            <Suspense fallback={<PageFallback />}>
+              <Outlet />
+            </Suspense>
+          </main>
+        </div>
+
+        <MobileDrawer open={drawerOpen} onClose={closeDrawer} />
       </div>
-
-      <MobileDrawer open={drawerOpen} onClose={closeDrawer} />
-    </div>
+    </Toaster>
   );
 }

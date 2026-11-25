@@ -3,14 +3,16 @@ import { Download, ExternalLink } from 'lucide-react';
 import { CopyButton } from '../../components/CopyButton';
 import { LinkButton } from '../../components/Button';
 import { formatBytes, formatDimensions } from '../../lib/format';
-import { formatExpiry, formatFullDate, formatUploaded, RELATIVE_REFRESH_MS } from '../../lib/time';
+import { epochMs, epochMsOrNull, formatExpiry, formatFullDate, formatUploaded, RELATIVE_REFRESH_MS } from '../../lib/time';
 import { useNow } from '../../lib/useNow';
 import type { FileData } from '../types';
 import { downloadUrl, shareUrl } from '../urls';
 
 export function FileFooter({ file }: { file: FileData }) {
   const now = useNow(RELATIVE_REFRESH_MS);
-  const expiry = formatExpiry(file.expiresAt, now);
+  const uploadedAt = file.uploaded_at > 0 ? epochMs(file.uploaded_at) : null;
+  const expiresAt = epochMsOrNull(file.expires_at);
+  const expiry = formatExpiry(expiresAt, now);
   const pages = file.media?.pages;
   const details = [
     formatBytes(file.size),
@@ -26,15 +28,15 @@ export function FileFooter({ file }: { file: FileData }) {
       </h1>
       <p className="truncate text-xs text-muted">{details.join(' · ')}</p>
       <p className="flex flex-wrap justify-center gap-x-3 gap-y-0.5 text-sm text-muted">
-        {file.uploadedAt > 0 && (
-          <time dateTime={new Date(file.uploadedAt).toISOString()} title={formatFullDate(file.uploadedAt)}>
-            {formatUploaded(file.uploadedAt, now)}
+        {uploadedAt !== null && (
+          <time dateTime={new Date(uploadedAt).toISOString()} title={formatFullDate(uploadedAt)}>
+            {formatUploaded(uploadedAt, now)}
           </time>
         )}
-        {expiry && file.expiresAt !== null && (
+        {expiry && expiresAt !== null && (
           <time
-            dateTime={new Date(file.expiresAt).toISOString()}
-            title={formatFullDate(file.expiresAt)}
+            dateTime={new Date(expiresAt).toISOString()}
+            title={formatFullDate(expiresAt)}
             className={expiry.tone === 'danger' ? 'text-danger' : 'text-warn'}
           >
             {expiry.label}
@@ -43,11 +45,11 @@ export function FileFooter({ file }: { file: FileData }) {
       </p>
       <div className="mt-1 flex flex-wrap justify-center gap-2">
         <CopyButton text={shareUrl(file.url)} />
-        <LinkButton href={downloadUrl(file.cdnUrl)} download={file.filename}>
+        <LinkButton href={downloadUrl(file.cdn_url)} download={file.filename}>
           <Download aria-hidden className="size-4" />
           Download
         </LinkButton>
-        <LinkButton href={file.cdnUrl} target="_blank" rel="noopener noreferrer" variant="ghost">
+        <LinkButton href={file.cdn_url} target="_blank" rel="noopener noreferrer" variant="ghost">
           <ExternalLink aria-hidden className="size-4" />
           Raw
         </LinkButton>

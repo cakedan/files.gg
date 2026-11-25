@@ -21,10 +21,11 @@ import jobs
 from db import queries
 from db.models import epoch
 from utils import errors, limits as limits_module, passwords, payloads, storage as storage_module, uploading
+from utils.cdn_signing import Grant
 from utils.generators import Snowflake
 from utils.helpers import client_ip, get_user
 from utils.params import Arg, Args
-from utils.responses import ApiError, ApiResponse
+from utils.responses import ApiResponse
 from utils.turnstile import Turnstile
 from utils.wrappers import parse_args, route
 
@@ -70,7 +71,7 @@ async def caller_of(request):
     fingerprint = parameters.fingerprint(request.headers.get('x-fingerprint')) \
         if request.headers.get('x-fingerprint') else None
     if user is None and fingerprint is None:
-        raise ApiError(status=401)
+        raise errors.unauthorized()
     return Caller(user, fingerprint)
 
 
@@ -97,6 +98,8 @@ class CreateUploadArgs(Args):
     unlock_ttl: Annotated[Optional[int], Arg(type=uploading.unlock_ttl)] = None
     password_expires_in: Annotated[Optional[int], Arg(type=uploading.positive_int)] = None
     turnstile_token: Annotated[Optional[str], Arg()] = None
+    # Milestone 3: the file joins this album (one of yours, by vanity) when it's finalized
+    album: Annotated[Optional[str], Arg()] = None
 
 
 @route(uploads, '', ['POST'])
@@ -115,6 +118,7 @@ async def create_upload(request, args):
         name, extension, mimetype = await uploading.resolve_name(
             conn, args.filename, None, uploading.mimetype_of(args.mimetype or 'application/octet-stream'))
         await owner.check(conn, args.size)
+        album_id = await uploading.resolve_album(conn, caller.user, args.album)
 
     if caller.user is None and not await Turnstile.verify(args.turnstile_token, 'upload', client_ip(request)):
         raise errors.captcha_invalid()
@@ -150,6 +154,7 @@ async def create_upload(request, args):
                     storage_key=key,
                     b2_upload_id=b2_upload_id,
                     expires_at=uploading.utcnow() + timedelta(hours=SESSION_HOURS),
+                    album_id=album_id,
                     **access_columns,
                 )
     except BaseException:
@@ -221,7 +226,8 @@ async def get_upload(request, upload_id):
         fobj = await queries.get_file(conn, session.file_id) if session.file_id else None
     body = {'status': session.status, 'received': received, 'size': session.size}
     if session.status == 'complete' and fobj is not None:
-        body['file'] = payloads.upload_dict(fobj)
+        # the uploader owns it: a protected file's URLs are signed for 1 h
+        body['file'] = payloads.public_file(fobj, grant=Grant.owner_file(fobj))
     if session.status == 'failed':
         body['error'] = session.error or 'UPLOAD_FAILED'
     return ApiResponse(body)

@@ -48,7 +48,7 @@ describe('LockScreen', () => {
   });
 
   it('sends the password with a Turnstile token and reports success', async () => {
-    const fetch = mockFetch(json({ token: 'tok', expires_at: 2e9, file: { filename: 'a.png', cdnUrl: 'https://cdn/a.png' } }));
+    const fetch = mockFetch(json({ token: 'tok', expires_at: 2e9, file: { filename: 'a.png', cdn_url: 'https://cdn/a.png' } }));
     const onUnlocked = vi.fn();
     render(<LockScreen kind="file" vanity="abc" onUnlocked={onUnlocked} />);
     await submit('files.gg');

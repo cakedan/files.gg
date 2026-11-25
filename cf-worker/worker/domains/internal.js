@@ -1,10 +1,11 @@
-// Worker ↔ API internal lookup (docs/redesign/contracts/milestone-2.md §2).
+// Worker ↔ API internal lookups (docs/redesign/contracts/milestone-3.md §5).
 //
-//   GET <API_ORIGIN>/internal/files/<vanity>    X-Filesgg-Origin-Secret: <ORIGIN_SHARED_SECRET>
+//   GET <API_ORIGIN>/internal/files/<vanity>       X-Filesgg-Origin-Secret: <ORIGIN_SHARED_SECRET>
 //   GET <API_ORIGIN>/internal/albums/<vanity>
 //
-// Results are cached for 30 s with the Cache API, keyed by vanity, and so are unknown vanities
-// (negative entries). Returns { status: 'found', data } | { status: 'missing' } |
+// Every page and every CDN path names a vanity; there are no lookups by id. Results are cached
+// for 30 s with the Cache API, keyed by kind and vanity, and so are unknown vanities (negative
+// entries). Returns { status: 'found', data } | { status: 'missing' } |
 // { status: 'unavailable' } (API unreachable, timed out, 5xx, or the Worker has no secret).
 
 import { apiOrigin, getStringBinding } from '../utils/env.js';
@@ -13,8 +14,11 @@ import { ORIGIN_SECRET_HEADER } from '../utils/security.js';
 export const LOOKUP_TTL_SECONDS = 30;
 export const LOOKUP_TIMEOUT_MS = 8000;
 const CACHE_NAME = 'filesgg-internal-lookups';
-// Cache API keys only; nothing is ever fetched from this URL. Bump `v1` if the payload changes.
-const CACHE_KEY_BASE = 'https://files.gg/__internal-lookup-cache/v1/';
+// Cache API keys only; nothing is ever fetched from this URL. Bump the version if the payload
+// changes (v3: milestone 3's `previews`, albums with vanities, items_storage and collage).
+const CACHE_KEY_BASE = 'https://files.gg/__internal-lookup-cache/v3/';
+
+export const LOOKUP_KINDS = Object.freeze(['files', 'albums']);
 
 let warnedMissingSecret = false;
 
@@ -40,8 +44,11 @@ function waitUntil(event, promise) {
 }
 
 
-// kind: 'files' | 'albums'.
+// kind: 'files' | 'albums', by vanity.
 export async function internalLookup(event, kind, vanity) {
+  if (!LOOKUP_KINDS.includes(kind)) {
+    throw new Error(`unknown internal lookup kind ${kind}`);
+  }
   const secret = getStringBinding(event.environment, 'ORIGIN_SHARED_SECRET');
   if (!secret) {
     // Without the secret every lookup would 404 and every file would look deleted. Say

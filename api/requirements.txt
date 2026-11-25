@@ -19,6 +19,10 @@ boto3==1.43.117
 argon2-cffi==25.1.0
 # streaming multipart parser for POST /files (uploads go to a temp file, not memory)
 python-multipart==0.0.34
+# Milestone 3 media processing (python -m worker, in the sandboxed media.process child): thumbnails,
+# previews, collages; pillow-heif adds HEIC/HEIF (and AVIF) decoding. Both ship cp315 wheels.
+Pillow==13.0.0
+pillow-heif==1.9.0
 
 # Transitive dependencies:
 aiofiles==25.1.0

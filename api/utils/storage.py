@@ -6,11 +6,10 @@ The API uses aiobotocore (`S3Storage`, one client per Sanic worker); the
 synchronous `python -m worker` uses boto3 (`sync_client()`). Tests and local
 development point S3_ENDPOINT at MinIO.
 
-Keys: `files/<hash_id>` for blobs and `staging/<upload_id>` for chunked uploads
-in progress. Objects are stored as application/octet-stream; the CDN Worker sets
-the real type when it serves them. Nothing is written to GCS any more: blobs
-uploaded before B2 are read by the Worker's GCS fallback
-(`file_hashes.storage_backend = 'gcs'`).
+Keys: `files/<hash_id>` for blobs, `staging/<upload_id>` for chunked uploads in
+progress and `derived/<hash_id>/<kind>.<ext>` for previews. Objects are stored as
+application/octet-stream; the CDN Worker sets the real type when it serves them.
+Every blob is on B2.
 """
 
 import asyncio

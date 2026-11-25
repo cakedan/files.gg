@@ -1,86 +1,184 @@
-"""JSON shapes for files beyond the old `File.to_dict()` (which stays
-byte-identical for the existing endpoints and the golden responses)."""
+"""The file payload (contract milestone-3 §4): one shape for every endpoint that returns a
+file (`GET /files/<vanity>`, uploads, unlock, /view, refresh, the internal lookup, album
+items and the owner's library). snake_case, times in epoch seconds.
+
+URLs are ready to use. `link` files get plain URLs. A protected file's URLs are signed
+(utils/cdn_signing.py) for whoever may see it, through the `grant` the caller passes: an
+unlock, an owner (1 h), or an album grant. Without a grant they're plain, and the CDN
+refuses them.
+"""
 
 from db.models import epoch
+from media import BROWSER_IMAGES, base_kind, is_other_image, preview_extension  # noqa: F401  (re-exported)
+from utils.cdn_signing import path_segment
 from utils.generators import Snowflake
-from utils.urls import public_url
+from utils.urls import cdn_url, public_url
 
-BROWSER_IMAGES = frozenset((
-    'image/png', 'image/jpeg', 'image/jpg', 'image/pjpeg', 'image/gif', 'image/webp', 'image/avif', 'image/bmp',
-    'image/x-icon', 'image/vnd.microsoft.icon', 'image/x-png',
-))
+# the media keys copied to the payload's top level
+TOP_LEVEL_MEDIA = ('width', 'height', 'duration', 'framecount')
+# contract §4 "thumbnail": the best preview for the kind, in order
+THUMBNAIL_ORDER = {
+    'video': ('poster',),
+    'audio': ('cover', 'waveform'),
+}
+DEFAULT_THUMBNAIL_ORDER = ('thumb',)
 
 
 def kind_of(mimetype):
-    """The viewer's `kind` (web/README.md §3)."""
-    mimetype = (mimetype or '').lower()
-    if mimetype in BROWSER_IMAGES:
+    """The viewer's `kind` from the mimetype alone."""
+    return base_kind(mimetype)
+
+
+def needs_signing(target, grant):
+    return grant is not None and target.visibility != 'link'
+
+
+def file_url(fobj):
+    return public_url('/' + fobj.vanity + fobj.suffix)
+
+
+def file_cdn_url(fobj):
+    return cdn_url('/files/' + path_segment(fobj.vanity) + fobj.suffix)
+
+
+def preview_url(fobj, kind, version):
+    """https://cdn.files.gg/previews/<kind>/<vanity>.<ext>?v=<derived_at> (contract §3)."""
+    return cdn_url('/previews/{}/{}.{}?v={}'.format(kind, path_segment(fobj.vanity), preview_extension(kind), version))
+
+
+def assets_dict(fobj, sign=None):
+    """{"thumb": {"url", "width", "height"}, "peaks": {"url"}, ...}: every ready preview."""
+    fhash = fobj.hash
+    if fhash is None or fhash.derived_at is None or not fhash.assets:
+        return {}
+    version = epoch(fhash.derived_at)
+    out = {}
+    for asset in fhash.assets:
+        url = preview_url(fobj, asset.kind, version)
+        entry = {'url': sign(url) if sign else url}
+        if asset.width is not None and asset.height is not None:
+            entry['width'], entry['height'] = asset.width, asset.height
+        out[asset.kind] = entry
+    return out
+
+
+def thumbnail_of(kind, assets):
+    for name in THUMBNAIL_ORDER.get(kind, DEFAULT_THUMBNAIL_ORDER):
+        if name in assets:
+            return dict(assets[name], type=name)
+    return None
+
+
+def processing(fobj):
+    return fobj.hash is not None and fobj.hash.processing_state in ('pending', 'probed')
+
+
+def viewer_kind(fobj, assets):
+    kind = kind_of(fobj.mimetype_id)
+    # HEIC, TIFF, PSD, ...: shown through their `display` preview (contract §4)
+    if kind == 'file' and is_other_image(fobj.mimetype_id) and 'display' in assets:
         return 'image'
-    if mimetype == 'application/pdf':
-        return 'pdf'
-    major = mimetype.split('/', 1)[0]
-    if major in ('video', 'audio'):
-        return major
-    if major == 'text' and mimetype not in ('text/html', 'text/xml', 'text/xsl'):
-        return 'text'
-    return 'file'
+    return kind
 
 
-def upload_dict(fobj, password=None):
-    """`POST /files` and chunked-upload results: today's object plus
-    `expires_at` (epoch s or null) and `visibility`; `password` and
-    `url_with_password` only right after a password was generated."""
-    data = fobj.to_dict()
-    data['expires_at'] = epoch(fobj.expires_at)
-    data['visibility'] = fobj.visibility
+def public_media(fobj, owner=False):
+    media = dict((fobj.hash.media if fobj.hash is not None else None) or {})
+    if not owner:
+        media.pop('snippet', None)
+    return media
+
+
+def public_file(fobj, grant=None, owner=False, album_item=False):
+    """The file payload. `grant` (a cdn_signing.Grant) signs a protected file's URLs;
+    `album_item` marks it as an album item (album grants then add album=)."""
+    sign = (lambda url: grant.sign(url, item=album_item)) if needs_signing(fobj, grant) else None
+    assets = assets_dict(fobj, sign)
+    media = public_media(fobj, owner=owner)
+    kind = viewer_kind(fobj, assets)
+    raw_cdn = file_cdn_url(fobj)
+    data = {
+        'id': str(fobj.id),
+        'vanity': fobj.vanity,
+        'kind': kind,
+        'name': fobj.filename,
+        'extension': fobj.extension,
+        'filename': fobj.full_filename,
+        'mimetype': fobj.mimetype_id,
+        'size': fobj.size if fobj.size is not None else (fobj.hash.size if fobj.hash is not None else 0),
+        'url': file_url(fobj),
+        'cdn_url': sign(raw_cdn) if sign else raw_cdn,
+        'visibility': fobj.visibility,
+        'uploaded_at': Snowflake.decode(fobj.id)['timestamp'] // 1000,
+        'expires_at': epoch(fobj.expires_at),
+        'views': fobj.view_count,
+        'media': media,
+        'width': None,
+        'height': None,
+        'duration': None,
+        'framecount': None,
+        'processing': processing(fobj),
+        'assets': assets,
+        'nsfw': False,
+    }
+    for key in TOP_LEVEL_MEDIA:
+        if media.get(key) is not None:
+            data[key] = media[key]
+    thumbnail = thumbnail_of(kind_of(fobj.mimetype_id), assets)
+    if thumbnail is not None:
+        data['thumbnail'] = thumbnail
+    if 'hover' in assets:
+        data['hover_url'] = assets['hover']['url']
+    return data
+
+
+def with_password(data, fobj, password):
+    """Right after a password was generated: shown once."""
     if password is not None:
         data['password'] = password
         data['url_with_password'] = public_url('/{}#pw={}'.format(fobj.vanity, password))
     return data
 
 
-def owner_dict(fobj):
-    """What the owner sees about a file's access settings."""
-    data = upload_dict(fobj)
+def owner_dict(fobj, grant=None):
+    """The owner file (contract §6): the public payload signed for 1 h with the file grant,
+    plus the access settings, `media.snippet`, and the albums the file is in."""
+    from utils.cdn_signing import Grant
+    data = public_file(fobj, grant=grant or Grant.owner_file(fobj), owner=True)
     data.update({
         'access_version': fobj.access_version,
         'unlock_ttl': fobj.unlock_ttl,
         'password_expires_at': epoch(fobj.password_expires_at),
         'show_name_when_locked': fobj.show_name_when_locked,
-    })
-    return data
-
-
-def public_file(fobj):
-    """The viewer payload (web/README.md §3): the file object plus the viewer's
-    fields. URLs never carry a token."""
-    data = upload_dict(fobj)
-    expires = epoch(fobj.expires_at)
-    data.update({
-        'kind': kind_of(fobj.mimetype_id),
-        'cdnUrl': data['urls']['cdn'],
-        'url': data['urls']['main'],
-        'uploadedAt': Snowflake.decode(fobj.id)['timestamp'],
-        'expiresAt': expires * 1000 if expires is not None else None,
+        'albums': [{'id': str(album_id), 'vanity': vanity, 'title': title}
+                   for album_id, vanity, title in (fobj.albums or ())],
     })
     return data
 
 
 def locked_file(fobj, password_expired=False):
-    """`GET /files/<vanity>` for a password file without access (PLAN.md)."""
+    """`GET /files/<vanity>` for a password file without access."""
     data = {'vanity': fobj.vanity, 'protected': 'password'}
     if fobj.show_name_when_locked:
-        data['filename'] = fobj.to_dict()['filename']
+        data['filename'] = fobj.full_filename
     if password_expired:
         data['password_expired'] = True
     return data
 
 
-def access_dict(fobj):
+def access_dict(target):
+    """A file's or an album's access settings (the internal lookups' `access`)."""
     return {
-        'visibility': fobj.visibility,
-        'access_version': fobj.access_version,
-        'unlock_ttl': fobj.unlock_ttl,
-        'password_expires_at': epoch(fobj.password_expires_at),
-        'show_name_when_locked': fobj.show_name_when_locked,
+        'visibility': target.visibility,
+        'access_version': target.access_version,
+        'unlock_ttl': target.unlock_ttl,
+        'password_expires_at': epoch(target.password_expires_at),
+        'show_name_when_locked': target.show_name_when_locked,
     }
+
+
+def previews_dict(fobj):
+    """The internal lookup's `previews` (contract §5): storage keys by kind."""
+    if fobj.hash is None:
+        return {}
+    return {a.kind: {'key': a.storage_key, 'content_type': a.content_type, 'size': a.size}
+            for a in fobj.hash.assets}

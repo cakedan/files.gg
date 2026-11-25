@@ -6,6 +6,18 @@
  * server serves at /fixtures/.
  */
 
+import {
+  JSON_SAMPLE,
+  manyLines,
+  MARKDOWN_SAMPLE,
+  peaksUrl,
+  PLAIN_SAMPLE,
+  PYTHON_SAMPLE,
+  recordClip,
+  RUST_SAMPLE,
+  textUrl,
+  TYPESCRIPT_SAMPLE,
+} from './fixtureMedia';
 import type { FileData } from './types';
 
 export const FIXTURE_NAMES = [
@@ -25,11 +37,30 @@ export const FIXTURE_NAMES = [
   'locked-expired',
   'locked-album',
   'private',
+  // Milestone 3
+  'video',
+  'video-unplayable',
+  'processing',
+  'audio-cover',
+  'audio-waveform',
+  'audio-unplayable',
+  'image-heic',
+  'text',
+  'text-typescript',
+  'text-rust',
+  'text-json',
+  'text-markdown',
+  'text-plain',
+  'text-huge',
+  'text-lines',
+  'album-huge',
 ] as const;
 export type FixtureName = (typeof FIXTURE_NAMES)[number];
 
 const HOUR = 60 * 60 * 1000;
 const DAY = 24 * HOUR;
+/** Payload times are epoch seconds (contract §4). */
+const secs = (ms: number) => Math.floor(ms / 1000);
 
 interface Fixture {
   page?: string;
@@ -41,19 +72,33 @@ interface Fixture {
 
 const fx = (name: string) => `${location.origin}/fixtures/${name}`;
 
-function fixtures(now: number): Record<FixtureName, Fixture> {
+/**
+ * Previews. In production they're `https://cdn.files.gg/previews/<kind>/<vanity>.<ext>?v=…`
+ * (contract §3), signed when the file is protected; here they must load from the dev
+ * server, so they're the local fixture files with a `?v=` like the real ones. URLs that
+ * are never fetched in dev (collages, the too-large album's ZIP) use the real shape.
+ */
+const asset = (name: string, width?: number, height?: number) => ({ url: `${fx(name)}?v=1795600000`, width, height });
+const CDN = 'https://cdn.files.gg';
+
+interface FixtureMedia {
+  /** A playable WebM recorded in the browser, or null (then a WAV stands in). */
+  clip: string | null;
+}
+
+function fixtures(now: number, media: FixtureMedia): Record<FixtureName, Fixture> {
   const pdf: FileData = {
     kind: 'pdf',
     filename: 'files-gg-sample.pdf',
     mimetype: 'application/pdf',
     extension: 'pdf',
     size: 17_113,
-    cdnUrl: fx('sample.pdf'),
+    cdn_url: fx('sample.pdf'),
     url: 'https://files.gg/pdf123.pdf',
     media: { pages: 8 },
     thumbnail: { url: fx('pdf-thumb.png'), type: 'thumb', width: 240, height: 310 },
-    uploadedAt: now - 5 * HOUR,
-    expiresAt: null,
+    uploaded_at: secs(now - 5 * HOUR),
+    expires_at: null,
   };
 
   const photo = (n: number, width: number, height: number, caption: string, extra: Partial<FileData> = {}) => ({
@@ -64,10 +109,10 @@ function fixtures(now: number): Record<FixtureName, Fixture> {
     size: 8000 + n * 731,
     width,
     height,
-    cdnUrl: fx(`photo-${n}.png`),
+    cdn_url: fx(`photo-${n}.png`),
     url: `https://files.gg/ph${n}.png`,
-    uploadedAt: now - (10 - n) * HOUR,
-    expiresAt: null,
+    uploaded_at: secs(now - (10 - n) * HOUR),
+    expires_at: null,
     caption,
     ...extra,
   });
@@ -79,16 +124,212 @@ function fixtures(now: number): Record<FixtureName, Fixture> {
     extension: 'wav',
     size: 24_000 + n * 8000,
     duration,
-    cdnUrl: fx(`tone-${n}.wav`),
+    cdn_url: fx(`tone-${n}.wav`),
     url: `https://files.gg/tr${n}.wav`,
     media: { duration, tags: { title, artist: 'The Placeholders', album: 'Test Tones', track: n } },
     thumbnail: { url: fx(cover), type: 'cover', width: 400, height: 400 },
-    uploadedAt: now - DAY,
-    expiresAt: null,
+    uploaded_at: secs(now - DAY),
+    expires_at: null,
     caption: '',
   });
 
+  const textFixture = (filename: string, mimetype: string, text: string, language?: string) => ({
+    page: 'file',
+    state: 'file',
+    file: {
+      kind: 'text',
+      filename,
+      mimetype,
+      extension: filename.split('.').pop() ?? '',
+      size: new Blob([text]).size,
+      cdn_url: textUrl(text),
+      url: `https://files.gg/${filename.replace(/\W/g, '').slice(0, 8)}`,
+      media: language ? { language } : {},
+      uploaded_at: secs(now - 4 * HOUR),
+      expires_at: null,
+    } satisfies FileData,
+  });
+
   return {
+    // ---- Milestone 3 (contract §7) ----
+    video: {
+      page: 'file',
+      state: 'file',
+      file: {
+        kind: 'video',
+        filename: media.clip ? 'canvas-clip.webm' : 'canvas-clip (audio only).wav',
+        mimetype: media.clip ? 'video/webm' : 'audio/wav',
+        extension: media.clip ? 'webm' : 'wav',
+        size: 210_000,
+        width: 640,
+        height: 360,
+        duration: 3000,
+        cdn_url: media.clip ?? fx('tone-1.wav'),
+        url: 'https://files.gg/clip123.webm',
+        media: { width: 640, height: 360, duration: 3000, playable: true, codecs: ['vp9'], container: 'webm' },
+        thumbnail: { ...asset('video-poster.png', 640, 360), type: 'poster' },
+        assets: { poster: asset('video-poster.png', 640, 360) },
+        uploaded_at: secs(now - 2 * HOUR),
+        expires_at: null,
+      },
+    },
+    'video-unplayable': {
+      page: 'file',
+      state: 'file',
+      file: {
+        kind: 'video',
+        filename: 'drone.mkv',
+        mimetype: 'video/x-matroska',
+        extension: 'mkv',
+        size: 18_400_000,
+        width: 640,
+        height: 360,
+        duration: 12_000,
+        cdn_url: fx('missing-video.mkv'),
+        url: 'https://files.gg/vid1.mkv',
+        media: { width: 640, height: 360, duration: 12_000, playable: false, codecs: ['hevc', 'aac'], container: 'matroska' },
+        thumbnail: { ...asset('video-poster.png', 640, 360), type: 'poster' },
+        uploaded_at: secs(now - 9 * HOUR),
+        expires_at: null,
+      },
+    },
+    processing: {
+      page: 'file',
+      state: 'file',
+      file: {
+        kind: 'video',
+        filename: 'just-uploaded.webm',
+        mimetype: 'video/webm',
+        extension: 'webm',
+        size: 210_000,
+        width: 640,
+        height: 360,
+        cdn_url: media.clip ?? fx('tone-1.wav'),
+        url: 'https://files.gg/new123.webm',
+        processing: true,
+        uploaded_at: secs(now - 20_000),
+        expires_at: null,
+      },
+    },
+    'audio-cover': {
+      page: 'file',
+      state: 'file',
+      file: {
+        kind: 'audio',
+        filename: '01 A Four Forty.wav',
+        mimetype: 'audio/wav',
+        extension: 'wav',
+        size: 32_000,
+        duration: 4000,
+        cdn_url: fx('tone-1.wav'),
+        url: 'https://files.gg/tr1.wav',
+        media: { duration: 4000, playable: true, tags: { title: 'A Four Forty', artist: 'The Placeholders', album: 'Test Tones', track: 1 } },
+        thumbnail: { ...asset('cover-1.png', 400, 400), type: 'cover' },
+        assets: { cover: asset('cover-1.png', 400, 400), peaks: { url: peaksUrl() } },
+        uploaded_at: secs(now - DAY),
+        expires_at: null,
+      },
+    },
+    'audio-waveform': {
+      page: 'file',
+      state: 'file',
+      file: {
+        kind: 'audio',
+        filename: 'field-recording.wav',
+        mimetype: 'audio/wav',
+        extension: 'wav',
+        size: 48_000,
+        duration: 5000,
+        cdn_url: fx('tone-3.wav'),
+        url: 'https://files.gg/rec1.wav',
+        media: { duration: 5000, playable: true, tags: { title: 'Field recording' } },
+        // No cover art: the waveform strip (a stand-in image here) and peaks.
+        thumbnail: { ...asset('photo-4.png', 1000, 350), type: 'waveform' },
+        assets: { waveform: asset('photo-4.png', 1000, 350), peaks: { url: peaksUrl() } },
+        uploaded_at: secs(now - 3 * HOUR),
+        expires_at: null,
+      },
+    },
+    'audio-unplayable': {
+      page: 'file',
+      state: 'file',
+      file: {
+        kind: 'audio',
+        filename: 'lecture.wma',
+        mimetype: 'audio/x-ms-wma',
+        extension: 'wma',
+        size: 4_200_000,
+        duration: 3_600_000,
+        cdn_url: fx('missing-audio.wma'),
+        url: 'https://files.gg/wma1.wma',
+        media: { duration: 3_600_000, playable: false, tags: { title: 'Week 3', artist: 'Intro to Rocks' } },
+        uploaded_at: secs(now - 3 * DAY),
+        expires_at: secs(now + 20 * HOUR),
+      },
+    },
+    'image-heic': {
+      page: 'file',
+      state: 'file',
+      file: {
+        kind: 'image',
+        filename: 'IMG_4031.heic',
+        mimetype: 'image/heic',
+        extension: 'heic',
+        size: 2_480_112,
+        width: 600,
+        height: 600,
+        // Browsers can't show the original; the viewer shows assets.display.
+        cdn_url: fx('missing-photo.heic'),
+        url: 'https://files.gg/heic1.heic',
+        assets: {
+          thumb: asset('photo-3.png', 320, 320),
+          'thumb-2x': asset('photo-3.png', 600, 600),
+          display: asset('photo-3.png', 600, 600),
+        },
+        thumbnail: { ...asset('photo-3.png', 320, 320), type: 'thumb' },
+        uploaded_at: secs(now - 6 * HOUR),
+        expires_at: null,
+      },
+    },
+    text: textFixture('resize_images.py', 'text/x-python', PYTHON_SAMPLE, 'python'),
+    'text-typescript': textFixture('useDebounced.ts', 'application/typescript', TYPESCRIPT_SAMPLE),
+    'text-rust': textFixture('wordcount.rs', 'text/x-rust', RUST_SAMPLE, 'rust'),
+    'text-json': textFixture('trip.json', 'application/json', JSON_SAMPLE, 'json'),
+    'text-markdown': textFixture('NOTES.md', 'text/markdown', MARKDOWN_SAMPLE, 'markdown'),
+    'text-plain': textFixture('packing-list.txt', 'text/plain', PLAIN_SAMPLE),
+    'text-huge': {
+      page: 'file',
+      state: 'file',
+      file: {
+        ...textFixture('server.log', 'text/plain', 'never fetched').file,
+        size: 3 * 1024 * 1024,
+        media: { lines: 48_211, language: 'log' },
+      },
+    },
+    // No size or line hint in the payload: only the fetched text shows it's over 20,000 lines.
+    'text-lines': textFixture('numbers.txt', 'text/plain', manyLines()),
+    'album-huge': {
+      page: 'album',
+      state: 'album',
+      album: {
+        id: '1795600000000000002',
+        vanity: 'huge5678',
+        url: 'https://files.gg/a/huge5678',
+        title: 'Raw footage',
+        description: 'Over 2 GB in total, so Download all offers the files one at a time.',
+        layout: 'grid',
+        nsfw: false,
+        expires_at: null,
+        total_size: 3 * 1024 ** 3,
+        download_url: `${CDN}/albums/download/huge5678.zip`,
+        items: [1, 2, 3].map((n, position) => ({
+          ...photo(n, 800, 500, `Take ${n}`),
+          filename: `take-${n}.png`,
+          size: 1024 ** 3,
+          position,
+        })),
+      },
+    },
     image: {
       page: 'file',
       state: 'file',
@@ -100,10 +341,10 @@ function fixtures(now: number): Record<FixtureName, Fixture> {
         size: 507_507,
         width: 1200,
         height: 630,
-        cdnUrl: `${location.origin}/og-image.png`,
+        cdn_url: `${location.origin}/og-image.png`,
         url: 'https://files.gg/abc123.png',
-        uploadedAt: now - 3 * DAY,
-        expiresAt: now + 5 * HOUR,
+        uploaded_at: secs(now - 3 * DAY),
+        expires_at: secs(now + 5 * HOUR),
       },
     },
     file: {
@@ -115,17 +356,17 @@ function fixtures(now: number): Record<FixtureName, Fixture> {
         mimetype: 'application/zip',
         extension: 'zip',
         size: 48_234_112,
-        cdnUrl: `${location.origin}/favicon.ico`,
+        cdn_url: `${location.origin}/favicon.ico`,
         url: 'https://files.gg/xyz789.zip',
-        uploadedAt: now - 2 * HOUR,
-        expiresAt: null,
+        uploaded_at: secs(now - 2 * HOUR),
+        expires_at: null,
       },
     },
     pdf: { page: 'file', state: 'file', file: pdf },
     'pdf-password': {
       page: 'file',
       state: 'file',
-      file: { ...pdf, filename: 'protected.pdf', cdnUrl: fx('sample-protected.pdf'), size: 17_462, thumbnail: undefined },
+      file: { ...pdf, filename: 'protected.pdf', cdn_url: fx('sample-protected.pdf'), size: 17_462, thumbnail: undefined },
     },
     missing: { page: 'file', file: null },
     unavailable: { page: 'file', state: 'unavailable' },
@@ -135,17 +376,24 @@ function fixtures(now: number): Record<FixtureName, Fixture> {
       page: 'album',
       state: 'album',
       album: {
+        id: '1795600000000000001',
         vanity: 'demo1234',
+        visibility: 'link',
         url: 'https://files.gg/a/demo1234',
+        collage: { url: `${CDN}/albums/collage/demo1234.webp?v=1795600000`, width: 1200, height: 630 },
+        // Real shape: `${CDN}/albums/download/demo1234.zip`. The local zip keeps Download all working in dev.
+        download_url: fx('archive.zip'),
         title: 'Weekend trip',
         description:
           'Photos, a clip and the itinerary from the weekend.\nMap and tickets: https://example.com/trip-notes (opens outside files.gg).',
         layout: 'grid',
         nsfw: false,
-        expires_at: now + 6 * DAY,
-        created_at: now - 2 * DAY,
+        expires_at: secs(now + 6 * DAY),
         items: [
-          photo(1, 800, 500, 'Arriving at the coast'),
+          photo(1, 800, 500, 'Arriving at the coast', {
+            // thumb + thumb-2x in srcset (contract §8 tiles).
+            assets: { thumb: asset('photo-1.png', 320, 200), 'thumb-2x': asset('photo-1.png', 640, 400) },
+          }),
           photo(2, 400, 600, 'The lighthouse'),
           {
             kind: 'video',
@@ -156,12 +404,12 @@ function fixtures(now: number): Record<FixtureName, Fixture> {
             width: 640,
             height: 360,
             duration: 12_000,
-            cdnUrl: fx('missing-video.mkv'),
+            cdn_url: fx('missing-video.mkv'),
             url: 'https://files.gg/vid1.mkv',
             media: { width: 640, height: 360, duration: 12_000, playable: false, codecs: ['hevc'] },
             thumbnail: { url: fx('video-poster.png'), type: 'poster', width: 640, height: 360 },
-            uploadedAt: now - 9 * HOUR,
-            expiresAt: null,
+            uploaded_at: secs(now - 9 * HOUR),
+            expires_at: null,
             caption: 'Drone clip (HEVC, so it downloads instead of playing)',
           },
           photo(3, 600, 600, ''),
@@ -169,15 +417,28 @@ function fixtures(now: number): Record<FixtureName, Fixture> {
           photo(4, 1000, 350, 'Panorama from the hill'),
           photo(5, 600, 400, 'Dinner'),
           {
+            kind: 'audio',
+            filename: 'voice-memo.m4a',
+            mimetype: 'audio/mp4',
+            extension: 'm4a',
+            size: 96_000,
+            cdn_url: fx('tone-2.wav'),
+            url: 'https://files.gg/memo1.m4a',
+            processing: true,
+            uploaded_at: secs(now - 1000),
+            expires_at: null,
+            caption: 'Still processing: a type icon until the cover or waveform is ready',
+          },
+          {
             kind: 'file',
             filename: 'tickets.zip',
             mimetype: 'application/zip',
             extension: 'zip',
             size: 144,
-            cdnUrl: fx('archive.zip'),
+            cdn_url: fx('archive.zip'),
             url: 'https://files.gg/zip1.zip',
-            uploadedAt: now - 8 * HOUR,
-            expiresAt: null,
+            uploaded_at: secs(now - 8 * HOUR),
+            expires_at: null,
             caption: 'Tickets',
           },
         ].map((item, position) => ({ ...item, position })),
@@ -245,8 +506,9 @@ export function fixtureForPath(pathname: string): FixtureName | null {
 }
 
 /** Injects a fixture into the document the way the worker would. */
-export function applyFixture(name: FixtureName, doc: Document = document, now = Date.now()): void {
-  const fixture = fixtures(now)[name];
+export async function applyFixture(name: FixtureName, doc: Document = document, now = Date.now()): Promise<void> {
+  const needsClip = name === 'video' || name === 'processing';
+  const fixture = fixtures(now, { clip: needsClip ? await recordClip() : null })[name];
   const root = doc.getElementById('root');
   if (!root) return;
   if (fixture.page) root.dataset.page = fixture.page;

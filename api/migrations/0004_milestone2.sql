@@ -1,5 +1,5 @@
--- Milestone 2 (docs/redesign/contracts/milestone-2.md, PLAN.md Phase 1): B2 storage,
--- chunked uploads, expiry, limits and access control.
+-- Milestone 2 (docs/redesign/contracts/milestone-2.md, PLAN.md Phase 1): chunked uploads
+-- to B2, expiry, limits and access control.
 -- Safe on production data: every ALTER is metadata-only (nullable columns or
 -- constant defaults; CHECKs are added NOT VALID and validated without blocking
 -- writes, in 0005) and each backfill is one statement. The new files indexes are built
@@ -30,11 +30,6 @@ ALTER TABLE files ADD CONSTRAINT files_unlock_ttl_check CHECK (unlock_ttl > 0) N
 
 -- the denormalised size (what the user sees, even for de-duplicated blobs)
 UPDATE files f SET size = h.size FROM file_hashes h WHERE h.id = f.hash_id AND f.size IS NULL;
-
--- Where a blob lives. Existing rows read the first default ('gcs': uploaded before
--- B2); the second default makes every new row 'b2'. Both are metadata-only.
-ALTER TABLE file_hashes ADD COLUMN storage_backend TEXT NOT NULL DEFAULT 'gcs';
-ALTER TABLE file_hashes ALTER COLUMN storage_backend SET DEFAULT 'b2';
 
 -- users ------------------------------------------------------------------------------
 

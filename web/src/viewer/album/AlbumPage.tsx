@@ -33,7 +33,7 @@ export default function AlbumPage({ album }: { album: AlbumData }) {
       {layout === 'grid' && <AlbumGrid items={album.items} onOpen={open} />}
       {layout === 'list' && <AlbumList items={album.items} onOpen={open} />}
       {layout === 'tracklist' && <AlbumTracklist album={album} title={title} />}
-      {album.nextCursor && (
+      {album.next_cursor && (
         <p className="text-center text-sm text-muted">
           Showing the first {album.items.length} of {album.count} files.
         </p>

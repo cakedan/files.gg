@@ -7,10 +7,9 @@ import {
   createStableRouter,
 } from './domains/index.js';
 
-import { applyCdnSecurityHeaders, requestStorage } from './domains/cdn.js';
-import { serveRootFile } from './domains/stable.js';
+import { applyCdnSecurityHeaders } from './domains/cdn.js';
 import { getStringBinding } from './utils/env.js';
-import { DEFAULT_HOSTS, getHosts, isMainHost, originFor } from './utils/hosts.js';
+import { DEFAULT_HOSTS, getHosts, originFor } from './utils/hosts.js';
 import { CDN_EXPOSE_HEADERS, corsHeaders, isCredentialedRoute, parseAllowedOrigins } from './utils/security.js';
 
 
@@ -70,14 +69,6 @@ function createRouter(hosts) {
     }
     return response;
   };
-
-  // files.gg serves its favicon from web/dist; the other hosts keep the old one from storage.
-  router.route('/favicon.ico', '*', (event) => {
-    if (isMainHost(event.url.hostname, hosts)) {
-      return serveRootFile(event);
-    }
-    return requestStorage(event, '/assets/stable/favicon.ico');
-  }, {priority: 100});
 
   router.addRouter(createApiRouter(hosts));
   router.addRouter(createCdnRouter(hosts));

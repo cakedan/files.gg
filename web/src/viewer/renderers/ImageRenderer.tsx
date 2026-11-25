@@ -1,5 +1,6 @@
 import { useCallback, useState, type CSSProperties } from 'react';
 
+import { imageSrc } from './assets';
 import { GenericRenderer } from './GenericRenderer';
 import { Lightbox } from './Lightbox';
 import type { RendererProps } from './types';
@@ -10,7 +11,8 @@ import type { RendererProps } from './types';
  * - card: click opens the full-screen lightbox, Esc closes it;
  * - list (albums): click opens the album carousel via `onOpen`;
  * - lightbox (album carousel): click toggles between fit and actual size.
- * Animated-image decoding and derived previews come in a later milestone.
+ * Types browsers can't show (HEIC, TIFF, PSD, …) display `assets.display` (contract §4).
+ * Animated-image decoding comes in a later milestone.
  */
 export function ImageRenderer({ file, context = 'card', onOpen }: RendererProps) {
   const [open, setOpen] = useState(false);
@@ -22,6 +24,7 @@ export function ImageRenderer({ file, context = 'card', onOpen }: RendererProps)
     return <GenericRenderer file={file} />;
   }
 
+  const src = imageSrc(file);
   const sized = Boolean(file.width && file.height);
   const style = sized ? ({ '--media-w': file.width, '--media-h': file.height } as CSSProperties) : undefined;
 
@@ -32,7 +35,7 @@ export function ImageRenderer({ file, context = 'card', onOpen }: RendererProps)
         data-no-swipe={zoomed ? '' : undefined}
       >
         <img
-          src={file.cdnUrl}
+          src={src}
           alt={file.filename}
           width={file.width}
           height={file.height}
@@ -56,7 +59,7 @@ export function ImageRenderer({ file, context = 'card', onOpen }: RendererProps)
         aria-label={`Open ${file.filename} full screen`}
       >
         <img
-          src={file.cdnUrl}
+          src={src}
           alt={file.filename}
           width={file.width}
           height={file.height}
@@ -68,7 +71,7 @@ export function ImageRenderer({ file, context = 'card', onOpen }: RendererProps)
           className={sized ? 'viewer-media-sized checkerboard block h-auto' : 'viewer-media-free checkerboard block h-auto w-auto'}
         />
       </button>
-      {open && <Lightbox src={file.cdnUrl} alt={file.filename} onClose={close} />}
+      {open && <Lightbox src={src} alt={file.filename} onClose={close} />}
     </>
   );
 }

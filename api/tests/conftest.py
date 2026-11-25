@@ -24,6 +24,8 @@ ADMIN_URL = os.environ.get(
 APP_DATABASE = 'filesgg_test_app'
 API_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SECRET_KEY = 'test-secret-key'
+# the contract's test-vector secret (milestone-3 §3)
+CDN_SIGNING_SECRET = 'test-cdn-signing-secret'
 
 
 def database_url(name):
@@ -60,7 +62,6 @@ for _name, _value in {
     'S3_BUCKET_FILES': 'filesgg-test',
     'S3_ACCESS_KEY_ID': 'filesgg-test',
     'S3_SECRET_ACCESS_KEY': 'filesgg-test-secret',
-    'CDN_TOKEN_SECRET': 'test-cdn-token-secret',
 }.items():
     os.environ.setdefault(_name, _value)
 # Not one of Cloudflare's testing secrets (those skip the action and hostname
@@ -75,9 +76,10 @@ os.environ.update({
     'ORIGIN_SHARED_SECRET': 'test-origin-secret',
     'VIEW_HASH_SECRET': os.environ.get('VIEW_HASH_SECRET', 'test-view-hash-secret'),
     'PROXIES_COUNT': '1',
+    'CDN_SIGNING_SECRET': CDN_SIGNING_SECRET,
 })
 os.environ.pop('DEBUG', None)
-# the public URLs keep their production defaults (the golden responses depend on them)
+# the public URLs keep their production defaults
 for _name in ('PUBLIC_URL', 'CDN_URL', 'TURNSTILE_HOSTNAMES', 'FILESGG_DEV_TOOLS'):
     os.environ.pop(_name, None)
 
@@ -359,3 +361,43 @@ class ServerProcess:
 def hash_of(temp, file):
     """The blob id behind a file object (public responses no longer carry it)."""
     return str(temp.fetchone('SELECT hash_id FROM files WHERE id = %s', (int(file['id']),))[0])
+
+
+# --- signed CDN URLs (contract milestone-3 §3) ------------------------------------------------------
+
+def url_query(url):
+    from urllib.parse import parse_qs, urlsplit
+    return {k: v[0] for k, v in parse_qs(urlsplit(url).query).items()}
+
+
+def assert_signed(url, grant, album=None, expires=None):
+    """`url` carries a valid signature for `grant` ("file:<id>:<v>" or "album:<id>:<v>"),
+    as the Worker checks it, with `album=` exactly when given. Returns its expiry."""
+    import time as time_module
+    from urllib.parse import urlsplit
+    from utils.cdn_signing import signature
+    query = url_query(url)
+    assert 'expires' in query and 'sig' in query, url
+    assert query.get('album') == album, url
+    assert 't' not in query, url
+    expiry = int(query['expires'])
+    assert time_module.time() < expiry <= time_module.time() + 31 * 86400, url
+    if expires is not None:
+        assert expiry == expires, url
+    assert query['sig'] == signature(urlsplit(url).path, expiry, grant, CDN_SIGNING_SECRET), url
+    return expiry
+
+
+def assert_unsigned(url):
+    query = url_query(url)
+    assert not {'expires', 'sig', 'album', 't'} & set(query), url
+
+
+def payload_urls(payload):
+    """Every CDN URL in a file payload: cdn_url, assets, thumbnail and hover_url."""
+    urls = [payload['cdn_url']] + [entry['url'] for entry in payload.get('assets', {}).values()]
+    if payload.get('thumbnail'):
+        urls.append(payload['thumbnail']['url'])
+    if payload.get('hover_url'):
+        urls.append(payload['hover_url'])
+    return urls

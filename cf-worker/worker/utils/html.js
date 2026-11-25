@@ -1,5 +1,5 @@
-// Minimal HTML rendering with the same escaping Mithril's server renderer used, so the
-// files.gg pages are byte-for-byte what they were (see test/fixtures/stable-pages.mithril.json).
+// Minimal HTML rendering for the viewer shell's meta tags (utils/viewer.js): text and attribute
+// escaping, and void tags.
 
 const VOID_TAGS = new Set(['link', 'meta']);
 
@@ -16,7 +16,7 @@ export function escapeAttribute(value) {
   return escapeText(value).replace(/"/g, '&quot;');
 }
 
-// Attributes whose value is null or undefined are left out, like Mithril did.
+// Attributes whose value is null or undefined are left out.
 export function renderAttributes(attributes) {
   let result = '';
   for (const [name, value] of Object.entries(attributes || {})) {

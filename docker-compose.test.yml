@@ -5,6 +5,8 @@
 #
 #   docker compose -f docker-compose.test.yml up --build --attach tests --exit-code-from tests
 #
+# Add `-p <name>` to run it next to another stack (e.g. the local e2e stack) without touching it.
+#
 # The command's exit code is pytest's. To pass pytest arguments, e.g. one file:
 #
 #   docker compose -f docker-compose.test.yml run --rm --build tests python -m pytest tests/test_jobs.py -v
@@ -54,7 +56,7 @@ services:
       S3_BUCKET_FILES: filesgg-test
       S3_ACCESS_KEY_ID: filesgg-test
       S3_SECRET_ACCESS_KEY: filesgg-test-secret
-      # the contract's test-vector secret
-      CDN_TOKEN_SECRET: test-cdn-token-secret
+      # the contract's test-vector secret (milestone-3 §3)
+      CDN_SIGNING_SECRET: test-cdn-signing-secret
       # Cloudflare's documented testing secret that always passes (used only by the opt-in live test)
       TURNSTILE_SECRET: 1x0000000000000000000000000000000AA

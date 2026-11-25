@@ -1,0 +1,27 @@
+/* Utilities for the lazy video/audio chunk only, generated against the shared theme. */
+@reference '../../styles/tokens.css';
+@import 'tailwindcss/utilities.css' layer(utilities) source(none);
+@source './';
+
+/* The invisible range inputs still show where keyboard focus is. */
+.player-seek:has(.player-range:focus-visible),
+.player-volume:has(.player-range:focus-visible) {
+  outline: 2px solid var(--gg);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+/* Fullscreen fills the screen; the video letterboxes inside it. */
+.player-video:fullscreen {
+  width: 100vw;
+  height: 100vh;
+}
+
+.player-video:fullscreen video {
+  width: 100%;
+  height: 100%;
+  max-width: none;
+  max-height: none;
+  aspect-ratio: auto;
+  object-fit: contain;
+}

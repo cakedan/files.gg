@@ -1,0 +1,64 @@
+/* Utilities for the lazy text chunk only, generated against the shared theme. */
+@reference '../../styles/tokens.css';
+@import 'tailwindcss/utilities.css' layer(utilities) source(none);
+@source './';
+
+.text-lines {
+  display: inline-block;
+  min-width: 100%;
+  padding-block: 0.5rem;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--text);
+  tab-size: 4;
+}
+
+.text-line {
+  display: flex;
+  min-height: 1.6em;
+}
+
+.text-line[data-selected] {
+  background-color: color-mix(in srgb, var(--gg) 12%, transparent);
+}
+
+/* The gutter stays put while the code scrolls sideways, and is never copied. */
+.text-ln {
+  position: sticky;
+  left: 0;
+  flex: none;
+  width: calc(var(--gutter) + 1rem);
+  padding-inline: 0.5rem 0.75rem;
+  text-align: right;
+  color: color-mix(in srgb, var(--muted) 70%, transparent);
+  background-color: var(--well);
+  user-select: none;
+  -webkit-user-select: none;
+  cursor: pointer;
+  text-decoration: none;
+}
+
+.text-ln:hover {
+  color: var(--text);
+}
+
+.text-line[data-selected] .text-ln {
+  color: var(--gg);
+  background-color: color-mix(in srgb, var(--gg) 12%, var(--well));
+}
+
+.text-code {
+  flex: 1 1 auto;
+  padding-right: 1rem;
+  white-space: pre;
+}
+
+.text-wrap-on .text-lines {
+  display: block;
+}
+
+.text-wrap-on .text-code {
+  min-width: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}

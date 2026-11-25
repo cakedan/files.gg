@@ -1,12 +1,12 @@
 // files.gg on the real Worker (workerd): web/dist static assets and routing order, the viewer
-// shell in every state (web/README.md "Worker contract", contract §4), bot routing and the legacy
-// pages. The API, GCS and B2 are local mocks; web/dist is test/fixtures/web-dist (or $WEB_DIST).
+// shell in every state (web/README.md "Worker contract", contract §4) and bot routing. The API and
+// B2 are local mocks; web/dist is test/fixtures/web-dist (or $WEB_DIST).
 import { after, before, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 
-import { cases, headersFor, mithril, withOgProperty } from '../support/fixtures.js';
+import { cases, headersFor } from '../support/fixtures.js';
 import { ALBUMS, FILES, WEB_DIST, startS3, startUpstream, startWorker } from '../support/worker.js';
 
 
@@ -99,11 +99,12 @@ describe('static files from web/dist (routed before any vanity lookup)', () => {
     assert.equal(svg.headers['cache-control'], 'public, max-age=31536000, immutable');
   });
 
-  it('falls back to the old frontend\'s assets in GCS', async () => {
-    const response = await page('/assets/old-app.js');
-    assert.equal(response.status, 200);
-    assert.equal(response.text, 'old()');
-    assert.equal(upstream.requests.at(-1).path, '/assets/stable/old-app.js');
+  it('an asset missing from web/dist is a 404: there is no other bucket to fall back to', async () => {
+    const before = upstream.requests.length;
+    for (const path of ['/assets/old-app.js', '/assets/stable/manifest.json']) {
+      assert.equal((await page(path)).status, 404, path);
+    }
+    assert.equal(upstream.requests.length, before);
   });
 
   it('serves app.html for /app and /app/*', async () => {
@@ -283,6 +284,101 @@ describe('albums', () => {
     assert.ok(lookups('albums', 'alb1') >= 1);
     assert.ok(ALBUMS.alb1);
   });
+
+  it('milestone 3: a link album hides its password items, and embeds the collage', async () => {
+    const response = await page('/a/albmedia');
+    assert.equal(response.status, 200);
+    const shell = parseShell(response.text);
+    assert.deepEqual([shell.page, shell.state, shell.dataId], ['album', 'album', 'album-data']);
+    assert.deepEqual(shell.data.items.map((item) => item.vanity), ['mvid', 'mheic']);
+    assert.equal(shell.data.id, ALBUMS.albmedia.album.id);
+    assert.equal(shell.data.download_url, 'https://cdn.files.gg/albums/download/albmedia.zip');
+    assert.match(shell.meta, /<meta property="og:title" content="Media · 2 files">/);
+    assert.ok(shell.meta.includes(`<meta property="og:image" content="${ALBUMS.albmedia.album.collage.url}"><meta property="og:image:width" content="1200"><meta property="og:image:height" content="630">`));
+    assert.doesNotMatch(response.text, /hidden\.mp4/);
+    // Storage keys and the access blocks never reach the page.
+    assert.doesNotMatch(response.text, /items_storage|derived\/|files\/h-/);
+  });
+
+  it('milestone 3: an audio album embeds its cover, titled from the album tag', async () => {
+    const shell = parseShell((await page('/a/albaudio')).text);
+    assert.equal(shell.state, 'album');
+    assert.match(shell.meta, /<meta property="og:title" content="Greatest Hits · 2 files">/);
+    assert.ok(shell.meta.includes(`<meta property="og:image" content="${FILES.maudio.file.assets.cover.url}">`));
+    assert.doesNotMatch(shell.meta, /collage\.webp/);
+  });
+
+  it('milestone 3: a password album is locked with no image; a private album is missing', async () => {
+    const locked = await page('/a/albprot');
+    assert.equal(locked.status, 200);
+    const shell = parseShell(locked.text);
+    assert.deepEqual([shell.state, shell.data], ['locked', { vanity: 'albprot', protected: 'password' }]);
+    assert.doesNotMatch(locked.text, /og:image|collage|Protected|hidden\.mp4|private\.png/);
+    const hidden = await page('/a/albprivate');
+    assert.equal(hidden.status, 404);
+    assert.deepEqual([parseShell(hidden.text).state, parseShell(hidden.text).dataId], ['missing', undefined]);
+    assert.doesNotMatch(hidden.text, /Mine|notes\.txt/);
+  });
+
+  it('caches album lookups for 30 s, negative ones too', async () => {
+    await page('/a/albnocollage');
+    await page('/a/albnocollage/1');
+    assert.equal(lookups('albums', 'albnocollage'), 1);
+    await page('/a/never-an-album');
+    await page('/a/never-an-album');
+    assert.equal(lookups('albums', 'never-an-album'), 1);
+  });
+});
+
+
+describe('og tags (milestone 3 embeds)', () => {
+  const meta = async (path, headers) => parseShell((await page(path, headers ? { headers } : {})).text).meta;
+  const asset = (vanity, key) => FILES[vanity].file.assets[key].url;
+
+  it('video: og:image is the poster with its dimensions, plus og:video with its own', async () => {
+    const tags = await meta('/mvid');
+    assert.ok(tags.includes(`<meta property="og:image" content="${asset('mvid', 'poster')}"><meta property="og:image:width" content="1280"><meta property="og:image:height" content="720">`));
+    assert.ok(tags.includes('<meta property="og:video" content="https://cdn.files.gg/files/mvid.mp4"><meta property="og:video:type" content="video/mp4"><meta property="og:video:width" content="1920"><meta property="og:video:height" content="1080">'));
+  });
+
+  it('audio: the cover, else the waveform', async () => {
+    assert.ok((await meta('/maudio')).includes(`<meta property="og:image" content="${asset('maudio', 'cover')}"><meta property="og:image:width" content="1200">`));
+    assert.ok((await meta('/mwave')).includes(`<meta property="og:image" content="${asset('mwave', 'waveform')}"><meta property="og:image:width" content="1600"><meta property="og:image:height" content="240">`));
+  });
+
+  it('a non-browser image: the display preview, never the original', async () => {
+    const tags = await meta('/mheic');
+    assert.ok(tags.includes(`<meta property="og:image" content="${asset('mheic', 'display')}"><meta property="og:image:type" content="image/webp">`));
+    assert.equal(asset('mheic', 'display'), 'https://cdn.files.gg/previews/display/mheic.webp?v=1795600000');
+    assert.doesNotMatch(tags, /files\/mheic|image\/heic/);
+  });
+
+  it('a PDF: its first-page thumb', async () => {
+    assert.ok((await meta('/mpdf')).includes(`<meta property="og:image" content="${asset('mpdf', 'thumb-2x')}"><meta property="og:image:width" content="495"><meta property="og:image:height" content="640">`));
+  });
+
+  it('protected files keep the generic locked tags, with no image', async () => {
+    const response = await page('/mpw');
+    const tags = parseShell(response.text).meta;
+    assert.match(tags, /Password-protected file · files.gg/);
+    assert.doesNotMatch(response.text, /og:image|og:video|previews\/|hidden\.mp4/);
+  });
+
+  it('nsfw: true gets no image or video', async () => {
+    const tags = await meta('/mnsfw');
+    assert.doesNotMatch(tags, /og:image|og:video|twitter:image|twitter:player|poster/);
+    assert.match(tags, /Sensitive content/);
+  });
+
+  it('bot redirects go to cdn_url for link files, never for protected ones', async () => {
+    const sharex = { 'user-agent': 'ShareX/15.0' };
+    const linked = await page('/mvid', { headers: sharex });
+    assert.equal(linked.status, 302);
+    assert.equal(linked.headers.location, 'https://cdn.files.gg/files/mvid.mp4');
+    const locked = await page('/mpw', { headers: sharex });
+    assert.equal(locked.status, 200);
+    assert.equal(locked.headers.location, undefined);
+  });
 });
 
 
@@ -319,22 +415,18 @@ describe('bots and embeds (PLAN.md §1.4 item 3, contract §4)', () => {
     assert.match(parseShell(response.text).meta, /<meta property="og:video" content="https:\/\/cdn.files.gg\/files\/vid1.mp4">/);
   });
 
-  // The old worker's page fixtures: every redirect still happens with the same Location, and every
-  // page that rendered before still renders (now as the viewer shell).
+  // Every bot, embed and browser request of the page fixtures: redirects go to the file's cdn_url.
   for (const request of cases.requests) {
-    const expected = mithril[request.name];
-    const isFile = request.path !== '/' && !/^\/(auth|dashboard|details|legal|options)(\/|$)/.test(request.path);
-    if (!isFile) {
+    if (request.expect === 'home') {
       continue;
     }
-    const missing = request.path.startsWith('/nope');
-    it(`${request.name}: ${expected.status === 302 ? 'redirect' : (missing ? 'missing' : 'page')}`, async () => {
+    it(`${request.name}: ${request.expect}`, async () => {
       const response = await page(request.path, { method: request.method || 'GET', headers: headersFor(request) });
-      if (expected.status === 302) {
+      if (request.expect === 'redirect') {
         assert.equal(response.status, 302);
-        assert.equal(response.headers.location, expected.location);
-      } else if (missing) {
-        // Deliberate: the old worker answered 200 with "404, file not found" in the meta tags.
+        assert.equal(response.headers.location, request.location);
+        assert.equal(request.location, FILES[request.path.slice(1).split('.')[0]].file.cdn_url);
+      } else if (request.expect === 'missing') {
         assert.equal(response.status, 404);
       } else {
         assert.equal(response.status, 200);
@@ -345,29 +437,16 @@ describe('bots and embeds (PLAN.md §1.4 item 3, contract §4)', () => {
 });
 
 
-describe('legacy pages (the old frontend) match the old Mithril worker', () => {
-  for (const request of cases.requests) {
-    if (!/^\/(auth|dashboard|details|legal|options)(\/|$)/.test(request.path)) {
-      continue;
+describe('the old frontend is gone (milestone-3.md §0)', () => {
+  it('/auth, /dashboard, /details, /legal and /options are plain vanity lookups now', async () => {
+    for (const path of ['/auth/login', '/auth/verify/tok', '/dashboard', '/dashboard/files', '/details/123', '/legal/terms', '/options']) {
+      const response = await page(path);
+      assert.equal(response.status, 404, path);
+      assertShellHeaders(response);
+      const shell = parseShell(response.text);
+      assert.deepEqual([shell.page, shell.state], ['file', 'missing'], path);
+      assert.doesNotMatch(response.text, /script unavailable|assets\/stable/);
+      assert.equal(lookups('files', path.slice(1).split('.')[0]), 1, path);
     }
-    it(`${request.name}: ${request.path}`, async () => {
-      const response = await page(request.path, { headers: headersFor(request) });
-      const expected = mithril[request.name];
-      assert.equal(response.status, expected.status);
-      assert.equal(response.headers['content-type'], expected.contentType);
-      let body = withOgProperty(expected.body);
-      if (request.path === '/auth' || request.path === '/legal') {
-        body = body.replace('content="404, file not found"', 'content="??"');
-      }
-      assert.equal(response.text, body);
-      assert.equal(lookups('files', request.path.slice(1).split('/')[0]), 0);
-    });
-  }
-
-  it('without the old manifest, the old "script unavailable" body', async () => {
-    upstream.noManifest = true;
-    const response = await page('/auth/login');
-    upstream.noManifest = false;
-    assert.match(response.text, /<span>script unavailable srry bro<\/span>/);
   });
 });

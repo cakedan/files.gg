@@ -2,6 +2,7 @@ import type { RouteObject } from 'react-router';
 
 import { DashboardLayout } from './DashboardLayout';
 import {
+  AlbumEditorPage,
   AlbumsPage,
   ConvertPage,
   FilesPage,
@@ -27,6 +28,7 @@ export const routes: RouteObject[] = [
       { path: 'upload', element: <UploadPage /> },
       { path: 'convert', element: <ConvertPage /> },
       { path: 'albums', element: <AlbumsPage /> },
+      { path: 'albums/:id', element: <AlbumEditorPage /> },
       { path: 'integrations', element: <IntegrationsPage /> },
       { path: 'settings', element: <SettingsPage /> },
       { path: 'reports', element: <ReportsPage /> },

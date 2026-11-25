@@ -16,7 +16,7 @@ from sanic.request.parameters import RequestParameters
 from db import queries
 from utils import limits as limits_module
 from utils import passwords, view_hash
-from utils.errors import InvalidMimetype
+from utils import errors
 from utils.generators import EPOCH
 from utils.responses import ApiError
 from utils.vanity import generate_vanity
@@ -93,7 +93,7 @@ class Hasher:
 
 async def resolve_name(conn, filename, fextension, mimetype):
     """(name, extension, mimetype) as `POST /files` always resolved them.
-    Raises InvalidMimetype (140001) for types files.gg doesn't accept."""
+    Raises INVALID_MIMETYPE for types files.gg doesn't accept."""
     if filename is None:
         fname = [generate_vanity()]
     else:
@@ -108,10 +108,10 @@ async def resolve_name(conn, filename, fextension, mimetype):
     mime = await queries.get_mimetype(conn, mimetype)
     if mime is None:
         if fextension is None:
-            raise InvalidMimetype()
+            raise errors.invalid_mimetype()
         mextension = await queries.get_extension(conn, fextension.lower())
         if mextension is None:
-            raise InvalidMimetype()
+            raise errors.invalid_mimetype()
         mimetype = mextension.mimetype_id
     else:
         if mime.id == 'application/octet-stream':
@@ -166,7 +166,7 @@ async def resolve_access(user, visibility=None, password=None, generate_password
         if generate_password:
             password = generated = passwords.generate_passphrase()
         if password is None:
-            raise ApiError(metadata={'errors': {'password': 'A password is required for password visibility'}})
+            raise errors.password_required()
         columns['password_hash'] = await passwords.hash(password)
         if password_expires_in is not None:
             columns['password_expires_at'] = utcnow() + timedelta(seconds=password_expires_in)
@@ -306,7 +306,7 @@ async def read_multipart(request, limit):
     _, options = parse_options_header(request.content_type or '')
     boundary = options.get(b'boundary')
     if not boundary:
-        raise ApiError('A file must be uploaded')
+        raise errors.file_required()
 
     fields = {}
     state = {'headers': {}, 'field': None, 'value': None, 'kind': None, 'name': None,
@@ -382,3 +382,30 @@ async def read_multipart(request, limit):
     if upload['spooled'] is not None:
         upload['spooled'].close()
     return RequestParameters(fields), upload['spooled']
+
+
+# --- albums (Milestone 3: `album=<vanity>` on uploads) ------------------------------------------------
+
+async def resolve_album(conn, user, vanity):
+    """The id of the caller's own live album `vanity`, None when no album was asked for.
+    Unknown, foreign or anonymous: INVALID_ALBUM, before anything is uploaded. A full
+    album is ALBUM_FULL."""
+    from db import albums as album_queries
+    if vanity is None or vanity == '':
+        return None
+    if user is None:
+        raise errors.invalid_album()
+    album = await album_queries.get_album_by_vanity(conn, vanity.strip())
+    if album is None or album.owner_user_id != user.id:
+        raise errors.invalid_album()
+    limit = limits_module.get_limits(user).album_max_files
+    if await album_queries.item_count(conn, album.id) >= limit:
+        raise errors.album_full(limit)
+    return album.id
+
+
+async def append_to_album(conn, album_id, file_id, limit):
+    from db import albums as album_queries
+    from jobs.media import queue_collage_async
+    await album_queries.append_file(conn, album_id, file_id, limit)
+    await queue_collage_async(conn, album_id)

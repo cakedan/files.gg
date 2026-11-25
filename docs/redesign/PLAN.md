@@ -29,14 +29,13 @@ The exact cross-service formats are in [`contracts/milestone-2.md`](contracts/mi
 | **e2e** (`e2e/`) | A one-command local stack (`e2e/up.sh`: Postgres, MinIO, API, worker, `wrangler dev`, web build) on `*.localhost`, with named volumes only, and `e2e/run.mjs`. | 9 steps and 136 checks green. Also walked through by hand in a browser: anonymous upload with a generated password, then lock screen, wrong password, unlock (token expiry = the 1 h setting), reload via the stored token, the CDN without a token (401, `private, no-store`), and a `#pw=` link auto-unlock with the fragment stripped. |
 
 **Found in the Milestone 2 checks (to do):**
-- **Mimetype tables are empty after the migrations.** A fresh database (staging, or the Postgres container after leaving Cloud SQL) refuses every upload. Needs a seed migration built from production's rows; the e2e stack uses `e2e/seed/mimetypes.sql` for now. **Blocks any fresh environment.**
+- **Mimetype tables are empty after the migrations.** A fresh database refuses every upload. Needs a curated seed in the migrations (no old data is migrated); the e2e stack uses `e2e/seed/mimetypes.sql` for now. **Blocks any fresh environment.**
 - **Access changes take up to ~30 s to reach the CDN,** because of the Worker's lookup cache (contract §2). The plan promises immediate revocation. Options: shorten the cache to ~5 s, or have the API bump a purge key the Worker checks. Decide before launch.
-- **`#pw=` / `#t=` pasted into an already-open tab of the same file** (a same-document hash change, so no reload) leaves the password visible in the address bar. The viewer should also handle `hashchange`. Small web fix.
+- ~~**`#pw=` / `#t=` pasted into an already-open tab of the same file** leaves the password visible in the address bar.~~ Fixed on `redesign/milestone-3`: the viewer also handles `hashchange` (`watchFragmentSecrets`), strips the fragment and re-mounts the page with it.
 - `test_three_workers_lease…` is flaky: a Sanic shutdown race. It was flaky before Milestone 2.
 - Discordbot gets the embed page rather than a redirect to the CDN. That matches the old Worker; only Telegram is redirected, and protected files are never redirected.
 
-**Before deploying Milestone 1:**
-- Diff production's `pg_dump --schema-only` against `api/migrations/0001_baseline.sql`.
+**Before the first deploy:**
 - Set `SECRET_KEY`, `RPC_KEY`, `DATABASE_URL`, `ORIGIN_SHARED_SECRET` and `VIEW_HASH_SECRET` (compose now refuses to start without them). Generate the last with `openssl rand -hex 32`, and set the **same value** as the worker's `ORIGIN_SHARED_SECRET` binding.
 - Set `PROXY_SECRET` on the worker, or accept that `proxy.files.gg` returns 403.
 - Never share a Snowflake lease across a fork: each Sanic worker process leases its own in `before_server_start`.
@@ -49,6 +48,45 @@ The exact cross-service formats are in [`contracts/milestone-2.md`](contracts/mi
 - ~~Evaluate peewee 4~~: Peewee is being removed.
 - ~~The worker's npm scripts call `nodejs`~~ / ~~old zone-script upload~~: replaced by wrangler. **Before the first `wrangler deploy`:** remove the old unnamed zone-level Worker and its routes in the Cloudflare dashboard, add `www.files.gg/*` to `routes` if it was routed before, and set the `PROXY_SECRET` and `ORIGIN_SHARED_SECRET` secrets with `wrangler secret put`.
 - `files.gg/favicon.ico` and other root files must be routed before vanity matching once the new viewer is served.
+
+### Milestone 3: media, albums, library (in progress on `redesign/milestone-3`)
+
+The exact formats are in [`contracts/milestone-3.md`](contracts/milestone-3.md).
+| Part | What landed | Verified |
+|---|---|---|
+| **API** | `probe` / `derive` / `album_collage` on a `media` queue, in a sandboxed child process (rlimits, timeouts, ffmpeg protocol and format whitelists, no secrets). Pillow 13 and pillow-heif in a `worker` image target; the API image has no media tools. Albums, the owner library, bulk actions, album passwords, signed CDN URLs, and one snake_case payload shape. | 230 tests (1 opt-in skip). |
+| **Worker** | Signed-URL verification, `/previews/<kind>/<vanity>`, album collage and streaming ZIP, album shells, og tags from previews. The Mithril frontend and every GCS path are removed. | 403 tests, including the signing vectors and ZIPs checked with JSZip and `unzip -t`. |
+| **Web** | Players (speed, keep pitch, shortcuts, saved volume), the peaks seek bar, the Shiki text viewer with `#L` anchors, HEIC `display` previews. Dashboard: Files, Albums editor, Overview, upload-to-album. Signed URLs used as given, swapped near expiry. | 514 tests. Viewer entry −0.6 KB gzip. |
+| **e2e** | Media made by the worker container's own ffmpeg, previews, path-bound signatures (a signature can't be reused on another path or file), album grants, the ZIP checked with `unzip`, and the library. | 13 steps and 221 checks green. Browser: video page, album pages (public and password via `#pw=`), and the dashboard with signed thumbnails. |
+
+**Found in the Milestone 3 checks (to do):**
+- **The Worker's 30 s lookup cache now shows up in four places:** revocation, expiry, a file joining a protected album, and a new collage. Each one waits up to 30 s. The decision from Milestone 2 is still open, and more pressing now: a short TTL (~5 s), or a purge the API triggers on writes.
+- **One unexplained 503** on the first successful unlock after a fresh stack start. It came through the local Worker proxy, with nothing in the API log, and 90 repeats didn't reproduce it. Watch for it in staging.
+- **Bulk change-access can't clear a password expiry** ("Never"). Changing one file at a time can.
+- **Overview's "expiring in 7 days"** scans the first 100 temporary files, because the library has no `sort_by=expires`.
+- **`app.css` duplicates a few `viewer.css` media classes**, so the two have to be kept in step.
+- **An upload that de-duplicates onto a hash at the instant `delete_blob` removes it** fails with a foreign-key error. This needs a row lock shared by finalize and `delete_blob`.
+- **`e2e/down.sh` used to fail silently** when `.env` lacked a newly required variable. Fixed: it now tears down by project name and checks that the volumes are gone.
+
+**Decided 2026-11-25:**
+1. **No backward compatibility, and a fresh start.** No data from the old databases or storage is migrated. Nothing is kept for old clients:
+   - old API response shapes, numeric error codes and the recorded golden tests;
+   - the old `/files` list and other legacy routes;
+   - the Mithril frontend;
+   - the GCS fallback (blobs are copied to B2 by the import);
+   - old ShareX configs.
+   
+   Link formats are ours to choose. With no old data to carry, the migrations can be squashed into one clean schema, dropping the dual-write trigger and the old columns.
+2. **Signed URLs instead of `?t=`:** the API signs each CDN URL for one path and an expiry, over the file's (or album's) `access_version`, so a password change still kills them. The browser's unlock token only ever talks to the API.
+3. **CDN paths:**
+   - `cdn.files.gg/files/<vanity>.<ext>`;
+   - `cdn.files.gg/previews/<kind>/<vanity>.<ext>?v=…`;
+   - `cdn.files.gg/albums/collage/<vanity>.webp?v=…`;
+   - `cdn.files.gg/albums/download/<vanity>.zip`.
+   
+   The kind comes before the vanity, so a vanity named `thumb`, or one with slashes, can't be misread. No ids in URLs.
+
+**Next:** squash the migrations into one clean schema, and seed the mimetype tables from a curated list. Account passwords move to argon2id with Milestone 6.
 
 **Version policy** (decided 2026-11-24: "latest everything"):
 - **Everything starts on the latest stable release, pinned exactly:** Docker images by digest with a date comment (as in `notsobot.api`), Python and npm packages by exact version with lockfiles.
@@ -71,7 +109,7 @@ The exact cross-service formats are in [`contracts/milestone-2.md`](contracts/mi
 3. **Milestone 4: trust & safety.** Scanning gates, NSFW, the report system and the admin queue. **Required before public launch.**
 4. **Milestone 5: conversion.** It needs the Milestone 3 pipeline and the Milestone 4 scanning.
 5. **Milestone 6: accounts.** Discord identities, unique usernames, upload keys and the dashboard Settings page. Also **premium entitlements** (staff-granted for now) and **custom domains**, which need the Milestone 2 Worker viewer shell. This can run alongside Milestones 3–5.
-6. **Milestone 7: rollout.** Migrating storage off GCS, deleting old anonymous files, backfills, and switching over.
+6. **Milestone 7: rollout.** A fresh launch on the new stack: a new database and a new B2 bucket, with nothing carried over from the old site.
 
 ## 1. Research findings
 
@@ -122,6 +160,8 @@ The exact cross-service formats are in [`contracts/milestone-2.md`](contracts/mi
 
 ### 1.4 Compatibility constraints (must not break)
 
+> **Superseded 2026-11-25:** no backward compatibility and no migrated data (§0, "Decided 2026-11-25"). Items below still apply only where they describe current behaviour (for example multi-segment vanities and reserved paths).
+
 1. **Multi-segment vanities.** ShareX uploads with `vanity: '3-5/3'`, so live URLs look like `files.gg/abcd/xyz.png`. Both routers take everything before the first `.` (`stable.js:208`, `cdn.js:21`), so `<vanity>` and `<vanity>.<anything>` must both keep resolving.
 2. **Reserved paths.** `app` and `api` aren't in `blacklisted_ids` (`files.py:106-113`), so a user could already own `files.gg/app/…`. Albums add `a` (`files.gg/a/<vanity>`).
    - Before launch: query `vanity = 'app' OR vanity LIKE 'app/%'` (and the same for `api` and `a`).
@@ -151,7 +191,7 @@ The exact cross-service formats are in [`contracts/milestone-2.md`](contracts/mi
    - `stable.js:198-202`;
    - `cdn.js:14-18`.
 
-   Uploads reject anything missing from the DB, so dump a seed before standing up any new environment, and make the API the single source of truth.
+   Uploads reject anything missing from the DB, so the new schema needs a curated mimetype seed, with the API as the single source of truth.
 
 ---
 
@@ -235,10 +275,6 @@ Decided 2026-11-24: the API will run on several servers. Everything in this plan
    - **What this means for recovery:** these are daily logical dumps, not continuous archiving, so a restore can lose **up to 24 h** of database changes. The same trade-off NotSoBot makes. Two consequences:
      - **Stored files aren't in the database backup.** Blob garbage collection must wait **at least 48 h** (`BLOB_GC_GRACE`) before deleting a blob nothing references, so a database restored from yesterday never points at blobs that were already deleted.
      - Uploads made between the last backup and a restore would leave orphaned blobs, which the reaper cleans up.
-   - **Moving off Cloud SQL** (Phase 5), using the opt-in `cloud-sql-proxy` service (`--profile cloudsql`):
-     1. `pg_dump -Fc` from Cloud SQL into `db-dumps/`, then `pg_restore` into the container during a short maintenance window. A dump from older Postgres versions restores fine into 18.
-     2. Run the migrations, check row counts, and point the API at the container.
-     3. Keep Cloud SQL read-only for a week as a fallback, then delete it.
    - **Ofelia's Docker socket:** Ofelia needs read-only access to the Docker socket to run jobs inside `backup-db`, as in NotSoBot. That socket effectively grants root on the host, so the Ofelia image stays pinned by digest.
 9. **Deploys:**
    - Run migrations as a one-off release step before new servers start; never call `create_tables` when a server boots.
@@ -430,12 +466,6 @@ Decided 2026-11-24: the API will run on several servers. Everything in this plan
     - Blobs are content-addressed and never change, so cache them at the edge for a long time, keyed by `hash_id`.
     - This stays safe after a delete: the worker resolves vanity → file through the API *first*, so a deleted or expired vanity 404s before any cached blob is reached.
   - **Egress:** Backblaze and Cloudflare have had a free-egress arrangement (the Bandwidth Alliance). **Verify the current terms** before relying on it for costs.
-  - **Moving off GCS, with no downtime:**
-    1. New uploads go to B2.
-    2. The CDN worker reads from B2 and, if the object isn't there, falls back to GCS.
-    3. Bulk-copy, in the background, only the blobs referenced by signed-in users' files (pre-launch anonymous files are deleted at launch; see Phase 5) from GCS to B2, with `rclone` on a VM near the GCS bucket. Also check whether Backblaze's free migration service covers GCS.
-    4. Verify every object: B2 reports a SHA-1 for each file, which can be checked against the stored `FileHash.sha1`.
-    5. Remove the GCS fallback, then delete the GCS bucket after a grace period (for example 30 days).
 - [ ] **Expiry** (decided 2026-11-24).
   - **Field:** `File.expires_at` (already in the migration list). `NULL` means the file never expires.
   - **On upload:** optional `expires_in` (seconds), validated against the uploader's limits (below):
@@ -1001,7 +1031,6 @@ Decided 2026-11-24: the API will run on several servers. Everything in this plan
     - ffmpeg runs with `-protocol_whitelist file,pipe` so a crafted file can't make it fetch URLs.
     - No ImageMagick.
     - A job that fails or times out marks the asset `failed`, and the file still works, just without previews.
-  - **Existing files:** the Phase 5 one-off backfill queues `probe` and `derive` for every hash referenced by a kept file (pre-launch anonymous files are deleted, so they're skipped).
 - [ ] **Trust & safety: illegal-content blocking, NSFW labelling, reports and moderation** (decided 2026-11-24 to build this).
   - Today there's no scanning or reporting at all; the only protection is forcing HTML and SVG to `text/plain`. Anonymous public file hosting attracts abuse quickly, so this ships **with** the relaunch, not after it.
   - notsobot.com has the same building blocks: content flags with `needsHumanReview` and `autoConfirmed`, a reports queue, and an NSFW flag that blurs its tiles.
@@ -1410,17 +1439,6 @@ Sidebar sections:
 
 ### Phase 5: Rollout
 
-- [ ] Run the new frontend side by side with the current one **on the same origin**: `files.gg/app` plus a cookie flag that the worker reads to choose which viewer shell to serve. Then the `token` and `fingerprint` localStorage keys carry over (see §1.4 item 6). Use `beta.files.gg` only if there is a token/fingerprint handoff.
-- [ ] Move storage from GCS to B2 using the steps under "Storage on Backblaze B2". This can happen before the frontend switch: it's invisible to users.
-- [ ] **Delete every pre-launch anonymous file at launch** (decided 2026-11-24).
-  - **Scope:** files with `user_id IS NULL`, meaning fingerprint-only uploads. Anything claimed by signing in before launch has a `user_id` and stays.
-  - **Skip them in the B2 copy.** Copy only blobs referenced by at least one signed-in user's file. Anonymous-only blobs are never migrated, so B2 starts smaller and the GCS bucket can be deleted once the migration is verified.
-  - **Run it through the normal delete pipeline:** remove the `FileView` rows, soft-delete in batches, then let the reaper garbage-collect blobs. A blob shared with a signed-in user's file is kept, because the reaper only deletes blobs nothing references.
-  - **Before running it:**
-    - Take a database backup.
-    - Export a list of the affected file ids and vanities. The deletion can't be undone once the blobs are gone.
-  - **After launch:** those links show the viewer's "This file doesn't exist or has expired" state, the same as any other expired file.
-  - **Optional:** a banner on the current site a couple of weeks ahead ("Anonymous uploads will be deleted on \<date\>. Sign in to keep them"). The existing claim-on-login flow moves those files to the account.
 - [x] Before adding a second API server, ship the Snowflake node-id fix *(Milestone 1; it still has to be deployed)* (§2.1 item 2).
 - [ ] **Safety gates before launch:**
   - Cloudflare CSAM Scanning Tool enabled;
@@ -1435,10 +1453,9 @@ Sidebar sections:
     - check the CDN's response headers with securityheaders.com;
     - confirm a page on `cdn.files.gg` can't set a `__Host-` cookie for `files.gg`;
   - Search Console set up, and `security.txt` and the `abuse@` mailbox live.
-- [ ] **Backfill scan:** run `scan` (hash matching, PDQ, NSFW) over every kept file before it is served from the new stack.
-- [ ] Load-test the streaming and chunked uploads with **two or more API servers** behind the load balancer. Spread the chunks of one session across servers on purpose, and run several `worker` replicas to confirm each scheduled task runs once. Then backfill dimensions, duration and thumbnails for existing files with a one-off job.
-- [ ] Flip `files.gg` to the new viewer and dashboard. Old dashboard routes (`/dashboard/files`) redirect to `/app/files`.
-- [ ] Remove the old Mithril frontend and the legacy `/files` list route.
+- [ ] Load-test the streaming and chunked uploads with **two or more API servers** behind the load balancer. Spread the chunks of one session across servers on purpose, and run several `worker` replicas to confirm each scheduled task runs once.
+- [ ] Launch the new stack on `files.gg`, `cdn.files.gg` and `api.files.gg`: a new database and a new B2 bucket. The old site and its data are retired, not migrated.
+- [x] Remove the old Mithril frontend and the legacy `/files` list route. *(Milestone 3)*
 
 ---
 

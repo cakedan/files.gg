@@ -4,24 +4,27 @@ import assert from 'node:assert/strict';
 import {
   LOCKED_FILE_TITLE,
   VIEWER_CSP,
+  albumMetaTags,
   classifyStablePath,
   decideAlbumShell,
   decideFileShell,
   escapeJsonForHtml,
   fileMetaTags,
   isExpired,
+  visibleAlbumItems,
 } from '../worker/utils/viewer.js';
 
 
 const NOW = Date.UTC(2026, 10, 24, 12);
+const NOW_S = NOW / 1000;
 const LS = String.fromCharCode(0x2028);
 const PS = String.fromCharCode(0x2029);
 const browser = new Headers({ 'user-agent': 'Mozilla/5.0', accept: 'text/html', 'accept-language': 'en' });
 
 const imageFile = {
   id: '1111', vanity: 'img1', kind: 'image', filename: 'cat.png', mimetype: 'image/png', extension: 'png',
-  size: 123456, width: 800, height: 600, cdnUrl: 'https://cdn.files.gg/files/img1.png', url: 'https://files.gg/img1.png',
-  uploadedAt: NOW - 1000, expiresAt: null,
+  size: 123456, width: 800, height: 600, cdn_url: 'https://cdn.files.gg/files/img1.png', url: 'https://files.gg/img1.png',
+  uploaded_at: NOW_S - 1, expires_at: null,
 };
 const found = (file, access = {}) => ({
   status: 'found',
@@ -65,10 +68,10 @@ describe('decideFileShell', () => {
   });
 
   it('expired (even while the lookup is cached): missing', () => {
-    for (const file of [{ ...imageFile, expiresAt: NOW }, { ...imageFile, expiresAt: undefined, expires_at: NOW / 1000 - 1 }]) {
+    for (const file of [{ ...imageFile, expires_at: NOW_S }, { ...imageFile, expires_at: NOW_S - 1 }]) {
       assert.equal(decideFileShell({ lookup: found(file), vanity: 'img1', headers: browser, nowMs: NOW }).state, 'missing');
     }
-    assert.equal(decideFileShell({ lookup: found({ ...imageFile, expiresAt: NOW + 1 }), vanity: 'img1', headers: browser, nowMs: NOW }).state, 'file');
+    assert.equal(decideFileShell({ lookup: found({ ...imageFile, expires_at: NOW_S + 1 }), vanity: 'img1', headers: browser, nowMs: NOW }).state, 'file');
   });
 
   it('unavailable: no payload, 503, never cached', () => {
@@ -113,8 +116,16 @@ describe('decideFileShell', () => {
       new Headers({ 'user-agent': 'Mozilla/5.0', 'accept-language': 'en', accept: 'image/*' }),
     ]) {
       const shell = decideFileShell({ lookup: found(imageFile), vanity: 'img1', headers, nowMs: NOW });
-      assert.deepEqual(shell, { redirect: imageFile.cdnUrl }, headers.get('user-agent'));
+      assert.deepEqual(shell, { redirect: imageFile.cdn_url }, headers.get('user-agent'));
     }
+  });
+
+  it('redirects to cdn_url only: an old camelCase cdnUrl is ignored', () => {
+    const headers = new Headers({ 'user-agent': 'ShareX/15.0' });
+    const old = { ...imageFile, cdn_url: undefined, cdnUrl: 'https://cdn.files.gg/files/img1.png' };
+    const shell = decideFileShell({ lookup: found(old), vanity: 'img1', headers, nowMs: NOW });
+    assert.equal(shell.redirect, undefined);
+    assert.equal(shell.state, 'file');
   });
 
   it('never redirects protected files, whoever asks', () => {
@@ -141,7 +152,7 @@ describe('meta tags', () => {
   });
 
   it('video gets og:video with its size, unplayable video does not', () => {
-    const video = { ...imageFile, kind: 'video', mimetype: 'video/mp4', filename: 'clip.mp4', cdnUrl: 'https://cdn.files.gg/files/v.mp4' };
+    const video = { ...imageFile, kind: 'video', mimetype: 'video/mp4', filename: 'clip.mp4', cdn_url: 'https://cdn.files.gg/files/v.mp4' };
     assert.match(fileMetaTags(video), /<meta property="og:video" content="https:\/\/cdn.files.gg\/files\/v.mp4"><meta property="og:video:type" content="video\/mp4"><meta property="og:video:width" content="800"><meta property="og:video:height" content="600">/);
     assert.doesNotMatch(fileMetaTags({ ...video, media: { playable: false } }), /og:video"/);
   });
@@ -156,7 +167,7 @@ describe('meta tags', () => {
 describe('decideAlbumShell', () => {
   const album = {
     id: '900', vanity: 'alb1', title: 'Trip', url: 'https://files.gg/a/alb1',
-    items: [{ ...imageFile, id: '1', position: 0, caption: '' }, { ...imageFile, id: '2', position: 1, caption: '' }],
+    items: [{ ...imageFile, id: '1', visibility: 'link', position: 0, caption: '' }, { ...imageFile, id: '2', visibility: 'link', position: 1, caption: '' }],
   };
   const lookup = (access, itemsAccess = {}, overrides = {}) => ({
     status: 'found',
@@ -196,6 +207,143 @@ describe('decideAlbumShell', () => {
     const shell = decideAlbumShell({ lookup: lookup({}, {}, { nsfw: true, cover: { url: 'https://cdn.files.gg/c.webp' } }), vanity: 'alb1', nowMs: NOW });
     assert.doesNotMatch(shell.meta, /og:image/);
   });
+
+  it('milestone 3 §4: a link album shows only link items (password ones too are hidden)', () => {
+    const shell = decideAlbumShell({ lookup: lookup({}, { 1: { visibility: 'password', access_version: 0 } }), vanity: 'alb1', nowMs: NOW });
+    assert.deepEqual(shell.data.items.map((item) => item.id), ['2']);
+    assert.match(shell.meta, /Trip · 1 file"/);
+    const byPayload = decideAlbumShell({ lookup: lookup({}, {}, { items: [{ ...album.items[0], visibility: 'private' }] }), vanity: 'alb1', nowMs: NOW });
+    assert.equal(byPayload.state, 'missing');
+  });
+
+  it('an item whose visibility is unknown fails closed in a link album', () => {
+    const items = album.items.map(({ visibility, ...item }) => item);
+    assert.equal(decideAlbumShell({ lookup: lookup({}, {}, { items }), vanity: 'alb1', nowMs: NOW }).state, 'missing');
+  });
+
+  it('expired items drop out, and items keep album order', () => {
+    const items = [
+      { ...album.items[0], id: '3', position: 2 },
+      { ...album.items[1], expires_at: NOW_S - 1 },
+      { ...album.items[0], position: 0 },
+    ];
+    const shell = decideAlbumShell({ lookup: lookup({}, {}, { items }), vanity: 'alb1', nowMs: NOW });
+    assert.deepEqual(visibleAlbumItems({ album: { items }, access: { visibility: 'link' } }, NOW).map((item) => item.id), ['1', '3']);
+    assert.equal(shell.data.items.length, 2);
+  });
+
+  it('a protected album shows every item (the locked shell never inlines them)', () => {
+    const items = [{ ...album.items[0], visibility: 'private' }, { ...album.items[1], visibility: 'password' }];
+    assert.equal(visibleAlbumItems({ album: { items }, access: { visibility: 'password' } }, NOW).length, 2);
+    const shell = decideAlbumShell({ lookup: lookup({ visibility: 'password' }, {}, { items }), vanity: 'alb1', nowMs: NOW });
+    assert.equal(shell.state, 'locked');
+    assert.equal(shell.data.items, undefined);
+    assert.doesNotMatch(shell.meta, /og:image|Trip/);
+  });
+});
+
+
+describe('albumMetaTags (milestone 3 embeds)', () => {
+  const collage = { url: 'https://cdn.files.gg/albums/collage/alb1.webp?v=5', width: 1200, height: 630 };
+  const cover = { url: 'https://cdn.files.gg/previews/cover/song1.webp?v=6', type: 'cover', width: 1200, height: 1200 };
+  const image = { ...imageFile, kind: 'image' };
+  const song = { kind: 'audio', filename: 'a.mp3', media: { tags: { album: 'Greatest Hits' } } };
+
+  it('og:title is "Title · N files" and og:image the collage, with its dimensions', () => {
+    const meta = albumMetaTags({ title: 'Trip', url: 'https://files.gg/a/x', collage, cover }, 3, [image, image]);
+    assert.match(meta, /<meta property="og:title" content="Trip · 3 files">/);
+    assert.ok(meta.includes(`<meta property="og:image" content="${collage.url}"><meta property="og:image:width" content="1200"><meta property="og:image:height" content="630">`));
+    assert.match(meta, /<meta name="twitter:card" content="summary_large_image">/);
+    assert.doesNotMatch(meta, /cover\.webp/);
+  });
+
+  it('without a collage, the cover; with neither, no image', () => {
+    assert.ok(albumMetaTags({ title: 'T', cover }, 1, [image]).includes(`content="${cover.url}"`));
+    const none = albumMetaTags({ title: 'T' }, 1, [image]);
+    assert.doesNotMatch(none, /og:image/);
+    assert.match(none, /twitter:card" content="summary"/);
+  });
+
+  it('an audio album uses its cover art, and an empty title falls back to the album tag', () => {
+    const meta = albumMetaTags({ title: '', collage, cover }, 2, [song, song]);
+    assert.ok(meta.includes(`<meta property="og:image" content="${cover.url}">`));
+    assert.doesNotMatch(meta, /collage\.webp/);
+    assert.match(meta, /og:title" content="Greatest Hits · 2 files"/);
+    assert.match(meta, /og:type" content="music.album"/);
+  });
+
+  it('NSFW (the album or any item) gets no image', () => {
+    assert.doesNotMatch(albumMetaTags({ title: 'T', nsfw: true, collage, cover }, 1, [image]), /og:image|twitter:image/);
+    assert.doesNotMatch(albumMetaTags({ title: 'T', collage }, 1, [{ ...image, nsfw: true }]), /og:image|twitter:image/);
+  });
+
+  it('escapes the title', () => {
+    assert.match(albumMetaTags({ title: '<b>"x"</b>' }, 1, [image]), /content="&lt;b&gt;&quot;x&quot;&lt;\/b&gt; · 1 file"/);
+  });
+});
+
+
+describe('fileMetaTags (milestone 3 embeds)', () => {
+  // As the API writes them (contract §3): ready to use, signed or not.
+  const v = (vanity, kind) => `https://cdn.files.gg/previews/${kind}/${vanity}.${kind === 'peaks' ? 'json' : kind === 'hover' ? 'mp4' : 'webp'}?v=1795600000`;
+  const video = {
+    ...imageFile, id: '100000000000000001', kind: 'video', filename: 'clip.mp4', mimetype: 'video/mp4', width: 1920, height: 1080,
+    cdn_url: 'https://cdn.files.gg/files/vid.mp4',
+    assets: { poster: { url: v('vid', 'poster'), width: 1280, height: 720 }, thumb: { url: v('vid', 'thumb') }, hover: { url: v('vid', 'hover') } },
+    thumbnail: { url: v('vid', 'poster'), type: 'poster', width: 1280, height: 720 },
+    hover_url: v('vid', 'hover'),
+  };
+
+  it('video: og:image is the poster with its dimensions, plus og:video with the video\'s', () => {
+    const meta = fileMetaTags(video);
+    assert.ok(meta.includes(`<meta property="og:image" content="${v('vid', 'poster')}"><meta property="og:image:width" content="1280"><meta property="og:image:height" content="720">`));
+    assert.doesNotMatch(meta, /hover/);
+    assert.ok(meta.includes('<meta property="og:video" content="https://cdn.files.gg/files/vid.mp4"><meta property="og:video:type" content="video/mp4"><meta property="og:video:width" content="1920"><meta property="og:video:height" content="1080">'));
+  });
+
+  it('video that can\'t play in browsers: the poster, no og:video', () => {
+    const meta = fileMetaTags({ ...video, media: { playable: false } });
+    assert.match(meta, /og:image" content="[^"]+\/previews\/poster\/vid\.webp/);
+    assert.doesNotMatch(meta, /og:video|twitter:player/);
+  });
+
+  it('audio: the cover, else the waveform', () => {
+    const audio = { ...imageFile, kind: 'audio', filename: 'a.mp3', mimetype: 'audio/mpeg' };
+    const withCover = fileMetaTags({ ...audio, assets: { cover: { url: v('a', 'cover'), width: 1200, height: 1200 }, waveform: { url: v('a', 'waveform') } } });
+    assert.ok(withCover.includes(`og:image" content="${v('a', 'cover')}"><meta property="og:image:width" content="1200">`));
+    assert.ok(withCover.includes('og:audio" content="https://cdn.files.gg/files/img1.png"'));
+    const wave = fileMetaTags({ ...audio, assets: { waveform: { url: v('a', 'waveform'), width: 1600, height: 240 } } });
+    assert.ok(wave.includes(`og:image" content="${v('a', 'waveform')}"><meta property="og:image:width" content="1600"><meta property="og:image:height" content="240">`));
+  });
+
+  it('a non-browser image embeds its display preview, never the original', () => {
+    const heic = { ...imageFile, kind: 'image', filename: 'p.heic', mimetype: 'image/heic', cdn_url: 'https://cdn.files.gg/files/p.heic',
+      assets: { display: { url: v('p', 'display'), width: 4032, height: 3024 } } };
+    const meta = fileMetaTags(heic);
+    assert.ok(meta.includes(`<meta property="og:image" content="${v('p', 'display')}"><meta property="og:image:type" content="image/webp"><meta property="og:image:width" content="4032">`));
+    assert.doesNotMatch(meta, /files\/p\.heic|image\/heic/);
+  });
+
+  it('a browser image still embeds itself', () => {
+    assert.match(fileMetaTags({ ...imageFile, assets: { thumb: { url: v('img1', 'thumb') } } }), /og:image" content="https:\/\/cdn.files.gg\/files\/img1.png"/);
+  });
+
+  it('a PDF embeds its first-page thumb (the larger one when there is one)', () => {
+    const pdf = { ...imageFile, kind: 'pdf', filename: 'd.pdf', mimetype: 'application/pdf',
+      assets: { thumb: { url: v('d', 'thumb'), width: 248, height: 320 }, 'thumb-2x': { url: v('d', 'thumb-2x'), width: 495, height: 640 } } };
+    assert.ok(fileMetaTags(pdf).includes(`<meta property="og:image" content="${v('d', 'thumb-2x')}"><meta property="og:image:width" content="495">`));
+    const small = fileMetaTags({ ...pdf, assets: { thumb: pdf.assets.thumb } });
+    assert.ok(small.includes(`content="${v('d', 'thumb')}"`));
+    assert.doesNotMatch(fileMetaTags({ ...pdf, assets: {} }), /previews\//);
+  });
+
+  it('nsfw: true gets no image, video or audio', () => {
+    for (const file of [{ ...video, nsfw: true }, { ...imageFile, nsfw: true }]) {
+      const meta = fileMetaTags(file);
+      assert.doesNotMatch(meta, /og:image|og:video|og:audio|twitter:image|twitter:player/);
+      assert.match(meta, /Sensitive content/);
+    }
+  });
 });
 
 
@@ -205,7 +353,9 @@ describe('classifyStablePath (web/README.md §1 order)', () => {
     '/assets/viewer-abc.js': 'asset', '/assets/pdfjs/6.5.438/wasm/openjpeg.wasm': 'asset',
     '/app': 'app', '/app/files': 'app', '/': 'home', '/convert': 'convert',
     '/a/Ab3dE6gH': 'album', '/a/Ab3dE6gH/3': 'album',
-    '/api/users/@me': 'api', '/auth/login': 'legacy', '/dashboard/files': 'legacy',
+    '/api/users/@me': 'api',
+    // The old frontend's pages are gone (milestone-3.md §0): these are vanities now.
+    '/auth/login': 'file', '/dashboard/files': 'file', '/legal': 'file', '/options': 'file', '/details/1': 'file',
     '/img1': 'file', '/img1.png': 'file', '/abcd/xyz.png': 'file', '/favicon': 'file', '/apple': 'file',
   };
   for (const [path, route] of Object.entries(cases)) {
@@ -239,11 +389,12 @@ describe('viewer CSP (web/README.md §6)', () => {
 
 
 describe('isExpired', () => {
-  it('reads expiresAt as ms and expires_at as seconds, and null as never', () => {
-    assert.equal(isExpired({ expiresAt: NOW - 1 }, NOW), true);
-    assert.equal(isExpired({ expires_at: Math.floor(NOW / 1000) - 1 }, NOW), true);
+  it('reads expires_at as epoch seconds, and null as never; camelCase is gone', () => {
+    assert.equal(isExpired({ expires_at: NOW_S - 1 }, NOW), true);
+    assert.equal(isExpired({ expires_at: NOW_S + 1 }, NOW), false);
     assert.equal(isExpired({ expires_at: new Date(NOW - 1).toISOString() }, NOW), true);
-    assert.equal(isExpired({ expiresAt: null }, NOW), false);
+    assert.equal(isExpired({ expires_at: null }, NOW), false);
+    assert.equal(isExpired({ expiresAt: NOW - 1 }, NOW), false);
     assert.equal(isExpired({}, NOW), false);
   });
 });

@@ -13,6 +13,12 @@ export function RendererFallback({ file }: { file: FileData }) {
       />
     );
   }
+  if (file.kind === 'text') {
+    return <div className="viewer-well h-[min(24rem,var(--media-max-height))] w-[min(75rem,var(--media-max-width))]" aria-busy="true" />;
+  }
+  if (file.kind === 'audio') {
+    return <div className="viewer-well h-64 w-[min(35rem,var(--media-max-width))]" aria-busy="true" />;
+  }
   if (file.width && file.height) {
     const style = { '--media-w': file.width, '--media-h': file.height } as CSSProperties;
     return <div className="viewer-well viewer-media-sized" style={style} aria-busy="true" />;

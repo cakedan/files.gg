@@ -55,7 +55,7 @@ def discriminator(discriminator):
 def password(password):
     password = str(password)
     if len(password) < 6:
-        raise ValueError('Must be at 6 characters or longer in length')
+        raise ValueError('Must be 6 characters or longer')
     return password
 
 
@@ -73,11 +73,11 @@ def token_email(serializer, max_age=259200):
             # max_age = 3 days
             payload = serializer.deconstruct(token, max_age=max_age)
         except Exception as error:
-            raise ValueError('Invalid Token')
+            raise ValueError('Invalid or expired link')
         if not isinstance(payload, dict):
-            raise ValueError('Invalid Token')
+            raise ValueError('Invalid or expired link')
         if 'user_id' not in payload or 'email' not in payload:
-            raise ValueError('Invalid Token')
+            raise ValueError('Invalid or expired link')
         return payload
     return parameter
 
@@ -89,7 +89,7 @@ def token_authorization(token):
     elif len(parts) == 2:
         auth_type = parts.pop(0).lower()
     else:
-        raise ValueError('Invalid Token')
+        raise ValueError('Invalid token')
 
     token = parts.pop(0)
     try:
@@ -98,6 +98,6 @@ def token_authorization(token):
         elif auth_type == 'bot':
             user_id = UserToken.deconstruct(token)
     except:
-        raise ValueError('Invalid Token')
+        raise ValueError('Invalid token')
 
     return auth_type, user_id, token

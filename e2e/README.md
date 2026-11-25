@@ -29,10 +29,10 @@ e2e/down.sh        # stop everything and delete its data (volumes, secrets, web 
 
 `*.localhost` resolves to `127.0.0.1` and `::1` in Chromium, Firefox and curl, and on macOS for Node too. `run.mjs` checks this first.
 
-**Signing in:** the old login page (`/auth/login`) is part of the legacy frontend, which isn't available locally. `up.sh` creates the user `e2e` (email `e2e@files.localhost`) with a random password and prints a line to paste in the browser console on `http://files.localhost:8787/app`:
+**Signing in:** there's no login page until Milestone 6 (accounts). `up.sh` creates the user `e2e` (email `e2e@files.localhost`) with a random password and prints a line to paste in the browser console on `http://files.localhost:8787/app`:
 
 ```js
-localStorage.token = JSON.stringify('<token>'); location.reload()
+localStorage.setItem('filesgg.token', '<token>'); location.reload()
 ```
 
 The password works with `POST /auth/login` too: `run.mjs` signs in that way. The credentials are kept in `e2e/.local/.env` (`E2E_USER_PASSWORD`) and `e2e/.local/e2e-user.json`.
@@ -70,7 +70,6 @@ docker compose -p filesgg-e2e exec -e FILESGG_DEV_TOOLS=1 api \
 
 **Local differences from production:**
 - MinIO has one key, so the Worker reads with the same key the API writes with. In production, the Worker's key is read-only.
-- The legacy pages (`/auth`, `/dashboard`, …) show "script unavailable": their bundle lives in the production GCS bucket, which the local stack never touches.
 - No email is sent: `POSTMARK_SERVER_TOKEN` is unset.
 
 ## What `run.mjs` checks

@@ -62,7 +62,7 @@ def make_user(appdb):
 
 # --- boot -------------------------------------------------------------------
 
-@pytest.mark.parametrize('missing', ['SECRET_KEY', 'RPC_KEY', 'VIEW_HASH_SECRET'])
+@pytest.mark.parametrize('missing', ['SECRET_KEY', 'RPC_KEY', 'VIEW_HASH_SECRET', 'CDN_SIGNING_SECRET'])
 def test_boot_fails_without_secrets(missing):
     for value in (None, ''):
         result = subprocess.run(
@@ -92,9 +92,8 @@ def test_app_holds_a_snowflake_lease(client):
 
 # --- health -------------------------------------------------------------------
 
-@pytest.mark.parametrize('path', ['/health', '/google/health-check'])
-def test_health(client, path):
-    response = client.get(path)
+def test_health(client):
+    response = client.get('/health')
     assert response.status_code == 200
     assert response.json() == {'status': 'ok', 'checks': {'database': 'ok'}}
 
@@ -141,19 +140,34 @@ def test_no_cors_headers_without_origin(client):
 
 # --- bug fixes ------------------------------------------------------------------
 
-def test_to_dict_with_null_extension(client, appdb):
+def test_payload_without_an_extension(client, appdb):
     fobj = make_file(appdb, extension=None)
-    data = fobj.to_dict()
-    assert data['urls'] == {
-        'main': 'https://files.gg/' + fobj.vanity,
-        'cdn': 'https://cdn.files.gg/files/' + fobj.vanity,
-    }
-    assert data['extension'] == 'unknown'  # unchanged behaviour
+    data = client.get('/files/' + fobj.vanity).json()
+    # no extension: the URLs are just the vanity, with no trailing dot
+    assert data['url'] == 'https://files.gg/' + fobj.vanity
+    assert data['cdn_url'] == 'https://cdn.files.gg/files/' + fobj.vanity
+    assert data['extension'] is None and data['filename'] == data['name'] == 'thing'
 
 
-def test_to_dict_with_extension(client, appdb):
+def test_payload_with_an_extension(client, appdb):
     fobj = make_file(appdb, extension='txt')
-    assert fobj.to_dict()['urls']['main'] == 'https://files.gg/{}.txt'.format(fobj.vanity)
+    data = client.get('/files/' + fobj.vanity).json()
+    assert data['url'] == 'https://files.gg/{}.txt'.format(fobj.vanity)
+    assert data['cdn_url'] == 'https://cdn.files.gg/files/{}.txt'.format(fobj.vanity)
+    assert data['extension'] == 'txt' and data['filename'] == 'thing.txt'
+
+
+def test_one_file_payload_shape(client, appdb):
+    """snake_case, epoch seconds, no camelCase duplicates and no old `urls` object."""
+    fobj = make_file(appdb, extension='txt')
+    data = client.get('/files/' + fobj.vanity).json()
+    assert set(data) == {
+        'id', 'vanity', 'kind', 'name', 'extension', 'filename', 'mimetype', 'size', 'url', 'cdn_url',
+        'visibility', 'uploaded_at', 'expires_at', 'views', 'media', 'width', 'height', 'duration', 'framecount',
+        'processing', 'assets', 'nsfw',
+    }
+    assert data['uploaded_at'] == Snowflake.decode(fobj.id)['timestamp'] // 1000
+    assert data['expires_at'] is None and data['kind'] == 'text' and data['views'] == 1
 
 
 ORIGIN_SECRET = 'test-origin-secret'  # conftest sets ORIGIN_SHARED_SECRET to this
@@ -327,7 +341,7 @@ def test_get_user_unknown_id_is_404(client):
     token = UserToken.generate(999999999999)
     response = client.get('/users/@me', headers={'Authorization': token})
     assert response.status_code == 404
-    assert response.json() == {'code': 0, 'message': 'Unknown User', 'status': 404}
+    assert response.json() == {'code': 'UNKNOWN_USER', 'message': 'Unknown user', 'status': 404}
 
 
 async def test_get_user_helper_raises_404(migrated_db):
@@ -335,11 +349,12 @@ async def test_get_user_helper_raises_404(migrated_db):
     async with await AsyncConnection.connect(migrated_db.url, autocommit=True) as conn:
         with pytest.raises(ApiError) as raised:
             await helpers.get_user(conn, UserToken.generate(123))
-    assert raised.value.status == 404
+    assert raised.value.status == 404 and raised.value.code == 'UNKNOWN_USER'
 
 
 def test_get_user_bad_token_is_401(client):
-    assert client.get('/users/@me', headers={'Authorization': 'garbage'}).status_code == 401
+    response = client.get('/users/@me', headers={'Authorization': 'garbage'})
+    assert (response.status_code, response.json()['code']) == (401, 'UNAUTHORIZED')
 
 
 # --- existing routes still work ------------------------------------------------------
@@ -367,7 +382,7 @@ def test_fingerprint_and_upload_flow(client, appdb):
     assert response.status_code == 200, response.text
     created = response.json()
     assert created['extension'] == 'txt' and created['name'] == 'notes'
-    assert created['urls']['main'].endswith('.txt')
+    assert created['url'].endswith('.txt') and created['cdn_url'].endswith('.txt')
     assert len(stored_blobs()) == before + 1
     assert s3_object('files/' + hash_of(appdb, created)) == payload
 
@@ -387,12 +402,9 @@ def test_fingerprint_and_upload_flow(client, appdb):
     assert response.status_code == 200, response.text
     assert response.json()['size'] == len(raw)
 
-    listing = client.get('/files', headers=headers)
+    listing = client.get('/users/@me/files', headers=headers)
     assert listing.status_code == 200
-    assert listing.json()['total'] == 3
-
-    count = client.get('/users/@me/file-count', headers=headers)
-    assert count.json() == {'count': 3}
+    assert listing.json()['total']['count'] == 3
 
 
 def test_login_and_register_claim_anonymous_files(client, appdb, monkeypatch):
@@ -441,32 +453,21 @@ def test_login_and_register_claim_anonymous_files(client, appdb, monkeypatch):
     other = FingerprintToken.generate(Snowflake.generate())
     other_file = upload(other)
     response = client.post('/auth/login', headers={'X-Fingerprint': other},
-                           data={'email': email, 'password': 'hunter22', 'captcha': LOGIN_TOKEN})
+                           data={'email': email, 'password': 'hunter22', 'turnstile_token': LOGIN_TOKEN})
     assert response.status_code == 200, response.text
     assert appdb.fetchone('SELECT user_id FROM files WHERE id = %s', (int(other_file),))[0] == fingerprint_id
 
     response = client.post('/auth/login', json={'email': email, 'password': 'wrong-password',
                                                 'turnstile_token': LOGIN_TOKEN})
-    assert response.status_code == 400 and response.json()['message'] == 'Invalid Email or Password'
+    assert (response.status_code, response.json()['code']) == (400, 'INVALID_CREDENTIALS')
 
 
-def test_legacy_password_hash_still_verifies(client, appdb, monkeypatch):
-    """A Werkzeug 0.14 default hash (pbkdf2:sha256, 50000 rounds)."""
-    from werkzeug.security import generate_password_hash
-    user_id, email = make_user(appdb)
-    appdb.execute('UPDATE users SET password = %s WHERE id = %s',
-                  (generate_password_hash('old-password', method='pbkdf2:sha256:50000', salt_length=8), user_id))
-    response = client.post('/auth/login', json={'email': email, 'password': 'old-password',
-                                                'turnstile_token': LOGIN_TOKEN})
-    assert response.status_code == 200
-
-
-def test_validation_errors_keep_their_shape(client):
+def test_validation_errors(client):
     fingerprint = FingerprintToken.generate(Snowflake.generate())
-    response = client.get('/files?limit=0', headers={'X-Fingerprint': fingerprint})
+    response = client.get('/users/@me/files?limit=0', headers={'X-Fingerprint': fingerprint})
     assert response.status_code == 400
     assert response.json() == {'errors': {'limit': 'Must be at least or in between 1 and 100'},
-                               'code': 0, 'message': 'Bad Request', 'status': 400}
+                               'code': 'INVALID_PARAMETERS', 'message': 'Some fields are invalid', 'status': 400}
 
     response = client.post('/auth/login', json={'email': 'not-an-email'})
     assert response.status_code == 400
@@ -475,12 +476,39 @@ def test_validation_errors_keep_their_shape(client):
     assert errors['password'].startswith('Missing required parameter')
 
 
-def test_files_requires_auth(client):
-    assert client.get('/files').status_code == 401
+@pytest.mark.parametrize('method, path', [
+    ('GET', '/files'), ('DELETE', '/files/abc'), ('GET', '/users/@me/file-count'), ('GET', '/users/@me/mimetypes'),
+    ('GET', '/google/health-check'), ('GET', '/internal/file-ids/1'), ('GET', '/internal/album-ids/1'),
+])
+def test_removed_routes(client, method, path):
+    response = client.request(method, path, headers={'X-Filesgg-Origin-Secret': ORIGIN_SECRET})
+    assert response.status_code in (404, 405)
+    assert response.json()['code'] in ('NOT_FOUND', 'METHOD_NOT_ALLOWED')
 
 
-def test_unknown_file_error_code(client):
-    assert client.get('/files/does-not-exist').json() == {'code': 140401, 'message': 'Unknown File', 'status': 404}
+def test_every_error_has_a_string_code(client):
+    assert client.get('/files/does-not-exist').json() == {'code': 'UNKNOWN_FILE', 'message': 'Unknown file',
+                                                           'status': 404}
+    assert client.get('/nope').json() == {'code': 'NOT_FOUND', 'message': 'Not found', 'status': 404}
+    assert client.get('/mimetypes/nope').json()['code'] == 'UNKNOWN_TYPE'
+    assert client.get('/mimetypes/nope/nope').json()['code'] == 'UNKNOWN_MIMETYPE'
+    assert client.get('/users/@me').json()['code'] == 'UNAUTHORIZED'
+    response = client.post('/files', headers={'X-Fingerprint': FingerprintToken.generate(Snowflake.generate())},
+                           data={'vanity': '200', 'turnstile_token': TURNSTILE_TOKEN},
+                           files={'file': ('a.txt', b'hi', 'text/plain')})
+    assert (response.status_code, response.json()['code']) == (400, 'INVALID_VANITY')
+
+
+def test_unhandled_errors_hide_their_text(client, monkeypatch):
+    import views.mimetypes
+
+    async def broken(*args, **kwargs):
+        raise RuntimeError('secret internals')
+
+    monkeypatch.setattr(views.mimetypes.queries, 'list_mimetypes', broken)
+    response = client.get('/mimetypes')
+    assert response.status_code == 500
+    assert response.json() == {'code': 'INTERNAL_ERROR', 'message': 'Something went wrong', 'status': 500}
 
 
 def test_mimetypes_and_users_routes(client, appdb):
@@ -492,15 +520,15 @@ def test_mimetypes_and_users_routes(client, appdb):
     assert client.get('/mimetypes/nope/nope').status_code == 404
     assert client.get('/users/123').json() == {'id': 123}
     assert client.get('/users/-5').status_code == 404
-    assert client.get('/users/someone/file-count').status_code == 404
-    assert client.get('/users/%40me/file-count').status_code == 401  # encoded '@' still routes
+    assert client.get('/users/someone/limits').status_code == 404
+    assert client.get('/users/%40me/limits').status_code == 401  # encoded '@' still routes
 
 
 def test_openapi_and_docs(client):
     spec = client.get('/openapi.json')
     assert spec.status_code == 200
     paths = spec.json()['paths']
-    assert {'/files', '/files/{vanity}', '/auth/login', '/users/{user_id}', '/users/{me}/file-count',
+    assert {'/files', '/files/{vanity}', '/auth/login', '/users/{user_id}', '/users/{me}/files',
             '/health', '/mimetypes/{mtype}/{subtype}'} <= set(paths)
     assert client.get('/docs').status_code == 404  # DEBUG is off
 
@@ -519,26 +547,6 @@ def test_docs_only_with_debug(monkeypatch):
         Generator.node_provider = saved
 
 
-# --- compatibility --------------------------------------------------------------
-
-def test_tokens_issued_by_the_old_stack_still_validate(monkeypatch):
-    """Tokens generated with itsdangerous 1.1.0 / Flask 1.0.2 (the pre-upgrade
-    stack) under SECRET_KEY='compat-secret'."""
-    from utils import tokens
-    monkeypatch.setattr(tokens, '_secret_key', 'compat-secret')
-    # A files.gg UserToken issued by the old stack for the fake user id 123456789012345678, signed
-    # with the test-only key above: not a credential. It's kept as its three parts because the
-    # joined string has the same shape as a Discord bot token and trips secret scanners.
-    user_token = '.'.join([
-        'MTIzNDU2Nzg5MDEyMzQ1Njc4',
-        'awXPsg',
-        'b_yhdJNiJNQiXnCEQ5x6SSSbNbM',
-    ])
-    assert UserToken.deconstruct(user_token) == 123456789012345678
-    assert UserToken.validate(user_token, min_timestamp=0)
-    assert FingerprintToken.deconstruct('NDI.nrNuiKSKilhUwh5PJynzb99DQNQ') == 42
-
-
 def test_password_hashes_fit_the_column():
     hashed = helpers.hash_password('correct horse battery staple', salt_length=10)
     assert hashed.startswith('pbkdf2:sha256:') and len(hashed) <= 128
@@ -546,7 +554,7 @@ def test_password_hashes_fit_the_column():
     assert check_password_hash(hashed, 'correct horse battery staple')
 
 
-def test_json_serialisation_matches_flask():
+def test_json_serialisation():
     from utils.responses import ApiResponse
     response = ApiResponse({'name': 'ünï "q" 😀', 'n': None, 'ok': True})
     assert response.body == json.dumps({'name': 'ünï "q" 😀', 'n': None, 'ok': True}).encode()

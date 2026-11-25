@@ -1,21 +1,16 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { getItem, getLegacyString, removeItem, setItem, setLegacyString } from './storage';
+import { getItem, removeItem, setItem } from './storage';
 
 afterEach(() => localStorage.clear());
 
 describe('storage', () => {
-  it('round-trips legacy JSON-encoded strings', () => {
-    expect(setLegacyString('token', 'abc')).toBe(true);
-    expect(localStorage.getItem('token')).toBe('"abc"');
-    expect(getLegacyString('token')).toBe('abc');
-  });
-
-  it('treats numbers as strings and objects as absent', () => {
-    localStorage.setItem('fingerprint', '12345');
-    expect(getLegacyString('fingerprint')).toBe('12345');
-    localStorage.setItem('fingerprint', '{"a":1}');
-    expect(getLegacyString('fingerprint')).toBeNull();
+  it('round-trips plain strings', () => {
+    expect(setItem('filesgg.token', 'abc')).toBe(true);
+    expect(localStorage.getItem('filesgg.token')).toBe('abc');
+    expect(getItem('filesgg.token')).toBe('abc');
+    removeItem('filesgg.token');
+    expect(getItem('filesgg.token')).toBeNull();
   });
 
   it('never throws when storage is blocked', () => {
@@ -25,8 +20,8 @@ describe('storage', () => {
     vi.spyOn(Storage.prototype, 'getItem').mockImplementation(error);
     vi.spyOn(Storage.prototype, 'setItem').mockImplementation(error);
     vi.spyOn(Storage.prototype, 'removeItem').mockImplementation(error);
-    expect(getItem('token')).toBeNull();
-    expect(setItem('token', 'x')).toBe(false);
-    expect(() => removeItem('token')).not.toThrow();
+    expect(getItem('filesgg.token')).toBeNull();
+    expect(setItem('filesgg.token', 'x')).toBe(false);
+    expect(() => removeItem('filesgg.token')).not.toThrow();
   });
 });

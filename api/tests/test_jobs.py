@@ -166,10 +166,12 @@ async def test_async_enqueue_from_the_api_side(migrated_db):
     assert (job.id, job.payload) == (job_id, {'n': 1})
 
 
-def test_only_ping_is_registered_by_default():
+def test_only_the_known_kinds_are_registered_by_default():
     import jobs.tasks  # noqa: F401
     assert 'ping' in jobs.registered_kinds()
-    assert set(jobs.registered_kinds()) <= {'ping', 'boom', 'finalize_upload'}
+    # Milestone 3 adds the media jobs and blob garbage collection
+    assert set(jobs.registered_kinds()) <= {'ping', 'boom', 'finalize_upload', 'probe', 'derive', 'album_collage',
+                                            'delete_blob'}
 
 
 def test_queues_are_isolated(migrated_db):

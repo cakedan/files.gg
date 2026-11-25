@@ -4,9 +4,12 @@
 @import './theme.css';
 
 @source '../viewer';
-/* Lazy chunks bring their own utilities (see album/album.css and pdf/pdf.css). */
+/* Lazy chunks bring their own utilities (see album/album.css, pdf/pdf.css,
+   media/media.css and text/text.css). */
 @source not '../viewer/album';
 @source not '../viewer/pdf';
+@source not '../viewer/media';
+@source not '../viewer/text';
 @source '../components';
 @source '../lib';
 

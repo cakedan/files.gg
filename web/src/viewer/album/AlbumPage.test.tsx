@@ -13,10 +13,10 @@ const image = (n: number, extra: Partial<AlbumItem> = {}): AlbumItem => ({
   size: 1000,
   width: 800,
   height: 600,
-  cdnUrl: `https://cdn.files.gg/files/p${n}.png`,
+  cdn_url: `https://cdn.files.gg/files/p${n}.png`,
   url: `https://files.gg/p${n}.png`,
-  uploadedAt: 0,
-  expiresAt: null,
+  uploaded_at: 0,
+  expires_at: null,
   position: n - 1,
   caption: `Caption ${n}`,
   ...extra,
@@ -29,10 +29,11 @@ const album = (extra: Partial<AlbumData> = {}): AlbumData => ({
   description: 'Notes at https://example.com/notes',
   layout: 'grid',
   nsfw: false,
-  expiresAt: null,
+  expires_at: null,
   count: 3,
-  totalSize: 3000,
-  nextCursor: null,
+  total_size: 3000,
+  next_cursor: null,
+  download_url: 'https://cdn.files.gg/albums/download/v1.zip',
   items: [image(1), image(2), image(3)],
   ...extra,
 });
@@ -54,7 +55,7 @@ describe('AlbumPage', () => {
     expect(screen.getByText('3 files · 2.9 KB')).toBeInTheDocument();
     const link = screen.getByRole('link', { name: 'https://example.com/notes' });
     expect(link).toHaveAttribute('rel', 'nofollow ugc noopener');
-    expect(screen.getByRole('link', { name: /download all/i })).toHaveAttribute('href', 'https://files.gg/a/v1/download.zip');
+    expect(screen.getByRole('link', { name: /download all/i })).toHaveAttribute('href', 'https://cdn.files.gg/albums/download/v1.zip');
     expect(screen.getByRole('link', { name: /report/i })).toHaveAttribute(
       'href',
       `/report?url=${encodeURIComponent('https://files.gg/a/v1')}`,

@@ -33,6 +33,10 @@ def defaults():
         'single': _env('LIMIT_SINGLE_BYTES', 100 * MB),
         'anonymous_file': _env('LIMIT_ANONYMOUS_FILE_BYTES', 25 * MB),
         'anonymous_daily': _env('LIMIT_ANONYMOUS_DAILY_BYTES', 500 * MB),
+        # Milestone 3: albums
+        'album_files': _env('LIMIT_ALBUM_FILES', 500),
+        'anonymous_album_files': _env('LIMIT_ANONYMOUS_ALBUM_FILES', 50),
+        'albums': _env('LIMIT_ALBUMS', 1000),
     }
 
 
@@ -46,6 +50,9 @@ class Limits:
     allow_no_expiry: bool
     # anonymous only: rolling 24 h bytes per fingerprint and per IP
     daily_bytes: Optional[int] = None
+    # files per album, and albums per user (None: anonymous albums come from uploads only)
+    album_max_files: int = 500
+    albums_max: Optional[int] = 1000
 
     @property
     def default_expiry(self):
@@ -63,6 +70,8 @@ def get_limits(user=None):
             max_expiry=ANONYMOUS_MAX_EXPIRY,
             allow_no_expiry=False,
             daily_bytes=values['anonymous_daily'],
+            album_max_files=values['anonymous_album_files'],
+            albums_max=None,
         )
     storage = getattr(user, 'storage_limit_override', None) or values['storage']
     return Limits(
@@ -72,6 +81,8 @@ def get_limits(user=None):
         max_file_size_chunked=values['chunked'],
         max_expiry=None,
         allow_no_expiry=True,
+        album_max_files=values['album_files'],
+        albums_max=values['albums'],
     )
 
 

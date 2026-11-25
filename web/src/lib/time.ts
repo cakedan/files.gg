@@ -8,6 +8,13 @@ const MINUTE = 60 * SECOND;
 const HOUR = 60 * MINUTE;
 const DAY = 24 * HOUR;
 
+/** Payload times are epoch seconds (contract §4); these helpers work in ms. */
+export const epochMs = (seconds: number): number => seconds * SECOND;
+
+/** Epoch seconds, or null, as ms. */
+export const epochMsOrNull = (seconds: number | null | undefined): number | null =>
+  seconds === null || seconds === undefined ? null : seconds * SECOND;
+
 /** How often relative labels refresh (Appendix A: a 30 s timer). */
 export const RELATIVE_REFRESH_MS = 30 * SECOND;
 

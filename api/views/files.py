@@ -9,16 +9,15 @@ import db
 from db import queries
 from utils import access, access_token, errors, limits as limits_module, params, passwords, payloads, storage as storage_module
 from utils import uploading, view_hash
-from utils.errors import UnknownFile
+from utils.cdn_signing import Grant
 from utils.generators import Snowflake
 from utils.params import Arg, Args
-from utils.responses import ApiError, ApiResponse
+from utils.responses import ApiResponse
 from utils.turnstile import Turnstile
-from utils.vanity import (  # noqa: F401  (re-exported for older imports)
-    MAX_VANITY_LENGTH, MIN_VANITY_LENGTH, blacklisted_ids, generate_id, generate_vanity, parse_vanity_part,
-    vanity_length_ok,
-)
-from utils.wrappers import authenticate, parse_args, route
+from utils.vanity import MAX_VANITY_LENGTH, MIN_VANITY_LENGTH, generate_vanity, vanity_length_ok
+from utils.wrappers import parse_args, route
+
+import jobs.media as media_jobs
 
 import utils.helpers as helpers
 import utils.parameters as parameters
@@ -28,56 +27,6 @@ files = Blueprint('files', url_prefix='/files')
 
 Authorization = Annotated[Optional[str], Arg('authorization', location='headers')]
 Fingerprint = Annotated[Optional[int], Arg('x-fingerprint', location='headers', type=parameters.fingerprint)]
-
-
-class FetchFilesArgs(Args):
-    authorization: Authorization = None
-    fingerprint: Fingerprint = None
-    limit: Annotated[Optional[int], Arg(type=int, choices=range(1, 101),
-                                        help='Must be at least or in between 1 and 100')] = 100
-    after: Annotated[Optional[int], Arg(location='args', type=parameters.snowflake)] = None
-    before: Annotated[Optional[int], Arg(location='args', type=parameters.snowflake)] = None
-    mimetype: Annotated[Optional[str], Arg(location='args')] = None
-    type: Annotated[Optional[str], Arg(location='args')] = None
-
-
-@route(files, '', ['GET'])
-@parse_args(FetchFilesArgs)
-async def fetch_files(request, args):
-    if args.authorization is None and args.fingerprint is None:
-        raise ApiError(status=401)
-
-    if args.after is not None and args.before is not None:
-        raise ApiError('Choose between before or after, not both')
-
-    if args.mimetype is not None and args.type is not None:
-        raise ApiError('Choose Mimetype or Type, not both')
-
-    async with db.connection() as conn:
-        if args.type is not None:
-            if not await queries.mimetype_type_exists(conn, args.type):
-                raise ApiError(metadata={'errors': {'type': 'Invalid Type'}})
-
-        if args.mimetype is not None:
-            if await queries.get_mimetype(conn, args.mimetype) is None:
-                raise ApiError(metadata={'errors': {'mimetype': 'Invalid Mimetype'}})
-
-        user_id = fingerprint = None
-        if args.authorization is not None:
-            user = await helpers.get_user(conn, args.authorization)
-            user_id = user.id
-        else:
-            fingerprint = args.fingerprint
-
-        total, items = await queries.list_files(
-            conn, user_id=user_id, fingerprint=fingerprint, type_id=args.type,
-            mimetype_id=args.mimetype, after=args.after, before=args.before, limit=args.limit,
-        )
-
-    return ApiResponse({
-        'total': total,
-        'files': [x.to_dict() for x in items],
-    })
 
 
 # --- POST /files: single-request upload ------------------------------------------------
@@ -97,6 +46,8 @@ class CreateFileArgs(Args):
     unlock_ttl: Annotated[Optional[int], Arg(location='values', type=uploading.unlock_ttl)] = None
     password_expires_in: Annotated[Optional[int], Arg(location='values', type=uploading.positive_int)] = None
     turnstile_token: Annotated[Optional[str], Arg(location='values')] = None
+    # Milestone 3: append the file to one of your albums (by its vanity)
+    album: Annotated[Optional[str], Arg(location='values')] = None
 
 
 async def create_file(request):
@@ -109,10 +60,7 @@ async def create_file(request):
     authorization = request.headers.get('authorization')
     if authorization is not None:
         async with db.connection() as conn:
-            try:
-                user = await helpers.get_user(conn, authorization)
-            except Exception:
-                raise ApiError('Invalid Authentication')
+            user = await helpers.get_user(conn, authorization)
     limit = limits_module.get_limits(user).max_file_size_single
 
     # Content-Length first, before reading anything
@@ -150,14 +98,13 @@ async def _create_file(request, args, user, upload, declared):
     limits = owner.limits
 
     if not vanity_length_ok(args.vanity):
-        raise ApiError('Vanity has to be at least or in between {} and {} characters long'.format(
-            MIN_VANITY_LENGTH, MAX_VANITY_LENGTH))
+        raise errors.invalid_vanity(MIN_VANITY_LENGTH, MAX_VANITY_LENGTH)
 
     filename = args.filename
     fextension = None
     if args.type == 'multipart':
         if upload is None:
-            raise ApiError('A file must be uploaded')
+            raise errors.file_required()
         if filename is None:
             filename = upload.filename
         elif upload.filename and '.' in upload.filename:
@@ -166,7 +113,7 @@ async def _create_file(request, args, user, upload, declared):
     elif args.type == 'raw':
         mimetype = uploading.mimetype_of(request.content_type)
     else:
-        raise ApiError('Invalid Upload Type')
+        raise errors.invalid_upload_type()
 
     expires_in = limits_module.resolve_expiry(limits, args.expires_in)
     if args.visibility == 'private' and user is None:
@@ -176,6 +123,8 @@ async def _create_file(request, args, user, upload, declared):
         name, extension, mimetype = await uploading.resolve_name(conn, filename, fextension, mimetype)
         # pre-check the quota with what we know before reading the body
         await owner.check(conn, upload.size if upload is not None else (declared or 0))
+        # an unknown or foreign album fails before anything is stored
+        album_id = await uploading.resolve_album(conn, user, args.album)
 
     if user is None and not await Turnstile.verify(args.turnstile_token, 'upload', helpers.client_ip(request)):
         raise errors.captcha_invalid()
@@ -193,16 +142,20 @@ async def _create_file(request, args, user, upload, declared):
         if spooled.size > limits.max_file_size_single:
             raise limits_module.file_too_large(limits.max_file_size_single)
         fobj = await store_upload(request, owner, spooled, name, extension, mimetype, expires_in, access_columns,
-                                  args.vanity)
+                                  args.vanity, album_id=album_id)
     finally:
         if spooled is not upload:
             spooled.discard()
-    return ApiResponse(payloads.upload_dict(fobj, password=generated))
+    # the uploader owns it: a protected file's URLs are signed for 1 h
+    body = payloads.public_file(fobj, grant=Grant.owner_file(fobj))
+    return ApiResponse(payloads.with_password(body, fobj, generated))
 
 
-async def store_upload(request, owner, spooled, name, extension, mimetype, expires_in, access_columns, vanity=''):
+async def store_upload(request, owner, spooled, name, extension, mimetype, expires_in, access_columns, vanity='',
+                       album_id=None):
     """Blob to B2 (unless de-duplicated), then FileHash and File in one
-    transaction under the owner's quota lock."""
+    transaction under the owner's quota lock. A new hash gets its `probe` job, and
+    with `album_id` the file joins that album."""
     storage = request.app.ctx.storage
     hblake2b, hmd5, hsha1 = spooled.hasher.digests()
     size = spooled.size
@@ -225,6 +178,8 @@ async def store_upload(request, owner, spooled, name, extension, mimetype, expir
                     fhash, created = await queries.insert_file_hash(conn, hash_id, hblake2b, hmd5, hsha1, size)
                     if not created:
                         orphan = uploaded_key  # the same content was stored meanwhile
+                    else:
+                        await media_jobs.queue_probe_async(conn, fhash.id)
                 else:
                     fhash = existing
                 expires_at = uploading.utcnow() + timedelta(seconds=expires_in) if expires_in else None
@@ -238,6 +193,8 @@ async def store_upload(request, owner, spooled, name, extension, mimetype, expir
                         filename=name, fhash=fhash, user=owner.user, fingerprint=owner.fingerprint, size=size,
                         expires_at=expires_at, uploader_ip_hash=owner.ip_hash, **access_columns,
                     )
+                if album_id is not None:
+                    await uploading.append_to_album(conn, album_id, fobj.id, owner.limits.album_max_files)
     except BaseException:
         if uploaded_key is not None:
             orphan = uploaded_key
@@ -262,45 +219,48 @@ def view_ip(request):
 
 
 async def _visible_file(conn, request, vanity):
-    """(file, caller may see everything). Private files are unknown to everyone
-    but their owner."""
+    """(file, full, grant): `full` when the caller may see everything, and the CDN grant
+    their URLs are signed with (None for `link` files). Private files are unknown to
+    everyone but their owner."""
     fobj = await queries.get_file_by_vanity(conn, vanity)
     if fobj is None:
-        return None, False
+        return None, False, None
     if fobj.visibility == 'link':
-        return fobj, True
+        return fobj, True, None
     user = await access.optional_user(conn, request)
     fingerprint = parameters.fingerprint(request.headers.get('x-fingerprint')) if request.headers.get(
         'x-fingerprint') else None
     if access.is_owner(fobj, user, fingerprint):
-        return fobj, True
+        return fobj, True, Grant.owner_file(fobj)
+    claims, album = await access.file_or_album_claims(conn, request, fobj, request.ctx.access_token)
+    grant = access.grant_for(fobj, claims, album) if claims is not None else None
     if fobj.visibility == 'private':
-        return None, False
-    return fobj, access.token_claims(request, fobj, request.ctx.access_token) is not None
+        # only an owner pass or an album token opens a private file here
+        return (fobj, True, grant) if claims is not None else (None, False, None)
+    return fobj, claims is not None, grant
+
+
+def file_payload(fobj, grant, album_item=False):
+    return payloads.public_file(fobj, grant=grant, album_item=album_item)
 
 
 @route(files, '/<vanity:path>', ['GET'])
 @parse_args(FileArgs)
 async def fetch_file(request, args):
+    """The file payload. A protected file's URLs are signed for the caller: its owner
+    (1 h), or the unlock or album token in X-Filesgg-Access (until it expires)."""
     vanity = args.vanity.split('.').pop(0)
     async with db.connection() as conn:
-        fobj, full = await _visible_file(conn, request, vanity)
+        fobj, full, grant = await _visible_file(conn, request, vanity)
         if fobj is None:
-            raise UnknownFile()
+            raise errors.unknown_file()
         if not full:
             # a password file, locked: no content, no view counted
             return ApiResponse(payloads.locked_file(fobj, access.password_has_expired(fobj)))
         day = view_hash.utc_today()
         await queries.record_view(conn, fobj, view_hash.ip_hash(request.app.ctx.view_hash_secret, day, view_ip(request)), day)
 
-    return ApiResponse(fobj.to_dict())
-
-
-@route(files, '/<vanity:path>', ['DELETE'])
-@parse_args(FileArgs)
-@authenticate()
-async def delete_file(request, args, user):
-    return ApiResponse(args.vanity)
+    return ApiResponse(file_payload(fobj, grant, album_item=grant is not None and grant.album_vanity is not None))
 
 
 # --- unlocking (contract §5) -------------------------------------------------------------------
@@ -341,7 +301,7 @@ async def unlock_file(request, args, vanity):
     return ApiResponse({
         'token': access.mint(request, fobj, 'unlock', unlocked_at, expires_at),
         'expires_at': expires_at,
-        'file': payloads.public_file(fobj),
+        'file': file_payload(fobj, Grant.for_file(fobj, expires_at)),
     })
 
 
@@ -350,7 +310,7 @@ async def unlock_file(request, args, vanity):
 async def refresh_unlock(request, args, vanity):
     """No Turnstile; keeps `u`. Unlock tokens: e = min(now + 3600, u + unlock_ttl,
     password_expires_at). Owner passes: e = min(now + 3600, u + 43200), 12 h
-    from minting. access_version must still match."""
+    from minting. access_version must still match. Returns the payload with fresh URLs."""
     async with db.connection() as conn:
         fobj = await queries.get_file_by_vanity(conn, vanity.split('.').pop(0))
         if fobj is None:
@@ -372,6 +332,7 @@ async def refresh_unlock(request, args, vanity):
     return ApiResponse({
         'token': access.mint(request, fobj, claims['s'], claims['u'], expires_at),
         'expires_at': expires_at,
+        'file': file_payload(fobj, Grant.for_file(fobj, expires_at)),
     })
 
 
@@ -383,10 +344,13 @@ async def view_file(request, vanity):
         fobj = await queries.get_file_by_vanity(conn, vanity.split('.').pop(0))
         if fobj is None:
             raise errors.unknown_file()
-        claims = access.token_claims(request, fobj, request.ctx.access_token)
+        # its own token, or one for an album it's a shown item of (milestone-2 §1 rule 3)
+        claims, album = await access.file_or_album_claims(conn, request, fobj, request.ctx.access_token)
         if fobj.visibility == 'private' and claims is None:
             raise errors.unknown_file()
         await access.rate_limit(conn, request, fobj, 'access', access.ACCESS_REQUESTS_PER_MINUTE)
     if claims is None:
         raise errors.unlock_expired()
-    return ApiResponse({'file': payloads.public_file(fobj), 'expires_at': claims['e']})
+    # through an album token, the URLs use the album grant (and carry album=)
+    body = file_payload(fobj, access.grant_for(fobj, claims, album), album_item=album is not None)
+    return ApiResponse({'file': body, 'expires_at': claims['e']})
