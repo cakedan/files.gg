@@ -4,10 +4,11 @@ import { createMemoryRouter, RouterProvider } from 'react-router';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { OwnerFile } from '../../lib/api';
-import { createQueryClient } from '../../lib/queryClient';
 import { filesResponse, json, ownerFile } from '../../test/ownerFiles';
 import { Toaster } from '../components/Toaster';
 import FilesPage from '../pages/FilesPage';
+import { signedInQueryClient } from '../../test/session';
+import { apiUrl } from '../../test/apiStub';
 
 let library: OwnerFile[];
 let deleteResponse: () => Promise<Response>;
@@ -27,7 +28,7 @@ function setup(path = '/files') {
     { initialEntries: [path] },
   );
   render(
-    <QueryClientProvider client={createQueryClient()}>
+    <QueryClientProvider client={signedInQueryClient()}>
       <RouterProvider router={router} />
     </QueryClientProvider>,
   );
@@ -37,17 +38,16 @@ function setup(path = '/files') {
 const listCalls = () =>
   vi
     .mocked(fetch)
-    .mock.calls.map(([url]) => new URL(String(url)))
+    .mock.calls.map(([url]) => apiUrl(url))
     .filter((url) => url.pathname === '/users/@me/files');
 
 beforeEach(() => {
-  localStorage.setItem('filesgg.token', 'tok');
   library = ['alpha', 'bravo', 'charlie', 'delta', 'echo'].map((name, i) => ownerFile({ id: String(i + 1), name, size: 1024 * (i + 1) }));
   deleteResponse = async () => json({ deleted: [] });
   vi.stubGlobal(
     'fetch',
     vi.fn(async (input: string, init?: RequestInit) => {
-      const url = new URL(String(input));
+      const url = apiUrl(input);
       if (url.pathname === '/users/@me/files' && (init?.method ?? 'GET') === 'GET') {
         const query = url.searchParams.get('query') ?? '';
         return json(filesResponse(library.filter((file) => file.filename.includes(query)), library.length));

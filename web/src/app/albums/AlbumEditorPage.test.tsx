@@ -4,11 +4,12 @@ import { createMemoryRouter, RouterProvider } from 'react-router';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { OwnerAlbum } from '../../lib/api';
-import { createQueryClient } from '../../lib/queryClient';
 import { json, ownerAlbum, ownerFile } from '../../test/ownerFiles';
 import { Toaster } from '../components/Toaster';
 import AlbumEditorPage from '../pages/AlbumEditorPage';
 import { ORDER_SAVE_DELAY_MS } from './useAlbumOrder';
+import { signedInQueryClient } from '../../test/session';
+import { apiUrl } from '../../test/apiStub';
 
 let album: OwnerAlbum;
 let putResponse: (ids: string[]) => Response;
@@ -29,7 +30,7 @@ function setup() {
     { initialEntries: ['/albums/900'] },
   );
   render(
-    <QueryClientProvider client={createQueryClient()}>
+    <QueryClientProvider client={signedInQueryClient()}>
       <RouterProvider router={router} />
     </QueryClientProvider>,
   );
@@ -67,7 +68,6 @@ async function keyboardMove(name: string, key: 'ArrowRight' | 'ArrowLeft') {
 }
 
 beforeEach(() => {
-  localStorage.setItem('filesgg.token', 'tok');
   mockLayout();
   const files = ['a', 'b', 'c'].map((name, i) => ownerFile({ id: String(i + 1), name }));
   album = ownerAlbum([...files, ownerFile({ id: '4', name: 'secret', visibility: 'password' })]);
@@ -75,7 +75,7 @@ beforeEach(() => {
   vi.stubGlobal(
     'fetch',
     vi.fn(async (input: string, init?: RequestInit) => {
-      const url = new URL(String(input));
+      const url = apiUrl(input);
       if (url.pathname === '/users/@me/albums/900' && (init?.method ?? 'GET') === 'GET') return json(album);
       if (url.pathname === '/users/@me/albums/900/files' && init?.method === 'PUT') return putResponse(JSON.parse(String(init.body)).file_ids);
       if (url.pathname === '/users/@me/albums/900/files/2' && init?.method === 'PATCH') {

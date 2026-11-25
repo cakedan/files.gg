@@ -141,14 +141,16 @@ def finalize(upload_id, conn=None, client=None):
                 created = conn.execute(
                     'INSERT INTO files (id, vanity, mimetype_id, extension, filename, hash_id, user_id, fingerprint, '
                     'view_count, size, expires_at, visibility, password_hash, unlock_ttl, password_expires_at, '
-                    'uploader_ip_hash, nsfw_marked, uploader_abuse_ip_hash, uploader_ip_sealed, upload_key_id) '
-                    'VALUES (%s, %s, %s, %s, %s, %s, %s, %s, 0, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s) '
+                    'uploader_ip_hash, nsfw_marked, uploader_abuse_ip_hash, uploader_ip_sealed, upload_key_id, '
+                    'view_limit, view_limit_action) '
+                    'VALUES (%s, %s, %s, %s, %s, %s, %s, %s, 0, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s) '
                     'ON CONFLICT (vanity) DO NOTHING RETURNING id',
                     (file_id, vanity, session.mimetype_id, session.extension, session.name, hash_id,
                      session.owner_user_id, session.owner_fingerprint, session.size, expires_at, session.visibility,
                      session.password_hash, session.unlock_ttl, session.password_expires_at,
                      session.owner_ip_hash, session.nsfw_marked, session.owner_abuse_ip_hash,
-                     session.owner_ip_sealed, session.upload_key_id)).fetchone()
+                     session.owner_ip_sealed, session.upload_key_id, session.view_limit,
+                     session.view_limit_action)).fetchone()
                 if created is not None:
                     break
             else:

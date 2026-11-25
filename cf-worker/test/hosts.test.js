@@ -7,18 +7,18 @@ import { VIEWER_CSP, fileMetaTags, viewerCsp } from '../worker/utils/viewer.js';
 import { apiOrigin } from '../worker/utils/env.js';
 
 
-const LOCAL = { MAIN_HOST: 'files.localhost', CDN_HOST: 'cdn.files.localhost', API_HOST: 'api.files.localhost', PROXY_HOST: 'proxy.files.localhost' };
+const LOCAL = { MAIN_HOST: 'files.localhost', CDN_HOST: 'cdn.files.localhost', API_HOST: 'api.files.localhost' };
 
 describe('configurable hosts', () => {
   it("defaults to today's hosts", () => {
-    assert.deepEqual({ ...getHosts({}) }, { main: 'files.gg', cdn: 'cdn.files.gg', api: 'api.files.gg', proxy: 'proxy.files.gg' });
+    assert.deepEqual({ ...getHosts({}) }, { main: 'files.gg', cdn: 'cdn.files.gg', api: 'api.files.gg' });
     assert.deepEqual({ ...getHosts({ MAIN_HOST: '', CDN_HOST: '  ' }) }, { ...DEFAULT_HOSTS });
     assert.equal(apiOrigin({}), 'https://api.files.gg');
   });
 
-  it('reads MAIN_HOST, CDN_HOST, API_HOST and PROXY_HOST', () => {
+  it('reads MAIN_HOST, CDN_HOST and API_HOST', () => {
     assert.deepEqual({ ...getHosts({ ...LOCAL, MAIN_HOST: 'Files.Localhost.' }) },
-      { main: 'files.localhost', cdn: 'cdn.files.localhost', api: 'api.files.localhost', proxy: 'proxy.files.localhost' });
+      { main: 'files.localhost', cdn: 'cdn.files.localhost', api: 'api.files.localhost' });
     assert.equal(apiOrigin({ API_HOST: 'api.staging.example' }), 'https://api.staging.example');
     assert.equal(apiOrigin({ API_HOST: 'api.staging.example', API_ORIGIN: 'http://127.0.0.1:8080' }), 'http://127.0.0.1:8080');
   });

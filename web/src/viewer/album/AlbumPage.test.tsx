@@ -57,33 +57,40 @@ describe('AlbumPage', () => {
     expect(link).toHaveAttribute('rel', 'nofollow ugc noopener');
     expect(screen.getByRole('link', { name: /download all/i })).toHaveAttribute('href', 'https://cdn.files.gg/albums/download/v1.zip');
     // Milestone 4: a real link to the album's report page, which opens the dialog on click.
-    expect(screen.getByRole('link', { name: /report/i })).toHaveAttribute('href', '/a/v1/report');
+    expect(screen.getByRole('link', { name: /report/i })).toHaveAttribute('href', '/report/a/v1');
   });
 
-  it('opens the lightbox from a tile, syncs the URL, moves with arrows and closes with Escape', async () => {
+  it('opens the lightbox from a tile, syncs ?item= (milestone-6 §20.2), moves with arrows and closes with Escape', async () => {
+    window.history.replaceState(null, '', '/a/v1#pw=amber-tunnel');
+    const entries = window.history.length;
     render(<AlbumPage album={album()} />);
     fireEvent.click(screen.getByRole('button', { name: /open photo-2.png/i }));
     const dialog = await screen.findByRole('dialog');
     expect(within(dialog).getByText('2 / 3')).toBeInTheDocument();
     expect(within(dialog).getByText('Caption 2')).toBeInTheDocument();
-    expect(window.location.pathname).toBe('/a/v1/2');
+    const where = () => `${window.location.pathname}${window.location.search}${window.location.hash}`;
+    expect(where()).toBe('/a/v1?item=2#pw=amber-tunnel');
+    // opening added exactly one entry, so the browser's Back button closes it
+    expect(window.history.length).toBe(entries + 1);
 
     fireEvent.keyDown(document, { key: 'ArrowRight' });
     expect(within(screen.getByRole('dialog')).getByText('3 / 3')).toBeInTheDocument();
-    expect(window.location.pathname).toBe('/a/v1/3');
+    expect(where()).toBe('/a/v1?item=3#pw=amber-tunnel');
     fireEvent.keyDown(document, { key: 'ArrowRight' }); // stops at the end
-    expect(window.location.pathname).toBe('/a/v1/3');
+    expect(where()).toBe('/a/v1?item=3#pw=amber-tunnel');
 
     fireEvent.keyDown(document, { key: 'Escape' });
-    // Closing goes back in history; jsdom applies it asynchronously.
     await act(async () => {
       await new Promise((resolve) => setTimeout(resolve, 20));
     });
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    expect(where()).toBe('/a/v1#pw=amber-tunnel');
+    // moving between items added none; closing went back to the entry before the lightbox
+    expect(window.history.length).toBe(entries + 1);
   });
 
   it('swipes between items on touch', async () => {
-    window.history.replaceState(null, '', '/a/v1/1');
+    window.history.replaceState(null, '', '/a/v1?item=1');
     render(<AlbumPage album={album()} />);
     const dialog = await screen.findByRole('dialog');
     fireEvent.touchStart(dialog, { touches: [{ clientX: 300, clientY: 200 }] });

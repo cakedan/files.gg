@@ -1,3 +1,4 @@
+import { lazy, Suspense } from 'react';
 import { useParams } from 'react-router';
 
 import { ApiError } from '../../../lib/api';
@@ -9,6 +10,9 @@ import { Failure, Loading, Section, When } from '../components/bits';
 import { CaseList } from '../components/CaseList';
 import { History } from '../components/History';
 import { UserTarget } from '../components/TargetPanels';
+
+/** Milestone 6 account cards (premium, login methods, keys, domains): a lazy part of the admin chunk. */
+const AccountCards = lazy(() => import('../account/AccountCards'));
 
 /** `/app/admin/users/:id` (§9.6): the account, its notices and strikes, and the account actions. */
 export default function UserPage() {
@@ -53,6 +57,9 @@ export default function UserPage() {
       </div>
       <div className="flex min-w-0 flex-col gap-4">
         <UserTarget detail={detail} part="actions" />
+        <Suspense fallback={<Loading label="Loading account details…" />}>
+          <AccountCards detail={detail} />
+        </Suspense>
       </div>
     </div>
   );

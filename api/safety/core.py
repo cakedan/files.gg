@@ -51,21 +51,22 @@ def all_rows(conn, sql, params=()):
 
 def log_action(conn, actor, action, rule=None, file_id=None, album_id=None, user_id=None, hash_id=None,
                report_id=None, case_id=None, warning_id=None, note=None, details=None, child_safety=False,
-               reverses=None):
+               reverses=None, domain_id=None):
     if case_id is not None and not child_safety:
         row = one(conn, 'SELECT child_safety FROM moderation_cases WHERE id = %s', (case_id,))
         child_safety = bool(row and row[0])
     return one(conn, (
         'INSERT INTO moderation_actions (actor_user_id, actor_kind, action, rule, file_id, album_id, user_id, hash_id, '
-        'report_id, case_id, warning_id, note, details, child_safety, reverses_action_id) '
-        'VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb, %s, %s) RETURNING id'),
+        'report_id, case_id, warning_id, note, details, child_safety, reverses_action_id, domain_id) '
+        'VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb, %s, %s, %s) RETURNING id'),
         (actor.user_id, actor.kind, action, rule, file_id, album_id, user_id, hash_id, report_id, case_id, warning_id,
-         note, json.dumps(details) if details is not None else None, child_safety, reverses))[0]
+         note, json.dumps(details) if details is not None else None, child_safety, reverses, domain_id))[0]
 
 
 # --- cases and flags (§9.2) --------------------------------------------------------------------------------
 
-TARGET_COLUMN = {'file': 'file_id', 'album': 'album_id', 'user': 'user_id', 'hash': 'hash_id', 'appeal': 'warning_id'}
+TARGET_COLUMN = {'file': 'file_id', 'album': 'album_id', 'user': 'user_id', 'hash': 'hash_id', 'appeal': 'warning_id',
+                 'domain': 'domain_id'}
 
 
 def open_case(conn, kind, priority, target_id=None, child_safety=False, needs_second_review=False):

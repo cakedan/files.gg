@@ -24,7 +24,15 @@ describe('parseReportUrl', () => {
 
   it('turns album page links into album targets, but not album items', () => {
     expect(parseReportUrl('https://files.gg/a/Ab3dE6gH')).toMatchObject({ kind: 'album', vanity: 'Ab3dE6gH' });
-    expect(parseReportUrl('https://files.gg/a/Ab3dE6gH/report')).toMatchObject({ kind: 'album', vanity: 'Ab3dE6gH' });
+    // milestone-6 §20.2: the album's report page, and an item as `?item=<n>` (kept, for the API to resolve)
+    expect(parseReportUrl('https://files.gg/report/a/Ab3dE6gH')).toMatchObject({ kind: 'album', vanity: 'Ab3dE6gH' });
+    expect(parseReportUrl('https://files.gg/report/a/Ab3dE6gH?item=2')).toMatchObject({ kind: 'album', vanity: 'Ab3dE6gH' });
+    expect(parseReportUrl('https://files.gg/a/Ab3dE6gH?item=2&x=1#pw=secret')).toEqual({ kind: 'url', url: 'https://files.gg/a/Ab3dE6gH?item=2' });
+    expect(parseReportUrl('https://files.gg/a/Ab3dE6gH?item=0')).toMatchObject({ kind: 'album', vanity: 'Ab3dE6gH' });
+    expect(parseReportUrl('https://files.gg/a/Ab3dE6gH?item=x')).toMatchObject({ kind: 'album', vanity: 'Ab3dE6gH' });
+    expect(parseReportUrl('https://files.gg/report/abcd/xyz')).toEqual({ kind: 'url', url: 'https://files.gg/report/abcd/xyz' });
+    // the old shapes are plain URLs now: the API finds no such vanity
+    expect(parseReportUrl('https://files.gg/a/Ab3dE6gH/report')).toEqual({ kind: 'url', url: 'https://files.gg/a/Ab3dE6gH/report' });
     expect(parseReportUrl('https://files.gg/a/Ab3dE6gH/2')).toEqual({ kind: 'url', url: 'https://files.gg/a/Ab3dE6gH/2' });
   });
 
@@ -150,7 +158,8 @@ describe('initialReportUrl', () => {
 describe('custom domains (milestone-6 §10.12)', () => {
   it('a custom host\'s own links are accepted there, by host and port, and nowhere else', () => {
     expect(parseReportUrl('https://i.example.com/abc', ['i.example.com'])).toEqual({ kind: 'url', url: 'https://i.example.com/abc' });
-    expect(parseReportUrl('i.example.com/a/Ab3/report', ['i.example.com'])).toEqual({ kind: 'album', vanity: 'Ab3', url: 'https://i.example.com/a/Ab3/report' });
+    expect(parseReportUrl('i.example.com/report/a/Ab3', ['i.example.com'])).toEqual({ kind: 'album', vanity: 'Ab3', url: 'https://i.example.com/report/a/Ab3' });
+    expect(parseReportUrl('i.example.com/a/Ab3?item=3', ['i.example.com'])).toEqual({ kind: 'url', url: 'https://i.example.com/a/Ab3?item=3' });
     expect(parseReportUrl('https://i.example.com/files/abc.png?sig=x', ['i.example.com'])).toEqual({ kind: 'url', url: 'https://i.example.com/files/abc.png' });
     expect(parseReportUrl('https://i.example.com/abc', [])).toEqual({ kind: 'invalid' });
     expect(parseReportUrl('https://j.example.com/abc', ['i.example.com'])).toEqual({ kind: 'invalid' });

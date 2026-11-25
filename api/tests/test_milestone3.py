@@ -45,7 +45,7 @@ def ids(items):
 
 def unlock_album(client, vanity, password):
     ip = '10.3.{}.{}'.format(uuid.uuid4().int % 250, uuid.uuid4().int % 250)
-    return client.post('/albums/{}/unlock'.format(vanity), json={'password': password, 'turnstile_token': UNLOCK_TOKEN},
+    return client.post('/access/unlock/albums/' + vanity, json={'password': password, 'turnstile_token': UNLOCK_TOKEN},
                        headers={'X-Forwarded-For': ip})
 
 
@@ -160,7 +160,7 @@ def test_protected_album_shows_every_item_and_its_token_opens_them(client, media
 
     response = unlock_album(client, vanity, 'wrong-password')
     assert (response.status_code, response.json()['code']) == (401, 'WRONG_PASSWORD')
-    response = client.post('/albums/{}/unlock'.format(vanity), json={'password': password})
+    response = client.post('/access/unlock/albums/{}'.format(vanity), json={'password': password})
     assert response.json()['code'] == 'CAPTCHA_INVALID'
     response = unlock_album(client, vanity, password)
     assert response.status_code == 200, response.text
@@ -172,39 +172,45 @@ def test_protected_album_shows_every_item_and_its_token_opens_them(client, media
     assert_album_signed(body['album'], grant, body['expires_at'])
 
     token = body['token']
-    view = client.get('/albums/{}/view'.format(vanity), headers={'X-Filesgg-Access': token})
+    view = client.get('/access/view/albums/{}'.format(vanity), headers={'X-Filesgg-Access': token})
     assert view.status_code == 200 and view.json()['expires_at'] == claims['e']
     assert_album_signed(view.json()['album'], grant, claims['e'])
     with_token = client.get('/albums/' + vanity, headers={'X-Filesgg-Access': token}).json()
     assert with_token['count'] == 3
     assert_album_signed(with_token, grant, claims['e'])
-    response = client.post('/albums/{}/unlock/refresh'.format(vanity), json={'token': token})
+    response = client.post('/access/refresh/albums/{}'.format(vanity), json={'token': token})
     refreshed = response.json()
     assert access_token.decode(refreshed['token'], SECRET)['u'] == claims['u']
     # refresh returns the album again, with fresh URLs
     assert_album_signed(refreshed['album'], grant, refreshed['expires_at'])
+    # milestone-6 §20.1: the old paths after the album's vanity are gone, with no aliases
+    for method, path, body in (('POST', '/albums/{}/unlock', {'password': password, 'turnstile_token': UNLOCK_TOKEN}),
+                               ('POST', '/albums/{}/unlock/refresh', {'token': token}),
+                               ('GET', '/albums/{}/view', None)):
+        response = client.request(method, path.format(vanity), json=body, headers={'X-Filesgg-Access': token})
+        assert (response.status_code, response.json()['code']) == (404, 'NOT_FOUND'), (method, path)
 
-    # the album grant opens the items: through the lookup's albums (for the Worker) and /files/<v>/view
+    # the album grant opens the items: through the lookup's albums (for the Worker) and /access/view/files/<v>
     for item in (link, locked, private):
         assert lookup(client, item)['albums'] == [{'id': album['id'], 'vanity': vanity, 'access_version': 1}]
-    response = client.get('/files/{}/view'.format(private['vanity']), headers={'X-Filesgg-Access': token})
+    response = client.get('/access/view/files/{}'.format(private['vanity']), headers={'X-Filesgg-Access': token})
     assert response.status_code == 200 and response.json()['file']['id'] == private['id']
     # through the album token, the file's URLs use the album grant and carry album=
     assert_signed(response.json()['file']['cdn_url'], grant, album=vanity, expires=claims['e'])
     response = client.get('/files/' + locked['vanity'], headers={'X-Filesgg-Access': token})
     assert_signed(response.json()['cdn_url'], grant, album=vanity, expires=claims['e'])
-    assert client.get('/files/{}/view'.format(locked['vanity']), headers={'X-Filesgg-Access': token}).status_code == 200
+    assert client.get('/access/view/files/' + locked['vanity'], headers={'X-Filesgg-Access': token}).status_code == 200
     # another album's token doesn't
     other = make_album(client, owner, [link['id']])
     patch_album(client, owner, other['id'], password='other-pass1')
     other_token = unlock_album(client, other['vanity'], 'other-pass1').json()['token']
-    assert client.get('/files/{}/view'.format(private['vanity']),
+    assert client.get('/access/view/files/{}'.format(private['vanity']),
                       headers={'X-Filesgg-Access': other_token}).status_code == 404
 
     # changing the album's access revokes its tokens (for the album and for the items)
     patch_album(client, owner, album['id'], generate_password=True)
-    assert client.get('/albums/{}/view'.format(vanity), headers={'X-Filesgg-Access': token}).status_code == 401
-    assert client.get('/files/{}/view'.format(locked['vanity']), headers={'X-Filesgg-Access': token}).status_code == 401
+    assert client.get('/access/view/albums/{}'.format(vanity), headers={'X-Filesgg-Access': token}).status_code == 401
+    assert client.get('/access/view/files/' + locked['vanity'], headers={'X-Filesgg-Access': token}).status_code == 401
     assert lookup(client, locked)['albums'] == [{'id': album['id'], 'vanity': vanity, 'access_version': 2}]
 
 
@@ -217,7 +223,7 @@ def test_private_album(client, media_db):
     assert client.get('/albums/' + vanity).status_code == 404
     response = unlock_album(client, vanity, 'whatever1')
     assert (response.status_code, response.json()['code']) == (404, 'UNKNOWN_ALBUM')
-    assert client.get('/albums/{}/view'.format(vanity)).json()['code'] == 'UNKNOWN_ALBUM'
+    assert client.get('/access/view/albums/{}'.format(vanity)).json()['code'] == 'UNKNOWN_ALBUM'
     mine = client.get('/albums/' + vanity, headers=owner).json()
     # the owner's URLs are signed for 1 h with the album grant
     expires = assert_signed(mine['download_url'], 'album:{}:1'.format(album['id']))
@@ -226,7 +232,7 @@ def test_private_album(client, media_db):
     assert owner_pass['url'] == 'https://files.gg/a/{}#t={}'.format(vanity, owner_pass['token'])
     claims = access_token.decode(owner_pass['token'], SECRET)
     assert claims['k'] == 'album' and claims['s'] == 'owner'
-    view = client.get('/albums/{}/view'.format(vanity), headers={'X-Filesgg-Access': owner_pass['token']})
+    view = client.get('/access/view/albums/{}'.format(vanity), headers={'X-Filesgg-Access': owner_pass['token']})
     assert view.status_code == 200 and view.json()['album']['visibility'] == 'private'
     _, stranger = new_user(media_db)
     assert client.post('/users/@me/albums/{}/pass'.format(album['id']), headers=stranger).status_code == 404
@@ -750,7 +756,7 @@ def test_bulk_access_shares_one_generated_password(client, media_db):
     assert all(i['visibility'] == 'password' and i['access_version'] == 1 and i['unlock_ttl'] == 86400
                for i in body['items'])
     for item in (a, b):
-        response = client.post('/files/{}/unlock'.format(item['vanity']),
+        response = client.post('/access/unlock/files/{}'.format(item['vanity']),
                                json={'password': password, 'turnstile_token': UNLOCK_TOKEN},
                                headers={'X-Forwarded-For': '10.7.{}.1'.format(uuid.uuid4().int % 250)})
         assert response.status_code == 200
@@ -825,7 +831,11 @@ def test_internal_lookups(client, media_db):
     body = client.get('/internal/files/' + created['vanity'], headers=ORIGIN).json()
     assert body['file']['id'] == created['id']
     assert set(body) == {'file', 'access', 'owner_user_id', 'albums', 'storage', 'previews', 'previews_version',
-                         'safety', 'serve_inline'}
+                         'safety', 'serve_inline',
+                         # milestone-6 §10.7
+                         'owner_state', 'served_on',
+                         # milestone-6 §19.5
+                         'view_limit'}
     assert body['storage'] == {'key': 'files/' + hash_of(media_db, created), 'size': created['size']}
     # no lookups by id: every CDN path names a vanity
     for path in ('/internal/file-ids/' + created['id'], '/internal/album-ids/1'):
@@ -834,7 +844,9 @@ def test_internal_lookups(client, media_db):
     album = make_album(client, owner, [created['id']])
     body = client.get('/internal/albums/' + album['vanity'], headers=ORIGIN).json()
     assert body['album']['id'] == album['id']
-    assert set(body) == {'album', 'access', 'items_access', 'items_storage', 'collage', 'safety', 'pending_count'}
+    assert set(body) == {'album', 'access', 'items_access', 'items_storage', 'collage', 'safety', 'pending_count',
+                         # milestone-6 §10.7
+                         'owner_user_id', 'owner_state', 'served_on'}
     assert body['items_access'] == {created['id']: {'visibility': 'link', 'access_version': 0,
                                                     'safety': {'state': 'ok', 'reason': None},
                                                     'expires_at': created['expires_at']}}

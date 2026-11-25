@@ -18,7 +18,7 @@ export default function LookupPage() {
     document.getElementById(`${id}-q`)?.focus();
   }, [id]);
   const data = result.data;
-  const total = data ? data.files.length + data.albums.length + data.users.length : 0;
+  const total = data ? data.files.length + data.albums.length + data.users.length + (data.domains?.length ?? 0) : 0;
 
   return (
     <div className="flex flex-col gap-4">
@@ -88,6 +88,19 @@ export default function LookupPage() {
               ))}
             </ul>
           </Section>
+          {(data!.domains?.length ?? 0) > 0 && (
+            <Section title={`Domains (${data!.domains!.length})`}>
+              <ul className="flex flex-col gap-1 text-sm">
+                {data!.domains!.map((domain) => (
+                  <li key={domain.id}>
+                    <Link to={`/admin/domains/${domain.id}`} className="font-mono text-gg hover:underline">
+                      {domain.hostname}
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+            </Section>
+          )}
         </div>
       )}
     </div>

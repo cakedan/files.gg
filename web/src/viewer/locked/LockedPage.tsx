@@ -6,11 +6,11 @@ import { FileView } from '../components/FileView';
 import { siteName } from '../host/context';
 import { PendingCard, RemovedCard } from '../components/SafetyCards';
 import { MissingCard, UnavailableCard } from '../components/StateCards';
-import type { RemovedReason } from '../types';
+import type { RemovedReason, ViewLimitInfo } from '../types';
 import { contentFrom, type Content } from './content';
 import { viewerApi } from './hostApi';
 import { LockScreen, PasswordExpiredCard } from './LockScreen';
-import { classifyUnlockError, type UnlockError } from './unlockErrors';
+import { classifyUnlockError, isTransient, type UnlockError } from './unlockErrors';
 import { useAccessRefresh } from './useAccessRefresh';
 
 const AlbumPage = lazy(() => import('../album/AlbumPage'));
@@ -26,6 +26,8 @@ export interface LockedPageProps {
   password?: string | undefined;
   /** `#t=` owner pass from the URL (already stripped). */
   ownerPass?: string | undefined;
+  /** Milestone 6 §19.7: a view-limited password file (the lock screen says unlocking uses a view). */
+  viewLimit?: ViewLimitInfo | undefined;
 }
 
 type Phase =
@@ -39,7 +41,8 @@ type Phase =
   | { status: 'removed'; reason: RemovedReason }
   | { status: 'unlocked'; content: Content; grant: AccessGrant; scope: 'unlock' | 'owner' };
 
-function Unlocked({
+/** Unlocked content, kept alive by `useAccessRefresh`. Also the view-limit page's owner-pass view. */
+export function Unlocked({
   content,
   grant,
   scope,
@@ -83,24 +86,20 @@ function stateFromError(error: UnlockError, run: number): Phase | null {
 }
 
 /**
- * Whether a failed `/view` means the stored unlock token is no good: `401
+ * Whether a failed view call means the stored unlock token is no good: `401
  * UNLOCK_EXPIRED`, or a `404` (`UNKNOWN_FILE` / `UNKNOWN_ALBUM`: it's gone). Anything
  * else (offline, 5xx, 429) is transient and keeps the token for the next try.
  */
 const dropsToken = (error: unknown) =>
   error instanceof ApiError && ((error.status === 401 && error.code === 'UNLOCK_EXPIRED') || error.status === 404);
 
-/** Offline, a server error or a rate limit: worth a Retry, not a lock screen or "doesn't exist". */
-const isTransient = (error: unknown) =>
-  error instanceof ApiError && (error.isNetworkError || error.status >= 500 || error.status === 429);
-
 /**
  * Protected files and albums (lazy chunk). In order:
- * 1. a `#t=` owner pass: `GET …/view` with it, no unlock call;
- * 2. a stored unlock token for this vanity: `GET …/view`;
- * unlock and `/view` both return the payload with signed URLs, plus `token` and `expires_at`;
+ * 1. a `#t=` owner pass: `GET /access/view/…` with it, no unlock call;
+ * 2. a stored unlock token for this vanity: `GET /access/view/…`;
+ * unlock and view both return the payload with signed URLs, plus `token` and `expires_at`;
  * 3. otherwise the lock screen (`password`), or "doesn't exist" (`private`).
- * `401 UNLOCK_EXPIRED` drops the stored token. `404` (from `/view`, unlock or refresh)
+ * `401 UNLOCK_EXPIRED` drops the stored token. `404` (from view, unlock or refresh)
  * means missing, whatever the protection: the API answers it for unknown content and
  * for an owner whose account is pending deletion (milestone-6 §8.8).
  *
@@ -111,7 +110,7 @@ const isTransient = (error: unknown) =>
  * stored, so the pending and unavailable cards' reloads happen in the page: they run
  * these steps again with the secrets still in memory, never `location.reload()`.
  */
-export default function LockedPage({ kind, vanity, protection, name, passwordExpired, password, ownerPass }: LockedPageProps) {
+export default function LockedPage({ kind, vanity, protection, name, passwordExpired, password, ownerPass, viewLimit }: LockedPageProps) {
   const [phase, setPhase] = useState<Phase>({ status: 'checking' });
   // A `#pw=` password is used for one automatic unlock only, never again after expiry.
   // An unlock answered `FILE_PENDING` puts its password here, for the in-page reloads.
@@ -224,6 +223,7 @@ export default function LockedPage({ kind, vanity, protection, name, passwordExp
                 initialPassword={linkPassword}
                 onUnlocked={onUnlocked}
                 onUnavailable={onUnavailable}
+                viewLimit={viewLimit}
               />
             ))}
         </main>

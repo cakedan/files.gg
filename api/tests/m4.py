@@ -17,7 +17,6 @@ import pytest
 
 from tests.conftest import APP_DATABASE, TempDatabase, hash_of, turnstile_token
 from tests.test_milestone2 import ORIGIN, anonymous, new_user  # noqa: F401  (re-exported)
-from utils.tokens import UserToken
 
 FIXTURES = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'fixtures', 'standin')
 REPORT_TOKEN = turnstile_token('report')
@@ -111,7 +110,8 @@ def make_staff(db, role='moderator', child_safety=False):
 
 
 def user_headers(user_id):
-    return {'Authorization': UserToken.generate(user_id)}
+    from tests.conftest import sign_in
+    return sign_in(user_id)
 
 
 # --- images -----------------------------------------------------------------------------------------------------

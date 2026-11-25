@@ -1,7 +1,7 @@
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
 import { queryKeys } from '../../lib/queries';
-import { adminApi, type ActionBody, type AuditParams, type BanBody, type CaseDetail, type CasesParams, type RescanBody } from './adminApi';
+import { adminApi, type ActionBody, type AdminDomainsParams, type AuditParams, type BanBody, type CaseDetail, type CasesParams, type RescanBody } from './adminApi';
 
 /** §11.3: `GET /admin/summary` is polled every 30 s while any admin page is open. */
 export const SUMMARY_POLL_MS = 30_000;
@@ -14,6 +14,8 @@ export const adminKeys = {
   file: (id: string) => ['admin', 'file', id] as const,
   album: (id: string) => ['admin', 'album', id] as const,
   user: (id: string) => ['admin', 'user', id] as const,
+  domain: (id: string) => ['admin', 'domain', id] as const,
+  domains: (params: AdminDomainsParams) => ['admin', 'domains', params] as const,
   lookup: (q: string) => ['admin', 'lookup', q] as const,
   bans: (active: boolean) => ['admin', 'bans', active] as const,
   audit: (params: AuditParams) => ['admin', 'audit', params] as const,
@@ -51,6 +53,17 @@ export function useCase(id: string) {
 export const useAdminFile = (id: string) => useQuery({ queryKey: adminKeys.file(id), queryFn: ({ signal }) => adminApi.file(id, signal) });
 export const useAdminAlbum = (id: string) => useQuery({ queryKey: adminKeys.album(id), queryFn: ({ signal }) => adminApi.album(id, signal) });
 export const useAdminUser = (id: string) => useQuery({ queryKey: adminKeys.user(id), queryFn: ({ signal }) => adminApi.user(id, signal) });
+export const useAdminDomain = (id: string) => useQuery({ queryKey: adminKeys.domain(id), queryFn: ({ signal }) => adminApi.domain(id, signal) });
+
+/** `/app/admin/domains` (§10.12): filtered by hostname and status, newest first. */
+export function useAdminDomains(params: AdminDomainsParams) {
+  return useInfiniteQuery({
+    queryKey: adminKeys.domains(params),
+    queryFn: ({ pageParam, signal }) => adminApi.domains({ ...params, ...(pageParam ? { cursor: pageParam } : {}) }, signal),
+    initialPageParam: null as string | null,
+    getNextPageParam: (page) => page.next_cursor,
+  });
+}
 
 export function useLookup(q: string) {
   return useQuery({ queryKey: adminKeys.lookup(q), queryFn: ({ signal }) => adminApi.lookup(q, signal), enabled: q.trim().length > 0 });
@@ -136,4 +149,23 @@ export function useLiftBan() {
 export function useRescans() {
   const settle = useAdminSettle();
   return useMutation({ mutationFn: (body: RescanBody) => adminApi.rescans(body), onSettled: settle });
+}
+
+/** Premium (milestone-6 §9.3): grant, change the expiry, revoke. Admin only; each needs a note. */
+export type PremiumChange =
+  | { type: 'grant'; expires_at: number | null; note: string }
+  | { type: 'change'; id: string; expires_at: number | null; note: string }
+  | { type: 'revoke'; id: string; note: string };
+
+export function usePremiumChange(userId: string) {
+  const settle = useAdminSettle();
+  return useMutation({
+    mutationFn: (change: PremiumChange) =>
+      change.type === 'grant'
+        ? adminApi.grantPremium(userId, change.expires_at === null ? { note: change.note } : { expires_at: change.expires_at, note: change.note })
+        : change.type === 'change'
+          ? adminApi.changeEntitlement(userId, change.id, { expires_at: change.expires_at, note: change.note })
+          : adminApi.revokeEntitlement(userId, change.id, change.note),
+    onSettled: settle,
+  });
 }

@@ -2,7 +2,7 @@ import { act, fireEvent, renderHook, screen, waitFor, within } from '@testing-li
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { StaffInfo } from '../../lib/api';
-import { calls, jsonResponse, ME, NO_BADGES, renderDashboard, stubApi } from '../../test/apiStub';
+import { calls, jsonResponse, ME, NO_BADGES, renderDashboard, stubApi, signIn } from '../../test/apiStub';
 import { ownerFile } from '../../test/ownerFiles';
 import type { AdminFileDetail, CaseDetail, CaseSummary } from './adminApi';
 import { fileActions, userActions } from './permissions';
@@ -118,7 +118,7 @@ function stub(staff: StaffInfo, extra: Parameters<typeof stubApi>[0] = {}) {
 }
 
 beforeEach(() => {
-  localStorage.setItem('filesgg.token', 'tok');
+  signIn();
   cases = [caseSummary(), caseSummary({ id: 'c2', priority: 3, reasons: { spam: 1 }, flags: [], assignee: { id: '43', username: 'modmary' }, target: { type: 'album', id: 'al1', name: 'FREE GIFT CARDS', state: 'ok' } })];
   detail = caseDetail();
 });
@@ -283,9 +283,10 @@ describe('admin permissions (milestone-4 §9.1)', () => {
   });
 
   it('keeps suspensions for admins, and never lifts a CSAM suspension', () => {
-    expect(userActions(MODERATOR, { restricted: false, suspended: false, csamSuspension: false }).map((option) => option.action)).toEqual(['restrict_uploads']);
-    expect(userActions(ADMIN, { restricted: true, suspended: false, csamSuspension: false }).map((option) => option.action)).toEqual(['unrestrict_uploads', 'suspend_user']);
-    expect(userActions(ADMIN, { restricted: false, suspended: true, csamSuspension: true }).map((option) => option.action)).toEqual(['restrict_uploads']);
+    // Milestone 6 §11.4 adds Sign out everywhere and the username reset for both roles.
+    expect(userActions(MODERATOR, { restricted: false, suspended: false, csamSuspension: false }).map((option) => option.action)).toEqual(['restrict_uploads', 'revoke_sessions', 'reset_username']);
+    expect(userActions(ADMIN, { restricted: true, suspended: false, csamSuspension: false }).map((option) => option.action)).toEqual(['unrestrict_uploads', 'revoke_sessions', 'reset_username', 'suspend_user']);
+    expect(userActions(ADMIN, { restricted: false, suspended: true, csamSuspension: true }).map((option) => option.action)).toEqual(['restrict_uploads', 'revoke_sessions', 'reset_username']);
   });
 });
 

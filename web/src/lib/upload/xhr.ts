@@ -1,4 +1,4 @@
-import { ApiError, apiErrorFromText, authHeaders, buildUrl, CLIENT_ERROR } from '../api';
+import { ApiError, apiErrorFromText, authHeaders, buildUrl, CLIENT_ERROR, reportApiFailure } from '../api';
 
 export interface XhrOptions {
   method: 'POST' | 'PUT';
@@ -10,8 +10,9 @@ export interface XhrOptions {
 }
 
 /**
- * fetch() can't report upload progress, so uploads use XHR. Same auth headers and
- * the same `ApiError` parsing as the rest of the client. Aborts reject with an
+ * fetch() can't report upload progress, so uploads use XHR. Same base, the same headers
+ * (fingerprint while signed out, the CSRF header) and the same `ApiError` parsing as the
+ * rest of the client; a same-origin XHR sends the session cookie by itself. Aborts reject with an
  * `AbortError` DOMException, like fetch.
  */
 export function sendXhr<T>({ method, path, body, headers = {}, signal, onUploadProgress }: XhrOptions): Promise<T> {
@@ -23,7 +24,7 @@ export function sendXhr<T>({ method, path, body, headers = {}, signal, onUploadP
     const xhr = new XMLHttpRequest();
     xhr.open(method, buildUrl(path));
     xhr.setRequestHeader('Accept', 'application/json');
-    for (const [name, value] of Object.entries({ ...authHeaders(), ...headers })) xhr.setRequestHeader(name, value);
+    for (const [name, value] of Object.entries({ ...authHeaders(method), ...headers })) xhr.setRequestHeader(name, value);
 
     const onAbort = () => xhr.abort();
     signal?.addEventListener('abort', onAbort, { once: true });
@@ -44,7 +45,9 @@ export function sendXhr<T>({ method, path, body, headers = {}, signal, onUploadP
         }
         return;
       }
-      reject(apiErrorFromText(xhr.status, xhr.statusText, text));
+      const error = apiErrorFromText(xhr.status, xhr.statusText, text);
+      reportApiFailure(error, path);
+      reject(error);
     };
     xhr.onerror = () => {
       cleanup();

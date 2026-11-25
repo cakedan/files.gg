@@ -34,9 +34,19 @@ blacklisted_ids = (
     'favicon',
     'apple-touch-icon',
     'og-image',
-    # the API's /files/<vanity>/view and /unlock routes
+    # once the API's /files/<vanity>/view and /unlock routes; nothing comes after a vanity any more
+    # (milestone-6 §20), so they stay reserved only as defence in depth
     'view',
     'unlock',
+    # milestone-6 §6.3: the sign-in redirects, the custom-domain Turnstile frame, and the byte paths a custom
+    # domain serves (/files, /previews, /albums)
+    'login',
+    'register',
+    'signup',
+    'challenge',
+    'files',
+    'previews',
+    'albums',
 )
 
 

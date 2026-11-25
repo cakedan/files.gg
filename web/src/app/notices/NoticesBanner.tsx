@@ -16,14 +16,17 @@ export function NoticesBanner({ count }: { count: number }) {
   );
 }
 
-/** A suspended account sees only Notices (§8.4, §11.2). */
+/** A suspended account sees Notices and part of Settings (milestone-4 §8.4, milestone-6 §11.1). */
 export function SuspendedBanner() {
   return (
     <div role="alert" className="mb-6 flex items-start gap-3 rounded-lg border border-danger/50 bg-danger/10 px-4 py-3 text-sm">
       <ShieldX aria-hidden className="mt-0.5 size-5 shrink-0 text-danger" />
       <div className="flex flex-col gap-1">
         <p className="font-semibold">Your account has been suspended</p>
-        <p className="text-muted">You can still read your notices, and appeal the suspension when it’s allowed. Everything else is unavailable.</p>
+        <p className="text-muted">
+          You can still read your notices and appeal when it’s allowed, change your password, sign out your sessions and download your data. Everything
+          else is unavailable.
+        </p>
       </div>
     </div>
   );

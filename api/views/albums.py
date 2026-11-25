@@ -1,9 +1,11 @@
 """Public album endpoints (contract milestone-3 §6, milestone-2 §5):
 
     GET  /albums/<vanity>?cursor           the album payload, 100 items a page
-    POST /albums/<vanity>/unlock           { password, turnstile_token }
-    POST /albums/<vanity>/unlock/refresh   { token }
-    GET  /albums/<vanity>/view             X-Filesgg-Access: <token>
+    POST /access/unlock/albums/<vanity>    { password, turnstile_token }
+    POST /access/refresh/albums/<vanity>   { token }
+    GET  /access/view/albums/<vanity>      X-Filesgg-Access: <token>
+
+(milestone-6 §20.1: the vanity is always the last path segment; the access routes share the `access` blueprint.)
 
 The access rules are the files' ones: a password album shows a locked payload
 without a token, a private album is unknown to everyone but its owner (and owner passes).
@@ -20,11 +22,13 @@ from db import albums as album_queries
 from utils import access, access_token, errors, passwords
 from utils import albums as album_rules
 from utils.cdn_signing import Grant
+from utils.accounts import owner_offline
 from utils.helpers import client_ip
 from utils.params import Arg, Args
 from utils.responses import ApiResponse
 from utils.turnstile import Turnstile
 from utils.wrappers import parse_args, route
+from views.files import access_routes
 
 import utils.parameters as parameters
 
@@ -62,8 +66,20 @@ async def album_body(conn, album, after=None, grant=None):
         first, _ = await album_queries.shown_items(conn, album, limit=None)
         cover_items = [f for f, _, _ in first]
     nsfw = await album_queries.any_shown_nsfw(conn, album.id)
-    return album_rules.album_payload(album, items, count, size, cursor, cover_items=cover_items, grant=grant,
+    body = album_rules.album_payload(album, items, count, size, cursor, cover_items=cover_items, grant=grant,
                                      nsfw=nsfw)
+    body['owner'] = await album_owner(conn, album)
+    return body
+
+
+async def album_owner(conn, album):
+    """Milestone-6 §8.6: `{ id, username, display_name }` when the owner turned on "Show my name on albums"."""
+    if album.owner_user_id is None:
+        return None
+    cursor = await conn.execute('SELECT id, username, display_name FROM users WHERE id = %s AND show_name_on_albums '
+                                'AND deleted_at IS NULL', (album.owner_user_id,))
+    row = await cursor.fetchone()
+    return {'id': str(row[0]), 'username': row[1], 'display_name': row[2]} if row else None
 
 
 def check_removed(album):
@@ -87,7 +103,7 @@ def _album_claims(request, album, token):
 async def fetch_album(request, args, vanity):
     async with db.connection() as conn:
         album = await album_queries.get_album_by_vanity(conn, vanity)
-        if album is None:
+        if album is None or await owner_offline(conn, album.owner_user_id):
             raise errors.unknown_album()
         full, grant = album.visibility == 'link', None
         if not full:
@@ -119,13 +135,13 @@ class RefreshArgs(Args):
     token: Annotated[Optional[str], Arg(trim=False)] = None
 
 
-@route(albums, '/<vanity:str>/unlock', ['POST'])
+@route(access_routes, '/unlock/albums/<vanity:str>', ['POST'])
 @parse_args(UnlockArgs)
 async def unlock_album(request, args, vanity):
     """Turnstile, then the rate limit, then password expiry, then the password."""
     async with db.connection() as conn:
         album = await album_queries.get_album_by_vanity(conn, vanity)
-        if album is None or album.visibility == 'private':
+        if album is None or album.visibility == 'private' or await owner_offline(conn, album.owner_user_id):
             raise errors.unknown_album()
         check_removed(album)
         if await album_body(conn, album) is None:
@@ -150,12 +166,12 @@ async def unlock_album(request, args, vanity):
     })
 
 
-@route(albums, '/<vanity:str>/unlock/refresh', ['POST'])
+@route(access_routes, '/refresh/albums/<vanity:str>', ['POST'])
 @parse_args(RefreshArgs)
 async def refresh_album_unlock(request, args, vanity):
     async with db.connection() as conn:
         album = await album_queries.get_album_by_vanity(conn, vanity)
-        if album is None:
+        if album is None or await owner_offline(conn, album.owner_user_id):
             raise errors.unknown_album()
         claims = _album_claims(request, album, args.token)
         if album.visibility == 'private' and (claims is None or claims['s'] != 'owner'):
@@ -182,11 +198,11 @@ async def refresh_album_unlock(request, args, vanity):
     })
 
 
-@route(albums, '/<vanity:str>/view', ['GET'])
+@route(access_routes, '/view/albums/<vanity:str>', ['GET'])
 async def view_album(request, vanity):
     async with db.connection() as conn:
         album = await album_queries.get_album_by_vanity(conn, vanity)
-        if album is None:
+        if album is None or await owner_offline(conn, album.owner_user_id):
             raise errors.unknown_album()
         claims = _album_claims(request, album, request.ctx.access_token)
         if album.visibility == 'private' and claims is None:

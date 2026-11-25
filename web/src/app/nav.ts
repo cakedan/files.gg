@@ -22,5 +22,11 @@ export const NAV_ITEMS: readonly NavItem[] = [
   { path: '/notices', label: 'Notices', icon: Bell, badge: 'notices' },
 ];
 
+/**
+ * Where a suspended account may go (milestone-6 §11.1): Notices, and Settings for its
+ * password, sessions and data export.
+ */
+export const SUSPENDED_PATHS = ['/notices', '/settings/security', '/settings/data'] as const;
+
 /** Staff only (milestone-4 §11.3): added after the sections above. */
 export const ADMIN_NAV_ITEM: NavItem = { path: '/admin', label: 'Admin', icon: ShieldAlert, badge: 'admin' };

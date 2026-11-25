@@ -37,7 +37,7 @@ The exact cross-service formats are in [`contracts/milestone-2.md`](contracts/mi
 
 **Before the first deploy:**
 - Set `SECRET_KEY`, `RPC_KEY`, `DATABASE_URL`, `ORIGIN_SHARED_SECRET` and `VIEW_HASH_SECRET` (compose now refuses to start without them). Generate the last with `openssl rand -hex 32`, and set the **same value** as the worker's `ORIGIN_SHARED_SECRET` binding.
-- Set `PROXY_SECRET` on the worker, or accept that `proxy.files.gg` returns 403.
+- ~~Set `PROXY_SECRET` on the worker.~~ **`proxy.files.gg` is removed (decided 2026-11-25):** nothing in files.gg used it, and a shared-secret URL fetcher was a needless abuse risk. Delete the `PROXY_SECRET` Worker secret and the `proxy.files.gg` DNS record when deploying.
 - Never share a Snowflake lease across a fork: each Sanic worker process leases its own in `before_server_start`.
 - Users will notice: direct CDN links to PDFs and other non-media files now download instead of opening, and XML shows as text.
 

@@ -15,6 +15,7 @@ function AdminNav({ open, admin }: { open: number; admin: boolean }) {
     { to: '/admin/queue', label: 'Queue', count: open },
     { to: '/admin/bugs', label: 'Bugs' },
     { to: '/admin/lookup', label: 'Lookup' },
+    { to: '/admin/domains', label: 'Domains' },
     { to: '/admin/bans', label: 'Bans' },
     ...(admin ? [{ to: '/admin/audit', label: 'Audit log' }] : []),
   ];

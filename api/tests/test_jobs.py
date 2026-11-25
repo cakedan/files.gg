@@ -175,7 +175,9 @@ def test_only_the_known_kinds_are_registered_by_default():
                                             # Milestone 4: scanning (safety/scan.py)
                                             'scan', 'rescan', 'pdq_sweep', 'album_text_scan', 'delete_objects',
                                             # §3.6, queued with every CSAM match (safety/csam.py)
-                                            'csam_handle'}
+                                            'csam_handle',
+                                            # Milestone 6: Cloudflare hostnames and data exports (jobs/accounts.py)
+                                            'domain_delete', 'account_export'}
 
 
 def test_queues_are_isolated(migrated_db):

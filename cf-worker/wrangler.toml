@@ -1,7 +1,7 @@
 #:schema node_modules/wrangler/config-schema.json
 # files.gg edge Worker: files.gg pages (the viewer and dashboard from web/dist), cdn.files.gg (files,
-# previews, album collages and ZIPs from B2), the api.files.gg passthrough, proxy.files.gg, and
-# customers' custom domains (Cloudflare for SaaS, Worker as origin). See README.md.
+# previews, album collages and ZIPs from B2), the api.files.gg passthrough, and customers' custom
+# domains (Cloudflare for SaaS, Worker as origin). See README.md.
 #
 # Build order: `npm run build` in ../web first (it writes ../web/dist), then deploy this Worker.
 name = "files-gg"
@@ -20,7 +20,6 @@ routes = [
   { pattern = "files.gg/*", zone_name = "files.gg" },
   { pattern = "cdn.files.gg/*", zone_name = "files.gg" },
   { pattern = "api.files.gg/*", zone_name = "files.gg" },
-  { pattern = "proxy.files.gg/*", zone_name = "files.gg" },
   { pattern = "*/*", zone_name = "files.gg" },
 ]
 
@@ -41,7 +40,6 @@ not_found_handling = "none"
 # MAIN_HOST = "files.gg"          # also answers on www.<MAIN_HOST>
 # CDN_HOST = "cdn.files.gg"
 # API_HOST = "api.files.gg"       # also the default API origin when API_ORIGIN is unset
-# PROXY_HOST = "proxy.files.gg"
 
 # The web session cookie the Worker forwards on MAIN_HOST/api/* (and nowhere else). Unset, it is
 # the production name, __Host-filesgg_session; the plain-http local stack (e2e/) sets
@@ -68,7 +66,6 @@ S3_BUCKET_FILES = ""
 #                              Unset: protected targets can't be opened on the CDN (401/404).
 #   S3_READ_ACCESS_KEY_ID      B2 application key id with readFiles only, scoped to the files bucket.
 #   S3_READ_SECRET_ACCESS_KEY  Its secret.
-#   PROXY_SECRET               Callers of proxy.files.gg send it as X-Proxy-Token. Unset: 403.
 #
 # Generate shared secrets with `openssl rand -hex 32`. For `npm run dev`, put local values in
 # .dev.vars (git-ignored).

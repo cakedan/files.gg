@@ -16,7 +16,7 @@ from tests.conftest import (
 )
 from utils import access_token
 from utils.generators import Snowflake
-from utils.tokens import FingerprintToken, UserToken
+from utils.tokens import FingerprintToken
 
 # the API's unlock tokens are signed with SECRET_KEY (milestone-3 §3)
 SECRET = SECRET_KEY
@@ -40,12 +40,11 @@ def seeded(appdb):
 
 
 def new_user(appdb, override=None):
-    user_id = Snowflake.generate()
-    appdb.execute(
-        'INSERT INTO users (id, email, bot, username, discriminator, flags, verified, last_email_reset_at, '
-        'last_password_reset_at, storage_limit_override) VALUES (%s, %s, false, %s, 1, 0, true, '
-        "to_timestamp(1500000000), to_timestamp(1500000000), %s)", (user_id, 'm2{}@example.com'.format(user_id), 'm2{}'.format(user_id), override))
-    return user_id, {'Authorization': UserToken.generate(user_id)}
+    """A verified user, and headers for a signed-in website request (milestone-6: the session cookie, as the
+    Worker forwards it from files.gg/api, with the CSRF header)."""
+    from tests.conftest import make_user, sign_in
+    user_id = make_user(appdb, username='m2{}'.format(Snowflake.generate()), override=override)
+    return user_id, sign_in(user_id, appdb)
 
 
 def anonymous(ip=None):
@@ -102,7 +101,7 @@ def test_api_tokens_use_secret_key(client, seeded):
     claims = access_token.decode(token, SECRET_KEY)
     assert claims is not None and access_token.decode(token, VECTOR_SECRET) is None
     forged = access_token.mint(claims, VECTOR_SECRET)
-    response = client.get('/files/{}/view'.format(created['vanity']), headers={'X-Filesgg-Access': forged})
+    response = client.get('/access/view/files/{}'.format(created['vanity']), headers={'X-Filesgg-Access': forged})
     assert (response.status_code, response.json()['code']) == (401, 'UNLOCK_EXPIRED')
 
 
@@ -157,24 +156,28 @@ async def test_turnstile_live_testing_keys():
 
 
 def test_login_takes_turnstile_token(client, appdb):
+    from tests.conftest import VIA_MAIN
     user_id, _ = new_user(appdb)
-    email = 'm2{}@example.com'.format(user_id)
+    email = appdb.fetchone('SELECT email FROM users WHERE id = %s', (user_id,))[0]
     for token in (FAILING_TOKEN, turnstile_token('upload'), None):  # a token from another form fails too
-        response = client.post('/auth/login', json={'email': email, 'password': 'whatever1',
-                                                    'turnstile_token': token})
+        response = client.post('/auth/login', headers=VIA_MAIN, json={'email': email, 'password': 'whatever1',
+                                                                      'turnstile_token': token})
         assert response.json() == {'code': 'CAPTCHA_INVALID', 'message': 'Human verification failed', 'status': 403}
     # the old reCAPTCHA field name isn't read any more
-    response = client.post('/auth/login', json={'email': email, 'password': 'whatever1', 'captcha': LOGIN_TOKEN})
+    response = client.post('/auth/login', headers=VIA_MAIN, json={'email': email, 'password': 'whatever1',
+                                                                  'captcha': LOGIN_TOKEN})
     assert response.json()['code'] == 'CAPTCHA_INVALID'
-    response = client.post('/auth/login', json={'email': email, 'password': 'whatever1', 'turnstile_token': LOGIN_TOKEN})
+    response = client.post('/auth/login', headers=VIA_MAIN, json={'email': email, 'password': 'whatever1',
+                                                                  'turnstile_token': LOGIN_TOKEN})
     assert response.json()['code'] == 'INVALID_CREDENTIALS'  # got past Turnstile
 
 
 # --- single-request uploads -------------------------------------------------------------------------
 
 def test_anonymous_upload_needs_turnstile(client, seeded):
+    # milestone-6 §7.5: no credential and no turnstile_token at all is a tool upload: it needs an upload key
     response = client.post('/files', headers=anonymous(), files={'file': ('a.txt', b'hello', 'text/plain')})
-    assert response.status_code == 403 and response.json()['code'] == 'CAPTCHA_INVALID'
+    assert response.status_code == 401 and response.json()['code'] == 'UPLOAD_KEY_REQUIRED'
     for token in (FAILING_TOKEN, UNLOCK_TOKEN, turnstile_token('upload', 'evil.example')):
         response = client.post('/files', headers=anonymous(), files={'file': ('a.txt', b'hello', 'text/plain')},
                                data={'turnstile_token': token})
@@ -198,8 +201,13 @@ def test_upload_response_is_the_file_payload(client, seeded):
     created = upload(client, headers, name='notes.txt')
     # milestone-4 §6.2: upload responses also carry the owner's `safety`
     assert created['safety']['state'] == 'ok'
-    assert {k: v for k, v in created.items() if k != 'safety'} == client.get('/files/' + created['vanity']).json() | {
-        'views': 0}
+    # milestone-6 §10.9: and `direct_url` (on cdn.files.gg without a custom domain); §19.6: the owner's
+    # view-limit fields
+    assert created['direct_url'] == created['cdn_url']
+    assert (created['view_limit'], created['view_limit_action'], created['views_used']) == (None, 'expire', 0)
+    owner_only = ('safety', 'direct_url', 'view_limit', 'view_limit_action', 'views_used')
+    assert {k: v for k, v in created.items() if k not in owner_only} == client.get(
+        '/files/' + created['vanity']).json() | {'views': 0}
     assert created['filename'] == 'notes.txt' and created['processing'] is True and created['assets'] == {}
     assert_unsigned(created['cdn_url'])
     # a protected upload's URLs are signed for its owner (1 h)
@@ -327,8 +335,14 @@ def test_limits_endpoint(client, seeded):
     upload(client, headers, content=b'y' * 100)
     assert client.get('/users/@me/limits', headers=headers).json() == {
         'storage': {'used': 100, 'limit': 10737418240},
-        'max_file_size_single': 104857600,
+        # milestone-6 §9.2: capped by PROXY_BODY_LIMIT_BYTES (100,000,000) less 1 MiB of framing, for everyone
+        'max_file_size_single': 98951424,
+        'max_file_size_single_configured': 104857600,
         'max_file_size_chunked': 1073741824,
+        'premium': False,
+        'custom_domains': {'used': 0, 'limit': 0},
+        'upload_keys': {'used': 0, 'limit': 20},
+        'domain_only_allowed': False,
         'max_expiry': None,
         'allow_no_expiry': True,
         'anonymous': False,
@@ -356,7 +370,7 @@ def protected(client, seeded, **fields):
 
 def unlock(client, vanity, password, token=UNLOCK_TOKEN, ip=None):
     headers = {'X-Forwarded-For': ip or '10.1.{}.{}'.format(uuid.uuid4().int % 250, uuid.uuid4().int % 250)}
-    return client.post('/files/{}/unlock'.format(vanity), json={'password': password, 'turnstile_token': token},
+    return client.post('/access/unlock/files/{}'.format(vanity), json={'password': password, 'turnstile_token': token},
                        headers=headers)
 
 
@@ -425,12 +439,12 @@ def test_private_files_are_404_to_everyone_but_the_owner(client, seeded):
     assert client.get('/files/' + vanity, headers=owner).status_code == 200
     response = unlock(client, vanity, 'x')
     assert (response.status_code, response.json()['code']) == (404, 'UNKNOWN_FILE')
-    response = client.get('/files/{}/view'.format(vanity), headers={'X-Filesgg-Access': 'nope'})
+    response = client.get('/access/view/files/{}'.format(vanity), headers={'X-Filesgg-Access': 'nope'})
     assert (response.status_code, response.json()['code']) == (404, 'UNKNOWN_FILE')
-    assert client.get('/files/{}/view'.format(vanity)).json()['code'] == 'UNKNOWN_FILE'
+    assert client.get('/access/view/files/{}'.format(vanity)).json()['code'] == 'UNKNOWN_FILE'
     # the owner's pass opens it
     owner_pass = client.post('/users/@me/files/{}/pass'.format(created['id']), headers=owner).json()
-    response = client.get('/files/{}/view'.format(vanity), headers={'X-Filesgg-Access': owner_pass['token']})
+    response = client.get('/access/view/files/{}'.format(vanity), headers={'X-Filesgg-Access': owner_pass['token']})
     assert response.status_code == 200 and response.json()['file']['id'] == created['id']
     assert response.json()['expires_at'] == owner_pass['expires_at']
     assert_signed(response.json()['file']['cdn_url'], 'file:{}:0'.format(created['id']),
@@ -456,7 +470,7 @@ def test_view_endpoint(client, seeded, caplog):
     vanity = created['vanity']
     token = unlock(client, vanity, 'hunter222').json()['token']
     caplog.set_level('DEBUG')
-    response = client.get('/files/{}/view'.format(vanity), headers={'X-Filesgg-Access': token})
+    response = client.get('/access/view/files/{}'.format(vanity), headers={'X-Filesgg-Access': token})
     assert response.status_code == 200
     assert response.json()['expires_at'] == access_token.decode(token, SECRET)['e']
     assert response.json()['file']['id'] == created['id']
@@ -465,12 +479,12 @@ def test_view_endpoint(client, seeded, caplog):
     assert token not in caplog.text
     for bad in (None, 'garbage', VECTORS[0][1]):
         headers = {'X-Filesgg-Access': bad} if bad else {}
-        response = client.get('/files/{}/view'.format(vanity), headers=headers)
+        response = client.get('/access/view/files/{}'.format(vanity), headers=headers)
         assert (response.status_code, response.json()['code']) == (401, 'UNLOCK_EXPIRED')
     # an expired token
     claims = access_token.decode(token, SECRET)
     expired = access_token.mint(dict(claims, e=int(time.time()) - 1), SECRET)
-    assert client.get('/files/{}/view'.format(vanity), headers={'X-Filesgg-Access': expired}).status_code == 401
+    assert client.get('/access/view/files/{}'.format(vanity), headers={'X-Filesgg-Access': expired}).status_code == 401
 
 
 def test_refresh(client, seeded):
@@ -480,7 +494,7 @@ def test_refresh(client, seeded):
     claims = access_token.decode(token, SECRET)
     assert claims['e'] == claims['u'] + 86400
 
-    response = client.post('/files/{}/unlock/refresh'.format(vanity), json={'token': token})
+    response = client.post('/access/refresh/files/{}'.format(vanity), json={'token': token})
     refreshed = access_token.decode(response.json()['token'], SECRET)
     assert refreshed['u'] == claims['u']  # keeps the unlock time
     assert abs(refreshed['e'] - (time.time() + 3600)) < 5  # min(now + 3600, u + ttl, ...)
@@ -490,12 +504,12 @@ def test_refresh(client, seeded):
 
     # capped by u + unlock_ttl: an old unlock can't be refreshed past it
     old = access_token.mint(dict(claims, u=int(time.time()) - 86400 + 10, e=int(time.time()) + 10), SECRET)
-    response = client.post('/files/{}/unlock/refresh'.format(vanity), json={'token': old})
+    response = client.post('/access/refresh/files/{}'.format(vanity), json={'token': old})
     assert response.json()['expires_at'] <= int(time.time()) + 10
     spent = access_token.mint(dict(claims, u=int(time.time()) - 86400 - 1, e=int(time.time()) + 10), SECRET)
-    response = client.post('/files/{}/unlock/refresh'.format(vanity), json={'token': spent})
+    response = client.post('/access/refresh/files/{}'.format(vanity), json={'token': spent})
     assert (response.status_code, response.json()['code']) == (401, 'UNLOCK_EXPIRED')
-    assert client.post('/files/{}/unlock/refresh'.format(vanity), json={'token': 'x'}).status_code == 401
+    assert client.post('/access/refresh/files/{}'.format(vanity), json={'token': 'x'}).status_code == 401
 
 
 def test_owner_pass_refresh(client, seeded):
@@ -506,7 +520,7 @@ def test_owner_pass_refresh(client, seeded):
         owner_pass = client.post('/users/@me/files/{}/pass'.format(created['id']), headers=owner).json()['token']
         claims = access_token.decode(owner_pass, SECRET)
 
-        response = client.post('/files/{}/unlock/refresh'.format(vanity), json={'token': owner_pass})
+        response = client.post('/access/refresh/files/{}'.format(vanity), json={'token': owner_pass})
         assert response.status_code == 200, response.text
         refreshed = access_token.decode(response.json()['token'], SECRET)
         assert refreshed['s'] == 'owner' and refreshed['u'] == claims['u']
@@ -515,28 +529,91 @@ def test_owner_pass_refresh(client, seeded):
         # capped 12 h after minting
         now = int(time.time())
         old = access_token.mint(dict(claims, u=now - 43200 + 100, e=now + 50), SECRET)
-        response = client.post('/files/{}/unlock/refresh'.format(vanity), json={'token': old})
+        response = client.post('/access/refresh/files/{}'.format(vanity), json={'token': old})
         assert response.json()['expires_at'] == now - 43200 + 100 + 43200
         spent = access_token.mint(dict(claims, u=now - 43201, e=now + 50), SECRET)
-        response = client.post('/files/{}/unlock/refresh'.format(vanity), json={'token': spent})
+        response = client.post('/access/refresh/files/{}'.format(vanity), json={'token': spent})
         assert (response.status_code, response.json()['code']) == (401, 'UNLOCK_EXPIRED')
         # access_version still has to match
         stale = access_token.mint(dict(claims, v=claims['v'] + 1), SECRET)
-        response = client.post('/files/{}/unlock/refresh'.format(vanity), json={'token': stale})
+        response = client.post('/access/refresh/files/{}'.format(vanity), json={'token': stale})
         expected = (404, 'UNKNOWN_FILE') if visibility == 'private' else (401, 'UNLOCK_EXPIRED')
         assert (response.status_code, response.json()['code']) == expected
         # a private file is never confirmed without an owner pass
         if visibility == 'private':
             unlock_scope = access_token.mint(dict(claims, s='unlock'), SECRET)
-            response = client.post('/files/{}/unlock/refresh'.format(vanity), json={'token': unlock_scope})
+            response = client.post('/access/refresh/files/{}'.format(vanity), json={'token': unlock_scope})
             assert (response.status_code, response.json()['code']) == (404, 'UNKNOWN_FILE')
 
 
 def test_unknown_album_access_endpoints(client):
-    for path, method in (('/albums/abc/unlock', 'POST'), ('/albums/abc/unlock/refresh', 'POST'),
-                         ('/albums/abc/view', 'GET')):
+    for path, method in (('/access/unlock/albums/abc', 'POST'), ('/access/refresh/albums/abc', 'POST'),
+                         ('/access/view/albums/abc', 'GET')):
         response = client.request(method, path, json={} if method == 'POST' else None)
         assert (response.status_code, response.json()['code']) == (404, 'UNKNOWN_ALBUM')
+
+
+def test_access_routes_put_the_vanity_last(client, seeded):
+    """milestone-6 §20.1: unlock, refresh, view and open are `/access/<action>/files/<vanity>`. The old paths after
+    a vanity are gone: 404 whatever the method, never an alias."""
+    created, owner = protected(client, seeded, password='hunter222')
+    vanity = created['vanity']
+    unlocked = unlock(client, vanity, 'hunter222')
+    assert unlocked.status_code == 200, unlocked.text
+    token = unlocked.json()['token']
+    response = client.get('/access/view/files/' + vanity, headers={'X-Filesgg-Access': token})
+    assert response.status_code == 200 and response.json()['file']['id'] == created['id']
+    response = client.post('/access/refresh/files/' + vanity, json={'token': token})
+    assert response.status_code == 200 and response.json()['file']['id'] == created['id']
+    # `open` is for view-limited files: without Turnstile it's refused, but the route is there
+    response = client.post('/access/open/files/' + vanity, json={})
+    assert (response.status_code, response.json()['code']) == (403, 'CAPTCHA_INVALID')
+    for method, path, body in (
+            ('POST', '/files/{}/unlock', {'password': 'hunter222', 'turnstile_token': UNLOCK_TOKEN}),
+            ('POST', '/files/{}/unlock/refresh', {'token': token}),
+            ('POST', '/files/{}/open', {'turnstile_token': UNLOCK_TOKEN}),
+            ('GET', '/files/{}/view', None),
+            ('POST', '/albums/{}/unlock', {'password': 'hunter222', 'turnstile_token': UNLOCK_TOKEN}),
+            ('POST', '/albums/{}/unlock/refresh', {'token': token}),
+            ('GET', '/albums/{}/view', None)):
+        response = client.request(method, path.format(vanity), json=body, headers={'X-Filesgg-Access': token})
+        assert response.status_code == 404, (method, path, response.text)
+        assert response.json()['code'] in ('NOT_FOUND', 'UNKNOWN_FILE'), (method, path)
+    # nothing comes after a vanity, so no other method on /files/<anything> is a route either
+    for method in ('POST', 'PUT', 'PATCH', 'DELETE'):
+        assert client.request(method, '/files/' + vanity, json={}).status_code == 404, method
+    # the unknown access paths: another action, kind, or nothing after the kind
+    for method, path in (('POST', '/access/lock/files/' + vanity), ('POST', '/access/unlock/users/' + vanity),
+                         ('GET', '/access/view/' + vanity), ('GET', '/access/view/files'),
+                         ('POST', '/access/unlock/albums/{}/x'.format(vanity))):
+        assert client.request(method, path, json={}).status_code in (404, 405), (method, path)
+
+
+def test_word_vanities_never_match_an_action(client, seeded):
+    """milestone-6 §20.3: a multi-segment vanity made of words (`unlock/view`, `report/x`) never matches an action
+    route, and resolves only through `GET /files/<vanity>` (and the access routes, as itself)."""
+    parent, owner = protected(client, seeded, password='hunter222')
+    words = upload(client, owner)
+    report_x = upload(client, owner)
+    # reserved segments: no upload can choose these, so they're set directly
+    for created, vanity in ((parent, 'unlock'), (words, 'unlock/view'), (report_x, 'report/x')):
+        seeded.execute('UPDATE files SET vanity = %s WHERE id = %s', (vanity, int(created['id'])))
+    assert client.get('/files/unlock/view').json()['id'] == words['id']
+    assert client.get('/files/report/x').json()['id'] == report_x['id']
+    assert client.get('/files/unlock').json() == {'vanity': 'unlock', 'protected': 'password'}
+    # `unlock/view` is a vanity, not the view action of `unlock`, and `unlock/unlock` unlocks nothing
+    token = unlock(client, 'unlock', 'hunter222').json()['token']
+    response = client.get('/files/unlock/view', headers={'X-Filesgg-Access': token})
+    assert response.status_code == 200 and response.json()['id'] == words['id']
+    response = client.post('/files/unlock/unlock', json={'password': 'hunter222', 'turnstile_token': UNLOCK_TOKEN})
+    assert (response.status_code, response.json()['code']) == (404, 'NOT_FOUND')
+    # the access routes read the whole rest of the path as the vanity
+    response = client.get('/access/view/files/unlock', headers={'X-Filesgg-Access': token})
+    assert response.status_code == 200 and response.json()['file']['id'] == parent['id']
+    response = client.get('/access/view/files/unlock/view', headers={'X-Filesgg-Access': token})
+    assert (response.status_code, response.json()['code']) == (401, 'UNLOCK_EXPIRED')
+    response = client.post('/access/unlock/files/report/x', json={'password': 'x', 'turnstile_token': UNLOCK_TOKEN})
+    assert response.status_code == 200 and response.json()['file']['id'] == report_x['id']
 
 
 def test_visibility_is_in_every_public_payload(client, seeded):
@@ -544,13 +621,13 @@ def test_visibility_is_in_every_public_payload(client, seeded):
     vanity = created['vanity']
     unlocked = unlock(client, vanity, 'hunter222').json()
     assert unlocked['file']['visibility'] == 'password'
-    view = client.get('/files/{}/view'.format(vanity), headers={'X-Filesgg-Access': unlocked['token']}).json()
+    view = client.get('/access/view/files/{}'.format(vanity), headers={'X-Filesgg-Access': unlocked['token']}).json()
     assert view['file']['visibility'] == 'password'
     lookup = client.get('/internal/files/' + vanity, headers=ORIGIN).json()
     assert lookup['file']['visibility'] == 'password' == lookup['access']['visibility']
     private, owner = protected(client, seeded, visibility='private')
     owner_pass = client.post('/users/@me/files/{}/pass'.format(private['id']), headers=owner).json()['token']
-    view = client.get('/files/{}/view'.format(private['vanity']), headers={'X-Filesgg-Access': owner_pass}).json()
+    view = client.get('/access/view/files/' + private['vanity'], headers={'X-Filesgg-Access': owner_pass}).json()
     assert view['file']['visibility'] == 'private'
     link = upload(client, owner)
     assert client.get('/internal/files/' + link['vanity'], headers=ORIGIN).json()['file']['visibility'] == 'link'
@@ -560,7 +637,7 @@ def test_changing_access_revokes_tokens(client, seeded):
     created, owner = protected(client, seeded, password='hunter222')
     vanity, file_id = created['vanity'], created['id']
     token = unlock(client, vanity, 'hunter222').json()['token']
-    view = lambda t: client.get('/files/{}/view'.format(vanity), headers={'X-Filesgg-Access': t}).status_code  # noqa
+    view = lambda t: client.get('/access/view/files/' + vanity, headers={'X-Filesgg-Access': t}).status_code  # noqa
     assert view(token) == 200
 
     # lengthening unlock_ttl: no bump, the token still works
@@ -638,7 +715,11 @@ def test_internal_lookup(client, seeded):
     assert body['storage'] == {'key': 'files/' + hash_of(seeded, created), 'size': created['size']}
     assert body['previews'] == {} and body['previews_version'] is None
     assert set(body) == {'file', 'access', 'owner_user_id', 'albums', 'storage', 'previews', 'previews_version',
-                         'safety', 'serve_inline'}
+                         'safety', 'serve_inline',
+                         # milestone-6 §10.7
+                         'owner_state', 'served_on',
+                         # milestone-6 §19.5
+                         'view_limit'}
 
     anon = upload(client, anonymous(), turnstile_token=TURNSTILE_TOKEN)
     body = client.get('/internal/files/' + anon['vanity'], headers=ORIGIN).json()
@@ -746,6 +827,10 @@ def test_chunked_limits_reservations_and_delete(client, seeded, small_chunks, mo
 def test_anonymous_chunked_uploads(client, seeded, small_chunks):
     fingerprint = anonymous()
     response = client.post('/uploads', headers=fingerprint, json={'filename': 'x.bin', 'size': 100})
+    # milestone-6 §7.5: no credential and no turnstile_token at all needs an upload key
+    assert (response.status_code, response.json()['code']) == (401, 'UPLOAD_KEY_REQUIRED')
+    response = client.post('/uploads', headers=fingerprint, json={'filename': 'x.bin', 'size': 100,
+                                                                  'turnstile_token': FAILING_TOKEN})
     assert (response.status_code, response.json()['code']) == (403, 'CAPTCHA_INVALID')
     response = client.post('/uploads', headers=fingerprint,
                            json={'filename': 'x.bin', 'size': 26214401, 'turnstile_token': TURNSTILE_TOKEN})
@@ -977,12 +1062,17 @@ async def test_email_links_follow_public_url(monkeypatch):
     async def fake_send(**kwargs):
         sent.append(kwargs)
 
-    monkeypatch.setattr(auth_views.Email, 'send', fake_send)
-    await auth_views.send_verify_email('a@example.com', 'alice', 'tok')
+    # milestone-6 §2.5: the token is in the fragment of an /app page
+    from utils import mail
+    from utils.email import Email
+    monkeypatch.setattr(Email, 'send', fake_send)
+    await mail.send([mail.verify_email('a@example.com', 'alice', 'tok')])
     monkeypatch.setenv('PUBLIC_URL', 'https://staging.example')
-    await auth_views.send_verify_email('a@example.com', 'alice', 'tok')
-    assert 'https://files.gg/auth/verify/tok' in sent[0]['text']
-    assert 'https://staging.example/auth/verify/tok' in sent[1]['text']
+    await mail.send([mail.verify_email('a@example.com', 'alice', 'tok'), mail.reset_password('a@example.com', 'alice',
+                                                                                             'tok')])
+    assert 'https://files.gg/app/verify#token=tok' in sent[0]['text']
+    assert 'https://staging.example/app/verify#token=tok' in sent[1]['text']
+    assert 'https://staging.example/app/reset#token=tok' in sent[2]['text']
 
 
 # --- dev tools ------------------------------------------------------------------------------------
@@ -1005,23 +1095,27 @@ def test_create_user_refuses_without_dev_tools(migrated_db):
     assert migrated_db.fetchone('SELECT count(*) FROM users')[0] == 0
 
 
-def test_create_user_creates_a_verified_user_with_a_working_token(migrated_db):
-    from werkzeug.security import check_password_hash
+def test_create_user_creates_a_verified_user_with_a_working_session(migrated_db):
+    """Rewritten for milestone-6 §3 (was: a UserToken and a Werkzeug hash): an argon2id password and a session
+    row whose token is printed for the session cookie."""
+    from utils import credentials, passwords
     result = run_create_user(migrated_db.url, '--username', 'devuser', '--password', 'devpass123',
                              FILESGG_DEV_TOOLS='1')
     assert result.returncode == 0, result.stderr
     created = json.loads(result.stdout)
     assert created['username'] == 'devuser' and created['email'] == 'devuser@files.localhost'
-    # signed with the same SECRET_KEY as the API (conftest), for this user
-    assert UserToken.validate(created['token'])
-    assert int(UserToken.deconstruct(created['token'])) == int(created['id'])
-    row = migrated_db.fetchone('SELECT id, verified, password FROM users')
-    assert str(row[0]) == created['id'] and row[1] is True and check_password_hash(row[2], 'devpass123')
+    session = created['session']
+    assert session['name'] == '__Host-filesgg_session' and credentials.well_formed(session['value'], 'fgs_')
+    assert migrated_db.fetchone('SELECT user_id FROM sessions WHERE token_hash = %s',
+                                (credentials.token_hash(session['value']),))[0] == int(created['id'])
+    row = migrated_db.fetchone('SELECT id, email_verified, password_hash FROM users')
+    assert str(row[0]) == created['id'] and row[1] is True and passwords.verify_account_sync(row[2], 'devpass123')
 
-    # again: same user, new password
+    # again: same user, new password, and the insecure cookie name for the local http stack
     result = run_create_user(migrated_db.url, '--username', 'devuser', '--password', 'another123',
-                             FILESGG_DEV_TOOLS='1')
+                             FILESGG_DEV_TOOLS='1', SESSION_COOKIE_INSECURE='1')
     assert result.returncode == 0, result.stderr
-    assert json.loads(result.stdout)['id'] == created['id']
+    again = json.loads(result.stdout)
+    assert again['id'] == created['id'] and again['session']['name'] == 'filesgg_session'
     assert migrated_db.fetchone('SELECT count(*) FROM users')[0] == 1
-    assert check_password_hash(migrated_db.fetchone('SELECT password FROM users')[0], 'another123')
+    assert passwords.verify_account_sync(migrated_db.fetchone('SELECT password_hash FROM users')[0], 'another123')

@@ -1,4 +1,4 @@
-// The API passthrough and proxy.files.gg, on the real Worker (workerd) against local mocks.
+// The API passthrough on the real Worker (workerd) against local mocks.
 import { after, before, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 
@@ -140,45 +140,5 @@ describe('API passthrough', () => {
     assert.equal(lastUpstream().headers['x-filesgg-origin-secret'], SECRETS.ORIGIN_SHARED_SECRET);
     assert.equal(response.headers['access-control-allow-origin'], '*');
     assert.equal(response.headers['access-control-allow-credentials'], undefined);
-  });
-});
-
-
-describe('proxy.files.gg', () => {
-  const target = () => encodeURIComponent(`${upstream.origin}/remote/img.png`);
-
-  it('is 403 without a PROXY_SECRET binding, whatever the token', async () => {
-    for (const token of [undefined, 'lol', '']) {
-      const headers = (token === undefined) ? {} : { 'x-proxy-token': token };
-      const response = await worker.request(`https://proxy.files.gg/download/${target()}`, { headers });
-      assert.equal(response.status, 403);
-    }
-    assert.ok(!upstream.requests.some((r) => r.path.startsWith('/remote/')));
-  });
-
-  it('with the secret, accepts only the right token and never forwards it', async () => {
-    const proxied = await startWorker({ upstream, s3 }, { secrets: { ...SECRETS, PROXY_SECRET: 'proxy-secret' } });
-    try {
-      const wrong = await proxied.request(`https://proxy.files.gg/download/${target()}`, { headers: { 'x-proxy-token': 'lol' } });
-      assert.equal(wrong.status, 403);
-
-      const right = await proxied.request(`https://proxy.files.gg/download/${target()}`, { headers: { 'x-proxy-token': 'proxy-secret' } });
-      assert.equal(right.status, 200);
-      assert.equal(right.text, 'PNG');
-      assert.equal(lastUpstream().path, '/remote/img.png');
-      assert.equal(lastUpstream().headers['x-proxy-token'], undefined);
-      // a third party's response can't set cookies on files.gg or run as a page there
-      assert.equal(right.headers['set-cookie'], undefined);
-      assert.equal(right.headers['content-security-policy'], 'sandbox');
-      assert.equal(right.headers['x-content-type-options'], 'nosniff');
-
-      const unfurl = await proxied.request(`https://proxy.files.gg/unfurl/${encodeURIComponent(`${upstream.origin}/remote/page.html`)}`, {
-        headers: { 'x-proxy-token': 'proxy-secret' },
-      });
-      assert.equal(unfurl.status, 200);
-      assert.equal(JSON.parse(unfurl.text).imageUrl, `${upstream.origin}/img.png`);
-    } finally {
-      await proxied.close();
-    }
   });
 });

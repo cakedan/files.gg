@@ -2,7 +2,7 @@ import { screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import type { Badges } from '../lib/api';
-import { calls, ME, NO_BADGES, renderDashboard, stubApi } from '../test/apiStub';
+import { calls, ME, NO_BADGES, renderDashboard, signIn, signOut, stubApi } from '../test/apiStub';
 
 const SUMMARY = {
   open: { p0: 1, p1: 2, p2: 0, p3: 1 },
@@ -29,7 +29,7 @@ function stub(me: object, badges: Partial<Badges> = {}) {
 
 const nav = () => screen.getByRole('navigation', { name: 'Dashboard' });
 
-beforeEach(() => localStorage.setItem('filesgg.token', 'tok'));
+beforeEach(() => signIn());
 afterEach(() => localStorage.clear());
 
 describe('dashboard layout (milestone-4 §11.2)', () => {
@@ -59,7 +59,7 @@ describe('dashboard layout (milestone-4 §11.2)', () => {
   });
 
   it('signed out, /admin is not found and nothing asks who you are', async () => {
-    localStorage.clear();
+    signOut();
     const fetchMock = stub(ME);
     renderDashboard('/admin');
     expect(await screen.findByRole('heading', { name: 'Page not found' })).toBeInTheDocument();
@@ -75,13 +75,14 @@ describe('dashboard layout (milestone-4 §11.2)', () => {
     expect(await screen.findByRole('link', { name: '1 child-safety or P0 case is open' })).toHaveAttribute('href', '/admin/queue?priority=0');
   });
 
-  it('a suspended account sees only Notices, with the explanation', async () => {
+  it('a suspended account sees only Notices and its Security settings, with the explanation (milestone-6 §11.1)', async () => {
     stub(ME, { notices_unacknowledged: 1, restrictions: [{ kind: 'suspended', until: null, notice_id: 'n1' }] });
     const router = renderDashboard('/files');
     expect(await screen.findByText('Your account has been suspended')).toBeInTheDocument();
     await waitFor(() => expect(router.state.location.pathname).toBe('/notices'));
     expect(await screen.findByRole('heading', { level: 1, name: 'Notices' })).toBeInTheDocument();
-    expect(within(nav()).getAllByRole('link').map((each) => each.textContent)).toEqual(['Notices1, 1 new']);
+    expect(within(nav()).getAllByRole('link').map((each) => each.textContent)).toEqual(['Settings', 'Notices1, 1 new']);
+    expect(within(nav()).getByRole('link', { name: 'Settings' })).toHaveAttribute('href', '/settings/security');
     expect(screen.queryByText(/You have \d+ notices?/)).not.toBeInTheDocument();
   });
 });

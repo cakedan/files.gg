@@ -2,7 +2,7 @@ import { fireEvent, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import type { Notice } from '../../lib/api';
-import { calls, jsonResponse, ME, NO_BADGES, renderDashboard, stubApi } from '../../test/apiStub';
+import { calls, jsonResponse, ME, NO_BADGES, renderDashboard, stubApi, signIn } from '../../test/apiStub';
 
 const now = Math.floor(Date.now() / 1000);
 
@@ -45,7 +45,7 @@ function stub() {
 }
 
 beforeEach(() => {
-  localStorage.setItem('filesgg.token', 'tok');
+  signIn();
   items = [
     notice(),
     notice({ id: 'n2', action: 'hide', rule: 'harassment', rule_text: 'Harassment', message: null, target: { kind: 'file', id: 'f2', name: 'meme.png' } }),

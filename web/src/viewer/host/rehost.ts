@@ -28,7 +28,7 @@ export const rehostToHost = (url: string, host: string, sourceOrigins: readonly 
 const isUrlKey = (key: string) => key === 'url' || key.endsWith('_url');
 
 /**
- * Rehosts every URL in an API response (unlock, `/view`, refresh, album pages): the
+ * Rehosts every URL in an API response (unlock, view, refresh, open, album pages): the
  * string values of `url` and `*_url` keys, at any depth. Returns a copy; other values
  * (filenames, captions, `link_warnings`) are never touched.
  */

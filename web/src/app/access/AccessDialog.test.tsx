@@ -2,16 +2,17 @@ import { QueryClientProvider } from '@tanstack/react-query';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { createQueryClient } from '../../lib/queryClient';
 import { json, ownerFile } from '../../test/ownerFiles';
 import { Toaster } from '../components/Toaster';
 import { AccessDialog, type AccessDialogTarget } from './AccessDialog';
+import { signedInQueryClient } from '../../test/session';
+import { apiUrl } from '../../test/apiStub';
 
 const writeText = vi.fn(async () => undefined);
 
 function renderDialog(target: AccessDialogTarget, onClose = vi.fn()) {
   render(
-    <QueryClientProvider client={createQueryClient()}>
+    <QueryClientProvider client={signedInQueryClient()}>
       <Toaster>
         <AccessDialog target={target} anonymous={false} onClose={onClose} />
       </Toaster>
@@ -22,11 +23,10 @@ function renderDialog(target: AccessDialogTarget, onClose = vi.fn()) {
 
 const sent = () => {
   const [url, init] = vi.mocked(fetch).mock.calls.at(-1)!;
-  return { path: new URL(String(url)).pathname, method: init?.method, body: JSON.parse(String(init?.body)) };
+  return { path: apiUrl(url).pathname, method: init?.method, body: JSON.parse(String(init?.body)) };
 };
 
 beforeEach(() => {
-  localStorage.setItem('filesgg.token', 'tok');
   Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
   writeText.mockClear();
 });

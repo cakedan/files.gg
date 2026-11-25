@@ -3,10 +3,11 @@ import { useEffect, useId, useState } from 'react';
 import { Link, useSearchParams } from 'react-router';
 
 import { Button } from '../../components/Button';
-import { hasToken, REPORT_STATUSES, type ReportStatus } from '../../lib/api';
+import { REPORT_STATUSES, type ReportStatus } from '../../lib/api';
 import { errorMessage } from '../../lib/errors';
 import { pageCount, PAGE_SIZE } from '../../lib/files/urlState';
-import { useMyReports } from '../../lib/queries';
+import { useMyReports, useSignedIn } from '../../lib/queries';
+import { SignInLink } from '../components/SignInLink';
 import { epochMs, formatFullDate, formatRelative, RELATIVE_REFRESH_MS } from '../../lib/time';
 import { useNow } from '../../lib/useNow';
 import { fieldClass } from '../access/fieldUtils';
@@ -50,7 +51,7 @@ export default function ReportsPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [debounced]);
 
-  const signedIn = hasToken();
+  const signedIn = useSignedIn();
   const reports = useMyReports({ status, query: urlQuery || undefined, offset: (page - 1) * PAGE_SIZE, limit: PAGE_SIZE }, signedIn);
   const data = reports.data;
 
@@ -58,7 +59,9 @@ export default function ReportsPage() {
     return (
       <section className="flex flex-col gap-2">
         <h1 className="text-2xl font-semibold tracking-tight">My reports</h1>
-        <p className="text-muted">Sign in to follow the reports you send and read replies from the files.gg team.</p>
+        <p className="text-muted">
+          <SignInLink /> to follow the reports you send and read replies from the files.gg team.
+        </p>
       </section>
     );
   }

@@ -1,13 +1,14 @@
 # Local full stack for the end-to-end test (e2e/README.md): Postgres 19, MinIO standing in for B2
 # (the files bucket and the Object Lock evidence bucket), the migrations, the API, `python -m worker`,
-# the Milestone 4 `scanner` and `rescanner`, and an offline clamd. The Cloudflare Worker runs on the
+# the Milestone 4 `scanner` and `rescanner`, an offline clamd, and (Milestone 6) a mock of Cloudflare's
+# custom hostnames API for custom domains. The Cloudflare Worker runs on the
 # host under `wrangler dev` (started by e2e/up.sh) and reaches the API and MinIO on the loopback ports
 # below.
 #
 # Don't run this file by hand: e2e/up.sh generates the secrets in e2e/.local/.env and passes it
 # with --env-file. Data lives in Docker named volumes only (this repo may sit in a synced folder);
-# e2e/down.sh removes them. The one bind mount is ClamAV's test configuration and signature database
-# from api/tests/fixtures/clamav, read-only.
+# e2e/down.sh removes them. The bind mounts are ClamAV's test configuration and signature database
+# from api/tests/fixtures/clamav, read-only, and the mock Cloudflare script from e2e/scripts.
 name: filesgg-e2e
 
 x-api-environment: &api-environment
@@ -29,7 +30,6 @@ x-api-environment: &api-environment
   # The local public hostnames (served by wrangler dev on the host). *.localhost resolves to loopback.
   PUBLIC_URL: http://files.localhost:${E2E_PORT:-8787}
   CDN_URL: http://cdn.files.localhost:${E2E_PORT:-8787}
-  ALLOWED_ORIGINS: http://files.localhost:${E2E_PORT:-8787}
   LOG_LEVEL: INFO
   # Milestone 4 (docs/redesign/contracts/milestone-4.md §13). The stand-in CSAM matcher (benign test
   # hashes from api/tests/fixtures/standin) only runs with FILESGG_DEV_TOOLS=1; the API refuses to
@@ -40,6 +40,22 @@ x-api-environment: &api-environment
   # X25519 (libsodium) public key the uploader IP is sealed to; up.sh keeps the private half in
   # e2e/.local/evidence-private.pem
   EVIDENCE_PUBLIC_KEY: ${EVIDENCE_PUBLIC_KEY:?run e2e/up.sh}
+  # Milestone 6 (docs/redesign/contracts/milestone-6.md §3.2, §15). The session cookie is
+  # `filesgg_session` without `Secure` over plain http: only with FILESGG_DEV_TOOLS=1 (production refuses
+  # to boot with it). There's no ALLOWED_ORIGINS any more: the website calls files.localhost/api
+  # same-origin, and nothing is credentialed cross-origin.
+  SESSION_COOKIE_INSECURE: "1"
+  # ShareX's RequestURL and the curl snippet of a new upload key (§7.7)
+  API_PUBLIC_URL: http://api.files.localhost:${E2E_PORT:-8787}
+  # Custom domains (§10): the `cloudflare` mock below stands in for Cloudflare's custom hostnames API, and
+  # DOMAIN_DNS_STUB=1 (dev only, with FILESGG_DEV_TOOLS=1) treats the CNAME and TXT records as present,
+  # since *.localhost test hostnames have no real DNS. The worker gets these too (domain_checker and
+  # domain_delete run there).
+  CLOUDFLARE_API_TOKEN: ${CLOUDFLARE_API_TOKEN:?run e2e/up.sh}
+  CLOUDFLARE_ZONE_ID: ${CLOUDFLARE_ZONE_ID:?run e2e/up.sh}
+  CLOUDFLARE_API_BASE: http://cloudflare:8080/client/v4
+  DOMAIN_DNS_STUB: "1"
+  # Discord stays off (DISCORD_* unset): the API answers 503 DISCORD_UNAVAILABLE and /auth/config says false.
 
 # Only the scanner and rescanner get ClamAV and the evidence bucket (milestone-4 §13). Web Risk is
 # unset, so it's `skipped` (it fails open, §2.6).
@@ -137,6 +153,27 @@ services:
       postgres:
         condition: service_healthy
 
+  # Stands in for Cloudflare's custom hostnames API (e2e/scripts/mock_cloudflare.py, standard library only,
+  # run with the API image's Python). In memory: e2e/down.sh forgets everything. Published on loopback so
+  # e2e/run.mjs can see what the API asked for (GET /_mock/hostnames).
+  cloudflare:
+    <<: *api-service
+    restart: "no"
+    command: ["python", "/mock/mock_cloudflare.py"]
+    environment:
+      CLOUDFLARE_API_TOKEN: ${CLOUDFLARE_API_TOKEN:?run e2e/up.sh}
+      CLOUDFLARE_ZONE_ID: ${CLOUDFLARE_ZONE_ID:?run e2e/up.sh}
+      PORT: "8080"
+    volumes:
+      - ./scripts/mock_cloudflare.py:/mock/mock_cloudflare.py:ro
+    ports:
+      - 127.0.0.1:${E2E_CLOUDFLARE_PORT:-18081}:8080
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8080/health', timeout=3).status == 200 else 1)"]
+      interval: 1s
+      timeout: 3s
+      retries: 60
+
   api:
     <<: *api-service
     command: ["sanic", "app:create_app", "--factory", "--host", "0.0.0.0", "--port", "8080", "--workers", "2"]
@@ -145,6 +182,8 @@ services:
         condition: service_completed_successfully
       bucket:
         condition: service_completed_successfully
+      cloudflare:
+        condition: service_healthy
     ports:
       # API_ORIGIN for wrangler dev; browsers and the test go through the Worker instead
       - 127.0.0.1:${E2E_API_PORT:-18080}:8080

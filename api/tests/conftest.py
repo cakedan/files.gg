@@ -72,7 +72,6 @@ os.environ.update({
     'DATABASE_URL': database_url(APP_DATABASE),
     'SECRET_KEY': SECRET_KEY,
     'RPC_KEY': 'test-rpc-key',
-    'ALLOWED_ORIGINS': 'https://files.gg, https://beta.files.gg',
     'ORIGIN_SHARED_SECRET': 'test-origin-secret',
     'VIEW_HASH_SECRET': os.environ.get('VIEW_HASH_SECRET', 'test-view-hash-secret'),
     'PROXIES_COUNT': '1',
@@ -342,6 +341,15 @@ class Client:
     def options(self, path, **kwargs):
         return self.request('OPTIONS', path, **kwargs)
 
+    def put(self, path, **kwargs):
+        return self.request('PUT', path, **kwargs)
+
+    def patch(self, path, **kwargs):
+        return self.request('PATCH', path, **kwargs)
+
+    def delete(self, path, **kwargs):
+        return self.request('DELETE', path, **kwargs)
+
     def __enter__(self):
         self.inner.run()
         return self
@@ -462,3 +470,92 @@ def payload_urls(payload):
     if payload.get('hover_url'):
         urls.append(payload['hover_url'])
     return urls
+
+
+# --- Milestone 6: accounts and sessions -----------------------------------------------------------------------
+# The website's session is an HttpOnly cookie that the API accepts only on a request the Worker forwarded from
+# files.gg/api: the origin secret and `X-Filesgg-Via: main`. Writes also need `X-Filesgg-Csrf: 1`. Tests sign in
+# by inserting a session row and sending what the Worker would.
+
+ORIGIN_SECRET = 'test-origin-secret'
+SESSION_COOKIE = '__Host-filesgg_session'
+VIA_MAIN = {'X-Filesgg-Origin-Secret': ORIGIN_SECRET, 'X-Filesgg-Via': 'main', 'X-Filesgg-Csrf': '1'}
+_helper_db = {}
+
+
+def helper_conn():
+    conn = _helper_db.get('conn')
+    if conn is None or conn.closed:
+        conn = _helper_db['conn'] = connect(APP_DATABASE)
+    return conn
+
+
+def make_user(db=None, username=None, email='default', verified=True, password=None, display_name=None,
+              override=None, created_days_ago=None):
+    """A user row (milestone-6 §1.1). `password` is hashed with argon2id. Returns the id."""
+    from utils.generators import Snowflake
+    from utils import passwords
+    conn = db.conn if db is not None else helper_conn()
+    user_id = Snowflake.generate()
+    username = username or 'u_{}'.format(uuid.uuid4().hex[:12])
+    if email == 'default':
+        email = '{}@example.com'.format(username.replace('.', '_'))
+    password_hash = passwords.hash_sync(password) if password else None
+    conn.execute(
+        'INSERT INTO users (id, email, email_verified, username, display_name, password_hash, storage_limit_override, '
+        "created_at) VALUES (%s, %s, %s, %s, %s, %s, %s, now() - make_interval(days => %s))",
+        (user_id, email, verified and email is not None, username, display_name, password_hash, override,
+         created_days_ago or 0))
+    return user_id
+
+
+def new_session(user_id, db=None, authenticated_ago=0, method='password'):
+    """A live session row for the user; returns its token."""
+    from utils import credentials
+    from utils.generators import Snowflake
+    conn = db.conn if db is not None else helper_conn()
+    token = credentials.generate(credentials.SESSION_PREFIX)
+    conn.execute(
+        'INSERT INTO sessions (id, user_id, token_hash, method, authenticated_at, expires_at, max_expires_at) '
+        "VALUES (%s, %s, %s, %s, now() - make_interval(secs => %s), now() + interval '30 days', "
+        "now() + interval '180 days')",
+        (Snowflake.generate(), user_id, credentials.token_hash(token), method, authenticated_ago))
+    return token
+
+
+def cookie_headers(token, csrf=True):
+    headers = {'X-Filesgg-Origin-Secret': ORIGIN_SECRET, 'X-Filesgg-Via': 'main',
+               'Cookie': '{}={}'.format(SESSION_COOKIE, token)}
+    if csrf:
+        headers['X-Filesgg-Csrf'] = '1'
+    return headers
+
+
+def sign_in(user_id, db=None, **kwargs):
+    """Headers for a signed-in website request as the Worker forwards it from files.gg/api."""
+    return cookie_headers(new_session(user_id, db, **kwargs))
+
+
+def set_premium(user_id, db=None, expires_days=None):
+    from utils.generators import Snowflake
+    conn = db.conn if db is not None else helper_conn()
+    conn.execute("INSERT INTO user_entitlements (id, user_id, kind, expires_at, note) VALUES (%s, %s, 'premium', "
+                 "CASE WHEN %s::int IS NULL THEN NULL ELSE now() + make_interval(days => %s) END, 'tests')",
+                 (Snowflake.generate(), user_id, expires_days, expires_days))
+
+
+@pytest.fixture
+def outbox(monkeypatch):
+    """Every account email, sent from the API (async) or the worker (sync), without Postmark."""
+    from utils.email import Email
+    sent = []
+
+    async def send(**message):
+        sent.append(message)
+
+    def send_sync(**message):
+        sent.append(message)
+
+    monkeypatch.setattr(Email, 'send', staticmethod(send))
+    monkeypatch.setattr(Email, 'send_sync', staticmethod(send_sync))
+    return sent

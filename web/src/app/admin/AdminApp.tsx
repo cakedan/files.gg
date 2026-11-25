@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { lazy, Suspense, useEffect } from 'react';
 import { Route, Routes } from 'react-router';
 
 import type { StaffInfo } from '../../lib/api';
@@ -8,12 +8,17 @@ import AlbumPage from './pages/AlbumPage';
 import AuditPage from './pages/AuditPage';
 import BansPage from './pages/BansPage';
 import CasePage from './pages/CasePage';
+import DomainPage from './pages/DomainPage';
 import FilePage from './pages/FilePage';
 import LookupPage from './pages/LookupPage';
 import OverviewPage from './pages/OverviewPage';
 import QueuePage from './pages/QueuePage';
 import UserPage from './pages/UserPage';
 import { StaffContext } from './staffContext';
+import { Loading } from './components/bits';
+
+/** `/app/admin/domains` (milestone-6 §10.12): rarely opened, so a lazy chunk inside the admin chunk. */
+const DomainsPage = lazy(() => import('./pages/DomainsPage'));
 
 /**
  * The admin pages at `/app/admin/*` (milestone-4 §11.3), one lazy chunk loaded only for
@@ -34,6 +39,15 @@ export default function AdminApp({ staff }: { staff: StaffInfo }) {
           <Route path="files/:id" element={<FilePage />} />
           <Route path="albums/:id" element={<AlbumPage />} />
           <Route path="users/:id" element={<UserPage />} />
+          <Route
+            path="domains"
+            element={
+              <Suspense fallback={<Loading label="Loading domains…" />}>
+                <DomainsPage />
+              </Suspense>
+            }
+          />
+          <Route path="domains/:id" element={<DomainPage />} />
           <Route path="lookup" element={<LookupPage />} />
           <Route path="bans" element={<BansPage />} />
           <Route path="audit" element={<AuditPage />} />

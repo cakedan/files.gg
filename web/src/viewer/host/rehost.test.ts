@@ -50,7 +50,7 @@ describe('rehost (milestone-6 §16.5 vectors, host i.example.com)', () => {
       'http://cdn.files.gg/files/x.png',
       'https://files.ggx/abc',
       'https://www.files.gg/abc',
-      'https://api.files.gg/files/abc/view',
+      'https://api.files.gg/access/view/files/abc',
       '/files/x.png',
       'not a url',
     ]) {

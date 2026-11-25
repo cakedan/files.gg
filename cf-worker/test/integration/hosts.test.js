@@ -1,4 +1,4 @@
-// The Worker on configurable hosts (MAIN_HOST, CDN_HOST, API_HOST, PROXY_HOST), as the local e2e
+// The Worker on configurable hosts (MAIN_HOST, CDN_HOST, API_HOST), as the local e2e
 // stack runs it under wrangler dev: routing, the CSPs, CORS and the generated URLs follow the vars,
 // and the production hostnames no longer route.
 import { after, before, describe, it } from 'node:test';
@@ -11,7 +11,6 @@ const HOSTS = {
   MAIN_HOST: 'files.localhost',
   CDN_HOST: 'cdn.files.localhost',
   API_HOST: 'api.files.localhost',
-  PROXY_HOST: 'proxy.files.localhost',
 };
 const MAIN = 'http://files.localhost:8787';
 const browser = { 'user-agent': 'Mozilla/5.0', accept: 'text/html', 'accept-language': 'en' };
@@ -86,11 +85,6 @@ describe('configurable hosts', () => {
     assert.equal(sent.headers.cookie, 'filesgg_session=fgs_local');
     assert.equal(sent.headers['x-filesgg-via'], 'main');
     assert.equal(response.headers['access-control-allow-credentials'], undefined);
-  });
-
-  it('answers PROXY_HOST, still behind the proxy secret', async () => {
-    const response = await worker.request('http://proxy.files.localhost:8787/download/https%3A%2F%2Fexample.com');
-    assert.equal(response.status, 403);
   });
 
   it('no longer routes the production hostnames', async () => {

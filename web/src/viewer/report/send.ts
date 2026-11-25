@@ -10,13 +10,23 @@
  * The signed-in decision comes from the session call, not from anything stored.
  */
 
+import { loadAccess } from '../../lib/access';
 import { request } from '../../lib/api';
-import { albumItemAccessHeaders, type ReportResult } from '../../lib/reports';
 import { hostContext } from '../host/context';
 import { hostRequest } from '../locked/hostApi';
-import type { ViewerReportRequest } from './formLogic';
+import type { ViewerReportRequest, ViewerReportTarget } from './formLogic';
 
-export type { ReportResult };
+/** What the form shows once a report is sent. */
+export interface ReportResult {
+  id: string;
+  status: string;
+  /** `csam` reports: the UI shows only "Thank you. This has been escalated." */
+  escalated: boolean;
+  /** An open report by the same reporter on the same target already existed. */
+  duplicate: boolean;
+  /** Sent with an account (`POST /reports`), so it shows in My reports. */
+  signedIn: boolean;
+}
 
 /** `GET /auth/session` → `{ user: <user> | null }` (milestone-6 §3.4). Never throws. */
 export async function checkSignedIn(signal?: AbortSignal): Promise<boolean> {
@@ -45,9 +55,26 @@ interface AnonymousResponse {
 
 const str = (value: unknown, fallback: string) => (typeof value === 'string' || typeof value === 'number' ? String(value) : fallback);
 
-/** `X-Filesgg-Access` for an item of a password album this browser unlocked (lib/reports). */
-const accessHeaders = (body: ViewerReportRequest) =>
-  body.target.type === 'domain' ? undefined : albumItemAccessHeaders(body.target);
+/**
+ * An item of a password album (`/a/<vanity>?item=<n>`, milestone-6 §20.2, on files.gg or
+ * this domain) can only be reported with the album's unlock token (milestone-4 §7.3), which
+ * this origin keeps. The same rule as lib/reports' `albumItemAccessHeaders`, kept here so
+ * the viewer doesn't depend on that module (it decides signed-in by itself).
+ */
+export function accessHeaders({ target }: { target: ViewerReportTarget }): Record<string, string> | undefined {
+  if (target.type !== 'url') return undefined;
+  let vanity: string;
+  try {
+    const url = new URL(target.url, 'https://files.gg');
+    const match = /^\/a\/([^/]+)\/?$/.exec(url.pathname);
+    if (!match || !/^[1-9][0-9]*$/.test(url.searchParams.get('item') ?? '')) return undefined;
+    vanity = decodeURIComponent(match[1]!);
+  } catch {
+    return undefined;
+  }
+  const grant = loadAccess('album', vanity);
+  return grant ? { 'X-Filesgg-Access': grant.token } : undefined;
+}
 
 export interface SubmitOptions {
   signedIn: boolean;

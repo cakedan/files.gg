@@ -26,7 +26,6 @@ x-api-environment: &api-environment
   EMAIL_FROM: ${EMAIL_FROM:-files.gg <noreply@mail.files.gg>}
   RPC_KEY: ${RPC_KEY:?RPC_KEY must be set}
   SECRET_KEY: ${SECRET_KEY:?SECRET_KEY must be set}
-  ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-https://files.gg}
   # The public site and CDN origins written into file URLs, #pw=/#t= links, owner passes and email links
   # (api/utils/urls.py). Change them only for another deployment (staging, or the local stack in e2e/).
   PUBLIC_URL: ${PUBLIC_URL:-https://files.gg}
@@ -59,6 +58,18 @@ x-api-environment: &api-environment
   # libsodium public key (base64) the raw uploader IP is sealed to; the private key stays offline (milestone-4 §3.6)
   EVIDENCE_PUBLIC_KEY: ${EVIDENCE_PUBLIC_KEY:?EVIDENCE_PUBLIC_KEY must be set (the evidence key pair's public key, base64)}
   NSFW_THRESHOLD: ${NSFW_THRESHOLD:-0.85}
+  # Milestone 6 (docs/redesign/contracts/milestone-6.md §15). All optional: without the Discord pair, Discord
+  # sign-in is off (GET /auth/config); without the Cloudflare token, custom domains are off (503 DOMAINS_UNAVAILABLE).
+  # The worker gets them too: domain_checker, domain_delete, account_export and account_deletion run there.
+  DISCORD_CLIENT_ID: ${DISCORD_CLIENT_ID:-}
+  DISCORD_CLIENT_SECRET: ${DISCORD_CLIENT_SECRET:-}
+  DISCORD_REDIRECT_URI: ${DISCORD_REDIRECT_URI:-}
+  CLOUDFLARE_API_TOKEN: ${CLOUDFLARE_API_TOKEN:-}
+  CLOUDFLARE_ZONE_ID: ${CLOUDFLARE_ZONE_ID:-}
+  CUSTOM_DOMAIN_TARGET: ${CUSTOM_DOMAIN_TARGET:-domains.files.gg}
+  API_PUBLIC_URL: ${API_PUBLIC_URL:-https://api.files.gg}
+  # Cloudflare's request-body limit for the zone's plan: caps single-request uploads for everyone (§9.5)
+  PROXY_BODY_LIMIT_BYTES: ${PROXY_BODY_LIMIT_BYTES:-100000000}
 
 # Only the scanner and rescanner get the matcher, ClamAV, Web Risk and evidence settings (milestone-4 §13).
 x-scanner-environment: &scanner-environment

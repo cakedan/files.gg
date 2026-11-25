@@ -3,7 +3,7 @@ import { act, renderHook, waitFor } from '@testing-library/react';
 import { createElement, type ReactNode } from 'react';
 import { describe, expect, it, vi } from 'vitest';
 
-import { stubApi } from '../test/apiStub';
+import { stubApi, signIn } from '../test/apiStub';
 import { filesResponse, ownerAlbum, ownerFile } from '../test/ownerFiles';
 import { mapFilesResponse, queryKeys, reorderAlbum, restore, updateCachedFiles, useReportMessages } from './queries';
 
@@ -43,7 +43,7 @@ describe('optimistic cache helpers', () => {
 
 describe('useReportMessages (milestone-4 §11.2)', () => {
   it('refreshes the badges only when the thread changed, not on every poll', async () => {
-    localStorage.setItem('filesgg.token', 'tok');
+    signIn();
     let messages = [{ id: 'm1', author: 'staff', body: 'Hi', created_at: 1 }];
     stubApi({ 'GET /users/@me/reports/:id/messages': () => ({ items: messages }) });
     const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });

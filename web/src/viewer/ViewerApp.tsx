@@ -3,7 +3,7 @@ import { lazy, Suspense, useEffect } from 'react';
 import type { FragmentSecrets } from '../lib/access';
 import { targetFromPath } from '../lib/access';
 import { FileView } from './components/FileView';
-import { ConvertCard, DomainHomeCard, HomeCard, MissingCard, UnavailableCard } from './components/StateCards';
+import { ConvertCard, HomeCard, MissingCard, UnavailableCard } from './components/StateCards';
 import { siteName } from './host/context';
 import type { BootState } from './types';
 
@@ -11,17 +11,23 @@ import type { BootState } from './types';
 const AlbumPage = lazy(() => import('./album/AlbumPage'));
 /** Lock screen, unlock, owner passes and Turnstile: only for protected pages. */
 const LockedPage = lazy(() => import('./locked/LockedPage'));
+/** A view-limited file's card and Open file (milestone-6 §19.7): only limited pages load it. */
+const LimitedPage = lazy(() => import('./locked/LimitedPage'));
 /** `files.gg/report` and the per-file and per-album report pages (milestone-4 §10.1). */
 const ReportPage = lazy(() => import('./report/ReportPage'));
 /** `pending` and `removed` (milestone-4 §2.4): rare, so not in the entry bundle. */
 const PendingCard = lazy(() => import('./components/SafetyCards').then((m) => ({ default: m.PendingCard })));
 const RemovedCard = lazy(() => import('./components/SafetyCards').then((m) => ({ default: m.RemovedCard })));
+/** A custom domain's `/` (milestone-6 §10.8): only custom domains ever load it. */
+const DomainHomeCard = lazy(() => import('./host/DomainHomeCard'));
 
 /** The page title. On a custom domain the suffix is the domain, not files.gg (milestone-6 §13.4). */
 function documentTitle(state: BootState, site: string = siteName()): string {
   if (state.page === 'file') return `${state.file.filename} · ${site}`;
   if (state.page === 'convert') return `Convert · ${site}`;
   if (state.page === 'locked') return `Password-protected ${state.target.kind} · ${site}`;
+  // Milestone 6 §19.5: the shell's og:title, never the name.
+  if (state.page === 'limited') return `View-limited file · ${site}`;
   // Milestone 4 §10.1: the same titles as the shell's og:title, never the name.
   if (state.page === 'pending') return `Checking this ${state.target.kind} · ${site}`;
   if (state.page === 'removed') {
@@ -71,7 +77,16 @@ export function ViewerApp({ state, secrets = { rest: '' } }: { state: BootState;
           passwordExpired={target.passwordExpired}
           password={secrets.password}
           ownerPass={secrets.ownerPass}
+          viewLimit={target.viewLimit}
         />
+      </Suspense>
+    );
+  }
+
+  if (state.page === 'limited') {
+    return (
+      <Suspense fallback={busy}>
+        <LimitedPage vanity={state.target.vanity} remaining={state.target.remaining} ownerPass={secrets.ownerPass} />
       </Suspense>
     );
   }
@@ -89,12 +104,12 @@ export function ViewerApp({ state, secrets = { rest: '' } }: { state: BootState;
   return (
     <main className="flex min-h-dvh items-center justify-center px-3 py-6">
       {state.page === 'home' && <HomeCard />}
-      {state.page === 'domain-home' && <DomainHomeCard />}
       {state.page === 'convert' && <ConvertCard />}
       {state.page === 'unavailable' && <UnavailableCard />}
       {/* Missing also covers CSAM-blocked and private files: the shell can't tell them apart. */}
       {state.page === 'missing' && <MissingCard />}
       <Suspense fallback={null}>
+        {state.page === 'domain-home' && <DomainHomeCard />}
         {state.page === 'pending' && <PendingCard target={state.target} />}
         {state.page === 'removed' && <RemovedCard target={state.target} reason={state.reason} />}
       </Suspense>

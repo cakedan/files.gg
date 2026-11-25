@@ -3,8 +3,7 @@ import type { ReactNode } from 'react';
 
 import { Lockup, Mark } from '../../components/Brand';
 import { Button, LinkButton } from '../../components/Button';
-import { hostContext, mainUrl } from '../host/context';
-import { ReportButton } from './ReportButton';
+import { mainUrl } from '../host/context';
 
 export function StateCard({ children }: { children: ReactNode }) {
   return (
@@ -27,22 +26,6 @@ export function HomeCard() {
         </LinkButton>
         <LinkButton href="/app">Dashboard</LinkButton>
       </div>
-    </StateCard>
-  );
-}
-
-/**
- * A custom domain's `/` (milestone-6 §10.8, §13.4): "Files hosted with files.gg" and
- * Report (the domain itself, §10.12). No sign-in, upload or dashboard links.
- */
-export function DomainHomeCard() {
-  const { host } = hostContext();
-  return (
-    <StateCard>
-      <Mark className="size-14 opacity-90" />
-      <h1 className="text-lg font-semibold">Files hosted with files.gg</h1>
-      <p className="max-w-full font-mono text-sm break-all text-muted">{host}</p>
-      <ReportButton target={{ type: 'domain', hostname: host }} variant="secondary" />
     </StateCard>
   );
 }

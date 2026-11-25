@@ -3,8 +3,8 @@
 //
 // - files.gg/api/* (the same-origin passthrough): only the session cookie is forwarded, as
 //   `Cookie: <name>=<value>`, and only the API's Set-Cookie for that one cookie comes back.
-// - Everywhere else (files.gg pages and assets, api.files.gg, cdn.files.gg, proxy.files.gg and
-//   custom domains): no Cookie goes upstream and no Set-Cookie comes back.
+// - Everywhere else (files.gg pages and assets, api.files.gg, cdn.files.gg and custom domains):
+//   no Cookie goes upstream and no Set-Cookie comes back.
 
 import { getStringBinding } from './env.js';
 

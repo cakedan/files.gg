@@ -1,12 +1,14 @@
 import { CheckCircle2, CircleAlert, X } from 'lucide-react';
 import { useCallback, useMemo, useRef, useState, type ReactNode } from 'react';
+import { Link } from 'react-router';
 
-import { ToastContext, type Notify, type ToastTone } from './toastContext';
+import { ToastContext, type Notify, type ToastAction, type ToastTone } from './toastContext';
 
 interface Toast {
   id: number;
   message: string;
   tone: ToastTone;
+  action?: ToastAction | undefined;
 }
 
 const TIMEOUT_MS = 5000;
@@ -17,10 +19,11 @@ export function Toaster({ children }: { children: ReactNode }) {
 
   const dismiss = useCallback((id: number) => setToasts((list) => list.filter((toast) => toast.id !== id)), []);
   const notify = useCallback<Notify>(
-    (message, tone = 'success') => {
+    (message, tone = 'success', action) => {
       const id = next.current++;
-      setToasts((list) => [...list.slice(-2), { id, message, tone }]);
-      window.setTimeout(() => dismiss(id), TIMEOUT_MS);
+      setToasts((list) => [...list.slice(-2), { id, message, tone, action }]);
+      // A toast with a link stays twice as long, so there's time to reach it.
+      window.setTimeout(() => dismiss(id), action ? TIMEOUT_MS * 2 : TIMEOUT_MS);
     },
     [dismiss],
   );
@@ -54,6 +57,11 @@ function ToastView({ toast, onDismiss }: { toast: Toast; onDismiss: (id: number)
     <div className="pointer-events-auto flex max-w-md items-start gap-2 rounded-lg border border-line bg-surface-2 px-3 py-2 text-sm shadow-card">
       <Icon aria-hidden className={`mt-0.5 size-4 shrink-0 ${toast.tone === 'error' ? 'text-danger' : 'text-gg'}`} />
       <span className="min-w-0 flex-1">{toast.message}</span>
+      {toast.action && (
+        <Link to={toast.action.to} onClick={() => onDismiss(toast.id)} className="shrink-0 font-medium text-gg hover:underline">
+          {toast.action.label}
+        </Link>
+      )}
       <button type="button" onClick={() => onDismiss(toast.id)} aria-label="Dismiss" className="-m-0.5 rounded p-0.5 text-muted hover:text-text">
         <X aria-hidden className="size-4" />
       </button>

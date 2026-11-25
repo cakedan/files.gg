@@ -1,14 +1,15 @@
 /**
- * Sending reports (milestone-4 §7.3). Signed in (`filesgg.token` present):
- * `POST /reports` with `Authorization`. Signed out: `POST /reports/anonymous` with a
- * Turnstile token (action `report`) and the stored `X-Fingerprint`, if any.
+ * Sending reports (milestone-4 §7.3, milestone-6 §11.5). Signed in (the session cookie,
+ * as `GET /auth/session` says): `POST /reports`. Signed out: `POST /reports/anonymous`
+ * with a Turnstile token (action `report`) and the stored `X-Fingerprint`, if any.
  *
- * Used by the viewer's lazy report chunk only, so the API client never reaches the
- * viewer's entry bundle.
+ * Used by lazy report chunks only, so the API client never reaches the viewer's entry
+ * bundle. The viewer's form has its own sender (src/viewer/report/send.ts) for custom
+ * domains; `albumItemAccessHeaders` is shared.
  */
 
 import { loadAccess } from './access';
-import { hasToken, request } from './api';
+import { fetchSession, request, signedInState } from './api';
 import type { AlbumPart, DmcaNotice, ReportReason } from './reportTypes';
 
 export { ALBUM_PARTS, REPORT_REASONS, type AlbumPart, type DmcaNotice, type ReportReason } from './reportTypes';
@@ -39,7 +40,17 @@ export interface ReportResult {
   signedIn: boolean;
 }
 
-export const isSignedIn = hasToken;
+/** The last known session answer (false until `GET /auth/session` has said otherwise). */
+export const isSignedIn = (): boolean => signedInState() === true;
+
+/** Asks `GET /auth/session` (§13.1: when a report form opens). A failure counts as signed out. */
+export async function checkSignedIn(signal?: AbortSignal): Promise<boolean> {
+  try {
+    return (await fetchSession(signal)) !== null;
+  } catch {
+    return false;
+  }
+}
 
 interface SignedInResponse {
   report?: { id?: unknown; status?: unknown; escalated?: unknown };
@@ -57,20 +68,21 @@ interface AnonymousResponse {
 const str = (value: unknown, fallback: string) => (typeof value === 'string' || typeof value === 'number' ? String(value) : fallback);
 
 /**
- * An item of a password album (`files.gg/a/<vanity>/<n>`) can only be reported with the
- * album's unlock token (the API refuses it otherwise, so positions can't be probed). Returns
- * the `X-Filesgg-Access` header for such a URL target when this browser has unlocked it.
+ * An item of a password album (`files.gg/a/<vanity>?item=<n>`, milestone-6 §20.2) can only be
+ * reported with the album's unlock token (the API refuses it otherwise, so positions can't be
+ * probed). Returns the `X-Filesgg-Access` header for such a URL target when this browser has
+ * unlocked it.
  */
 export function albumItemAccessHeaders(target: ReportTargetBody): Record<string, string> | undefined {
   if (target.type !== 'url') return undefined;
-  let path: string;
+  let url: URL;
   try {
-    path = new URL(target.url, 'https://files.gg').pathname;
+    url = new URL(target.url, 'https://files.gg');
   } catch {
     return undefined;
   }
-  const match = /^\/a\/([^/]+)\/\d+\/?$/.exec(path);
-  if (!match) return undefined;
+  const match = /^\/a\/([^/]+)\/?$/.exec(url.pathname);
+  if (!match || !/^[1-9][0-9]*$/.test(url.searchParams.get('item') ?? '')) return undefined;
   let vanity: string;
   try {
     vanity = decodeURIComponent(match[1]!);
@@ -85,8 +97,7 @@ export function albumItemAccessHeaders(target: ReportTargetBody): Record<string,
  * Sends a report. `turnstileToken` is required when signed out (and ignored when
  * signed in). Errors are `ApiError`s with the contract's codes (§12).
  */
-export async function sendReport(body: ReportRequest, turnstileToken?: string, signal?: AbortSignal): Promise<ReportResult> {
-  const signedIn = isSignedIn();
+export async function sendReport(body: ReportRequest, turnstileToken?: string, signal?: AbortSignal, signedIn: boolean = isSignedIn()): Promise<ReportResult> {
   if (signedIn) {
     const { contact_email: _ignored, ...rest } = body;
     const headers = albumItemAccessHeaders(body.target);

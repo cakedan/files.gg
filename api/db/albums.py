@@ -240,8 +240,8 @@ async def any_shown_nsfw(conn, album_id):
 async def pending_count(conn, album_id):
     """Items that would be shown once their scan passes."""
     from safety.states import PENDING_SQL_SUB
-    from utils.albums import VISIBILITY_SQL
+    from utils.albums import VIEW_LIMIT_SQL, VISIBILITY_SQL
     row = await _one(conn, 'SELECT count(*) FROM album_files af JOIN files f ON f.id = af.file_id '
-                           'JOIN albums al ON al.id = af.album_id WHERE af.album_id = %s AND {} AND {} AND {}'.format(
-                               queries.LIVE, VISIBILITY_SQL, PENDING_SQL_SUB), (album_id,))
+                           'JOIN albums al ON al.id = af.album_id WHERE af.album_id = %s AND {} AND {} AND {} AND {}'
+                           .format(queries.LIVE, VISIBILITY_SQL, VIEW_LIMIT_SQL, PENDING_SQL_SUB), (album_id,))
     return int(row[0])

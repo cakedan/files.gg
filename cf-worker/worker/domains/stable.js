@@ -12,6 +12,7 @@ import { renderChallenge, renderViewer, serveApp, serveSecurityTxt, serveStatic 
 import { parseChallengeQuery } from '../utils/domains.js';
 import { domainServing } from '../utils/owners.js';
 import { classifyStablePath, decideAlbumShell, decideFileShell } from '../utils/viewer.js';
+import { botRefusalResponse } from '../utils/viewlimits.js';
 
 export const STABLE_DOMAIN = hostPattern(DEFAULT_HOSTS.main, { www: true });
 
@@ -33,7 +34,7 @@ async function serveFromDist(event, { immutable }) {
 }
 
 
-// files.gg/challenge?host=<custom hostname>&action=unlock|report (milestone-6.md §10.10): only on
+// files.gg/challenge?host=<custom hostname>&action=unlock|report|view (milestone-6.md §10.10): only on
 // MAIN_HOST itself (Turnstile's hostname is files.gg), and only for a serving custom domain.
 // Anything else is a 404 that says nothing about the domain.
 async function serveChallenge(event) {
@@ -100,6 +101,10 @@ async function handle(event) {
       if (shell.redirect) {
         // ShareX, Telegram and embeds of `link` files go straight to cdn_url (PLAN.md §1.4 item 3).
         return new ApiRedirect(shell.redirect);
+      }
+      if (shell.refuse) {
+        // A link-preview bot asking for a view-limited file (milestone-6.md §19.5): 403, no og media.
+        return botRefusalResponse(event.method);
       }
       return await renderViewer(event, shell);
     }

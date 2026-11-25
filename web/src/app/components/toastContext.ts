@@ -1,7 +1,12 @@
 import { createContext, useContext } from 'react';
 
 export type ToastTone = 'success' | 'error' | 'info';
-export type Notify = (message: string, tone?: ToastTone) => void;
+/** A link in the toast, a dashboard path ("You were signed out." → Sign in). */
+export interface ToastAction {
+  label: string;
+  to: string;
+}
+export type Notify = (message: string, tone?: ToastTone, action?: ToastAction) => void;
 
 export const ToastContext = createContext<Notify>(() => undefined);
 

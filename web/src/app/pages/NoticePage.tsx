@@ -2,9 +2,8 @@ import { ArrowLeft } from 'lucide-react';
 import { useEffect } from 'react';
 import { Link, useParams } from 'react-router';
 
-import { hasToken } from '../../lib/api';
 import { errorMessage } from '../../lib/errors';
-import { useNotices } from '../../lib/queries';
+import { useNotices, useSignedIn } from '../../lib/queries';
 import { RELATIVE_REFRESH_MS } from '../../lib/time';
 import { useNow } from '../../lib/useNow';
 import { NoticeCard } from '../notices/NoticeCard';
@@ -15,7 +14,7 @@ const NOTICE_LOOKUP_LIMIT = 100;
 /** One notice, linked from the Hidden, Removed and Blocked badges (milestone-4 §11.2). */
 export default function NoticePage() {
   const { id = '' } = useParams();
-  const notices = useNotices({ limit: NOTICE_LOOKUP_LIMIT }, hasToken());
+  const notices = useNotices({ limit: NOTICE_LOOKUP_LIMIT }, useSignedIn());
   const now = useNow(RELATIVE_REFRESH_MS);
   const notice = notices.data?.items.find((each) => each.id === id);
 

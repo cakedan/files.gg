@@ -1,20 +1,22 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { api, ApiError, apiBaseUrl, authHeaders, buildUrl, ensureFingerprint, parseApiError, request } from './api';
+import { accessPath, api, ApiError, apiBaseUrl, authHeaders, buildUrl, ensureFingerprint, onAuthEvent, openPath, parseApiError, request, setSignedInState, signedInState, type AuthEvent } from './api';
 
 const json = (body: unknown, init: ResponseInit = {}) =>
   new Response(JSON.stringify(body), { headers: { 'Content-Type': 'application/json' }, ...init });
 
-function mockFetch(response: Response | (() => Promise<Response>)) {
+function mockFetch(response: Response | ((input: RequestInfo | URL) => Promise<Response>)) {
   const fn = vi.fn<typeof fetch>(typeof response === 'function' ? response : async () => response);
   vi.stubGlobal('fetch', fn);
   return fn;
 }
 
-function sentHeaders(fn: ReturnType<typeof mockFetch>): Record<string, string> {
-  const init = fn.mock.calls[0]?.[1];
+function sentHeaders(fn: ReturnType<typeof mockFetch>, n = 0): Record<string, string> {
+  const init = fn.mock.calls[n]?.[1];
   return (init?.headers ?? {}) as Record<string, string>;
 }
+
+const API = `${window.location.origin}/api`;
 
 beforeEach(() => {
   localStorage.clear();
@@ -25,14 +27,14 @@ afterEach(() => {
 });
 
 describe('apiBaseUrl', () => {
-  it('defaults to https://api.files.gg and strips trailing slashes', () => {
-    expect(apiBaseUrl(undefined)).toBe('https://api.files.gg');
-    expect(apiBaseUrl('')).toBe('https://api.files.gg');
+  it('defaults to same-origin /api (milestone-6 §13.1) and strips trailing slashes', () => {
+    expect(apiBaseUrl(undefined)).toBe(API);
+    expect(apiBaseUrl('')).toBe(API);
     expect(apiBaseUrl('http://localhost:8080/')).toBe('http://localhost:8080');
   });
 
-  it('resolves a path base (the dev mock) against the page origin', () => {
-    expect(apiBaseUrl('/__mock-api')).toBe(`${window.location.origin}/__mock-api`);
+  it('resolves any path base against the page origin', () => {
+    expect(apiBaseUrl('/api/')).toBe(API);
   });
 
   it('builds URLs with query params, skipping empty values', () => {
@@ -42,10 +44,16 @@ describe('apiBaseUrl', () => {
   });
 });
 
-describe('authHeaders', () => {
-  it('reads the token from filesgg.token, as a plain string', () => {
+describe('authHeaders (milestone-6 §3.6, §13.1)', () => {
+  it('never sends a credential: no Authorization, and the old filesgg.token is ignored', () => {
     localStorage.setItem('filesgg.token', 'tok.en');
-    expect(authHeaders()).toEqual({ Authorization: 'tok.en' });
+    expect(authHeaders()).toEqual({});
+    expect(authHeaders('POST')).toEqual({ 'X-Filesgg-Csrf': '1' });
+  });
+
+  it('adds X-Filesgg-Csrf on every state-changing method, never on safe ones', () => {
+    for (const method of ['POST', 'PUT', 'PATCH', 'DELETE', 'post']) expect(authHeaders(method)).toEqual({ 'X-Filesgg-Csrf': '1' });
+    for (const method of ['GET', 'HEAD', 'OPTIONS']) expect(authHeaders(method)).toEqual({});
   });
 
   it('ignores the old app\'s keys', () => {
@@ -54,14 +62,12 @@ describe('authHeaders', () => {
     expect(authHeaders()).toEqual({});
   });
 
-  it('sends X-Fingerprint only while signed out', () => {
+  it('sends X-Fingerprint only while not known to be signed in', () => {
     localStorage.setItem('filesgg.fingerprint', '1234567890');
     expect(authHeaders()).toEqual({ 'X-Fingerprint': '1234567890' });
-    localStorage.setItem('filesgg.token', 'tok');
-    expect(authHeaders()).toEqual({ Authorization: 'tok' });
-  });
-
-  it('sends nothing when storage is empty', () => {
+    setSignedInState(false);
+    expect(authHeaders()).toEqual({ 'X-Fingerprint': '1234567890' });
+    setSignedInState(true);
     expect(authHeaders()).toEqual({});
   });
 
@@ -84,13 +90,84 @@ describe('authHeaders', () => {
   });
 });
 
+describe('session and cookie behaviour (milestone-6 §3, §13.1)', () => {
+  it('calls same-origin /api with credentials: same-origin, and the CSRF header only on writes', async () => {
+    const fetchMock = mockFetch(async () => json({}));
+    await request('/users/@me');
+    await request('/users/@me', { method: 'PATCH', body: { display_name: 'Dan' } });
+    expect(fetchMock.mock.calls[0]?.[0]).toBe(`${API}/users/@me`);
+    expect(fetchMock.mock.calls[0]?.[1]?.credentials).toBe('same-origin');
+    expect(sentHeaders(fetchMock, 0)).not.toHaveProperty('X-Filesgg-Csrf');
+    expect(fetchMock.mock.calls[1]?.[1]?.credentials).toBe('same-origin');
+    expect(sentHeaders(fetchMock, 1)['X-Filesgg-Csrf']).toBe('1');
+    expect(sentHeaders(fetchMock, 1)).not.toHaveProperty('Authorization');
+  });
+
+  it('sends the CSRF header on public writes too (unlock carries the cookie same-origin), and drops it with credentials: omit', async () => {
+    const fetchMock = mockFetch(async () => json({ token: 't', expires_at: 1, file: {} }));
+    await api.unlock('file', 'v1', 'pw', 'XXXX.DUMMY.TOKEN.XXXX');
+    expect(sentHeaders(fetchMock)['X-Filesgg-Csrf']).toBe('1');
+    await request('/x', { method: 'POST', credentials: 'omit' });
+    expect(sentHeaders(fetchMock, 1)).not.toHaveProperty('X-Filesgg-Csrf');
+    expect(fetchMock.mock.calls[1]?.[1]?.credentials).toBe('omit');
+  });
+
+  it('api.session reads GET /auth/session and remembers the answer', async () => {
+    mockFetch(json({ user: { id: '1', username: 'dan.w' } }));
+    await expect(api.session()).resolves.toMatchObject({ id: '1' });
+    expect(signedInState()).toBe(true);
+    mockFetch(json({ user: null }));
+    await expect(api.session()).resolves.toBeNull();
+    expect(signedInState()).toBe(false);
+  });
+
+  it('a 401 on a signed-in call announces "unauthorized"; signed out or on /auth/* it does not', async () => {
+    const events: AuthEvent[] = [];
+    const stop = onAuthEvent((event) => events.push(event));
+    mockFetch(json({ code: 'UNAUTHORIZED', message: 'x', status: 401 }, { status: 401 }));
+    await request('/users/@me/files').catch(() => undefined);
+    expect(events).toEqual([]);
+    setSignedInState(true);
+    await request('/auth/reauth', { method: 'POST' }).catch(() => undefined);
+    expect(events).toEqual([]);
+    await request('/users/@me/files').catch(() => undefined);
+    expect(events).toEqual([{ type: 'unauthorized' }]);
+    stop();
+  });
+
+  it('announces 403 CSRF (and logs it) and 403 ACCOUNT_PENDING_DELETION', async () => {
+    const events: AuthEvent[] = [];
+    const stop = onAuthEvent((event) => events.push(event));
+    const log = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    mockFetch(json({ code: 'CSRF', message: 'x', status: 403 }, { status: 403 }));
+    await request('/users/@me', { method: 'PATCH' }).catch(() => undefined);
+    expect(events[0]).toMatchObject({ type: 'csrf' });
+    expect(log).toHaveBeenCalled();
+    mockFetch(json({ code: 'ACCOUNT_PENDING_DELETION', message: 'x', status: 403, scheduled_for: 1 }, { status: 403 }));
+    await request('/users/@me/files').catch(() => undefined);
+    expect(events[1]).toEqual({ type: 'pending-deletion' });
+    stop();
+  });
+
+  it('ensureFingerprint asks who is signed in first: none when signed in, else the stored or a new one', async () => {
+    const fetchMock = mockFetch(async (input) =>
+      String(input).endsWith('/auth/session') ? json({ user: null }) : json({ fingerprint: '123' }),
+    );
+    await expect(ensureFingerprint()).resolves.toBe('123');
+    expect(localStorage.getItem('filesgg.fingerprint')).toBe('123');
+    await expect(ensureFingerprint()).resolves.toBe('123');
+    expect(fetchMock.mock.calls.map(([url]) => String(url).replace(API, ''))).toEqual(['/auth/session', '/auth/fingerprint']);
+    setSignedInState(true);
+    await expect(ensureFingerprint()).resolves.toBeNull();
+  });
+});
+
 describe('request', () => {
-  it('sends auth headers and parses JSON', async () => {
-    localStorage.setItem('filesgg.token', 'tok');
+  it('parses JSON', async () => {
     const fetchMock = mockFetch(json({ id: '1', username: 'dan' }));
     await expect(api.me()).resolves.toEqual({ id: '1', username: 'dan' });
-    expect(fetchMock.mock.calls[0]?.[0]).toBe('https://api.files.gg/users/@me');
-    expect(sentHeaders(fetchMock)).toMatchObject({ Authorization: 'tok', Accept: 'application/json' });
+    expect(fetchMock.mock.calls[0]?.[0]).toBe(`${API}/users/@me`);
+    expect(sentHeaders(fetchMock)).toMatchObject({ Accept: 'application/json' });
   });
 
   it('still makes the request when storage is unavailable', async () => {
@@ -106,7 +183,7 @@ describe('request', () => {
   it('defaults the files list to 25 per page', async () => {
     const fetchMock = mockFetch(json({ count: 0, items: [], size: 0, total: { count: 0, size: 0 } }));
     await api.myFiles({ query: 'cat', sort_by: '-size' });
-    expect(fetchMock.mock.calls[0]?.[0]).toBe('https://api.files.gg/users/@me/files?limit=25&query=cat&sort_by=-size');
+    expect(fetchMock.mock.calls[0]?.[0]).toBe(`${API}/users/@me/files?limit=25&query=cat&sort_by=-size`);
   });
 
   it('serialises object bodies as JSON', async () => {
@@ -162,29 +239,36 @@ describe('parseApiError', () => {
 });
 
 describe('Milestone 2 endpoints', () => {
-  it('unlock posts password + Turnstile token without auth headers', async () => {
-    localStorage.setItem('filesgg.token', 'tok');
+  it('unlock posts password + Turnstile token without the fingerprint', async () => {
+    localStorage.setItem('filesgg.fingerprint', '123');
     const fetchMock = mockFetch(json({ token: 't', expires_at: 1, file: {} }));
     await api.unlock('album', 'v1', 'pw', 'XXXX.DUMMY.TOKEN.XXXX');
-    expect(fetchMock.mock.calls[0]?.[0]).toBe('https://api.files.gg/albums/v1/unlock');
+    expect(fetchMock.mock.calls[0]?.[0]).toBe(`${API}/access/unlock/albums/v1`);
     expect(sentHeaders(fetchMock)).not.toHaveProperty('Authorization');
+    expect(sentHeaders(fetchMock)).not.toHaveProperty('X-Fingerprint');
   });
 
   it('view sends the token in X-Filesgg-Access, never the query string', async () => {
     const fetchMock = mockFetch(json({ file: {}, token: 'secret-token', expires_at: 1 }));
     await api.view('file', 'abcd/xyz', 'secret-token');
-    expect(fetchMock.mock.calls[0]?.[0]).toBe('https://api.files.gg/files/abcd/xyz/view');
+    expect(fetchMock.mock.calls[0]?.[0]).toBe(`${API}/access/view/files/abcd/xyz`);
     expect(sentHeaders(fetchMock)['X-Filesgg-Access']).toBe('secret-token');
   });
 
-  it('ensureFingerprint reuses a stored fingerprint or fetches and stores one', async () => {
-    const fetchMock = mockFetch(json({ fingerprint: '123' }));
-    await expect(ensureFingerprint()).resolves.toBe('123');
-    expect(localStorage.getItem('filesgg.fingerprint')).toBe('123');
-    await expect(ensureFingerprint()).resolves.toBe('123');
-    expect(fetchMock).toHaveBeenCalledTimes(1);
-    localStorage.setItem('filesgg.token', 't');
-    await expect(ensureFingerprint()).resolves.toBeNull();
+  it('puts the vanity last in every access route, so word vanities are never read as an action (milestone-6 §20.1)', async () => {
+    const fetchMock = mockFetch(async () => json({ file: {}, token: 't', expires_at: 1 }));
+    await api.refreshUnlock('file', 'unlock/view', 't');
+    await api.view('album', 'Ab3', 't');
+    await api.openFile('report/x', 'XXXX.DUMMY.TOKEN.XXXX');
+    await api.unlock('file', 'a b/c', 'pw', 'XXXX.DUMMY.TOKEN.XXXX');
+    expect(fetchMock.mock.calls.map((call) => call[0])).toEqual([
+      `${API}/access/refresh/files/unlock/view`,
+      `${API}/access/view/albums/Ab3`,
+      `${API}/access/open/files/report/x`,
+      `${API}/access/unlock/files/a%20b/c`,
+    ]);
+    expect(accessPath('view', 'file', 'x/y')).toBe('/access/view/files/x/y');
+    expect(openPath('abc')).toBe('/access/open/files/abc');
   });
 });
 
@@ -222,7 +306,7 @@ describe('Milestone 3 owner endpoints (milestone-3 contract §6)', () => {
     const fetchMock = mockFetch(json({}));
     await call();
     const sent = lastCall(fetchMock);
-    expect(sent.url).toBe(`https://api.files.gg${path}`);
+    expect(sent.url).toBe(`${API}${path}`);
     expect(sent.method ?? 'GET').toBe(method);
     expect(sent.body).toEqual(body);
   });

@@ -6,17 +6,20 @@ psycopg[binary]==3.3.9
 psycopg-pool==3.3.3
 pydantic==2.14.4
 httpx==0.28.1
+# FingerprintToken only (anonymous uploads); sessions and email links are opaque random tokens (milestone-6)
 itsdangerous==2.2.0
-# password hashing (pbkdf2, verifies existing hashes) and HTTP reason phrases
-Werkzeug==3.1.9
 # MX lookups for sign-up email checks (utils/email_domain.py)
 dnspython==2.9.2
 # B2 (S3-compatible): async in the API, sync in `python -m worker`
 aiobotocore==3.10.0
 # held at 1.43.117: aiobotocore 3.10.0 (latest) pins botocore to 1.43.x, and boto3 must match it
 boto3==1.43.117
-# argon2id for file and album passwords
+# argon2id for file, album and (milestone-6 §2.6) account passwords
 argon2-cffi==25.1.0
+# milestone-6 §10.1: custom domain hostnames to punycode (IDNA 2008, UTS #46), and the Public Suffix List as a
+# snapshot shipped in the package (never fetched at runtime; updated with regular dependency bumps)
+idna==3.20
+publicsuffixlist==1.1.2.20261125
 # streaming multipart parser for POST /files (uploads go to a temp file, not memory)
 python-multipart==0.0.34
 # Milestone 3 media processing (python -m worker, in the sandboxed media.process child): thumbnails,
@@ -46,9 +49,7 @@ h11==0.16.0
 html5tagger==2.0.0
 httpcore==1.0.9
 httptools==0.9.0
-idna==3.20
 jmespath==1.1.0
-MarkupSafe==3.0.4
 # held below 7: sanic 25.12.1 (latest) requires multidict<7.0
 multidict==6.9.1
 propcache==0.5.4

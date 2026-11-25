@@ -41,7 +41,7 @@ describe('viewerApi on a custom host (milestone-6 §10.11)', () => {
     const fetch = mockFetch(() => json({ token: 't', expires_at: 1, file }));
     await viewerApi.unlock('file', 'abc123', 'pw', 'XXXX.DUMMY.TOKEN.XXXX');
     const { url, init, headers } = call(fetch);
-    expect(url).toBe('https://api.files.gg/files/abc123/unlock');
+    expect(url).toBe('https://api.files.gg/access/unlock/files/abc123');
     expect(init.method).toBe('POST');
     expect(init.credentials).toBe('omit');
     expect(init.mode).toBe('cors');
@@ -54,10 +54,10 @@ describe('viewerApi on a custom host (milestone-6 §10.11)', () => {
     const fetch = mockFetch(() => json({ token: 't', expires_at: 1, album: { vanity: 'Ab3', items: [] } }));
     await viewerApi.view('album', 'Ab3', 'pass');
     await viewerApi.refreshUnlock('file', 'a/b', 'tok');
-    expect(call(fetch, 0).url).toBe('https://api.files.gg/albums/Ab3/view');
+    expect(call(fetch, 0).url).toBe('https://api.files.gg/access/view/albums/Ab3');
     expect(call(fetch, 0).init.credentials).toBe('omit');
     expect(call(fetch, 0).headers).toEqual({ Accept: 'application/json', 'X-Filesgg-Access': 'pass' });
-    expect(call(fetch, 1).url).toBe('https://api.files.gg/files/a/b/unlock/refresh');
+    expect(call(fetch, 1).url).toBe('https://api.files.gg/access/refresh/files/a/b');
     expect(call(fetch, 1).init.credentials).toBe('omit');
     expect(JSON.parse(String(call(fetch, 1).init.body))).toEqual({ token: 'tok' });
   });
@@ -88,7 +88,7 @@ describe('viewerApi on a custom host (milestone-6 §10.11)', () => {
     enterCustomHost({ apiOrigin: 'https://api.staging.example' });
     const fetch = mockFetch(() => json({ token: 't', expires_at: 1 }));
     await viewerApi.view('file', 'abc', 'x');
-    expect(call(fetch).url).toBe('https://api.staging.example/files/abc/view');
+    expect(call(fetch).url).toBe('https://api.staging.example/access/view/files/abc');
   });
 });
 
@@ -97,7 +97,7 @@ describe('viewerApi on files.gg', () => {
     const fetch = mockFetch(() => json({ token: 't', expires_at: 1, file }));
     const response = await viewerApi.view('file', 'abc123', 'pass');
     expect(call(fetch).init.credentials).not.toBe('omit');
-    expect(call(fetch).url).toMatch(/\/files\/abc123\/view$/);
+    expect(call(fetch).url).toMatch(/\/access\/view\/files\/abc123$/);
     expect((response.file as typeof file).cdn_url).toBe(file.cdn_url);
   });
 });

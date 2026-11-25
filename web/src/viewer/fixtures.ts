@@ -86,6 +86,9 @@ export const FIXTURE_NAMES = [
   // Milestone 6 (milestone-6 §8.8, §10.8)
   'domain-home',
   'owner-deleting',
+  // Milestone 6 §19 (view limits)
+  'limited',
+  'limited-password',
 ] as const;
 export type FixtureName = (typeof FIXTURE_NAMES)[number];
 
@@ -612,6 +615,14 @@ function fixtures(now: number, media: FixtureMedia): Record<FixtureName, Fixture
     // The owner's account is pending deletion after this page loaded: the shell still says
     // locked, but unlock answers 404 (the mock doesn't know the vanity), so it's missing.
     'owner-deleting': { page: 'file', state: 'locked', file: { vanity: 'deleting1', protected: 'password', filename: 'leaving.png' } },
+    // Milestone 6 §19.5: no media in the shell. The mock API's `limited1` (limit 3) and
+    // `limitedpw` (password `files.gg`, limit 5) count views per IP, so each opens once here.
+    limited: { page: 'file', state: 'limited', file: { vanity: 'limited1', view_limited: true, views_remaining: 2 } },
+    'limited-password': {
+      page: 'file',
+      state: 'locked',
+      file: { vanity: 'limitedpw', protected: 'password', filename: 'limited-notes.pdf', view_limited: true, views_remaining: 3 },
+    },
   };
 }
 
@@ -619,11 +630,17 @@ export function isFixtureName(value: string | null): value is FixtureName {
   return value !== null && (FIXTURE_NAMES as readonly string[]).includes(value);
 }
 
-/** Dev convenience: the fixture a path implies when no `?fixture=` is given. */
+/**
+ * Dev convenience: the fixture a path implies when no `?fixture=` is given, at the
+ * Worker's paths (milestone-6 §20.2: `/report/<vanity>`, `/report/a/<vanity>`, and
+ * `/a/<vanity>` with the lightbox item as `?item=<n>`).
+ */
 export function fixtureForPath(pathname: string): FixtureName | null {
   if (pathname === '/convert') return 'convert';
-  if (pathname === '/report') return 'report';
-  if (/^\/a\/[^/]+/.test(pathname)) return 'album-grid';
+  if (pathname === '/report' || pathname === '/report/') return 'report';
+  if (/^\/report\/a\/[^/]+\/?$/.test(pathname)) return 'report-album';
+  if (pathname.startsWith('/report/')) return 'report-file';
+  if (/^\/a\/[^/]+\/?$/.test(pathname)) return 'album-grid';
   return null;
 }
 

@@ -2,7 +2,7 @@ import { fireEvent, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import type { Report, ReportMessage } from '../../lib/api';
-import { calls, ME, NO_BADGES, renderDashboard, stubApi } from '../../test/apiStub';
+import { calls, ME, NO_BADGES, renderDashboard, stubApi, signIn } from '../../test/apiStub';
 
 const now = Math.floor(Date.now() / 1000);
 
@@ -29,7 +29,7 @@ let messages: ReportMessage[];
 let current: Report;
 
 beforeEach(() => {
-  localStorage.setItem('filesgg.token', 'tok');
+  signIn();
   messages = [{ id: 'm1', author: 'staff', body: 'Thanks, we’re checking this file.', created_at: now - 3600 }];
   current = report();
 });

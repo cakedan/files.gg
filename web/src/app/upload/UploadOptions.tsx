@@ -8,12 +8,16 @@ import {
   passwordExpiryChoices,
   unlockTtlChoices,
   expirySeconds,
+  VIEW_LIMIT_HINT,
+  VIEW_LIMIT_MAX,
+  viewLimitActionChoices,
   parseLocalDateTime,
   type ExpiryValue,
   type PickerContext,
   type PickerErrors,
   type PickerState,
 } from '../../lib/upload/options';
+import type { ViewLimitAction } from '../../lib/api';
 import { Field, PasswordFields, VisibilityField } from '../access/AccessFields';
 import { decodeChoice, encodeChoice, fieldClass, toLocalInput } from '../access/fieldUtils';
 
@@ -26,7 +30,10 @@ interface UploadOptionsProps {
   errors: PickerErrors;
 }
 
-/** Expiry, access, "Stay unlocked for" and "Password works until" (PLAN.md Phase 3 "Upload"). */
+/**
+ * Expiry, the view limit (milestone-6 §19.7), access, "Stay unlocked for" and "Password
+ * works until" (PLAN.md Phase 3 "Upload").
+ */
 export function UploadOptions({ state, onChange, context, errors }: UploadOptionsProps) {
   const id = useId();
   const expiresIn = expirySeconds(state.expiry, state.expiryCustomAt);
@@ -35,29 +42,33 @@ export function UploadOptions({ state, onChange, context, errors }: UploadOption
   return (
     <section aria-label="Upload options" className="flex flex-col gap-4 rounded-lg border border-line bg-surface p-4">
       <div className="grid gap-4 sm:grid-cols-2">
-        <Field label="Expires" htmlFor={`${id}-expiry`} error={errors.expiry} hint={context.anonymous ? ANONYMOUS_EXPIRY_NOTE : undefined}>
-          <select
-            id={`${id}-expiry`}
-            value={encodeChoice(state.expiry)}
-            onChange={(event) => onChange({ expiry: decode(event.target.value) })}
-            className={fieldClass}
-          >
-            {expiryChoices(context).map((choice) => (
-              <option key={encodeChoice(choice.value)} value={encodeChoice(choice.value)}>
-                {choice.label}
-              </option>
-            ))}
-          </select>
-          {state.expiry === 'custom' && (
-            <input
-              type="datetime-local"
-              aria-label="Expiry date and time"
-              value={toLocalInput(state.expiryCustomAt)}
-              onChange={(event) => onChange({ expiryCustomAt: parseLocalDateTime(event.target.value) })}
+        <div className="flex min-w-0 flex-col gap-4">
+          <Field label="Expires" htmlFor={`${id}-expiry`} error={errors.expiry} hint={context.anonymous ? ANONYMOUS_EXPIRY_NOTE : undefined}>
+            <select
+              id={`${id}-expiry`}
+              value={encodeChoice(state.expiry)}
+              onChange={(event) => onChange({ expiry: decode(event.target.value) })}
               className={fieldClass}
-            />
-          )}
-        </Field>
+            >
+              {expiryChoices(context).map((choice) => (
+                <option key={encodeChoice(choice.value)} value={encodeChoice(choice.value)}>
+                  {choice.label}
+                </option>
+              ))}
+            </select>
+            {state.expiry === 'custom' && (
+              <input
+                type="datetime-local"
+                aria-label="Expiry date and time"
+                value={toLocalInput(state.expiryCustomAt)}
+                onChange={(event) => onChange({ expiryCustomAt: parseLocalDateTime(event.target.value) })}
+                className={fieldClass}
+              />
+            )}
+          </Field>
+
+          <ViewLimitFields idPrefix={id} state={state} onChange={onChange} context={context} errors={errors} />
+        </div>
 
         <VisibilityField
           name={`${id}-access`}
@@ -92,5 +103,57 @@ export function UploadOptions({ state, onChange, context, errors }: UploadOption
         context.anonymous && <p className="text-xs text-muted">Sign in to upload sensitive media.</p>
       )}
     </section>
+  );
+}
+
+/** "View limit" (off, or 1–1000 unique viewers) and "When the limit is reached" (§19.7). */
+function ViewLimitFields({
+  idPrefix,
+  state,
+  onChange,
+  context,
+  errors,
+}: {
+  idPrefix: string;
+  state: PickerState;
+  onChange: (patch: Partial<PickerState>) => void;
+  context: PickerContext;
+  errors: PickerErrors;
+}) {
+  const on = state.viewLimit.trim() !== '';
+  return (
+    <>
+      <Field label="View limit" htmlFor={`${idPrefix}-view-limit`} error={errors.viewLimit} hint={on ? VIEW_LIMIT_HINT : 'Off. Enter a number to stop the link after that many viewers.'}>
+        <input
+          id={`${idPrefix}-view-limit`}
+          type="number"
+          inputMode="numeric"
+          min={1}
+          max={VIEW_LIMIT_MAX}
+          step={1}
+          placeholder="Off"
+          value={state.viewLimit}
+          onChange={(event) => onChange({ viewLimit: event.target.value })}
+          aria-invalid={errors.viewLimit ? true : undefined}
+          className={fieldClass}
+        />
+      </Field>
+      {on && (
+        <Field label="When the limit is reached" htmlFor={`${idPrefix}-view-limit-action`} error={errors.viewLimitAction} hint={context.anonymous ? 'Sign in to make files private instead.' : undefined}>
+          <select
+            id={`${idPrefix}-view-limit-action`}
+            value={state.viewLimitAction}
+            onChange={(event) => onChange({ viewLimitAction: event.target.value as ViewLimitAction })}
+            className={fieldClass}
+          >
+            {viewLimitActionChoices(context).map((choice) => (
+              <option key={choice.value} value={choice.value} disabled={choice.disabled}>
+                {choice.label}
+              </option>
+            ))}
+          </select>
+        </Field>
+      )}
+    </>
   );
 }

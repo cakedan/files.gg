@@ -9,6 +9,7 @@ import type { FileData } from '../types';
 import { downloadUrl, shareUrl } from '../urls';
 import { ReportButton } from './ReportButton';
 import { fileReportTarget } from './reportPath';
+import { viewsLeftLabel } from './viewLimitText';
 
 export function FileFooter({ file }: { file: FileData }) {
   const now = useNow(RELATIVE_REFRESH_MS);
@@ -45,6 +46,8 @@ export function FileFooter({ file }: { file: FileData }) {
             {expiry.label}
           </time>
         )}
+        {/* Milestone 6 §19.7: after opening a view-limited file. */}
+        {file.view_limit && <span className="text-warn">{viewsLeftLabel(file.view_limit.remaining)}</span>}
       </p>
       <div className="mt-1 flex flex-wrap justify-center gap-2">
         <CopyButton text={shareUrl(file.url)} />

@@ -28,23 +28,20 @@ const CHALLENGE_CSP = (origin) => `default-src 'none'; script-src 'self' https:/
 let upstream;
 let s3;
 let worker;
-let proxied;
 
 before(async () => {
   upstream = await startUpstream();
   s3 = await startS3();
   worker = await startWorker({ upstream, s3 });
-  proxied = await startWorker({ upstream, s3 }, { secrets: { ...SECRETS, PROXY_SECRET: 'proxy-secret' } });
 });
 
 after(async () => {
-  await proxied?.close();
   await worker?.close();
   await s3?.close();
   await upstream?.close();
 });
 
-// Every request the API mock (and the proxy's remote) and the B2 mock saw while `run` ran.
+// Every request the API mock and the B2 mock saw while `run` ran.
 async function sentDuring(run) {
   const [apiBefore, s3Before] = [upstream.requests.length, s3.requests.length];
   const response = await run();
@@ -124,6 +121,25 @@ describe('files.gg/api: the only place the session cookie goes (§12 item 1, §1
 });
 
 
+describe('the access routes pass through as they are (milestone-6.md §20.1)', () => {
+  it('files.gg/api/access/... and api.files.gg/access/... reach the API at /access/<action>/<kind>/<vanity>', async () => {
+    const cases = [
+      ['POST', 'unlock/files/abcd/xyz'], ['POST', 'refresh/files/abc'], ['GET', 'view/files/unlock/view'], ['POST', 'open/files/report/x'],
+      ['POST', 'unlock/albums/Ab3'], ['POST', 'refresh/albums/Ab3'], ['GET', 'view/albums/Ab3'],
+    ];
+    for (const base of ['https://files.gg/api', 'https://api.files.gg']) {
+      for (const [method, rest] of cases) {
+        const { api } = await sentDuring(() => worker.request(`${base}/access/${rest}`, {
+          method, headers: { 'content-type': 'application/json', 'x-filesgg-access': 'tok' }, ...(method === 'POST' ? { body: '{}' } : {}),
+        }));
+        assert.deepEqual(api.map((r) => [r.method, r.path]), [[method, `/access/${rest}`]], `${base} ${rest}`);
+        assert.equal(api[0].headers['x-filesgg-access'], 'tok', `${base} ${rest}`);
+      }
+    }
+  });
+});
+
+
 describe('everywhere else: no Cookie upstream, no Set-Cookie back (§12 item 1, §16.11)', () => {
   it('api.files.gg: no cookie and no X-Filesgg-Via, even when the client sends them', async () => {
     const { response, api } = await sentDuring(() => worker.request('https://api.files.gg/users/@me', {
@@ -169,17 +185,6 @@ describe('everywhere else: no Cookie upstream, no Set-Cookie back (§12 item 1, 
       assertNoCookieUpstream(sent, path);
       assert.deepEqual(setCookies(sent.response), [], path);
     }
-  });
-
-  it('proxy.files.gg: the cookie never reaches the third party', async () => {
-    const target = encodeURIComponent(`${upstream.origin}/remote/img.png`);
-    const sent = await sentDuring(() => proxied.request(`https://proxy.files.gg/download/${target}`, {
-      headers: { 'x-proxy-token': 'proxy-secret', cookie: COOKIE },
-    }));
-    assert.equal(sent.response.status, 200);
-    assert.equal(sent.api.at(-1).path, '/remote/img.png');
-    assertNoCookieUpstream(sent, 'proxy');
-    assert.deepEqual(setCookies(sent.response), []);
   });
 
   it('the internal lookups never carry a client header', async () => {
@@ -265,7 +270,7 @@ describe('files.gg/challenge, the Turnstile frame for custom domains (§10.10)',
   const challenge = (query, options = {}) => worker.request(`https://files.gg/challenge?${query}`, { headers: browser, ...options });
 
   it('renders challenge.html for a serving domain, framable by that origin only', async () => {
-    for (const action of ['unlock', 'report']) {
+    for (const action of ['unlock', 'report', 'view']) {
       const response = await challenge(`host=i.example.com&action=${action}`, { headers: { ...browser, cookie: COOKIE } });
       assert.equal(response.status, 200, action);
       assert.equal(response.headers['content-type'], 'text/html; charset=utf-8');

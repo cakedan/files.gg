@@ -118,54 +118,56 @@ def _on_event_loop():
 
 @pytest.fixture
 def hashing_calls(monkeypatch):
-    """Every account-password hash or check: ('hash'|'check', ran on the event loop?)."""
-    from utils import helpers
+    """Every account-password hash or check (argon2id, utils/passwords.py): ('hash'|'check', ran on the event
+    loop?). Rewritten for milestone-6 §2.6 (was: Werkzeug's pbkdf2 in utils/helpers.py)."""
+    from utils import passwords
     calls = []
-    real_generate, real_check = helpers.generate_password_hash, helpers.check_password_hash
+    real_hash, real_verify = passwords.hash_sync, passwords.verify_sync
 
-    def generate(*args, **kwargs):
+    def hash_sync(*args, **kwargs):
         calls.append(('hash', _on_event_loop()))
-        return real_generate(*args, **kwargs)
+        return real_hash(*args, **kwargs)
 
-    def check(*args, **kwargs):
+    def verify_sync(*args, **kwargs):
         calls.append(('check', _on_event_loop()))
-        return real_check(*args, **kwargs)
+        return real_verify(*args, **kwargs)
 
-    monkeypatch.setattr(helpers, 'generate_password_hash', generate)
-    monkeypatch.setattr(helpers, 'check_password_hash', check)
+    monkeypatch.setattr(passwords, 'hash_sync', hash_sync)
+    monkeypatch.setattr(passwords, 'verify_sync', verify_sync)
     return calls
 
 
-def test_account_password_hashing_runs_off_the_event_loop(client, appdb, hashing_calls, monkeypatch):
+def test_account_password_hashing_runs_off_the_event_loop(client, appdb, hashing_calls, monkeypatch, outbox):
     import views.auth
-    from utils.email import Email
-    from utils.tokens import EmailForgotToken
+    from tests.conftest import VIA_MAIN
+    from utils import credentials
+    from utils.generators import Snowflake
 
     async def accepts(address):
         return True
 
-    async def send(**message):
-        pass
-
     monkeypatch.setattr(views.auth, 'domain_accepts_mail', accepts)
-    monkeypatch.setattr(Email, 'send', staticmethod(send))
     username = 'hard' + uuid.uuid4().hex[:8]
     email = username + '@example.com'
-    response = client.post('/auth/register', json={'email': email, 'username': username, 'password': 'hunter22',
-                                                   'turnstile_token': REGISTER_TOKEN})
+    response = client.post('/auth/register', headers=VIA_MAIN, json={
+        'email': email, 'username': username, 'password': 'hunter22', 'turnstile_token': REGISTER_TOKEN})
+    assert response.status_code == 201, response.text
+    response = client.post('/auth/login', headers=VIA_MAIN, json={'email': email, 'password': 'hunter22',
+                                                                  'turnstile_token': LOGIN_TOKEN})
     assert response.status_code == 200, response.text
-    response = client.post('/auth/login', json={'email': email, 'password': 'hunter22',
-                                                'turnstile_token': LOGIN_TOKEN})
-    assert response.status_code == 200, response.text
-    response = client.post('/auth/login', json={'email': email, 'password': 'wrong-one',
-                                                'turnstile_token': LOGIN_TOKEN})
+    response = client.post('/auth/login', headers=VIA_MAIN, json={'email': email, 'password': 'wrong-one',
+                                                                  'turnstile_token': LOGIN_TOKEN})
     assert response.json()['code'] == 'INVALID_CREDENTIALS'
     user_id = appdb.fetchone('SELECT id FROM users WHERE email = %s', (email,))[0]
-    token = EmailForgotToken.generate({'user_id': user_id, 'email': email})
-    response = client.post('/auth/forgot/reset', json={'token': token, 'password': 'hunter22'})
+    token = 'reset-' + uuid.uuid4().hex * 2
+    appdb.execute("INSERT INTO account_tokens (id, user_id, purpose, email, token_hash, expires_at) VALUES "
+                  "(%s, %s, 'reset_password', %s, %s, now() + interval '1 hour')",
+                  (Snowflake.generate(), user_id, email, credentials.email_token_hash(token)))
+    reset = {'token': token, 'turnstile_token': 'mock:reset:files.gg'}
+    response = client.post('/auth/forgot/reset', headers=VIA_MAIN, json=dict(reset, password='hunter22'))
     assert response.json()['code'] == 'SAME_PASSWORD'
-    response = client.post('/auth/forgot/reset', json={'token': token, 'password': 'brand-new-pw'})
-    assert response.status_code == 204, response.text
+    response = client.post('/auth/forgot/reset', headers=VIA_MAIN, json=dict(reset, password='brand-new-pw'))
+    assert response.status_code == 200, response.text
 
     kinds = [kind for kind, _ in hashing_calls]
     assert kinds.count('hash') >= 2 and kinds.count('check') >= 4
@@ -173,28 +175,31 @@ def test_account_password_hashing_runs_off_the_event_loop(client, appdb, hashing
 
 
 def test_login_with_an_unknown_email_still_checks_a_hash(client, appdb, hashing_calls):
-    from utils import helpers
-    helpers._dummy_hash = None
-    response = client.post('/auth/login', json={'email': 'nobody-{}@example.com'.format(uuid.uuid4().hex),
-                                                'password': 'whatever1', 'turnstile_token': LOGIN_TOKEN})
+    from tests.conftest import VIA_MAIN
+    from utils import passwords
+    passwords._dummy_hash = None
+    response = client.post('/auth/login', headers=VIA_MAIN, json={
+        'email': 'nobody-{}@example.com'.format(uuid.uuid4().hex), 'password': 'whatever1',
+        'turnstile_token': LOGIN_TOKEN})
     assert (response.status_code, response.json()['code']) == (400, 'INVALID_CREDENTIALS')
     # one dummy hash (made once per process), then one check against it, like a known email
     assert hashing_calls == [('hash', False), ('check', False)]
     hashing_calls.clear()
-    response = client.post('/auth/login', json={'email': 'nobody-{}@example.com'.format(uuid.uuid4().hex),
-                                                'password': 'whatever1', 'turnstile_token': LOGIN_TOKEN})
+    response = client.post('/auth/login', headers=VIA_MAIN, json={
+        'email': 'nobody-{}@example.com'.format(uuid.uuid4().hex), 'password': 'whatever1',
+        'turnstile_token': LOGIN_TOKEN})
     assert response.json()['code'] == 'INVALID_CREDENTIALS'
     assert hashing_calls == [('check', False)]
 
 
-async def test_check_password_without_a_hash_is_false():
-    from utils import helpers
-    hashed = await helpers.hash_password_async('correct horse', salt_length=10)
-    assert hashed.startswith('pbkdf2:sha256:') and len(hashed) <= 128
-    assert await helpers.check_password(hashed, 'correct horse') is True
-    assert await helpers.check_password(hashed, 'wrong horse') is False
-    assert await helpers.check_password(None, 'correct horse') is False
-    assert await helpers.check_password('', None) is False
+async def test_verifying_without_a_hash_is_false():
+    from utils import passwords
+    hashed = await passwords.hash('correct horse')
+    assert hashed.startswith('$argon2id$')
+    assert await passwords.verify_account(hashed, 'correct horse') is True
+    assert await passwords.verify_account(hashed, 'wrong horse') is False
+    assert await passwords.verify_account(None, 'correct horse') is False
+    assert await passwords.verify_account('', None) is False
 
 
 # --- per-IP limits on an IPv6 /64 -------------------------------------------------------------------

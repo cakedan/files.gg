@@ -1,26 +1,34 @@
 #!/usr/bin/env bash
 # Starts the whole files.gg stack locally (e2e/README.md):
 #   Docker: Postgres 19, MinIO (+ the files and the Object Lock evidence buckets), migrations, the
-#           API, `python -m worker`, the Milestone 4 scanner and rescanner, and an offline clamd
+#           API, `python -m worker`, the Milestone 4 scanner and rescanner, an offline clamd, and a
+#           mock of Cloudflare's custom hostnames API (Milestone 6 custom domains)
 #   Host:   a fresh web build and the Cloudflare Worker under `wrangler dev`
-# on http://files.localhost:8787, http://cdn.files.localhost:8787 and http://api.files.localhost:8787.
+# on http://files.localhost:8787, http://cdn.files.localhost:8787 and http://api.files.localhost:8787
+# (and any other *.localhost host, which the Worker treats as a custom domain).
 #
 # Secrets are random, generated once into e2e/.local/ (git-ignored) and removed by e2e/down.sh,
 # including the evidence key pair (the private key stays in e2e/.local/evidence-private.pem, 0600).
-# Users: `e2e` (staff: admin with child safety), and `e2e-member` and `e2e-reporter` (not staff).
+# Users: `e2e` (staff: admin with child safety), and `e2e.member` and `e2e.reporter` (not staff).
 # Running it again restarts the Worker and rebuilds what changed. Ports: E2E_PORT (8787),
-# E2E_API_PORT (18080), E2E_MINIO_PORT (19000).
+# E2E_API_PORT (18080), E2E_MINIO_PORT (19000), E2E_CLOUDFLARE_PORT (18081).
 set -euo pipefail
 
 E2E_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT="$(cd "$E2E_DIR/.." && pwd)"
 LOCAL="$E2E_DIR/.local"
+# What wrangler dev reads and watches (web build, config, .dev.vars, local state) lives outside the
+# checkout: a synced folder (iCloud Desktop & Documents, Dropbox, ...) keeps touching freshly built
+# files, wrangler's asset watcher takes each touch as a change and restarts the Worker, and a POST in
+# flight then gets wrangler's "Your worker restarted mid-request" 503. Removed by e2e/down.sh.
+WORKER_DIR="${E2E_WORKER_DIR:-${XDG_CACHE_HOME:-$HOME/.cache}/filesgg-e2e}"
 COMPOSE=(docker compose -f "$E2E_DIR/docker-compose.e2e.yml" --env-file "$LOCAL/.env")
 
 E2E_PORT="${E2E_PORT:-8787}"
 E2E_API_PORT="${E2E_API_PORT:-18080}"
 E2E_MINIO_PORT="${E2E_MINIO_PORT:-19000}"
-export E2E_PORT E2E_API_PORT E2E_MINIO_PORT
+E2E_CLOUDFLARE_PORT="${E2E_CLOUDFLARE_PORT:-18081}"
+export E2E_PORT E2E_API_PORT E2E_MINIO_PORT E2E_CLOUDFLARE_PORT
 
 # Cloudflare's always-pass testing site key (web/src/lib/config.ts, TURNSTILE_TEST_SITE_KEYS.passVisible)
 TURNSTILE_TEST_SITE_KEY="$(sed -n "s/.*passVisible: '\([^']*\)'.*/\1/p" "$ROOT/web/src/lib/config.ts")"
@@ -39,6 +47,7 @@ docker info >/dev/null 2>&1 || die "Docker isn't running"
 [ -n "$TURNSTILE_TEST_SITE_KEY" ] || die "couldn't read the Turnstile testing site key from web/src/lib/config.ts"
 
 mkdir -p "$LOCAL"
+mkdir -p -m 700 "$WORKER_DIR"  # .dev.vars holds the Worker's secrets
 
 # --- secrets (random, local only) ---------------------------------------------------------------
 if [ ! -f "$LOCAL/.env" ]; then
@@ -54,7 +63,6 @@ ORIGIN_SHARED_SECRET=$(rand)
 VIEW_HASH_SECRET=$(rand)
 CDN_SIGNING_SECRET=$(rand)
 MINIO_ROOT_PASSWORD=$(rand)
-PROXY_SECRET=$(rand)
 E2E_USER_PASSWORD=e2e-$(openssl rand -hex 8)
 EOF
   umask 022
@@ -66,6 +74,9 @@ ensure_var() {
 ensure_var ABUSE_HASH_SECRET "$(openssl rand -hex 32)"
 ensure_var E2E_MEMBER_PASSWORD "e2e-member-$(openssl rand -hex 8)"
 ensure_var E2E_REPORTER_PASSWORD "e2e-reporter-$(openssl rand -hex 8)"
+# Added with Milestone 6: the mock Cloudflare's token and zone (only the API and the mock see them).
+ensure_var CLOUDFLARE_API_TOKEN "e2e-mock-$(openssl rand -hex 16)"
+ensure_var CLOUDFLARE_ZONE_ID "$(openssl rand -hex 16)"
 # The evidence key pair (milestone-4 §3.6): X25519, libsodium's sealed-box key type. The API gets the
 # raw 32-byte public key as base64; the private key stays in e2e/.local (mode 600).
 if [ ! -f "$LOCAL/evidence-private.pem" ] || ! grep -q '^EVIDENCE_PUBLIC_KEY=' "$LOCAL/.env"; then
@@ -88,51 +99,60 @@ set -a; . "$LOCAL/.env"; set +a
 [ -d "$ROOT/web/node_modules" ] || { step "Installing web dependencies"; npm --prefix "$ROOT/web" ci; }
 [ -d "$ROOT/cf-worker/node_modules" ] || { step "Installing Worker dependencies"; npm --prefix "$ROOT/cf-worker" ci; }
 
-# --- web: a fresh build for the local API and the testing Turnstile key ------------------------
-# Built into e2e/.local/web-dist, never web/dist, so a local build can't be deployed by accident.
-step "Building web for $API_URL"
-(cd "$ROOT/web" && VITE_API_URL="$API_URL" VITE_TURNSTILE_SITE_KEY="$TURNSTILE_TEST_SITE_KEY" \
-  npx vite build --outDir "$LOCAL/web-dist" --emptyOutDir --logLevel warn)
+# --- web: a fresh build with the testing Turnstile key ------------------------------------------
+# Built into $WORKER_DIR/web-dist, never web/dist, so a local build can't be deployed by accident.
+# No VITE_API_URL (milestone-6 §13.1): the dashboard and the viewer call files.localhost/api
+# same-origin, which is the only place the Worker forwards the session cookie.
+step "Building web (same-origin /api)"
+(cd "$ROOT/web" && env -u VITE_API_URL VITE_TURNSTILE_SITE_KEY="$TURNSTILE_TEST_SITE_KEY" \
+  npx vite build --outDir "$WORKER_DIR/web-dist" --emptyOutDir --logLevel warn)
 
 # --- Docker: Postgres, MinIO, ClamAV, migrations, API, jobs worker, scanner, rescanner ----------
-step "Starting Postgres, MinIO, ClamAV, the API, the jobs worker, the scanner and the rescanner (Docker)"
-"${COMPOSE[@]}" up -d --build --wait --wait-timeout 600 postgres minio clamav api worker scanner rescanner
+step "Starting Postgres, MinIO, ClamAV, mock Cloudflare, the API, the jobs worker, the scanner and the rescanner (Docker)"
+"${COMPOSE[@]}" up -d --build --wait --wait-timeout 600 postgres minio clamav cloudflare api worker scanner rescanner
 
 step "Creating the e2e users (dev tool) and making e2e staff"
-json_field() { node -p "JSON.parse(require('fs').readFileSync(process.argv[1], 'utf8'))[process.argv[2]]" "$1" "$2"; }
+# `json_field <file> <a.b.c>`: one field of a JSON file
+json_field() { node -p "process.argv[2].split('.').reduce((o, k) => o[k], JSON.parse(require('fs').readFileSync(process.argv[1], 'utf8')))" "$1" "$2"; }
+# tools.create_user (milestone-6): a verified account with the password, and a new web session printed as
+# {id, username, email, session: {name, value, max_age}}. Usernames are [a-z0-9_.] only (§2.2).
 create_user() {
   (umask 077; "${COMPOSE[@]}" exec -T -e FILESGG_DEV_TOOLS=1 api \
     python -m tools.create_user --username "$1" --password "$2" > "$LOCAL/$3")
 }
 create_user e2e "$E2E_USER_PASSWORD" e2e-user.json
-create_user e2e-member "$E2E_MEMBER_PASSWORD" e2e-member.json
-create_user e2e-reporter "$E2E_REPORTER_PASSWORD" e2e-reporter.json
+create_user e2e.member "$E2E_MEMBER_PASSWORD" e2e-member.json
+create_user e2e.reporter "$E2E_REPORTER_PASSWORD" e2e-reporter.json
 # milestone-4 §9.1: staff are granted on the server only, with the CLI (logged as `grant_staff`)
 "${COMPOSE[@]}" exec -T api python -m tools.staff grant "$(json_field "$LOCAL/e2e-user.json" id)" \
   --role admin --child-safety --by e2e/up.sh >/dev/null
+# Custom domains need an account at least 7 days old (milestone-6 §10.13, DOMAIN_MIN_ACCOUNT_AGE_DAYS). The
+# three local users are made 8 days old so they can add one once premium; e2e/run.mjs checks the rule
+# itself with an account of its own.
+"${COMPOSE[@]}" exec -T postgres psql -q -U filesgg -d filesgg -v ON_ERROR_STOP=1 -c \
+  "UPDATE users SET created_at = now() - interval '8 days' WHERE username IN ('e2e', 'e2e.member', 'e2e.reporter') AND created_at > now() - interval '8 days'" >/dev/null
 
 # --- the Worker under wrangler dev --------------------------------------------------------
 step "Starting the Worker (wrangler dev on 127.0.0.1:$E2E_PORT)"
 if [ -f "$LOCAL/wrangler.pid" ]; then
   "$E2E_DIR/scripts/stop-worker.sh" "$LOCAL/wrangler.pid"
 fi
-node "$E2E_DIR/scripts/wrangler-config.mjs" "$LOCAL/wrangler.json" "$LOCAL/web-dist" >/dev/null
+node "$E2E_DIR/scripts/wrangler-config.mjs" "$WORKER_DIR/wrangler.json" "$WORKER_DIR/web-dist" >/dev/null
 umask 077
-cat > "$LOCAL/.dev.vars" <<EOF
+cat > "$WORKER_DIR/.dev.vars" <<EOF
 # Generated by e2e/up.sh: the Worker's secrets for wrangler dev (local only).
 ORIGIN_SHARED_SECRET=$ORIGIN_SHARED_SECRET
 CDN_SIGNING_SECRET=$CDN_SIGNING_SECRET
 # MinIO's only key (local stand-in for the read-only B2 key)
 S3_READ_ACCESS_KEY_ID=filesgg-e2e
 S3_READ_SECRET_ACCESS_KEY=$MINIO_ROOT_PASSWORD
-PROXY_SECRET=$PROXY_SECRET
 EOF
 umask 022
 (
-  cd "$LOCAL"
+  cd "$WORKER_DIR"
   WRANGLER_SEND_METRICS=false nohup node "$ROOT/cf-worker/node_modules/wrangler/bin/wrangler.js" dev \
-    --config "$LOCAL/wrangler.json" --persist-to "$LOCAL/wrangler-state" \
-    --show-interactive-dev-session=false --log-level info \
+    --config "$WORKER_DIR/wrangler.json" --persist-to "$WORKER_DIR/wrangler-state" \
+    --show-interactive-dev-session=false --log-level "${E2E_WRANGLER_LOG_LEVEL:-info}" \
     > "$LOCAL/wrangler.log" 2>&1 < /dev/null &
   echo $! > "$LOCAL/wrangler.pid"
 )
@@ -159,11 +179,17 @@ files.gg is running locally.
 
   e2e user:    username e2e, email e2e@files.localhost, password $E2E_USER_PASSWORD
                staff (admin, child safety): $MAIN_URL/app/admin
-  Sign in:     open $MAIN_URL/app, then in the browser console run
-               localStorage.setItem('filesgg.token', '$(json_field "$LOCAL/e2e-user.json" token)'); location.reload()
-  Not staff:   e2e-member and e2e-reporter (passwords in e2e/.local/.env, tokens in e2e/.local/e2e-*.json)
+  Sign in:     open $MAIN_URL/app/login and sign in with that email and password (Turnstile
+               uses the always-pass testing key). The session is an HttpOnly cookie, so it can't
+               be set from the console; to skip the form, add it in devtools (Application > Cookies >
+               $MAIN_URL): name $(json_field "$LOCAL/e2e-user.json" session.name), value
+               $(json_field "$LOCAL/e2e-user.json" session.value), path /, HttpOnly
+  Not staff:   e2e.member and e2e.reporter (passwords in e2e/.local/.env, sessions in e2e/.local/e2e-*.json)
+  Premium:     docker compose -p filesgg-e2e exec api python -m tools.entitlements grant <user id> --by you --note local
+  Domains:     as a premium user, add <name>.example.localhost in $MAIN_URL/app/settings/domains
+               (mock Cloudflare, DNS stubbed), then open http://<name>.example.localhost:$E2E_PORT/<vanity>
 
   Test:        node e2e/run.mjs
-  Logs:        e2e/.local/wrangler.log, and docker compose -p filesgg-e2e logs -f api worker scanner
+  Logs:        e2e/.local/wrangler.log, and docker compose -p filesgg-e2e logs -f api worker scanner cloudflare
   Stop:        e2e/down.sh   (stops everything and deletes the local data)
 EOF

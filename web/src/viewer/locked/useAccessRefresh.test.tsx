@@ -54,7 +54,7 @@ describe('useAccessRefresh', () => {
     });
     expect(fetch).toHaveBeenCalledTimes(1);
     const [url, init] = fetch.mock.calls[0] as unknown as [string, RequestInit];
-    expect(url).toMatch(/\/files\/abc\/unlock\/refresh$/);
+    expect(url).toMatch(/\/access\/refresh\/files\/abc$/);
     expect(JSON.parse(String(init.body))).toEqual({ token: 'first' });
     expect(JSON.parse(localStorage.getItem(accessStorageKey('file', 'abc'))!).token).toBe('second');
     // Still the old payload, same object: a refresh never reloads an image or restarts a video...
@@ -129,7 +129,7 @@ describe('useAccessRefresh', () => {
       await vi.advanceTimersByTimeAsync(55 * 60_000 + 1);
     });
     expect(fetch).toHaveBeenCalledTimes(1);
-    expect(String((fetch.mock.calls[0] as unknown as [string])[0])).toMatch(/\/files\/abc\/unlock\/refresh$/);
+    expect(String((fetch.mock.calls[0] as unknown as [string])[0])).toMatch(/\/access\/refresh\/files\/abc$/);
     expect(localStorage.getItem(accessStorageKey('file', 'abc'))).toBeNull();
   });
 

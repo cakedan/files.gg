@@ -105,7 +105,10 @@ describe('links on a custom host', () => {
   it('"Open on files.gg to continue" goes to the same file, album or report page on files.gg', () => {
     expect(fallbackUrl({ type: 'file', vanity: 'abc' }, 'https://files.gg')).toBe('https://files.gg/abc');
     expect(fallbackUrl({ type: 'album', vanity: 'Ab 3' }, 'https://files.gg')).toBe('https://files.gg/a/Ab%203');
-    expect(fallbackUrl({ type: 'file', vanity: 'abc', report: true }, 'https://files.gg')).toBe('https://files.gg/abc/report');
+    // milestone-6 §20.2: the report pages put the vanity last
+    expect(fallbackUrl({ type: 'file', vanity: 'abc', report: true }, 'https://files.gg')).toBe('https://files.gg/report/abc');
+    expect(fallbackUrl({ type: 'file', vanity: 'abcd/xyz', report: true }, 'https://files.gg')).toBe('https://files.gg/report/abcd/xyz');
+    expect(fallbackUrl({ type: 'album', vanity: 'Ab3', report: true }, 'https://files.gg')).toBe('https://files.gg/report/a/Ab3');
     expect(fallbackUrl({ type: 'any' }, 'https://files.gg')).toBe('https://files.gg/report');
   });
 });

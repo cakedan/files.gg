@@ -1,8 +1,8 @@
 /**
  * Unlock tokens on the client (milestone-2 §5, milestone-3 §3): storing them per vanity,
  * refresh timing, and the `#pw=` / `#t=` fragments. A token is the visitor's proof for
- * the API only (`X-Filesgg-Access` on `/view`, the body of `/unlock/refresh`); it never
- * goes into a CDN URL. Media URLs arrive signed in the payloads (lib/signedUrls.ts).
+ * the API only (`X-Filesgg-Access` on `/access/view/…`, the body of `/access/refresh/…`);
+ * it never goes into a CDN URL. Media URLs arrive signed in the payloads (lib/signedUrls.ts).
  * The token is opaque here except for reading its claims, for timing only.
  */
 
@@ -157,7 +157,7 @@ export function watchFragmentSecrets(
 }
 
 /**
- * Which file or album a page URL is for, from the path: `/a/<vanity>[/<n>]` is an
+ * Which file or album a page URL is for, from the path: `/a/<vanity>` is an
  * album; anything else is a file vanity (everything before the first `.`, so
  * multi-segment ShareX vanities like `/abcd/xyz.png` work).
  */

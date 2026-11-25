@@ -8,7 +8,6 @@ import {
   contentDisposition,
   corsHeaders,
   isInlineAllowed,
-  isValidProxyToken,
   sanitizeFilename,
 } from '../worker/utils/security.js';
 
@@ -210,24 +209,5 @@ describe('corsHeaders (milestone-6.md §12 item 2: never credentialed)', () => {
     const a = corsHeaders();
     a['Access-Control-Allow-Origin'] = 'https://evil.example';
     assert.equal(corsHeaders()['Access-Control-Allow-Origin'], '*');
-  });
-});
-
-
-describe('isValidProxyToken', () => {
-  it('fails closed without a configured secret', () => {
-    assert.equal(isValidProxyToken('lol', undefined), false);
-    assert.equal(isValidProxyToken('', ''), false);
-    assert.equal(isValidProxyToken(null, undefined), false);
-  });
-
-  it('accepts only the exact secret', () => {
-    assert.equal(isValidProxyToken('s3cret', 's3cret'), true);
-    assert.equal(isValidProxyToken('s3cre', 's3cret'), false);
-    assert.equal(isValidProxyToken('s3cretx', 's3cret'), false);
-    assert.equal(isValidProxyToken('S3cret', 's3cret'), false);
-    assert.equal(isValidProxyToken(null, 's3cret'), false);
-    assert.equal(isValidProxyToken('', 's3cret'), false);
-    assert.equal(isValidProxyToken('lol', 's3cret'), false);
   });
 });

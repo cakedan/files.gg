@@ -10,7 +10,7 @@ import { useNow } from '../../../lib/useNow';
 import { fieldClass } from '../../access/fieldUtils';
 import { useToast } from '../../components/toastContext';
 import { noticeActionLabel, RULE_TEXT } from '../../safety/labels';
-import { isAlbumDetail, isFileDetail, isUserDetail, type CaseDetail } from '../adminApi';
+import { isAlbumDetail, isDomainDetail, isFileDetail, isUserDetail, type CaseDetail } from '../adminApi';
 import { useCase, useClaim, useCloseCase, useCybertip, useDecideAppeal, useRelease, useSecondReview } from '../adminQueries';
 import { CLOSE_MESSAGES } from '../canned';
 import { adminError, flagLabel, KIND_LABELS } from '../format';
@@ -20,7 +20,7 @@ import { Failure, Loading, PriorityPill, Section, TargetLink, TargetState, When 
 import { CaseReports } from '../components/CaseReports';
 import { History } from '../components/History';
 import { StaffMedia } from '../components/StaffMedia';
-import { AlbumTarget, FileTarget, UserTarget } from '../components/TargetPanels';
+import { AlbumTarget, DomainTarget, FileTarget, UserTarget } from '../components/TargetPanels';
 
 /** A case (§9.2, §11.3): target preview, reports and flags, history, claim, actions, close, appeal, CyberTipline. */
 export default function CasePage() {
@@ -402,6 +402,7 @@ function Case({ detail }: { detail: CaseDetail }) {
           {isFileDetail(target) && <FileTarget detail={target} caseId={detail.id} childSafety={detail.child_safety} part="info" />}
           {isAlbumDetail(target) && <AlbumTarget detail={target} caseId={detail.id} childSafety={detail.child_safety} part="info" />}
           {isUserDetail(target) && detail.kind !== 'appeal' && <UserTarget detail={target} caseId={detail.id} part="info" />}
+          {isDomainDetail(target) && detail.kind !== 'appeal' && <DomainTarget detail={target} caseId={detail.id} part="info" />}
 
           {detail.kind === 'appeal' && <AppealDecision detail={detail} />}
 
@@ -433,6 +434,7 @@ function Case({ detail }: { detail: CaseDetail }) {
           {open && isFileDetail(target) && <FileTarget detail={target} caseId={detail.id} childSafety={detail.child_safety} part="actions" />}
           {open && isAlbumDetail(target) && <AlbumTarget detail={target} caseId={detail.id} childSafety={detail.child_safety} part="actions" />}
           {open && isUserDetail(target) && detail.kind !== 'appeal' && <UserTarget detail={target} caseId={detail.id} part="actions" />}
+          {open && isDomainDetail(target) && detail.kind !== 'appeal' && <DomainTarget detail={target} caseId={detail.id} part="actions" />}
           {detail.child_safety && staff.child_safety && <Cybertip detail={detail} />}
           {open && detail.kind !== 'appeal' && <CloseForm detail={detail} />}
         </div>

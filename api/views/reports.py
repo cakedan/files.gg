@@ -25,7 +25,8 @@ from safety import moderation, reports as report_rules
 from safety.run import in_thread
 from utils import access_token, errors, params, standing
 from utils.email import Email
-from utils.helpers import client_ip, get_user
+from utils.auth import require_session
+from utils.helpers import client_ip
 from utils.responses import ApiResponse
 from utils.turnstile import Turnstile
 from utils.wrappers import route
@@ -54,8 +55,8 @@ def reporter_of(request, user=None, fingerprint=None):
 
 @route(reports, '', ['POST'])
 async def create_report(request):
+    user, _ = require_session(request)
     async with db.connection() as conn:
-        user = await get_user(conn, request.headers.get('authorization'))
         await standing.check_not_suspended(conn, user)
     status, body = await in_thread(report_rules.submit, reporter_of(request, user), body_of(request))
     return ApiResponse(body, status=status)
@@ -79,8 +80,7 @@ def signed_in(func):
     async def wrapper(request, *args, me, **kwargs):
         if me != '@me':
             raise NotFound('Not Found')
-        async with db.connection() as conn:
-            user = await get_user(conn, request.headers.get('authorization'))
+        user, _ = require_session(request)
         return await func(request, user, *args, **kwargs)
     return wrapper
 

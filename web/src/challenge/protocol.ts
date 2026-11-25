@@ -10,8 +10,9 @@
  * The parent never sends anything to the frame: a fresh token means a fresh frame.
  */
 
-export type ChallengeAction = 'unlock' | 'report';
-export const CHALLENGE_ACTIONS: readonly ChallengeAction[] = ['unlock', 'report'];
+/** `view` opens a view-limited file on a custom domain (milestone-6 §19.7). */
+export type ChallengeAction = 'unlock' | 'report' | 'view';
+export const CHALLENGE_ACTIONS: readonly ChallengeAction[] = ['unlock', 'report', 'view'];
 
 export const CHALLENGE_PATH = '/challenge';
 

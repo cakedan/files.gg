@@ -1,60 +1,80 @@
 import { useCallback, useEffect, useState } from 'react';
 
-import { albumPath, clampIndex, parseAlbumPath } from './albumUrl';
+import { albumPath, clampIndex, parseAlbumItem } from './albumUrl';
 
-const MARKER = 'filesggAlbumItem';
+const currentItem = () => parseAlbumItem(window.location.search);
 
-const pushedByUs = (state: unknown) => typeof state === 'object' && state !== null && MARKER in state;
+/** Marks the history entry the lightbox added on opening, so closing can go back to it. */
+const LIGHTBOX_ENTRY = 'filesggLightbox';
+
+type HistoryState = Record<string, unknown> | null;
+const ownsEntry = () => Boolean((window.history.state as HistoryState)?.[LIGHTBOX_ENTRY]);
+
+/** Writes `?item=` for `index` (or removes it) in place, keeping the rest of the query and the fragment. */
+function writeItem(vanity: string, index: number | null) {
+  const { search, hash } = window.location;
+  window.history.replaceState(window.history.state, '', albumPath(vanity, index, search, hash));
+}
+
+/** Opening adds one history entry (marked as ours), so Back closes the lightbox. */
+function pushItem(vanity: string, index: number) {
+  const { search, hash } = window.location;
+  const state = { ...((window.history.state as HistoryState) ?? {}), [LIGHTBOX_ENTRY]: true };
+  window.history.pushState(state, '', albumPath(vanity, index, search, hash));
+}
 
 /**
- * Lightbox index synced with the URL (`/a/<vanity>/<n>`, n 1-based):
- * - opening pushes a history entry, so Back closes the lightbox;
- * - moving between items replaces it, so Back doesn't step through every item;
- * - closing goes back when we pushed, otherwise rewrites the URL to the album.
- * `/a/<vanity>/<n>` on load opens item n; an out-of-range n is dropped from the URL.
+ * Lightbox index synced with the URL (milestone-6 §20.2): `/a/<vanity>?item=<n>`, n 1-based.
+ * Opening adds **one** history entry, so the browser's Back button closes the lightbox.
+ * Moving between items replaces that entry, so history isn't flooded. Closing goes back to
+ * the entry before it when the lightbox added it, so Back and the close button behave the
+ * same; on a page opened directly at `?item=<n>` there's no entry of ours, so closing drops
+ * `?item` in place. The rest of the query (dev `?fixture=`) and the fragment (`#pw=`, `#t=`)
+ * are kept. An unusable or out-of-range `?item` on load is dropped from the URL.
  */
 export function useAlbumLightbox(vanity: string, count: number) {
-  const [index, setIndex] = useState<number | null>(() =>
-    clampIndex(parseAlbumPath(window.location.pathname)?.index ?? null, count),
-  );
+  const [index, setIndex] = useState<number | null>(() => clampIndex(currentItem(), count));
 
   useEffect(() => {
-    const parsed = parseAlbumPath(window.location.pathname);
-    if (parsed?.index !== null && parsed?.index !== undefined && clampIndex(parsed.index, count) === null) {
-      window.history.replaceState(window.history.state, '', albumPath(vanity, null, window.location.search));
+    if (new URLSearchParams(window.location.search).has('item') && clampIndex(currentItem(), count) === null) {
+      writeItem(vanity, null);
     }
-    const onPop = () => setIndex(clampIndex(parseAlbumPath(window.location.pathname)?.index ?? null, count));
+    // Back and Forward to another entry of this page (a fragment change, say) re-read the URL.
+    const onPop = () => setIndex(clampIndex(currentItem(), count));
     window.addEventListener('popstate', onPop);
     return () => window.removeEventListener('popstate', onPop);
   }, [vanity, count]);
-
-  const open = useCallback(
-    (next: number) => {
-      const target = clampIndex(next, count);
-      if (target === null) return;
-      setIndex(target);
-      window.history.pushState({ [MARKER]: true }, '', albumPath(vanity, target, window.location.search));
-    },
-    [vanity, count],
-  );
 
   const go = useCallback(
     (next: number) => {
       const target = clampIndex(next, count);
       if (target === null) return;
       setIndex(target);
-      window.history.replaceState(window.history.state, '', albumPath(vanity, target, window.location.search));
+      writeItem(vanity, target);
+    },
+    [vanity, count],
+  );
+
+  const open = useCallback(
+    (next: number) => {
+      const target = clampIndex(next, count);
+      if (target === null) return;
+      setIndex(target);
+      // Already open (or opened from the URL): move in place. Closed: add the one entry Back closes.
+      if (parseAlbumItem(window.location.search) !== null) writeItem(vanity, target);
+      else pushItem(vanity, target);
     },
     [vanity, count],
   );
 
   const close = useCallback(() => {
-    setIndex(null);
-    if (pushedByUs(window.history.state)) {
+    if (ownsEntry()) {
+      // popstate re-reads the URL (no ?item) and closes it.
       window.history.back();
-    } else {
-      window.history.replaceState(null, '', albumPath(vanity, null, window.location.search));
+      return;
     }
+    setIndex(null);
+    writeItem(vanity, null);
   }, [vanity]);
 
   return { index, open, go, close };

@@ -6,7 +6,7 @@ import { useEffect, useId, useRef, useState, type FormEvent, type ReactNode } fr
 import { Button, LinkButton } from '../../components/Button';
 import { ApiError } from '../../lib/api';
 import { errorMessage } from '../../lib/errors';
-import { ALBUM_PARTS } from '../../lib/reports';
+import { ALBUM_PARTS } from '../../lib/reportTypes';
 import { ChallengeFallback } from '../host/ChallengeFallback';
 import { hostContext } from '../host/context';
 import type { FallbackTarget } from '../host/fallback';

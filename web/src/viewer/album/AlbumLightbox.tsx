@@ -35,7 +35,7 @@ const ownsInput = (target: EventTarget | null) =>
 
 /**
  * Full-screen carousel: ←/→, touch swipe, Esc. Each item renders with its own
- * viewer renderer; the URL follows `/a/<vanity>/<n>` (see useAlbumLightbox).
+ * viewer renderer; the URL follows `/a/<vanity>?item=<n>` (see useAlbumLightbox).
  */
 export function AlbumLightbox({ items, index, onGo, onClose }: AlbumLightboxProps) {
   const item = items[index]!;

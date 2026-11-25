@@ -4,10 +4,10 @@ import type { ReactNode } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { OwnerFile, OwnerSafety } from '../../lib/api';
-import { createQueryClient } from '../../lib/queryClient';
 import { jsonResponse } from '../../test/apiStub';
 import { ownerFile } from '../../test/ownerFiles';
 import { PENDING_POLL_CONCURRENCY, usePendingPoll } from './usePendingPoll';
+import { signedInQueryClient } from '../../test/session';
 
 const safety = (state: OwnerSafety['state']): OwnerSafety => ({ state, reason: null, notice_id: null, nsfw_source: null, nsfw_locked: false, nsfw_review: 'none' });
 const pendingFile = (id: string): OwnerFile => ownerFile({ id, safety: safety('pending') });
@@ -43,11 +43,10 @@ function slowFetch() {
   };
 }
 
-const wrapper = ({ children }: { children: ReactNode }) => <QueryClientProvider client={createQueryClient()}>{children}</QueryClientProvider>;
+const wrapper = ({ children }: { children: ReactNode }) => <QueryClientProvider client={signedInQueryClient()}>{children}</QueryClientProvider>;
 
 beforeEach(() => {
   vi.useFakeTimers();
-  localStorage.setItem('filesgg.token', 'tok');
 });
 afterEach(() => {
   vi.useRealTimers();

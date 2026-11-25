@@ -8,11 +8,11 @@ from db.models import epoch
 from utils import access_token, errors, view_hash
 from utils.helpers import client_ip
 
-# X-Filesgg-Access carries an unlock/owner token to /view; the middleware moves it
+# X-Filesgg-Access carries an unlock/owner token to /access/view; the middleware moves it
 # to request.ctx.access_token and removes the header, so it is never logged.
 ACCESS_HEADER = 'x-filesgg-access'
 UNLOCK_ATTEMPTS_PER_MINUTE = 5
-# /unlock/refresh and /view (no Turnstile): generous, but bounded
+# /access/refresh and /access/view (no Turnstile): generous, but bounded
 ACCESS_REQUESTS_PER_MINUTE = 30
 RATE_PURPOSE = 'unlock'
 

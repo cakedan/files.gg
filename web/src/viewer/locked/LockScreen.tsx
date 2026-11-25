@@ -7,6 +7,8 @@ import { useNow } from '../../lib/useNow';
 import { ChallengeFallback } from '../host/ChallengeFallback';
 import { mainUrl } from '../host/context';
 import { useHumanCheck } from '../host/useHumanCheck';
+import { viewLimitLine } from '../components/viewLimitText';
+import type { ViewLimitInfo } from '../types';
 import { viewerApi } from './hostApi';
 import { classifyUnlockError, unlockErrorMessage, type UnlockError } from './unlockErrors';
 
@@ -24,6 +26,8 @@ interface LockScreenProps {
    * state instead. `password` is the one tried, so a pending unlock can be tried again.
    */
   onUnavailable?: ((error: UnlockError, password: string) => void) | undefined;
+  /** Milestone 6 §19.7: a view-limited password file; a successful unlock uses a view. */
+  viewLimit?: ViewLimitInfo | undefined;
 }
 
 export function PasswordExpiredCard({ kind }: { kind: AccessKind }) {
@@ -43,7 +47,7 @@ export function PasswordExpiredCard({ kind }: { kind: AccessKind }) {
  * Contract §4/§5 lock screen: password (with a show toggle), managed Turnstile
  * (action `unlock`, required on every attempt) and Unlock.
  */
-export function LockScreen({ kind, vanity, name, initialPassword, onUnlocked, onUnavailable }: LockScreenProps) {
+export function LockScreen({ kind, vanity, name, initialPassword, onUnlocked, onUnavailable, viewLimit }: LockScreenProps) {
   const [password, setPassword] = useState('');
   const [reveal, setReveal] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -122,6 +126,7 @@ export function LockScreen({ kind, vanity, name, initialPassword, onUnlocked, on
             {name}
           </p>
         )}
+        {viewLimit && kind === 'file' && <p className="text-sm text-muted">{viewLimitLine('Unlocking', viewLimit.remaining)}</p>}
       </div>
 
       <form className="flex flex-col gap-3" onSubmit={onSubmit} noValidate>

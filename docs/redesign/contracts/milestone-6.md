@@ -891,7 +891,7 @@ Sizes use the units `api/utils/limits.py` already uses (`GB = 1024³`, `MB = 102
 1. Trim, strip one trailing `.`, lowercase, then IDNA 2008 with UTS #46 to punycode (the `idna` package). Failure: `INVALID_HOSTNAME { reason: "syntax" }`.
 2. ≤ 253 characters; every label 1–63 characters of `[a-z0-9-]`, not starting or ending with `-`; no `*` (`reason: "wildcard"`); not an IP address (`reason: "ip"`).
 3. **Subdomains only:** using the Public Suffix List (ICANN and private sections, a **pinned snapshot** shipped in the image, never fetched at runtime), the hostname must have at least one label left of its registrable domain. `example.com` and `example.co.uk` are `reason: "apex"`; `co.uk` is `reason: "public_suffix"`. Cloudflare's docs support only a CNAME from a subdomain without Enterprise apex proxying, and say most DNS providers don't allow a CNAME at the root.
-4. Not `files.gg` or under it, nor any `MAIN_HOST`, `CDN_HOST`, `API_HOST` or `PROXY_HOST`, nor the CNAME target's zone (`reason: "reserved"`).
+4. Not `files.gg` or under it, nor any `MAIN_HOST`, `CDN_HOST` or `API_HOST`, nor the CNAME target's zone (`reason: "reserved"`).
 5. Not already a live domain on any account (`409 DOMAIN_TAKEN`, without saying whose).
 
 ### 10.2 Records the customer adds
@@ -1021,7 +1021,7 @@ X-Filesgg-Internal-Lookup: 1
 
 ### 10.8 How the Worker serves a custom host
 
-**Routing:** the Worker gets a fourth router for every hostname that isn't `MAIN_HOST`, `www.MAIN_HOST`, `CDN_HOST`, `API_HOST` or `PROXY_HOST`. Cloudflare sends custom hostnames to it through the SaaS zone's `*/*` route (§17).
+**Routing:** the Worker gets a fourth router for every hostname that isn't `MAIN_HOST`, `www.MAIN_HOST`, `CDN_HOST` or `API_HOST`. Cloudflare sends custom hostnames to it through the SaaS zone's `*/*` route (§17).
 
 **Per request:**
 1. `/.well-known/acme-challenge/*`, `/.well-known/pki-validation/*` and `/.well-known/cf-custom-hostname-challenge/*` pass straight through (`return fetch(request)`), so Cloudflare's own validation is never answered by us. **Verify on staging** that Cloudflare's edge answers these before the Worker (§18).
@@ -1166,7 +1166,7 @@ Milestone 4's fingerprint and IP bans now also refuse `POST /auth/register` and 
 
 1. **Cookies:**
    - **`files.gg/api/*`** (the passthrough): forward only the session cookie (`SESSION_COOKIE_NAME`, default `__Host-filesgg_session`) in the `Cookie` header, dropping every other cookie; set `X-Filesgg-Via: main`; pass the API's `Set-Cookie` through only when it sets or clears that one cookie.
-   - **Everywhere else** (`files.gg` pages and assets, `api.files.gg`, `cdn.files.gg`, `proxy.files.gg`, custom hosts): delete the `Cookie` header before any upstream request, and delete `Set-Cookie` from every upstream response.
+   - **Everywhere else** (`files.gg` pages and assets, `api.files.gg`, `cdn.files.gg`, custom hosts): delete the `Cookie` header before any upstream request, and delete `Set-Cookie` from every upstream response.
    - **Strip client copies** of `X-Filesgg-Via` from every request, like `X-Filesgg-Internal-Lookup`. The internal lookups are built by the Worker itself and never carry a cookie; both passthroughs keep answering `404 NOT_FOUND` for any path that normalises to `/internal`.
 2. **CORS:** credentialed CORS is removed. No response from `files.gg/api/*` or `api.files.gg` carries `Access-Control-Allow-Credentials`; cross-origin callers of public routes get `*` without credentials, as today. `CORS_ALLOWED_ORIGINS` is removed. Same-origin calls to `files.gg/api/*` need no CORS.
 3. `/login`, `/register`, `/signup` redirects and the `/challenge` frame on `MAIN_HOST` (§6.2, §10.10).
@@ -1598,3 +1598,168 @@ Set-Cookie: __Host-filesgg_session=; Path=/; Secure; HttpOnly; SameSite=Lax; Max
 11. **Cloudflare's "100 MB" body limit unit** (10⁸ bytes or 100 MiB) isn't stated; `PROXY_BODY_LIMIT_BYTES` defaults to the smaller reading.
 12. **B2's `UploadPartCopy`** for the 5 GB finalize copy should be confirmed on staging (§9.5).
 13. **Secure cookies on `http://*.localhost`:** browsers differ, which is why the local stack uses `SESSION_COOKIE_INSECURE` (§3.2).
+
+---
+
+## 19. View limits (added 2026-11-25, owner decisions)
+
+A file can stop being viewable after **N unique viewers** ("burn after N views"). Built as a follow-up inside Milestone 6, after §1–§18.
+
+### 19.1 Decisions (owner, 2026-11-25)
+
+- **What counts:** **unique viewers**. A viewer is the abuse IP hash (milestone-4 §1: HMAC with `ABUSE_HASH_SECRET`, IPv6 grouped by /64), so refreshing, reopening or coming back another day never uses a second view. **The owner and staff never count.**
+- **Link-preview bots never embed a view-limited file,** and never use up a view. They get an error, not an embed (§19.5).
+- **At the limit,** the owner picks the action: **`expire`** (the default) or **`private`**.
+- **Who:** everyone, anonymous uploads included. The limit is **1 to 1,000**.
+
+### 19.2 Schema (`0006_view_limits.sql`)
+
+| Column or table | Notes |
+|---|---|
+| `files.view_limit integer NULL` | `CHECK (view_limit BETWEEN 1 AND 1000)`. `NULL` means no limit. |
+| `files.view_limit_action text NOT NULL DEFAULT 'expire'` | `CHECK (view_limit_action IN ('expire', 'private'))` |
+| `files.views_used integer NOT NULL DEFAULT 0` | `CHECK (views_used >= 0)` |
+| `file_limit_viewers (file_id bigint, viewer bytea, first_viewed_at timestamptz)` | Primary key `(file_id, viewer)`, `ON DELETE CASCADE` from `files`. `viewer` is the abuse IP hash. |
+
+`views_used` only ever equals the number of `file_limit_viewers` rows, and both change in the same transaction.
+
+### 19.3 Setting it
+
+- **On upload:** `POST /files` and `POST /uploads` accept `view_limit` (1–1000) and `view_limit_action` (`expire` | `private`). An anonymous upload can't choose `private`, since it has no owner library; it gives `400 PRIVATE_REQUIRES_ACCOUNT`.
+- **Later:** the owner can set, raise, lower or remove it with `PATCH /users/@me/files/<id>` (`view_limit`, or `null` to remove, and `view_limit_action`).
+  - A new limit must be greater than `views_used`; otherwise `400 VIEW_LIMIT_TOO_LOW { views_used }`.
+  - Changing the limit never resets `views_used`.
+  - If a `private` action already fired, the owner can raise the limit **and** change visibility back.
+- **Anonymous uploaders** can set it only at upload, like expiry.
+
+### 19.4 How a view is counted (`POST /files/<vanity>/open`)
+
+A view-limited file is **served like a protected file** (milestone-3 §3): its CDN bytes need a signed URL, so a raw CDN link can never be used to view it uncounted. The payload from public lookups carries no usable byte URLs.
+
+```
+POST /files/<vanity>/open    { "turnstile_token": "…" }   → 200 { "file": {…payload with signed URLs…}, "expires_at": <s> }
+```
+
+- **Turnstile (action `view`)** is required, the same as unlock, so scripts can't burn views from many addresses.
+- **The order of checks:** Turnstile, then the rate limit (as unlock), then the file's own access (a password file still needs its unlock; see below), then counting.
+- **Counting:** in one transaction, insert `(file_id, viewer)` if it's new.
+  - On insert, `views_used += 1`.
+  - If that makes `views_used == view_limit`, **this viewer is the last one**: they get the file, and the action fires right after their response is built:
+    - `expire` sets `expires_at = now()`;
+    - `private` sets `visibility = 'private'` and bumps `access_version`, which revokes every signed URL already given out.
+  - A viewer already in the table reopens without counting, until the action fires.
+- **Signed URLs** from `/open` expire after **1 hour**, or the file's expiry, whichever is earlier. The viewer refreshes by calling `/open` again: the same viewer never counts twice.
+- **Owner and staff:** a request with the owner's session (`files.gg/api`) or a staff session is served without counting.
+- **Password files with a view limit:** a successful **unlock** counts as the view (same rules). `/open` on a password file without a valid unlock token answers `401 UNLOCK_REQUIRED`.
+- **Private files** can have a limit, but only the owner can open them, so it never counts. That's allowed, not refused.
+- **After the action:**
+  - `expire`: the file is expired and missing everywhere (milestone-2 §9).
+  - `private`: the file is missing to everyone but the owner.
+  
+  Either way, the next viewer gets the normal missing state. It's never described as "view limit reached", so it doesn't tell anyone the file existed.
+
+### 19.5 Worker and link-preview bots
+
+- **The internal file lookup adds** `view_limit: { "limit": int, "used": int, "action": "expire"|"private" }`, or `null`. While a limit is set, the Worker treats the file as protected:
+  - the shell is a new `data-state="limited"` with `{ "vanity", "view_limited": true, "views_remaining": int }` and no media;
+  - the og tags are generic ("View-limited file · files.gg"), with **no image, video or audio**;
+  - **no bot or `Accept: image/*` redirect** to the CDN, ever;
+  - the CDN needs a valid signed URL, the same as password files.
+- **Link-preview bots** (the existing bot user-agent list plus `Accept: image/*` requests) asking for a view-limited file's page get **`403`** with a tiny text body ("This file has a view limit and can't be previewed."), `Cache-Control: private, no-store`, and no og media. They never reach `/open`, so they never use up a view. Direct CDN requests from bots are refused like any unsigned request.
+
+### 19.6 Payloads
+
+- **The public file payload** (from `/open` and unlock) adds `view_limit: { "remaining": int }`, or omits it when there's no limit.
+- **The owner payload** adds `view_limit`, `view_limit_action` and `views_used`.
+- **Albums:** a view-limited file isn't shown in album pages or the album ZIP, because opening an album can't count each item. The owner's editor shows it as hidden, with the note "View-limited files aren't shown in albums."
+
+### 19.7 Web
+
+- **Upload options:**
+  - a "View limit" control (off, or 1–1000) next to expiry, for signed-in and anonymous uploads;
+  - "When the limit is reached": "Expire the file" (default) or "Make it private" (signed in only).
+- **Dashboard:**
+  - the limit, "N of M views used", and edit or remove (with the `VIEW_LIMIT_TOO_LOW` message);
+  - a file whose `private` action fired shows as private, with a hint to raise the limit.
+- **Viewer:**
+  - the `limited` state shows a card: "This file has a view limit. Opening it uses one of its N remaining views." with **Open file** (runs Turnstile, then `/open`), then renders the file normally;
+  - a password file with a limit shows the lock screen with a line saying unlocking uses a view;
+  - after opening, the footer shows "N views left";
+  - **custom domains:** the same flow, using the challenge frame (§10.10) for Turnstile.
+
+### 19.7a As built (2026-11-25)
+
+- **`expire` keeps the file live for the last viewer for up to 1 hour:** `expires_at = least(expires_at, now() + 1 h)` and `access_version` is bumped. Everyone else gets missing straight away, because the API refuses once `views_used >= view_limit` and the Worker treats `used >= limit` as missing. The last viewer's URLs are signed with the new `access_version`.
+- **The action fires inside the counting transaction,** with the file row locked.
+- **`/access/view`, refresh, and `GET /files/<vanity>` with a token also count** for view-limited files, so a shared unlock token can't bypass the limit. Owner passes never count.
+- **`GET /files/<vanity>` for a view-limited file returns the stub** `{vanity, view_limited: true, views_remaining}` (a password file returns the locked payload plus those fields).
+- **Album editor items** carry `hidden_reason: "view_limit"` with `shown: false`.
+- **The Worker's lookup cache key is `v7`.**
+- **Open** shares the `unlock` rate limit (5 a minute per file and IP).
+- **Link-preview bots** that get the 403 are matched by user agent: `/bot|sharex/i` plus a list of preview fetchers without "bot" in their name (`facebookexternalhit`, `Facebot`, `WhatsApp`, `Slack-ImgProxy`, `SkypeUriPreview`, `Embedly`, `Iframely`, `vkShare`, `Mastodon`, `Bluesky Cardyb`, `Google-InspectionTool`), and `Accept` containing `image/*`.
+
+### 19.8 Error codes
+
+| Code | HTTP | Details |
+|---|---|---|
+| `VIEW_LIMIT_TOO_LOW` | 400 | `views_used` |
+| `UNLOCK_REQUIRED` | 401 | `/open` on a password file without a valid unlock token |
+| `CAPTCHA_INVALID` | 403 | Also: `/open` without a valid Turnstile token (action `view`) |
+
+### 19.9 Tests
+
+- 3 different viewers on a limit of 3 means the third viewer still gets the file, and a fourth gets missing.
+- One viewer opening 5 times uses 1 view.
+- The owner and staff never count.
+- The `expire` action expires the file.
+- The `private` action hides it from everyone but the owner, and revokes URLs already given out (`access_version`).
+- Lowering the limit below `views_used` is refused.
+- Unlock counts on password files.
+- Bots get 403, never the CDN.
+- An unsigned CDN request is refused.
+- View-limited files are absent from album pages and the ZIP.
+- An anonymous upload can't choose `private`.
+- Turnstile is required.
+
+---
+
+## 20. The vanity is always the last path segment (owner, 2026-11-25)
+
+**Rule:** no route puts anything after a vanity. Random vanities, and multi-segment ones such as `abcd/xyz`, could otherwise be read as a fixed word. Fixed words come first, then the kind, then the vanity, as the CDN paths already do (milestone-3 §3). This section supersedes every route below in milestone-2, milestone-3, milestone-4 and this contract.
+
+### 20.1 API (`api.files.gg`, and `files.gg/api/...` through the Worker)
+
+| Before | After |
+|---|---|
+| `POST /files/<vanity>/unlock` | `POST /access/unlock/files/<vanity>` |
+| `POST /files/<vanity>/unlock/refresh` | `POST /access/refresh/files/<vanity>` |
+| `GET /files/<vanity>/view` | `GET /access/view/files/<vanity>` |
+| `POST /files/<vanity>/open` (§19) | `POST /access/open/files/<vanity>` |
+| `POST /albums/<vanity>/unlock` | `POST /access/unlock/albums/<vanity>` |
+| `POST /albums/<vanity>/unlock/refresh` | `POST /access/refresh/albums/<vanity>` |
+| `GET /albums/<vanity>/view` | `GET /access/view/albums/<vanity>` |
+
+- **Unchanged:** `GET /files/<vanity>` and `GET /albums/<vanity>` (the vanity is already last), the internal lookups (`/internal/files/<vanity>`, `/internal/albums/<vanity>`, `/internal/domains/<host>`), and every owner endpoint that uses ids (`/users/@me/...`).
+- **No old paths:** with no backward compatibility, the old ones are simply gone and give 404.
+- **`access`** becomes a reserved top-level API path segment.
+
+### 20.2 Pages (`files.gg` and custom domains)
+
+| Before | After |
+|---|---|
+| `files.gg/<vanity>/report` | `files.gg/report/<vanity>` |
+| `files.gg/a/<vanity>/report` | `files.gg/report/a/<vanity>` |
+| `files.gg/a/<vanity>/<n>` (album item) | `files.gg/a/<vanity>?item=<n>` |
+| `files.gg/report?url=…` | unchanged |
+
+- **`?item=`** keeps `#pw=` and `#t=` fragments working alongside it (`files.gg/a/<vanity>?item=3#pw=…`).
+- **The Worker** serves the same album shell for any `?item`. The viewer reads it. **Opening** the lightbox adds one history entry (`pushState`), so the browser's Back button closes it; moving between items replaces that entry; closing goes back to it (owner, 2026-11-25).
+- **Custom domains** use the same shapes (`<host>/report/<vanity>`, `<host>/a/<vanity>?item=3`).
+- **Reserved first segments:** `report` and `a` stay reserved as a vanity's first segment, because `files.gg/<vanity>` shares the top-level namespace. Nothing is needed **after** a vanity any more, so the trailing-word reservations (`view`, `unlock` as later segments) are no longer needed for routing. They stay reserved, harmlessly, as defence in depth.
+
+### 20.3 Tests
+
+- **Each new route works,** and **each old one gives 404.**
+- **A multi-segment vanity whose segments are words** (`unlock/view`, `report/x`) never matches an action route, and resolves only through `GET /files/<vanity>`.
+- **`?item=`** round-trips in the lightbox.
+- **Report pages** open for file and album vanities at the new paths, on `files.gg` and on custom domains.

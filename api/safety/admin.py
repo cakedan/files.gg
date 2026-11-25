@@ -17,7 +17,7 @@ from utils.generators import EPOCH
 
 CASE_COLUMNS = ('id', 'kind', 'priority', 'status', 'file_id', 'album_id', 'user_id', 'hash_id', 'warning_id',
                 'child_safety', 'needs_second_review', 'assignee_id', 'claimed_at', 'outcome', 'outcome_reason',
-                'cybertip_report_id', 'cybertip_filed_at', 'created_at', 'updated_at', 'closed_at')
+                'cybertip_report_id', 'cybertip_filed_at', 'created_at', 'updated_at', 'closed_at', 'domain_id')
 GOAL_P0 = 24 * 3600
 GOAL_OTHER = 7 * 86400
 
@@ -34,7 +34,8 @@ def not_own_sql(staff, alias='c'):
             'AND NOT EXISTS (SELECT 1 FROM files fo WHERE fo.user_id = {u} '
             'AND (fo.id = {a}.file_id OR fo.hash_id = {a}.hash_id)) '
             'AND NOT EXISTS (SELECT 1 FROM albums ao WHERE ao.id = {a}.album_id AND ao.owner_user_id = {u}) '
-            'AND NOT EXISTS (SELECT 1 FROM user_warnings wo WHERE wo.id = {a}.warning_id AND wo.user_id = {u})'
+            'AND NOT EXISTS (SELECT 1 FROM user_warnings wo WHERE wo.id = {a}.warning_id AND wo.user_id = {u}) '
+            'AND NOT EXISTS (SELECT 1 FROM custom_domains dmo WHERE dmo.id = {a}.domain_id AND dmo.user_id = {u})'
             ).format(a=alias, u=uid)
 
 
@@ -61,7 +62,7 @@ def require_not_own_case(conn, staff, case):
     """Staff never open, claim, decide or close a case about their own account or content
     (its reports name the reporters), nor an appeal of their own notice."""
     for kind, column in (('file', 'file_id'), ('album', 'album_id'), ('user', 'user_id'), ('hash', 'hash_id'),
-                         ('warning', 'warning_id')):
+                         ('warning', 'warning_id'), ('domain', 'domain_id')):
         moderation.require_not_own(conn, staff, kind, case[column])
 
 
@@ -80,6 +81,9 @@ def case_target(conn, case):
         row = core.one(conn, 'SELECT username FROM users WHERE id = %s', (case['user_id'],))
         return {'type': 'user', 'id': str(case['user_id']), 'name': row and row[0],
                 'state': report_rules.states_of_target(conn, 'user', case['user_id'])}
+    if kind == 'domain' and case.get('domain_id'):
+        row = core.one(conn, 'SELECT hostname, status FROM custom_domains WHERE id = %s', (case['domain_id'],))
+        return {'type': 'domain', 'id': str(case['domain_id']), 'name': row and row[0], 'state': row and row[1]}
     if kind == 'hash':
         return {'type': 'hash', 'id': str(case['hash_id']) if case['hash_id'] else None,
                 'state': report_rules.states_of_target(conn, 'hash', case['hash_id'])}

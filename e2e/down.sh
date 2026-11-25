@@ -1,11 +1,13 @@
 #!/usr/bin/env bash
 # Stops the local stack started by e2e/up.sh and deletes its data: the wrangler dev process, the
-# Docker containers and their named volumes (Postgres, MinIO), and e2e/.local (secrets, web build,
-# logs). The API image (filesgg-api:e2e) is kept as a build cache.
+# Docker containers and their named volumes (Postgres, MinIO), e2e/.local (secrets, logs) and what
+# up.sh put in the Worker's folder outside the checkout (web build, config, state; WORKER_DIR in
+# up.sh). The API image (filesgg-api:e2e) is kept as a build cache.
 set -uo pipefail
 
 E2E_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 LOCAL="$E2E_DIR/.local"
+WORKER_DIR="${E2E_WORKER_DIR:-${XDG_CACHE_HOME:-$HOME/.cache}/filesgg-e2e}"
 
 "$E2E_DIR/scripts/stop-worker.sh" "$LOCAL/wrangler.pid"
 
@@ -24,4 +26,8 @@ if [ -n "$leftover" ]; then
 fi
 
 rm -rf "$LOCAL"
-echo "files.gg e2e stack stopped; its volumes and e2e/.local are deleted."
+# Only what up.sh writes there: E2E_WORKER_DIR can point anywhere.
+rm -rf "$WORKER_DIR/web-dist" "$WORKER_DIR/wrangler-state" "$WORKER_DIR/.wrangler" \
+  "$WORKER_DIR/wrangler.json" "$WORKER_DIR/.dev.vars"
+rmdir "$WORKER_DIR" 2>/dev/null || true
+echo "files.gg e2e stack stopped; its volumes, e2e/.local and $WORKER_DIR are deleted."

@@ -1,4 +1,4 @@
-import { AlertTriangle, Clock, Download, Eye, EyeOff, ExternalLink, KeyRound, Link2, Lock, MessageSquareWarning, Trash2 } from 'lucide-react';
+import { AlertTriangle, Clock, Download, Eye, EyeOff, ExternalLink, Gauge, Globe, KeyRound, Link as LinkIcon, Link2, Lock, MessageSquareWarning, Trash2 } from 'lucide-react';
 import { createElement, Suspense, useId, useMemo, useState } from 'react';
 import { Link } from 'react-router';
 
@@ -19,6 +19,7 @@ import { useShowSensitive } from '../safety/sensitive';
 import { AccessBadge } from './AccessBadge';
 import { canAskReview, NSFW_LOCKED_HINT, type FileHandlers } from './fileMenu';
 import { formatDuration, pluralize, typeLabel } from './fileLabels';
+import { EXPIRE_FIRED_HINT, expireActionFired, privateActionFired, PRIVATE_FIRED_HINT, viewLimitActionText, viewLimitOf, viewsUsedLabel } from './viewLimit';
 
 interface FileDrawerProps {
   file: OwnerFile;
@@ -90,6 +91,7 @@ export default function FileDrawer({ file, handlers, onClose }: FileDrawerProps)
   const explanation = stateExplanation(file);
   const warnings = [...new Set((file.warnings ?? []).map((code) => WARNING_TEXT[code]).filter(Boolean))];
   const nsfwSource = file.safety?.nsfw_source;
+  const viewLimit = viewLimitOf(file);
 
   return (
     <Drawer title={file.filename} onClose={onClose}>
@@ -130,6 +132,12 @@ export default function FileDrawer({ file, handlers, onClose }: FileDrawerProps)
             <Link2 aria-hidden className="size-4" />
             Copy link
           </Button>
+          {handlers.copyDirectLink && file.direct_url && (
+            <Button onClick={() => handlers.copyDirectLink!(file)}>
+              <LinkIcon aria-hidden className="size-4" />
+              Copy direct link
+            </Button>
+          )}
           {protectedFile ? (
             <Button onClick={() => handlers.openAsOwner(file)}>
               <KeyRound aria-hidden className="size-4" />
@@ -139,6 +147,12 @@ export default function FileDrawer({ file, handlers, onClose }: FileDrawerProps)
             <Button onClick={() => handlers.open(file)}>
               <ExternalLink aria-hidden className="size-4" />
               Open
+            </Button>
+          )}
+          {handlers.openOnDomain && (
+            <Button onClick={() => handlers.openOnDomain!.open(file)}>
+              <Globe aria-hidden className="size-4" />
+              Open on {handlers.openOnDomain.hostname}
             </Button>
           )}
           {data && servable && (
@@ -160,6 +174,33 @@ export default function FileDrawer({ file, handlers, onClose }: FileDrawerProps)
             Delete
           </Button>
         </div>
+
+        {(viewLimit !== null || handlers.editViewLimit) && (
+          <section aria-label="View limit" className="flex flex-col gap-2 rounded-md border border-line px-3 py-3">
+            {viewLimit !== null ? (
+              <p className="text-sm">
+                <span className="font-medium">{viewsUsedLabel(file)}</span> <span className="text-muted">{viewLimitActionText(file)}</span>
+              </p>
+            ) : (
+              <p className="text-sm text-muted">No view limit. Anyone with the link can open it any number of times.</p>
+            )}
+            {privateActionFired(file) && <p className="text-sm text-warn">{PRIVATE_FIRED_HINT}</p>}
+            {expireActionFired(file) && <p className="text-sm text-warn">{EXPIRE_FIRED_HINT}</p>}
+            {handlers.editViewLimit && (
+              <div className="flex flex-wrap gap-2">
+                <Button onClick={() => handlers.editViewLimit!(file)}>
+                  <Gauge aria-hidden className="size-4" />
+                  {viewLimit === null ? 'Set view limit…' : 'Edit view limit…'}
+                </Button>
+                {viewLimit !== null && handlers.removeViewLimit && (
+                  <Button variant="ghost" onClick={() => handlers.removeViewLimit!(file)}>
+                    Remove limit
+                  </Button>
+                )}
+              </div>
+            )}
+          </section>
+        )}
 
         {handlers.setSensitive && (
           <section aria-label="Sensitive content" className="flex flex-col gap-2 rounded-md border border-line px-3 py-3">
@@ -211,6 +252,7 @@ export default function FileDrawer({ file, handlers, onClose }: FileDrawerProps)
             <AccessBadge visibility={file.visibility} />
           </Meta>
           {file.views !== undefined && <Meta label="Views">{file.views.toLocaleString('en')}</Meta>}
+          {viewLimit !== null && <Meta label="View limit">{viewLimit.toLocaleString('en')}</Meta>}
         </dl>
 
         {file.albums.length > 0 && (

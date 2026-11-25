@@ -1,28 +1,36 @@
 /**
- * files.gg API client for the dashboard (and the lazy lock-screen chunk).
+ * files.gg API client for the dashboard and the files.gg viewer's lazy chunks.
  *
- * - Base URL: `VITE_API_URL`, default https://api.files.gg.
- * - Auth: `Authorization` from localStorage `filesgg.token`; `X-Fingerprint` from
- *   localStorage `filesgg.fingerprint` (anonymous uploads). Both are plain strings.
+ * - Base URL: same-origin `/api` (milestone-6 §13.1), the Worker's `files.gg/api/*`
+ *   passthrough. `VITE_API_URL` overrides it only for unusual local setups.
+ * - Auth: the session is the HttpOnly `__Host-filesgg_session` cookie, which JavaScript
+ *   never sees; requests use `credentials: "same-origin"` so the browser sends it.
+ *   Every non-GET request carries `X-Filesgg-Csrf: 1` (§3.6). `X-Fingerprint` from
+ *   localStorage `filesgg.fingerprint` identifies anonymous uploads while signed out.
+ * - Signed-in state comes from `GET /auth/session` (lib/session.ts); this module only
+ *   remembers the last answer, so it knows whether to send the fingerprint.
  * - Errors: non-2xx responses throw `ApiError` with the `{ code, message, status, ... }`
- *   body, where `code` is a string such as `FILE_TOO_LARGE`.
+ *   body. A `401` on a signed-in call, `403 CSRF` and `403 ACCOUNT_PENDING_DELETION` are
+ *   also announced to `onAuthEvent` listeners (the dashboard's session layer).
  *
- * Response shapes follow docs/redesign/contracts/milestone-2.md, milestone-3.md and
- * milestone-4.md (later milestones win): snake_case payloads, times in epoch seconds,
- * and URLs that are ready to use. Fields marked "planned" don't exist on the API yet.
+ * Response shapes follow docs/redesign/contracts/milestone-2.md to milestone-6.md (later
+ * milestones win): snake_case payloads, times in epoch seconds, and URLs ready to use.
  */
 
 import type { AlbumPart, ReportReason } from './reportTypes';
 import { getItem, setItem } from './storage';
 
-export const DEFAULT_API_URL = 'https://api.files.gg';
+/** Same-origin: the dashboard and the files.gg viewer never call api.files.gg directly. */
+export const DEFAULT_API_URL = '/api';
+/** The API's public origin, used by tools (ShareX, curl) and by custom-domain viewers. */
+export const PUBLIC_API_URL = 'https://api.files.gg';
 
-export const TOKEN_KEY = 'filesgg.token';
 export const FINGERPRINT_KEY = 'filesgg.fingerprint';
+export const CSRF_HEADER = 'X-Filesgg-Csrf';
 
 /**
- * The API origin. A path such as `/__mock-api` (the dev mock, see vite.plugins.ts)
- * is resolved against the page's origin.
+ * The API origin. A path (the default `/api`, or the dev mock's prefix) is resolved
+ * against the page's origin.
  */
 export function apiBaseUrl(value: string | undefined = import.meta.env.VITE_API_URL): string {
   let base = value?.trim() || DEFAULT_API_URL;
@@ -96,21 +104,62 @@ export function apiErrorFromText(status: number, statusText: string, text: strin
 
 const stored = (key: string): string | null => getItem(key) || null;
 
-export const hasToken = (): boolean => Boolean(stored(TOKEN_KEY));
+// ---------------------------------------------------------------------------
+// Session state (milestone-6 §3, §13.1). The cookie is invisible to scripts; this is
+// only the last answer of `GET /auth/session`, kept so the client knows whether to send
+// the anonymous fingerprint and whether a 401 means "you were signed out".
+// ---------------------------------------------------------------------------
 
-/** Auth headers from localStorage. Storage failures simply mean "no header". */
-export function authHeaders(): Record<string, string> {
+let signedIn: boolean | null = null;
+
+/** `true` or `false` once `GET /auth/session` has answered; `null` before. */
+export const signedInState = (): boolean | null => signedIn;
+
+export function setSignedInState(value: boolean | null): void {
+  signedIn = value;
+}
+
+export type AuthEvent =
+  /** A signed-in call got `401`: the server already cleared the cookie. */
+  | { type: 'unauthorized' }
+  /** `403 CSRF`: a client bug, never normal use. */
+  | { type: 'csrf'; error: ApiError }
+  /** `403 ACCOUNT_PENDING_DELETION`: the account was locked (in another tab, say). */
+  | { type: 'pending-deletion' };
+
+const authListeners = new Set<(event: AuthEvent) => void>();
+
+/** Subscribes to session failures seen by any request. Returns the unsubscribe function. */
+export function onAuthEvent(listener: (event: AuthEvent) => void): () => void {
+  authListeners.add(listener);
+  return () => authListeners.delete(listener);
+}
+
+/** Announces the session-level failures in an API error (also used by the XHR upload path). */
+export function reportApiFailure(error: ApiError, path: string): void {
+  let event: AuthEvent | null = null;
+  if (error.status === 401 && signedIn === true && !path.startsWith('/auth/')) event = { type: 'unauthorized' };
+  else if (error.status === 403 && error.code === 'CSRF') {
+    console.error(`files.gg: ${path} was refused as a cross-site request (403 CSRF). This is a bug in the web app.`);
+    event = { type: 'csrf', error };
+  } else if (error.code === 'ACCOUNT_PENDING_DELETION') event = { type: 'pending-deletion' };
+  if (event) for (const listener of [...authListeners]) listener(event);
+}
+
+const SAFE_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);
+
+/**
+ * Headers for a call to `/api`: the anonymous fingerprint while signed out, and the CSRF
+ * header on every state-changing method (§3.6). Never a credential: the cookie is the
+ * browser's. Storage failures simply mean "no fingerprint".
+ */
+export function authHeaders(method = 'GET'): Record<string, string> {
   const headers: Record<string, string> = {};
-  const token = stored(TOKEN_KEY);
-  if (token) {
-    headers.Authorization = token;
-  }
   const fingerprint = stored(FINGERPRINT_KEY);
-  // The fingerprint identifies anonymous uploads, so it is only sent while signed
-  // out. Fingerprint files are claimed on login.
-  if (fingerprint && !token) {
-    headers['X-Fingerprint'] = fingerprint;
-  }
+  // The fingerprint identifies anonymous uploads, so it is only sent while signed out.
+  // Fingerprint files are claimed on sign-in, which also deletes it (§4.2).
+  if (fingerprint && signedIn !== true) headers['X-Fingerprint'] = fingerprint;
+  if (!SAFE_METHODS.has(method.toUpperCase())) headers[CSRF_HEADER] = '1';
   return headers;
 }
 
@@ -123,16 +172,45 @@ export interface RequestOptions {
   body?: unknown;
   headers?: Record<string, string>;
   signal?: AbortSignal | undefined;
-  /** Defaults to true. */
+  /** Send the anonymous fingerprint (while signed out). Defaults to true. */
   auth?: boolean;
+  /** Defaults to `same-origin` (the session cookie). `omit` also drops the CSRF header. */
+  credentials?: RequestCredentials;
+}
+
+/** `GET /auth/session` (§3.4): never 401; `user` is null when signed out. */
+export interface SessionResponse {
+  user: User | null;
+}
+
+/** Asks who is signed in, and remembers the answer for the fingerprint and 401 handling. */
+export async function fetchSession(signal?: AbortSignal): Promise<User | null> {
+  const response = await request<SessionResponse | undefined>('/auth/session', { signal });
+  const user = response?.user ?? null;
+  setSignedInState(user !== null);
+  return user;
+}
+
+let sessionCheck: Promise<boolean> | null = null;
+
+/** The known sign-in state, asking `GET /auth/session` once if nobody has yet. */
+async function knownSignedIn(): Promise<boolean> {
+  if (signedIn !== null) return signedIn;
+  sessionCheck ??= fetchSession()
+    .then((user) => user !== null)
+    .catch(() => false)
+    .finally(() => {
+      sessionCheck = null;
+    });
+  return sessionCheck;
 }
 
 /**
- * Anonymous uploads and limits need a fingerprint (contract §6). Reuses the stored
- * one, or asks the API for a new one (`GET /auth/fingerprint`).
+ * Anonymous uploads and limits need a fingerprint (milestone-2 §6). Signed in, there's
+ * none. Signed out, reuses the stored one, or asks the API for a new one.
  */
 export async function ensureFingerprint(): Promise<string | null> {
-  if (hasToken()) return null;
+  if (await knownSignedIn()) return null;
   const existing = stored(FINGERPRINT_KEY);
   if (existing) return existing;
   const { fingerprint } = await request<{ fingerprint: string }>('/auth/fingerprint', { auth: false });
@@ -164,12 +242,13 @@ function isRawBody(body: unknown): body is BodyInit {
 }
 
 export async function request<T>(path: string, options: RequestOptions = {}): Promise<T> {
-  const { method = 'GET', query, body, signal, auth = true } = options;
-  const headers: Record<string, string> = {
-    Accept: 'application/json',
-    ...(auth ? authHeaders() : {}),
-    ...options.headers,
-  };
+  const { method = 'GET', query, body, signal, auth = true, credentials = 'same-origin' } = options;
+  const headers: Record<string, string> = { Accept: 'application/json' };
+  const standard = authHeaders(method);
+  if (auth && standard['X-Fingerprint']) headers['X-Fingerprint'] = standard['X-Fingerprint'];
+  // Same-origin writes prove where they came from (§3.6); a credential-less call needs no proof.
+  if (credentials !== 'omit' && standard[CSRF_HEADER]) headers[CSRF_HEADER] = standard[CSRF_HEADER];
+  Object.assign(headers, options.headers);
 
   let payload: BodyInit | undefined;
   if (body !== undefined) {
@@ -183,7 +262,7 @@ export async function request<T>(path: string, options: RequestOptions = {}): Pr
 
   let response: Response;
   try {
-    response = await fetch(buildUrl(path, query), { method, headers, body: payload, signal: signal ?? null });
+    response = await fetch(buildUrl(path, query), { method, headers, body: payload, signal: signal ?? null, credentials });
   } catch (error) {
     if (error instanceof DOMException && error.name === 'AbortError') {
       throw error;
@@ -192,7 +271,9 @@ export async function request<T>(path: string, options: RequestOptions = {}): Pr
   }
 
   if (!response.ok) {
-    throw await parseApiError(response);
+    const error = await parseApiError(response);
+    reportApiFailure(error, path);
+    throw error;
   }
   if (response.status === 204 || method === 'HEAD') {
     return undefined as T;
@@ -212,22 +293,53 @@ export async function request<T>(path: string, options: RequestOptions = {}): Pr
 // Shapes (PLAN.md Phase 1). Fields marked "planned" are not returned yet.
 // ---------------------------------------------------------------------------
 
-/** `GET /users/@me`. Discriminators are being dropped for unique usernames. */
-export interface Me {
+/** A linked login method (milestone-6 §2.1, §5.6). Only Discord for now. */
+export interface Identity {
+  provider: 'discord';
+  username: string | null;
+  display_name: string | null;
+  /** `cdn.discordapp.com`, loaded only in Settings → Login methods. */
+  avatar_url: string | null;
+  created_at: number;
+  last_used_at: number | null;
+}
+
+/** The user object (milestone-6 §2.1): `GET /users/@me`, `/auth/session` and sign-in responses. */
+export interface User {
   id: string;
   username: string;
-  /** planned: optional free-text name. */
-  display_name?: string | null;
-  flags: number;
-  bot?: boolean;
+  display_name: string | null;
+  /** Null for Discord-only accounts that never added one. */
   email: string | null;
-  verified: boolean;
-  /** planned: set when a username clashed in the migration and must be re-picked. */
-  needs_username?: boolean;
+  email_verified: boolean;
+  /** An email change waiting for its link (§8.4). */
+  pending_email: string | null;
+  has_password: boolean;
+  /** Set by a staff username reset (§11.4): the dashboard asks for a new name. */
+  needs_username: boolean;
+  created_at: number;
+  username_changed_at: number | null;
+  /** Null when a rename is allowed now (§2.2 cooldown). */
+  username_change_available_at: number | null;
+  identities: Identity[];
+  settings: { show_name_on_albums: boolean; domain_only: boolean };
+  premium: { active: boolean; expires_at: number | null };
+  /** Set while a deletion is pending (§8.8). */
+  deletion: { requested_at: number; scheduled_for: number } | null;
   /** Milestone 4 (§8.3): present for staff, null otherwise. */
-  staff?: StaffInfo | null;
+  staff: StaffInfo | null;
   /** Milestone 4 (§8.3): active upload restrictions and suspensions. */
-  restrictions?: Restriction[];
+  restrictions: Restriction[];
+}
+
+/** @deprecated The Milestone 6 name is `User`. */
+export type Me = User;
+
+/** The public user object (album owner lines, report targets shown to staff). */
+export interface PublicUser {
+  id: string;
+  username: string;
+  display_name: string | null;
 }
 
 /** `sort_by` (milestone-3 contract §6). `-created` is the default. */
@@ -306,7 +418,7 @@ export interface FileMedia {
 
 /**
  * The file payload (contract §4). One shape everywhere: `/files/<vanity>`, upload
- * responses, unlock, `/view`, refresh, album items and the owner list.
+ * responses, unlock, view, refresh, album items and the owner list.
  */
 export interface FilePayload {
   id: string;
@@ -328,6 +440,11 @@ export interface FilePayload {
   url: string;
   /** The file on the CDN, ready to use (signed when protected). Download adds `?download=true`. */
   cdn_url: string;
+  /**
+   * Milestone 6 (§10.9), owner payloads only: the bytes on the link domain (the default
+   * custom domain when it's serving), signed like `cdn_url`. "Copy direct link".
+   */
+  direct_url?: string;
   /** Epoch seconds. */
   uploaded_at: number;
   /** Epoch seconds, or null when the file never expires. */
@@ -362,6 +479,11 @@ export interface OwnerFile extends FilePayload {
   albums: AlbumRef[];
   /** Milestone 4 (§6.2). A payload without it is treated as `ok`. */
   safety?: OwnerSafety;
+  /** Milestone 6 (§19.6): 1–1000 unique viewers, or null (or absent) for no limit. */
+  view_limit?: number | null;
+  view_limit_action?: ViewLimitAction;
+  /** Unique viewers counted so far. Never reset by changing the limit. */
+  views_used?: number;
 }
 
 export interface AlbumRef {
@@ -409,6 +531,8 @@ export interface OwnerAlbumItem extends OwnerFile {
   caption: string;
   /** False when the public album page hides it (contract §4). */
   shown: boolean;
+  /** Milestone 6 §19.6: `view_limit` when it's hidden because the file is view-limited. */
+  hidden_reason?: string | null;
 }
 
 /** `GET /users/@me/albums/<id>`: every item (≤ 500), hidden ones included. */
@@ -460,6 +584,9 @@ export interface PatchFileBody extends AccessParams {
   filename?: string;
   /** Milestone 4 (§4.5): mark or unmark as sensitive. */
   nsfw?: boolean;
+  /** Milestone 6 (§19.3): set, raise or lower (above `views_used`), or null to remove. */
+  view_limit?: number | null;
+  view_limit_action?: ViewLimitAction;
 }
 
 export interface PatchAlbumBody extends AccessParams {
@@ -499,6 +626,12 @@ export interface MyLimitsResponse {
   albums_max?: number | null;
   /** Milestone 4 (§13): true signed in and not restricted, false anonymous. */
   nsfw_allowed?: boolean;
+  /** Milestone 6 (§9.2): premium raises storage, chunked and single-request limits. */
+  premium?: boolean;
+  /** The single-request limit before the proxy's body cap (§9.2, §9.5). */
+  max_file_size_single_configured?: number;
+  custom_domains?: { used: number; limit: number };
+  upload_keys?: { used: number; limit: number };
 }
 
 // ---------------------------------------------------------------------------
@@ -515,7 +648,7 @@ export interface AccessGrant {
 }
 
 /**
- * `POST …/unlock`, `GET …/view` and `POST …/unlock/refresh` (milestone-3 §3): the
+ * `POST /access/unlock/…`, `GET /access/view/…` and `POST /access/refresh/…` (milestone-3 §3): the
  * payload (`file` or `album`) with URLs signed for this visitor, plus the token for the
  * API and its expiry.
  */
@@ -526,8 +659,30 @@ export interface UnlockResponse extends AccessGrant {
 
 export type ViewResponse = UnlockResponse;
 
-const accessBase = (kind: AccessKind, vanity: string) =>
-  `/${kind === 'album' ? 'albums' : 'files'}/${vanity.split('/').map(encodeURIComponent).join('/')}`;
+/**
+ * Milestone 6 §19.4: opening a view-limited file. `file` is the payload with URLs signed
+ * for 1 h (or until the file expires), `view_limit: { remaining }` included. There is no
+ * token: the viewer refreshes by opening again, which never counts the same viewer twice.
+ */
+export interface OpenResponse {
+  file?: unknown;
+  /** Epoch seconds: when the signed URLs stop working. */
+  expires_at: number;
+}
+
+/** The access routes' actions (milestone-6 §20.1). */
+export type AccessAction = 'unlock' | 'refresh' | 'view' | 'open';
+
+/**
+ * The access routes (milestone-6 §20.1): the vanity is always the last path segment, so a
+ * multi-segment vanity made of words (`unlock/view`) can never be read as an action:
+ * `/access/<action>/files|albums/<vanity>`.
+ */
+export const accessPath = (action: AccessAction, kind: AccessKind, vanity: string) =>
+  `/access/${action}/${kind === 'album' ? 'albums' : 'files'}/${vanity.split('/').map(encodeURIComponent).join('/')}`;
+
+/** The open route (milestone-6 §19.4): `POST /access/open/files/<vanity>`. */
+export const openPath = (vanity: string) => accessPath('open', 'file', vanity);
 
 // ---------------------------------------------------------------------------
 // Uploads (contract §6)
@@ -551,7 +706,14 @@ export interface UploadParams {
   album?: string;
   /** Milestone 4 (§4.3): adult content. Signed in only. */
   nsfw?: boolean;
+  /** Milestone 6 (§19.3): unique viewers before the action fires, 1–1000. */
+  view_limit?: number;
+  /** `private` needs an account (`400 PRIVATE_REQUIRES_ACCOUNT`). */
+  view_limit_action?: ViewLimitAction;
 }
+
+/** Milestone 6 (§19.1): what happens at the limit. */
+export type ViewLimitAction = 'expire' | 'private';
 
 /** `POST /files` response, and `file` in a completed upload session: the file payload plus a generated password. */
 export interface UploadedFile extends FilePayload {
@@ -652,7 +814,8 @@ export { REPORT_REASONS, type AlbumPart, type DmcaNotice, type ReportReason } fr
 
 export const REPORT_STATUSES = ['open', 'resolved', 'dismissed'] as const;
 export type ReportStatus = (typeof REPORT_STATUSES)[number];
-export type ReportKind = 'file' | 'album' | 'user' | 'bug';
+/** Milestone 6 adds `domain` reports (§10.12). */
+export type ReportKind = 'file' | 'album' | 'user' | 'domain' | 'bug';
 
 /** The reporter's view of the target: never the uploader, the filename or its state (§7.5). */
 export interface ReportTarget {
@@ -660,6 +823,8 @@ export interface ReportTarget {
   vanity?: string | null;
   /** User reports. */
   id?: string | null;
+  /** Domain reports (milestone-6 §10.12). */
+  hostname?: string | null;
   url: string | null;
   part: AlbumPart | null;
 }
@@ -717,7 +882,8 @@ export interface Notice {
   /** Null for rules that are never shown (CSAM). */
   rule_text: string | null;
   message: string | null;
-  target: { kind: 'file' | 'album' | 'account'; id: string; vanity?: string | null; name?: string | null };
+  /** Milestone 6: `domain` notices carry the `hostname` (§11.5). */
+  target: { kind: 'file' | 'album' | 'account' | 'domain'; id: string; vanity?: string | null; name?: string | null; hostname?: string | null };
   created_at: number;
   acknowledged_at: number | null;
   appeal: {
@@ -766,7 +932,9 @@ const reportUrl = (id: string) => `/users/@me/reports/${encodeURIComponent(id)}`
 const albumUrl = (id: string) => `/users/@me/albums/${encodeURIComponent(id)}`;
 
 export const api = {
-  me: (signal?: AbortSignal) => request<Me>('/users/@me', { signal }),
+  /** `GET /auth/session`: the user, or null when signed out. */
+  session: fetchSession,
+  me: (signal?: AbortSignal) => request<User>('/users/@me', { signal }),
   myLimits: (signal?: AbortSignal) => request<MyLimitsResponse>('/users/@me/limits', { signal }),
 
   // Owner files (milestone-3 contract §6)
@@ -787,7 +955,9 @@ export const api = {
       method: 'POST',
       body: { file_ids: fileIds, ...access },
     }),
-  filePass: (id: string) => request<OwnerPass>(`${fileUrl(id)}/pass`, { method: 'POST' }),
+  /** `domainId`: open on one of your serving custom domains (§10.9). */
+  filePass: (id: string, domainId?: string) =>
+    request<OwnerPass>(`${fileUrl(id)}/pass`, { method: 'POST', ...(domainId ? { body: { domain_id: domainId } } : {}) }),
 
   // Albums
   createAlbum: (body: CreateAlbumBody) => request<OwnerAlbum>('/users/@me/albums', { method: 'POST', body }),
@@ -811,19 +981,26 @@ export const api = {
     request<OwnerAlbum>(`${albumUrl(id)}/files/${encodeURIComponent(fileId)}`, { method: 'DELETE' }),
   setAlbumCaption: (id: string, fileId: string, caption: string) =>
     request<OwnerAlbum>(`${albumUrl(id)}/files/${encodeURIComponent(fileId)}`, { method: 'PATCH', body: { caption } }),
-  albumPass: (id: string) => request<OwnerPass>(`${albumUrl(id)}/pass`, { method: 'POST' }),
+  albumPass: (id: string, domainId?: string) =>
+    request<OwnerPass>(`${albumUrl(id)}/pass`, { method: 'POST', ...(domainId ? { body: { domain_id: domainId } } : {}) }),
 
   unlock: (kind: AccessKind, vanity: string, password: string, turnstileToken: string) =>
-    request<UnlockResponse>(`${accessBase(kind, vanity)}/unlock`, {
+    request<UnlockResponse>(accessPath('unlock', kind, vanity), {
       method: 'POST',
       body: { password, turnstile_token: turnstileToken },
       auth: false,
     }),
   /** A new token and the payload again, with freshly signed URLs (milestone-3 §3). */
   refreshUnlock: (kind: AccessKind, vanity: string, token: string) =>
-    request<UnlockResponse>(`${accessBase(kind, vanity)}/unlock/refresh`, { method: 'POST', body: { token }, auth: false }),
+    request<UnlockResponse>(accessPath('refresh', kind, vanity), { method: 'POST', body: { token }, auth: false }),
   view: (kind: AccessKind, vanity: string, token: string) =>
-    request<ViewResponse>(`${accessBase(kind, vanity)}/view`, { headers: { 'X-Filesgg-Access': token }, auth: false }),
+    request<ViewResponse>(accessPath('view', kind, vanity), { headers: { 'X-Filesgg-Access': token }, auth: false }),
+  /**
+   * Milestone 6 §19.4: opens a view-limited file (Turnstile action `view`). Same-origin with
+   * the session cookie, so the owner and staff are served without counting.
+   */
+  openFile: (vanity: string, turnstileToken: string) =>
+    request<OpenResponse>(openPath(vanity), { method: 'POST', body: { turnstile_token: turnstileToken }, auth: false }),
 
   createUpload: (body: UploadParams & { filename: string; size: number }) =>
     request<UploadSession>('/uploads', { method: 'POST', body }),

@@ -3,10 +3,11 @@ import { useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router';
 
 import { Button } from '../../components/Button';
-import { api, hasToken } from '../../lib/api';
+import { api } from '../../lib/api';
 import { errorMessage } from '../../lib/errors';
 import { pageCount, PAGE_SIZE } from '../../lib/files/urlState';
-import { useAcknowledgeNotices, useNotices } from '../../lib/queries';
+import { useAcknowledgeNotices, useNotices, useSignedIn } from '../../lib/queries';
+import { SignInLink } from '../components/SignInLink';
 import { RELATIVE_REFRESH_MS } from '../../lib/time';
 import { useNow } from '../../lib/useNow';
 import { useToast } from '../components/toastContext';
@@ -19,7 +20,7 @@ export default function NoticesPage() {
   useEffect(() => {
     document.title = 'Notices · files.gg';
   }, []);
-  const signedIn = hasToken();
+  const signedIn = useSignedIn();
   const [params, setParams] = useSearchParams();
   const page = Math.max(1, Number(params.get('page')) || 1);
   const notices = useNotices({ offset: (page - 1) * PAGE_SIZE, limit: PAGE_SIZE }, signedIn);
@@ -52,7 +53,9 @@ export default function NoticesPage() {
     return (
       <section className="flex flex-col gap-2">
         <h1 className="text-2xl font-semibold tracking-tight">Notices</h1>
-        <p className="text-muted">Sign in to see moderation notices about your files or account.</p>
+        <p className="text-muted">
+          <SignInLink /> to see moderation notices about your files or account.
+        </p>
       </section>
     );
   }

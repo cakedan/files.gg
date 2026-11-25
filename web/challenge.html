@@ -28,7 +28,8 @@
     </style>
   </head>
   <body>
-    <div id="turnstile"></div>
+    <!-- Never give it the id turnstile: that would make window.turnstile this element, which lib/turnstile takes for the API. -->
+    <div id="widget"></div>
     <p id="status" role="status" hidden></p>
     <!-- filesgg:challenge-data (the worker inlines <script id="challenge-data" type="application/json">{"host":"…","action":"…"}</script> here) -->
     <script type="module" src="/src/challenge/main.ts"></script>

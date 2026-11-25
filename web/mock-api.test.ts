@@ -177,7 +177,7 @@ describe('mock API: owner library (milestone-3 §6)', () => {
 
   it('unlock, view and refresh return the payload with signed URLs plus token and expires_at', async () => {
     const turnstile = 'XXXX.DUMMY.TOKEN.XXXX';
-    const unlock = await call('POST', '/files/locked1234/unlock', { password: 'files.gg', turnstile_token: turnstile }, {});
+    const unlock = await call('POST', '/access/unlock/files/locked1234', { password: 'files.gg', turnstile_token: turnstile }, {});
     expect(unlock.status).toBe(200);
     expect(unlock.body).toMatchObject({ token: expect.any(String), expires_at: expect.any(Number), file: { filename: 'holiday.png' } });
     const url = new URL(unlock.body.file.cdn_url);
@@ -185,15 +185,34 @@ describe('mock API: owner library (milestone-3 §6)', () => {
     expect(url.searchParams.get('sig')).toBe(cdnSignature(url.pathname, unlock.body.expires_at, 'file:1234567890123456789:0'));
     expect(unlock.body.file.cdn_url).not.toContain('t=');
 
-    const view = await call('GET', '/files/locked1234/view', undefined, { 'x-filesgg-access': unlock.body.token });
+    const view = await call('GET', '/access/view/files/locked1234', undefined, { 'x-filesgg-access': unlock.body.token });
     expect(view.body).toMatchObject({ token: unlock.body.token, expires_at: unlock.body.expires_at, file: { cdn_url: unlock.body.file.cdn_url } });
-    const refresh = await call('POST', '/files/locked1234/unlock/refresh', { token: unlock.body.token }, {});
+    const refresh = await call('POST', '/access/refresh/files/locked1234', { token: unlock.body.token }, {});
     expect(refresh.body).toMatchObject({ token: expect.any(String), expires_at: expect.any(Number), file: { filename: 'holiday.png' } });
     expect(new URL(refresh.body.file.cdn_url).searchParams.get('expires')).toBe(String(refresh.body.expires_at));
 
-    const album = await call('POST', '/albums/lockedalbum/unlock', { password: 'files.gg', turnstile_token: turnstile }, {});
+    const album = await call('POST', '/access/unlock/albums/lockedalbum', { password: 'files.gg', turnstile_token: turnstile }, {});
     expect(album.body.album.download_url).toMatch(/^https:\/\/cdn\.files\.gg\/albums\/download\/lockedalbum\.zip\?expires=\d+&sig=/);
     for (const item of album.body.album.items) expect(item.cdn_url).toMatch(/\?album=lockedalbum&expires=\d+&sig=/);
+  });
+
+  it('serves the access routes with the vanity last; the old paths are 404 (milestone-6 §20.1)', async () => {
+    const turnstile = 'XXXX.DUMMY.TOKEN.XXXX';
+    const old = [
+      ['POST', '/files/locked1234/unlock', { password: 'files.gg', turnstile_token: turnstile }],
+      ['POST', '/files/locked1234/unlock/refresh', { token: 'x' }],
+      ['GET', '/files/locked1234/view', undefined],
+      ['POST', '/albums/lockedalbum/unlock', { password: 'files.gg', turnstile_token: turnstile }],
+      ['GET', '/albums/lockedalbum/view', undefined],
+    ] as const;
+    for (const [method, path, body] of old) {
+      const response = await call(method, path, body, {});
+      expect(response.status, path).toBe(404);
+    }
+    const unlocked = await call('POST', '/access/unlock/files/locked1234', { password: 'files.gg', turnstile_token: turnstile }, {});
+    expect(unlocked.status).toBe(200);
+    expect((await call('POST', '/access/refresh/albums/lockedalbum', { token: 'x' }, {})).body.code).toBe('UNLOCK_EXPIRED');
+    expect((await call('GET', '/access/view/files/nope', undefined, {})).status).toBe(404);
   });
 
   it('renames, sets expiry in bulk, changes access with one shared generated password, and deletes', async () => {
@@ -214,7 +233,7 @@ describe('mock API: owner library (milestone-3 §6)', () => {
       ['password', 1],
     ]);
     // The bulk password unlocks both.
-    const unlock = await call('POST', `/files/${access.body.items[1].vanity}/unlock`, { password: access.body.password, turnstile_token: 'XXXX.DUMMY.TOKEN.XXXX' }, {});
+    const unlock = await call('POST', `/access/unlock/files/${access.body.items[1].vanity}`, { password: access.body.password, turnstile_token: 'XXXX.DUMMY.TOKEN.XXXX' }, {});
     expect(unlock.status).toBe(200);
 
     const pass = await call('POST', `/users/@me/files/${a!.id}/pass`);
@@ -1095,5 +1114,140 @@ describe('mock API: admin premium, domains and account actions (milestone-6 §9.
     const tracker = await call('GET', '/users/@me', undefined, { cookie: mockSessionCookie('77') });
     expect(tracker.body).toMatchObject({ username: 'u77', needs_username: true, username_change_available_at: null });
     expect((await call('GET', '/users/@me/username/check?username=tracker99', undefined, {})).body.reason).toBe('taken');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Milestone 6 §19: view limits
+// ---------------------------------------------------------------------------
+
+describe('mock API: view limits (milestone-6 §19)', () => {
+  const viewer = (n: number) => ({ 'cf-connecting-ip': `10.19.0.${n}` });
+  const open = (vanity: string, headers: Record<string, string> = viewer(1), token: string = TURNSTILE) =>
+    call('POST', `/access/open/files/${vanity}`, { turnstile_token: token }, headers);
+  const ownFile = async (name: string): Promise<Item> =>
+    (await call('GET', `/users/@me/files?query=${encodeURIComponent(name)}&limit=100`)).body.items.find((file: Item) => file.filename.startsWith(name));
+  let uploads = 0;
+  /** A fresh upload of Mock User (scanned at once), then a fresh limit through PATCH. */
+  const limited = async (limit: number, action: 'expire' | 'private' = 'expire') => {
+    const name = `view-limit-${++uploads}`;
+    const upload = multipart(`${name}.zip`);
+    const scan = [process.env.MOCK_SCAN_MS, process.env.MOCK_DERIVE_MS];
+    process.env.MOCK_SCAN_MS = '0';
+    process.env.MOCK_DERIVE_MS = '0';
+    try {
+      expect((await call('POST', '/files', upload.body, { ...USER, ...upload.headers })).status).toBe(200);
+    } finally {
+      for (const [key, value] of [['MOCK_SCAN_MS', scan[0]], ['MOCK_DERIVE_MS', scan[1]]] as const) {
+        if (value === undefined) delete process.env[key];
+        else process.env[key] = value;
+      }
+    }
+    const file = await ownFile(name);
+    const set = await call('PATCH', `/users/@me/files/${file.id}`, { view_limit: limit, view_limit_action: action });
+    expect(set.status).toBe(200);
+    expect(set.body).toMatchObject({ view_limit: limit, view_limit_action: action, views_used: 0 });
+    return { ...(set.body as Item), name };
+  };
+
+  it('3 viewers on a limit of 3: the third still gets the file, then it expires and a fourth gets missing', async () => {
+    const file = await limited(3);
+    const first = await open(file.vanity, viewer(101));
+    expect(first.status).toBe(200);
+    expect(first.body.file.view_limit).toEqual({ remaining: 2 });
+    expect(first.body.file.cdn_url).toMatch(/[?&]expires=\d+&sig=/);
+    expect(first.body.expires_at - Date.now() / 1000).toBeLessThanOrEqual(3600);
+    expect((await open(file.vanity, viewer(102))).body.file.view_limit).toEqual({ remaining: 1 });
+    const third = await open(file.vanity, viewer(103));
+    expect(third.status).toBe(200);
+    expect(third.body.file.view_limit).toEqual({ remaining: 0 });
+    const fourth = await open(file.vanity, viewer(104));
+    expect(fourth).toMatchObject({ status: 404, body: { code: 'UNKNOWN_FILE' } });
+    // Never described as "view limit reached".
+    expect(JSON.stringify(fourth.body)).not.toMatch(/limit/i);
+    // The last viewer keeps it for their URLs' hour; the owner sees it expiring within the hour.
+    expect((await open(file.vanity, viewer(103))).status).toBe(200);
+    const owner = await ownFile(file.name);
+    expect(owner).toMatchObject({ views_used: 3, view_limit: 3 });
+    expect(owner.expires_at - Date.now() / 1000).toBeLessThanOrEqual(3600);
+  });
+
+  it('one viewer opening 5 times uses 1 view; the owner and staff never count', async () => {
+    const file = await limited(2);
+    for (let i = 0; i < 5; i++) expect((await open(file.vanity, viewer(110))).status).toBe(200);
+    expect((await ownFile(file.name)).views_used).toBe(1);
+    expect((await open(file.vanity, { ...USER, ...viewer(111) })).body.file.view_limit).toEqual({ remaining: 1 });
+    expect((await open(file.vanity, { ...MODERATOR, ...viewer(112) })).status).toBe(200);
+    expect((await ownFile(file.name)).views_used).toBe(1);
+  });
+
+  it('the private action hides it from everyone but the owner and bumps access_version', async () => {
+    const file = await limited(1, 'private');
+    expect((await open(file.vanity, viewer(120))).status).toBe(200);
+    const after = await ownFile(file.name);
+    expect(after).toMatchObject({ visibility: 'private', views_used: 1, view_limit: 1, view_limit_action: 'private' });
+    expect(after.access_version).toBe(file.access_version + 1);
+    expect((await open(file.vanity, viewer(121))).status).toBe(404);
+    expect((await open(file.vanity, viewer(120))).status).toBe(404);
+    expect((await open(file.vanity, { ...USER, ...viewer(122) })).status).toBe(200);
+    // Raising the limit and changing visibility back shares it again; the count stays.
+    const raised = await call('PATCH', `/users/@me/files/${file.id}`, { view_limit: 3, visibility: 'link' });
+    expect(raised.body).toMatchObject({ view_limit: 3, views_used: 1, visibility: 'link' });
+  });
+
+  it('refuses a limit at or below views_used (VIEW_LIMIT_TOO_LOW), and removes one with null', async () => {
+    const file = await limited(5);
+    await open(file.vanity, viewer(130));
+    await open(file.vanity, viewer(131));
+    const low = await call('PATCH', `/users/@me/files/${file.id}`, { view_limit: 2 });
+    expect(low).toMatchObject({ status: 400, body: { code: 'VIEW_LIMIT_TOO_LOW', views_used: 2, errors: { view_limit: expect.any(String) } } });
+    expect((await call('PATCH', `/users/@me/files/${file.id}`, { view_limit: 3 })).body).toMatchObject({ view_limit: 3, views_used: 2 });
+    expect((await call('PATCH', `/users/@me/files/${file.id}`, { view_limit: 0 })).body.code).toBe('INVALID_PARAMETERS');
+    expect((await call('PATCH', `/users/@me/files/${file.id}`, { view_limit: null })).body).toMatchObject({ view_limit: null, views_used: 2 });
+  });
+
+  it('needs Turnstile (action view) before anything else', async () => {
+    expect((await open('limited1', viewer(140), 'nope')).body.code).toBe('CAPTCHA_INVALID');
+    expect((await call('POST', '/access/open/files/limited1', {}, viewer(140))).status).toBe(403);
+  });
+
+  it('a password file answers UNLOCK_REQUIRED, and a successful unlock counts as the view', async () => {
+    expect((await open('limitedpw', viewer(150))).body.code).toBe('UNLOCK_REQUIRED');
+    const before = (await ownFile('limited-notes')).views_used;
+    const unlock = await call('POST', '/access/unlock/files/limitedpw', { password: 'files.gg', turnstile_token: TURNSTILE }, viewer(150));
+    expect(unlock.status).toBe(200);
+    expect(unlock.body.file.view_limit).toEqual({ remaining: 5 - before - 1 });
+    expect((await ownFile('limited-notes')).views_used).toBe(before + 1);
+    // With the unlock token, /open serves it without counting again.
+    const reopened = await open('limitedpw', { ...viewer(150), 'x-filesgg-access': unlock.body.token });
+    expect(reopened.status).toBe(200);
+    expect((await ownFile('limited-notes')).views_used).toBe(before + 1);
+  });
+
+  it('takes view_limit on uploads; anonymous uploads can\'t choose private', async () => {
+    const signedIn = multipart('limited-upload.png', { view_limit: '4', view_limit_action: 'private' });
+    const sent = await call('POST', '/files', signedIn.body, { ...USER, ...signedIn.headers });
+    expect(sent.status).toBe(200);
+    expect((await ownFile('limited-upload')).view_limit).toBe(4);
+
+    const anon = { 'x-fingerprint': 'fp-view-limit' };
+    const refused = multipart('anon-limit.png', { turnstile_token: TURNSTILE, view_limit: '2', view_limit_action: 'private' });
+    expect((await call('POST', '/files', refused.body, { ...anon, ...refused.headers })).body.code).toBe('PRIVATE_REQUIRES_ACCOUNT');
+    const allowed = multipart('anon-limit.png', { turnstile_token: TURNSTILE, view_limit: '2' });
+    expect((await call('POST', '/files', allowed.body, { ...anon, ...allowed.headers })).status).toBe(200);
+    const range = multipart('anon-limit.png', { turnstile_token: TURNSTILE, view_limit: '1001' });
+    expect((await call('POST', '/files', range.body, { ...anon, ...range.headers })).body.code).toBe('INVALID_PARAMETERS');
+    const chunked = await call('POST', '/uploads', { filename: 'big.bin', size: 20 * 1024 * 1024, view_limit: 9, view_limit_action: 'expire' });
+    expect(chunked.status).toBe(201);
+  });
+
+  it('view-limited files are hidden in albums, and shown as hidden to the owner', async () => {
+    const albums = await call('GET', '/users/@me/albums');
+    const lisbon = albums.body.items.find((album: Item) => album.title === 'Lisbon, November');
+    const detail = await call('GET', `/users/@me/albums/${lisbon.id}`);
+    const item = detail.body.items.find((each: Item) => each.filename === 'limited-photo.png');
+    expect(item).toMatchObject({ shown: false, view_limit: 3, hidden_reason: 'view_limit' });
+    const publicView = await call('GET', `/albums/${lisbon.vanity}`, undefined, {});
+    expect(publicView.body.items.some((each: Item) => each.filename === 'limited-photo.png')).toBe(false);
   });
 });

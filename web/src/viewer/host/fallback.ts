@@ -13,5 +13,6 @@ export type FallbackTarget =
 export function fallbackUrl(target: FallbackTarget, mainOrigin: string = hostContext().mainOrigin): string {
   if (target.type === 'any') return `${mainOrigin}/report`;
   const path = target.type === 'album' ? `/a/${encodeVanity(target.vanity)}` : `/${encodeVanity(target.vanity)}`;
-  return `${mainOrigin}${path}${target.report ? '/report' : ''}`;
+  // milestone-6 §20.2: the report pages are `/report/<vanity>` and `/report/a/<vanity>`
+  return `${mainOrigin}${target.report ? '/report' : ''}${path}`;
 }

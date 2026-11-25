@@ -317,3 +317,12 @@ async def claim_fingerprint(conn, user, fingerprint):
 
 def now():
     return int(time.time())
+
+
+async def owner_offline(conn, user_id):
+    """§8.8: an owner with a pending deletion (or deleted) has their content offline, as missing."""
+    if user_id is None:
+        return False
+    row = await _one(conn, 'SELECT deletion_requested_at IS NOT NULL OR deleted_at IS NOT NULL FROM users WHERE id = %s',
+                     (user_id,))
+    return bool(row and row[0])

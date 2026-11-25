@@ -58,7 +58,7 @@ def create_app(name='filesgg', database_url=None, storage=None):
     account_config.check_api()
 
     from sanic import Sanic
-    from sanic.exceptions import SanicException
+    from sanic.exceptions import MethodNotAllowed, SanicException
     from sanic.response import HTTPResponse
     from sanic_ext import Extend
 
@@ -74,7 +74,7 @@ def create_app(name='filesgg', database_url=None, storage=None):
     from utils.wrappers import allowed_methods
 
     from views.auth import auth
-    from views.files import files
+    from views.files import access_routes, files
     from views.albums import albums
     from views.internal import internal
     from views.uploads import uploads
@@ -154,8 +154,8 @@ def create_app(name='filesgg', database_url=None, storage=None):
     cdn_signing.configure(os.environ['CDN_SIGNING_SECRET'])
     Snowflake.set_epoch(EPOCH)
 
-    for blueprint in (auth, files, health, me, mimetypes, users, uploads, internal, albums, reports, my_safety, admin,
-                      account, integrations):
+    for blueprint in (auth, files, access_routes, health, me, mimetypes, users, uploads, internal, albums, reports,
+                      my_safety, admin, account, integrations):
         app.blueprint(blueprint)
 
     # --- per-worker resources ------------------------------------------------
@@ -245,7 +245,11 @@ def create_app(name='filesgg', database_url=None, storage=None):
     @app.exception(Exception)
     async def on_error(request, error):
         if not isinstance(error, ApiError):
-            if isinstance(error, SanicException):
+            if isinstance(error, MethodNotAllowed) and vanity_lookup_path(request.path):
+                # milestone-6 §20.1: nothing comes after a vanity, so `POST /files/<vanity>/unlock` and the
+                # other old action paths are simply gone (404), not a method the vanity lookup lacks
+                error = ApiError(status=404)
+            elif isinstance(error, SanicException):
                 error = ApiError(status=error.status_code)
             else:
                 # never the exception's own text: it can carry internals
@@ -254,6 +258,12 @@ def create_app(name='filesgg', database_url=None, storage=None):
         return error.response
 
     return app
+
+
+def vanity_lookup_path(path):
+    """`/files/<vanity>`: GET only, and the vanity is always the last path segment (milestone-6 §20.1), so any
+    other method there is a path that doesn't exist."""
+    return path.startswith('/files/') and len(path) > len('/files/')
 
 
 def apply_cors(app, request, response):

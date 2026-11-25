@@ -1,5 +1,8 @@
 // Bot and embed routing: which files.gg/<vanity> requests go straight to the file's cdn_url
 // instead of the viewer page (docs/redesign/PLAN.md §1.4 item 3). Pure, so it is unit-tested.
+// The user-agent rules are utils/bots.js's, shared with the view-limit refusal.
+
+import { callsItselfABot, isShareX, isTelegramBot } from './bots.js';
 
 
 export const EMBED_MIMETYPES = Object.freeze({
@@ -15,12 +18,12 @@ export function shouldRedirectToCdn(headers, file) {
   const userAgent = headers.get('user-agent') || '';
   const mime = file.mimetype.split('/').shift();
 
-  if (userAgent.match(/sharex/i)) {
+  if (isShareX(userAgent)) {
     return true;
   }
-  if (userAgent.match(/bot/i)) {
+  if (callsItselfABot(userAgent)) {
     // deal with special bots here
-    return !!userAgent.match(/telegrambot/i);
+    return isTelegramBot(userAgent);
   }
   if (!headers.get('accept-language')) {
     // might be a forum embed, browsers usually have this when initially requesting

@@ -88,3 +88,13 @@ const fullDateFormatter = new Intl.DateTimeFormat(undefined, { dateStyle: 'full'
 export function formatFullDate(timestamp: number): string {
   return fullDateFormatter.format(new Date(timestamp));
 }
+
+/**
+ * A calendar day for account copy: "25 Dec 2026", or "25 Dec" within the current year
+ * when `short` (milestone-6 §13.3: "You can change it again on 25 Dec").
+ */
+export function formatDay(timestamp: number, { short = false }: { short?: boolean } = {}): string {
+  const date = new Date(timestamp);
+  const sameYear = date.getFullYear() === new Date().getFullYear();
+  return new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'short', ...(short && sameYear ? {} : { year: 'numeric' }) }).format(date);
+}

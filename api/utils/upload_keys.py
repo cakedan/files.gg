@@ -90,7 +90,7 @@ def key_dict(key, domain=None):
 
 # --- the .sxcu and the curl snippet (§7.7) ------------------------------------------------------------------------
 
-SHAREX_ARGUMENTS = ('expires_in', 'visibility', 'generate_password', 'nsfw', 'album')
+SHAREX_ARGUMENTS = ('expires_in', 'visibility', 'generate_password', 'nsfw', 'album', 'view_limit', 'view_limit_action')
 
 
 def sharex_arguments(options, scopes):
@@ -108,6 +108,16 @@ def sharex_arguments(options, scopes):
         out['nsfw'] = 'true'
     if options.get('album') and 'albums:append' in scopes:
         out['album'] = str(options['album'])
+    # milestone-6 §19.3: a view limit (1-1000) and its action, as every upload can carry them
+    from utils import view_limits
+    try:
+        limit = view_limits.limit_value(options['view_limit']) if options.get('view_limit') is not None else None
+    except ValueError:
+        limit = None
+    if limit is not None:
+        out['view_limit'] = str(limit)
+        if options.get('view_limit_action') in view_limits.ACTIONS:
+            out['view_limit_action'] = options['view_limit_action']
     return out
 
 

@@ -21,9 +21,10 @@ import jobs
 from db import queries
 from db.models import epoch
 from utils import errors, filetypes, limits as limits_module, passwords, payloads, storage as storage_module, uploading
+from utils import view_limits
 from utils.cdn_signing import Grant
 from utils.generators import Snowflake
-from utils.helpers import client_ip, get_user
+from utils.helpers import client_ip
 from utils.params import Arg, Args
 from utils.responses import ApiResponse
 from utils.turnstile import Turnstile
@@ -108,30 +109,34 @@ def nonempty_filename(value):
 
 
 class Caller:
-    """The token or fingerprint making the request."""
+    """The session, upload key or fingerprint making the request."""
 
-    def __init__(self, user, fingerprint):
+    def __init__(self, user, fingerprint, key=None):
         self.user = user
+        self.key = key
         self.fingerprint = None if user is not None else fingerprint
 
     def owns(self, session):
+        """Milestone-6 §7.5: a session a key started answers only that key (or the owner's session cookie, so
+        the website can cancel it); a key never reaches the owner's other sessions."""
         if self.user is not None:
-            return session.owner_user_id == self.user.id
+            if session.owner_user_id != self.user.id:
+                return False
+            if self.key is not None:
+                return session.upload_key_id == self.key.id
+            return True
         return self.fingerprint is not None and session.owner_user_id is None \
             and session.owner_fingerprint == self.fingerprint
 
 
 async def caller_of(request):
-    authorization = request.headers.get('authorization')
-    user = None
-    if authorization is not None:
-        async with db.connection() as conn:
-            user = await get_user(conn, authorization)
+    from utils.auth import uploader
+    user, key = uploader(request)
     fingerprint = parameters.fingerprint(request.headers.get('x-fingerprint')) \
         if request.headers.get('x-fingerprint') else None
     if user is None and fingerprint is None:
         raise errors.unauthorized()
-    return Caller(user, fingerprint)
+    return Caller(user, fingerprint, key)
 
 
 async def owned_session(conn, caller, upload_id, for_update=False):
@@ -161,16 +166,29 @@ class CreateUploadArgs(Args):
     album: Annotated[Optional[str], Arg()] = None
     # Milestone 4 (§4.3): adult content; signed in only
     nsfw: Annotated[Optional[bool], Arg(type=uploading.boolean)] = False
+    # Milestone 6 §19.3: burn after N unique viewers; `private` needs an account
+    view_limit: Annotated[Optional[int], Arg(type=view_limits.limit_value)] = None
+    view_limit_action: Annotated[Optional[str], Arg(type=view_limits.action_value)] = None
 
 
 @route(uploads, '', ['POST'])
 @parse_args(CreateUploadArgs)
 async def create_upload(request, args):
+    from utils import upload_keys
+    from utils.auth import uploader
+    user, key = uploader(request)
+    # milestone-6 §7.5: anonymous tools (no credential, no turnstile_token at all) need a key
+    if user is None and args.turnstile_token is None:
+        raise errors.upload_key_required()
     caller = await caller_of(request)
+    if key is not None and args.album not in (None, '') and not key.allows('albums:append'):
+        raise errors.upload_key_scope('albums:append')
     settings = safety_settings()
     abuse_hash, sealed_ip = abuse_ip.for_request(client_ip(request), settings)
     async with db.connection() as conn:
         await standing.check_uploader(conn, caller.user, caller.fingerprint, abuse_hash)
+        if key is not None:
+            await upload_keys.count_upload(conn, key)
     if args.nsfw and caller.user is None:
         raise errors.nsfw_requires_account()
     owner = uploading.Owner(caller.user, caller.fingerprint, client_ip(request), request.app.ctx.view_hash_secret)
@@ -180,6 +198,7 @@ async def create_upload(request, args):
     expires_in = limits_module.resolve_expiry(limits, args.expires_in)
     if args.visibility == 'private' and caller.user is None:
         raise uploading.private_requires_account()
+    view_limit = uploading.resolve_view_limit(caller.user, args.view_limit, args.view_limit_action)
 
     async with db.connection() as conn:
         name, extension, mimetype = await uploading.resolve_name(
@@ -227,6 +246,8 @@ async def create_upload(request, args):
                     nsfw_marked=bool(args.nsfw),
                     owner_abuse_ip_hash=abuse_hash,
                     owner_ip_sealed=sealed_ip,
+                    upload_key_id=caller.key.id if caller.key is not None else None,
+                    **view_limit,
                     **access_columns,
                 )
     except BaseException:
@@ -315,6 +336,7 @@ route(uploads, '/<upload_id:str>/chunks/<index:str>', ['PUT'], stream=True)(put_
 
 @route(uploads, '/<upload_id:str>', ['GET'])
 async def get_upload(request, upload_id):
+    from utils import links
     caller = await caller_of(request)
     async with db.connection() as conn:
         session = await owned_session(conn, caller, upload_id)
@@ -322,10 +344,11 @@ async def get_upload(request, upload_id):
         fobj = await queries.get_file(conn, session.file_id) if session.file_id else None
         if fobj is not None:
             await queries.attach_safety(conn, [fobj])
+            await links.prepare(conn, caller.user, caller.key)
     body = {'status': session.status, 'received': received, 'size': session.size}
     if session.status == 'complete' and fobj is not None:
-        # the uploader owns it: a protected file's URLs are signed for 1 h
-        body['file'] = payloads.with_safety(payloads.public_file(fobj, grant=Grant.owner_file(fobj)), fobj)
+        # the uploader owns it: a protected file's URLs are signed for 1 h, on the owner's link domain
+        body['file'] = payloads.owner_upload(fobj)
     if session.status == 'failed':
         body['error'] = session.error or 'UPLOAD_FAILED'
     return ApiResponse(body)

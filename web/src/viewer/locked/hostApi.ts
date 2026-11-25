@@ -10,7 +10,18 @@
  * is why it lives here, where eslint lets the viewer use lib/api.
  */
 
-import { api, ApiError, CLIENT_ERROR, parseApiError, type AccessKind, type UnlockResponse, type ViewResponse } from '../../lib/api';
+import {
+  accessPath,
+  api,
+  ApiError,
+  CLIENT_ERROR,
+  openPath,
+  parseApiError,
+  type AccessKind,
+  type OpenResponse,
+  type UnlockResponse,
+  type ViewResponse,
+} from '../../lib/api';
 import { hostContext, type HostContext } from '../host/context';
 import { rehostPayload } from '../host/rehost';
 
@@ -54,24 +65,26 @@ export async function hostRequest<T>(path: string, options: HostRequestOptions =
   return rehostPayload(parsed, context.origin, [context.cdnOrigin, context.mainOrigin]) as T;
 }
 
-const accessBase = (kind: AccessKind, vanity: string) =>
-  `/${kind === 'album' ? 'albums' : 'files'}/${vanity.split('/').map(encodeURIComponent).join('/')}`;
-
-/** `unlock`, `view` and `refreshUnlock`, with lib/api's signatures, routed by host. */
+/** `unlock`, `view`, `refreshUnlock` and `open`, with lib/api's signatures, routed by host. */
 export const viewerApi = {
   unlock(kind: AccessKind, vanity: string, password: string, turnstileToken: string): Promise<UnlockResponse> {
     if (!hostContext().custom) return api.unlock(kind, vanity, password, turnstileToken);
-    return hostRequest<UnlockResponse>(`${accessBase(kind, vanity)}/unlock`, {
+    return hostRequest<UnlockResponse>(accessPath('unlock', kind, vanity), {
       method: 'POST',
       body: { password, turnstile_token: turnstileToken },
     });
   },
   view(kind: AccessKind, vanity: string, token: string): Promise<ViewResponse> {
     if (!hostContext().custom) return api.view(kind, vanity, token);
-    return hostRequest<ViewResponse>(`${accessBase(kind, vanity)}/view`, { headers: { 'X-Filesgg-Access': token } });
+    return hostRequest<ViewResponse>(accessPath('view', kind, vanity), { headers: { 'X-Filesgg-Access': token } });
   },
   refreshUnlock(kind: AccessKind, vanity: string, token: string): Promise<UnlockResponse> {
     if (!hostContext().custom) return api.refreshUnlock(kind, vanity, token);
-    return hostRequest<UnlockResponse>(`${accessBase(kind, vanity)}/unlock/refresh`, { method: 'POST', body: { token } });
+    return hostRequest<UnlockResponse>(accessPath('refresh', kind, vanity), { method: 'POST', body: { token } });
+  },
+  /** Milestone 6 §19.4: open (and count) a view-limited file. Opening again refreshes its URLs. */
+  open(vanity: string, turnstileToken: string): Promise<OpenResponse> {
+    if (!hostContext().custom) return api.openFile(vanity, turnstileToken);
+    return hostRequest<OpenResponse>(openPath(vanity), { method: 'POST', body: { turnstile_token: turnstileToken } });
   },
 };

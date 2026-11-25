@@ -14,6 +14,7 @@ export const KIND_LABELS: Record<CaseKind, string> = {
   file: 'File',
   album: 'Album',
   user: 'Account',
+  domain: 'Domain',
   // the target is the content (a blob hash, every file with those bytes), not a hash *match*
   hash: 'Content',
   bug: 'Bug',
@@ -53,6 +54,7 @@ export function targetHref(target: Pick<CaseTarget, 'type' | 'id'>): string | nu
   if (target.type === 'file' || target.type === 'hash') return `/admin/files/${target.id}`;
   if (target.type === 'album') return `/admin/albums/${target.id}`;
   if (target.type === 'user') return `/admin/users/${target.id}`;
+  if (target.type === 'domain') return `/admin/domains/${target.id}`;
   return null;
 }
 

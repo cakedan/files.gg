@@ -359,7 +359,9 @@ describe('classifyStablePath (web/README.md §1 order)', () => {
     '/favicon.ico': 'root-file', '/og-image.png': 'root-file', '/apple-touch-icon.png': 'root-file',
     '/assets/viewer-abc.js': 'asset', '/assets/pdfjs/6.5.438/wasm/openjpeg.wasm': 'asset',
     '/app': 'app', '/app/files': 'app', '/': 'home', '/convert': 'convert',
-    '/a/Ab3dE6gH': 'album', '/a/Ab3dE6gH/3': 'album',
+    '/a/Ab3dE6gH': 'album', '/a/Ab3dE6gH/': 'album',
+    // milestone-6.md §20.2: the album item is `?item=<n>`; nothing comes after an album's vanity.
+    '/a/Ab3dE6gH/3': 'missing', '/a/Ab3dE6gH/3/': 'missing',
     '/api/users/@me': 'api',
     // The old frontend's pages are gone (milestone-3.md §0): these are vanities now.
     '/auth/session': 'file', '/dashboard/uploads': 'file', '/legal': 'file', '/options': 'file', '/details/1': 'file',
@@ -374,7 +376,8 @@ describe('classifyStablePath (web/README.md §1 order)', () => {
   it('parses vanities like the old router', () => {
     assert.equal(classifyStablePath('/abcd/xyz.png.zip').vanity, 'abcd/xyz');
     assert.equal(classifyStablePath('/img1/').vanity, 'img1');
-    assert.equal(classifyStablePath('/a/Ab3dE6gH/12').vanity, 'Ab3dE6gH');
+    assert.equal(classifyStablePath('/a/Ab3dE6gH/').vanity, 'Ab3dE6gH');
+    assert.equal(classifyStablePath('/a/caf%C3%A9').vanity, 'café');
     assert.equal(classifyStablePath('/api/files?x').path, '/files?x');
   });
 });

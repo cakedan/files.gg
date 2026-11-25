@@ -1,5 +1,6 @@
 import json
 import os
+import re
 import subprocess
 import sys
 import uuid
@@ -8,12 +9,12 @@ import pytest
 
 from tests.conftest import hash_of  # noqa: E402
 from tests.conftest import API_DIR, APP_DATABASE, LOGIN_TOKEN, REGISTER_TOKEN, TURNSTILE_TOKEN, TempDatabase, s3_keys, s3_object, subprocess_env
+from tests.conftest import VIA_MAIN, cookie_headers, new_session, sign_in
+from tests.conftest import make_user as make_account
 
 from db.models import File, FileHash
-from utils import helpers
 from utils.generators import Snowflake
-from utils.responses import ApiError
-from utils.tokens import FingerprintToken, UserToken
+from utils.tokens import FingerprintToken
 
 
 @pytest.fixture(scope='module')
@@ -48,12 +49,8 @@ def make_file(appdb, extension):
 
 def make_user(appdb):
     suffix = uuid.uuid4().hex[:10]
-    user_id = Snowflake.generate()
-    appdb.execute(
-        'INSERT INTO users (id, email, bot, username, discriminator, password, flags, verified, '
-        'last_email_reset_at, last_password_reset_at) VALUES (%s, %s, false, %s, 1, %s, 0, false, '
-        'to_timestamp(1500000000), to_timestamp(1500000000))',
-        (user_id, 'u{}@example.com'.format(suffix), 'user' + suffix, helpers.hash_password('password1')))
+    user_id = make_account(appdb, username='user' + suffix, email='u{}@example.com'.format(suffix), verified=False,
+                           password='password1')
     return user_id, 'u{}@example.com'.format(suffix)
 
 
@@ -109,24 +106,18 @@ def test_health_reports_database_failure(client, monkeypatch):
 
 # --- CORS ---------------------------------------------------------------------
 
-@pytest.mark.parametrize('origin', ['https://files.gg', 'https://beta.files.gg'])
-def test_cors_allowlisted_origin_is_reflected_with_credentials(client, origin):
+@pytest.mark.parametrize('origin', ['https://files.gg', 'https://beta.files.gg', 'https://evil.example'])
+def test_cors_is_public_and_never_credentialed(client, origin):
+    """Milestone-6 §12: the website calls files.gg/api same-origin, so no origin gets credentialed CORS, and the
+    CSRF header is never allowed cross-origin."""
     for response in (client.get('/health', headers={'Origin': origin}),
-                     client.options('/files', headers={'Origin': origin,
-                                                       'Access-Control-Request-Method': 'POST'})):
-        assert response.headers['access-control-allow-origin'] == origin
-        assert response.headers['access-control-allow-credentials'] == 'true'
-        assert response.headers['access-control-allow-headers'] == 'Authorization, Content-Type, X-Fingerprint'
-        assert 'Origin' in response.headers.get('vary', '')
-
-
-def test_cors_foreign_origin_gets_wildcard_without_credentials(client):
-    for response in (client.get('/health', headers={'Origin': 'https://evil.example'}),
-                     client.options('/files', headers={'Origin': 'https://files.gg.evil.example',
-                                                       'Access-Control-Request-Method': 'POST'})):
+                     client.options('/files', headers={'Origin': origin, 'Access-Control-Request-Method': 'POST'})):
         assert response.headers['access-control-allow-origin'] == '*'
         assert 'access-control-allow-credentials' not in response.headers
-        assert response.headers['access-control-allow-headers'] == 'Authorization, Content-Type, X-Fingerprint'
+        assert response.headers['access-control-allow-headers'] == \
+            'Authorization, Content-Type, X-Fingerprint, X-Filesgg-Access'
+        assert 'x-filesgg-csrf' not in response.headers['access-control-allow-headers'].lower()
+        assert 'Origin' in response.headers.get('vary', '')
 
 
 def test_no_cors_headers_without_origin(client):
@@ -291,74 +282,55 @@ def test_views_are_daily_counts_without_raw_ips(client, appdb, monkeypatch):
     assert hashed('198.51.100.10', date(2026, 11, 24)) != hashed('198.51.100.10', date(2026, 11, 25))
 
 
-def test_token_check_around_a_password_reset(client, appdb, monkeypatch):
-    """Tokens issued before the last password reset are rejected, in whole seconds:
-    1 s before fails, the same second and later work."""
-    import time as time_module
-    from datetime import datetime, timezone
-    user_id, _ = make_user(appdb)
-    reset = int(time_module.time()) - 100
-    appdb.execute('UPDATE users SET last_password_reset_at = %s WHERE id = %s',
-                  (datetime.fromtimestamp(reset, timezone.utc), user_id))
-
-    real_time = time_module.time
-
-    def token_at(seconds):
-        monkeypatch.setattr(time_module, 'time', lambda: seconds + 0.5)
-        try:
-            return UserToken.generate(user_id)
-        finally:
-            monkeypatch.setattr(time_module, 'time', real_time)
-
-    me = lambda token: client.get('/users/@me', headers={'Authorization': token}).status_code  # noqa: E731
-    assert me(token_at(reset - 1)) == 401
-    assert me(token_at(reset)) == 200
-    assert me(token_at(reset + 1)) == 200
-
-
-def test_password_reset_revokes_older_tokens(client, appdb):
-    import time as time_module
-    from utils.tokens import EmailForgotToken
+def test_sessions_are_rows_revoked_by_a_password_reset(client, appdb, outbox):
+    """Rewritten for milestone-6 §3.4 (was: itsdangerous tokens older than last_password_reset_at): a reset by
+    email ends every session row and starts a new one (cookie replaced)."""
+    from utils import credentials
     user_id, email = make_user(appdb)
-    old_token = UserToken.generate(user_id)
-    assert client.get('/users/@me', headers={'Authorization': old_token}).status_code == 200
-
-    token = EmailForgotToken.generate({'user_id': user_id, 'email': email})
-    time_module.sleep(1.1)  # the reset must land in a later second than the old token
-    response = client.post('/auth/forgot/reset', json={'token': token, 'password': 'brand-new-pw'})
-    assert response.status_code == 204, response.text
-    at = appdb.fetchone('SELECT last_password_reset_at FROM users WHERE id = %s', (user_id,))[0]
-    assert at.microsecond == 0 and abs(at.timestamp() - time_module.time()) < 5
-    assert client.get('/users/@me', headers={'Authorization': old_token}).status_code == 401
-    time_module.sleep(1)  # the reset second is rounded (as Peewee did), so it may be the next one
-    assert client.get('/users/@me', headers={'Authorization': UserToken.generate(user_id)}).status_code == 200
-
-
-def test_get_user_unknown_id_is_404(client):
-    token = UserToken.generate(999999999999)
-    response = client.get('/users/@me', headers={'Authorization': token})
-    assert response.status_code == 404
-    assert response.json() == {'code': 'UNKNOWN_USER', 'message': 'Unknown user', 'status': 404}
-
-
-async def test_get_user_helper_raises_404(migrated_db):
-    from psycopg import AsyncConnection
-    async with await AsyncConnection.connect(migrated_db.url, autocommit=True) as conn:
-        with pytest.raises(ApiError) as raised:
-            await helpers.get_user(conn, UserToken.generate(123))
-    assert raised.value.status == 404 and raised.value.code == 'UNKNOWN_USER'
+    old = sign_in(user_id, appdb)
+    assert client.get('/users/@me', headers=old).status_code == 200
+    token = 'reset-' + uuid.uuid4().hex + uuid.uuid4().hex
+    appdb.execute("INSERT INTO account_tokens (id, user_id, purpose, email, token_hash, expires_at) VALUES "
+                  "(%s, %s, 'reset_password', %s, %s, now() + interval '1 hour')",
+                  (Snowflake.generate(), user_id, email, credentials.email_token_hash(token)))
+    response = client.post('/auth/forgot/reset', headers=VIA_MAIN, json={
+        'token': token, 'password': 'brand-new-pw', 'turnstile_token': 'mock:reset:files.gg'})
+    assert response.status_code == 200, response.text
+    assert response.json()['user']['email_verified'] is True
+    assert client.get('/users/@me', headers=old).status_code == 401
+    reasons = appdb.fetchall('SELECT revoked_reason FROM sessions WHERE user_id = %s ORDER BY id', (user_id,))
+    assert reasons[0][0] == 'password_reset' and reasons[-1][0] is None
+    cookie = response.headers['set-cookie']
+    assert cookie.startswith('__Host-filesgg_session=fgs_') and 'HttpOnly' in cookie
+    new = cookie.split(';')[0].split('=', 1)[1]
+    assert client.get('/users/@me', headers=cookie_headers(new)).status_code == 200
+    assert [m['tag'] for m in outbox] == ['auth-password-changed']
 
 
-def test_get_user_bad_token_is_401(client):
-    response = client.get('/users/@me', headers={'Authorization': 'garbage'})
+def test_a_deleted_accounts_session_is_401(client, appdb):
+    user_id, _ = make_user(appdb)
+    headers = sign_in(user_id, appdb)
+    appdb.execute("UPDATE users SET deleted_at = now(), email = NULL, username = 'deleted-' || id WHERE id = %s",
+                  (user_id,))
+    response = client.get('/users/@me', headers=headers)
     assert (response.status_code, response.json()['code']) == (401, 'UNAUTHORIZED')
+    assert 'Max-Age=0' in response.headers['set-cookie']
+
+
+def test_user_tokens_in_authorization_are_401(client, appdb):
+    """Rewritten for milestone-6 §3.4: no user token in `Authorization`, ever (Bearer included)."""
+    user_id, _ = make_user(appdb)
+    token = new_session(user_id, appdb)
+    for value in ('garbage', token, 'Bearer ' + token, 'User ' + token):
+        response = client.get('/users/@me', headers={'Authorization': value})
+        assert (response.status_code, response.json()['code']) == (401, 'UNAUTHORIZED'), value
 
 
 # --- existing routes still work ------------------------------------------------------
 
-def test_me_with_valid_token(client, appdb):
+def test_me_with_a_session(client, appdb):
     user_id, email = make_user(appdb)
-    response = client.get('/users/@me', headers={'Authorization': UserToken.generate(user_id)})
+    response = client.get('/users/@me', headers=sign_in(user_id, appdb))
     assert response.status_code == 200
     assert response.json()['email'] == email
 
@@ -404,20 +376,15 @@ def test_fingerprint_and_upload_flow(client, appdb):
     assert listing.json()['total']['count'] == 3
 
 
-def test_login_and_register_claim_anonymous_files(client, appdb, monkeypatch):
+def test_login_and_register_claim_anonymous_files(client, appdb, monkeypatch, outbox):
+    """Rewritten for milestone-6 §4.2: a new account gets a fresh Snowflake id (never the fingerprint's), and
+    register and login claim the fingerprint's files and albums."""
     import views.auth
-    from utils.email import Email
-
-    sent = []
 
     async def domain_accepts_mail(address):
         return True
 
-    async def send(**message):
-        sent.append(message)
-
     monkeypatch.setattr(views.auth, 'domain_accepts_mail', domain_accepts_mail)
-    monkeypatch.setattr(Email, 'send', staticmethod(send))
     seed_mimetypes(appdb)
 
     def upload(fingerprint):
@@ -427,35 +394,32 @@ def test_login_and_register_claim_anonymous_files(client, appdb, monkeypatch):
         assert response.status_code == 200
         return response.json()['id']
 
-    # register with a fingerprint: the account takes the fingerprint's id and its files
     fingerprint_id = Snowflake.generate()
     fingerprint = FingerprintToken.generate(fingerprint_id)
     file_id = upload(fingerprint)
     username = 'reg' + uuid.uuid4().hex[:8]
     email = username + '@example.com'
-    response = client.post('/auth/register', headers={'X-Fingerprint': fingerprint},
+    response = client.post('/auth/register', headers=dict(VIA_MAIN, **{'X-Fingerprint': fingerprint}),
                            json={'email': email, 'username': username, 'password': 'hunter22',
                                  'turnstile_token': REGISTER_TOKEN})
-    assert response.status_code == 200, response.text
-    token = response.json()['token']
-    me = client.get('/users/@me', headers={'Authorization': token}).json()
-    assert me['id'] == str(fingerprint_id) and me['discriminator'] == '0001' and me['verified'] is False
-    assert appdb.fetchone('SELECT user_id, fingerprint FROM files WHERE id = %s', (int(file_id),)) == (fingerprint_id, None)
-    assert sent and sent[0]['to'] == email and sent[0]['to_name'] == username and sent[0]['tag'] == 'auth-verify'
-    assert '/auth/verify/' in sent[0]['text']
-    stored = appdb.fetchone('SELECT password FROM users WHERE id = %s', (fingerprint_id,))[0]
-    assert stored.startswith('pbkdf2:sha256:') and len(stored) <= 128
+    assert response.status_code == 201, response.text
+    me = response.json()['user']
+    assert me['id'] != str(fingerprint_id) and me['email_verified'] is False and 'token' not in response.json()
+    user_id = int(me['id'])
+    assert appdb.fetchone('SELECT user_id, fingerprint FROM files WHERE id = %s', (int(file_id),)) == (user_id, None)
+    assert outbox and outbox[0]['to'] == email and outbox[0]['to_name'] == username
+    assert outbox[0]['tag'] == 'auth-verify' and '/app/verify#token=' in outbox[0]['text']
+    assert appdb.fetchone('SELECT password_hash FROM users WHERE id = %s', (user_id,))[0].startswith('$argon2id$')
 
-    # log in (form-encoded) with another fingerprint: its files are claimed
     other = FingerprintToken.generate(Snowflake.generate())
     other_file = upload(other)
-    response = client.post('/auth/login', headers={'X-Fingerprint': other},
+    response = client.post('/auth/login', headers=dict(VIA_MAIN, **{'X-Fingerprint': other}),
                            data={'email': email, 'password': 'hunter22', 'turnstile_token': LOGIN_TOKEN})
     assert response.status_code == 200, response.text
-    assert appdb.fetchone('SELECT user_id FROM files WHERE id = %s', (int(other_file),))[0] == fingerprint_id
+    assert appdb.fetchone('SELECT user_id FROM files WHERE id = %s', (int(other_file),))[0] == user_id
 
-    response = client.post('/auth/login', json={'email': email, 'password': 'wrong-password',
-                                                'turnstile_token': LOGIN_TOKEN})
+    response = client.post('/auth/login', headers=VIA_MAIN, json={'email': email, 'password': 'wrong-password',
+                                                                  'turnstile_token': LOGIN_TOKEN})
     assert (response.status_code, response.json()['code']) == (400, 'INVALID_CREDENTIALS')
 
 
@@ -466,10 +430,9 @@ def test_validation_errors(client):
     assert response.json() == {'errors': {'limit': 'Must be at least or in between 1 and 100'},
                                'code': 'INVALID_PARAMETERS', 'message': 'Some fields are invalid', 'status': 400}
 
-    response = client.post('/auth/login', json={'email': 'not-an-email'})
+    response = client.post('/auth/login', headers=VIA_MAIN, json={'email': 'not-an-email'})
     assert response.status_code == 400
     errors = response.json()['errors']
-    assert errors['email'] == 'Not a well formed email address'
     assert errors['password'].startswith('Missing required parameter')
 
 
@@ -515,7 +478,8 @@ def test_mimetypes_and_users_routes(client, appdb):
     assert any(m['mimetype'] == 'text/plain' for m in listing.json())
     assert client.get('/mimetypes/text/plain').json()['extensions'][0]['extension'] == 'txt'
     assert client.get('/mimetypes/nope/nope').status_code == 404
-    assert client.get('/users/123').json() == {'id': 123}
+    # milestone-6 §8.1: no public profiles
+    assert client.get('/users/123').status_code == 404
     assert client.get('/users/-5').status_code == 404
     assert client.get('/users/someone/limits').status_code == 404
     assert client.get('/users/%40me/limits').status_code == 401  # encoded '@' still routes
@@ -528,6 +492,17 @@ def test_openapi_and_docs(client):
     assert {'/files', '/files/{vanity}', '/auth/login', '/users/{user_id}', '/users/{me}/files',
             '/health', '/mimetypes/{mtype}/{subtype}'} <= set(paths)
     assert client.get('/docs').status_code == 404  # DEBUG is off
+
+
+def test_access_is_a_reserved_top_level_segment(client):
+    """milestone-6 §20.1: `access` is reserved for the access routes, and in every route the vanity is the last
+    path segment: nothing is routed after `{vanity}`."""
+    paths = set(client.get('/openapi.json').json()['paths'])
+    access = {path for path in paths if path == '/access' or path.startswith('/access/')}
+    assert access == {'/access/{}/{}/{{vanity}}'.format(action, kind) for action, kind in (
+        ('unlock', 'files'), ('refresh', 'files'), ('view', 'files'), ('open', 'files'),
+        ('unlock', 'albums'), ('refresh', 'albums'), ('view', 'albums'))}
+    assert [path for path in paths if re.search(r'\{vanity\}.', path)] == []
 
 
 def test_docs_only_with_debug(monkeypatch):
@@ -544,11 +519,15 @@ def test_docs_only_with_debug(monkeypatch):
         Generator.node_provider = saved
 
 
-def test_password_hashes_fit_the_column():
-    hashed = helpers.hash_password('correct horse battery staple', salt_length=10)
-    assert hashed.startswith('pbkdf2:sha256:') and len(hashed) <= 128
-    from werkzeug.security import check_password_hash
-    assert check_password_hash(hashed, 'correct horse battery staple')
+def test_account_passwords_are_argon2id():
+    """Rewritten for milestone-6 §2.6 (was: Werkzeug pbkdf2 within 128 characters)."""
+    from utils import passwords
+    hashed = passwords.hash_sync('correct horse battery staple')
+    assert hashed.startswith('$argon2id$v=19$m=65536,t=3,p=4$')
+    assert passwords.verify_account_sync(hashed, 'correct horse battery staple')
+    assert not passwords.verify_account_sync(hashed, 'wrong')
+    assert not passwords.verify_account_sync('pbkdf2:sha256:1000000$abc$def', 'anything')
+    assert not passwords.verify_account_sync(None, 'anything')
 
 
 def test_json_serialisation():

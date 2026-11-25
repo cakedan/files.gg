@@ -5,7 +5,8 @@ Jobs: a no-op `ping`, `finalize_upload` (jobs/finalize.py), and (Milestone 3) `p
 (jobs/gc.py). Scheduled: the snowflake_nodes lease cleanup, the file_view_seen cleanup,
 (Milestone 2) the expiry reaper, the abandoned-upload reaper and the unlock_attempts
 cleanup, (Milestone 3) the album reaper, and (Milestone 4) `scan`, `rescan`, `pdq_sweep`,
-`album_text_scan` and `delete_objects` (safety/scan.py) with their scheduled tasks (safety/tasks.py).
+`album_text_scan` and `delete_objects` (safety/scan.py) with their scheduled tasks (safety/tasks.py), and
+(Milestone 6) `domain_delete` and `account_export` with the account tasks (jobs/accounts.py).
 """
 
 import logging
@@ -16,6 +17,7 @@ import jobs.finalize  # noqa: F401  registers finalize_upload
 import jobs.gc  # noqa: F401  registers delete_blob
 import jobs.media  # noqa: F401  registers probe, derive, album_collage
 import safety.scan  # noqa: F401  registers scan, rescan, pdq_sweep, album_text_scan, delete_objects
+import jobs.accounts as account_jobs  # registers domain_delete, account_export (Milestone 6)
 from safety import tasks as safety_tasks
 from jobs.queue import register
 from utils import snowflake_nodes, storage as storage_module
@@ -83,6 +85,7 @@ def register_scheduled(scheduler):
         log.info('album reaper soft-deleted %d expired and %d empty album(s)', expired, emptied)
 
     safety_tasks.register(scheduler)
+    account_jobs.register_scheduled(scheduler)
     return scheduler
 
 

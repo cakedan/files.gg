@@ -163,12 +163,13 @@ describe('pages on a custom domain (§10.8, §13.4)', () => {
     assert.doesNotMatch(response.text, /https:\/\/files\.gg\/og-image/);
   });
 
-  it('report pages, with their data and the host data', async () => {
+  it('report pages at milestone-6.md §20.2 paths, with their data and the host data', async () => {
     const cases = {
       '/report': { type: 'any' },
-      '/ulink/report': { type: 'file', vanity: 'ulink' },
-      '/ulink.png/report': { type: 'file', vanity: 'ulink' },
-      '/a/adolink/report': { type: 'album', vanity: 'adolink' },
+      '/report/ulink': { type: 'file', vanity: 'ulink' },
+      '/report/ulink.png': { type: 'file', vanity: 'ulink' },
+      '/report/abcd/xyz': { type: 'file', vanity: 'abcd/xyz' },
+      '/report/a/adolink': { type: 'album', vanity: 'adolink' },
     };
     for (const [path, data] of Object.entries(cases)) {
       const before = upstream.requests.length;
@@ -178,6 +179,29 @@ describe('pages on a custom domain (§10.8, §13.4)', () => {
       assert.equal(shell.page, 'report', path);
       assert.deepEqual(shell.report, data, path);
       assert.ok(upstream.requests.slice(before).every((r) => !r.path.startsWith('/internal/files') && !r.path.startsWith('/internal/albums')), path);
+    }
+  });
+
+  it('the old report and album item paths are gone (404, no lookup)', async () => {
+    for (const path of ['/ulink/report', '/a/adolink/report', '/a/adolink/2']) {
+      const before = upstream.requests.filter((r) => r.path.startsWith('/internal/files') || r.path.startsWith('/internal/albums')).length;
+      const response = await at('i.example.com', path);
+      assert.equal(response.status, 404, path);
+      assert.equal(upstream.requests.filter((r) => r.path.startsWith('/internal/files') || r.path.startsWith('/internal/albums')).length, before, path);
+    }
+    // `<vanity>.<anything>` keeps its meaning: the file's page, never the report page
+    const file = await at('i.example.com', '/ulink.png/report');
+    assert.equal(file.status, 200);
+    assert.deepEqual([shellOf(file.text).page, shellOf(file.text).state], ['file', 'file']);
+  });
+
+  it('an album item is `?item=<n>`: the same album shell for any item', async () => {
+    const plain = shellOf((await at('i.example.com', '/a/adolink')).text);
+    for (const search of ['?item=2', '?item=1', '?item=999', '?item=x']) {
+      const response = await at('i.example.com', `/a/adolink${search}`);
+      assert.equal(response.status, 200, search);
+      const shell = shellOf(response.text);
+      assert.deepEqual([shell.page, shell.state, shell.album], [plain.page, plain.state, plain.album], search);
     }
   });
 

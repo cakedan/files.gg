@@ -55,6 +55,10 @@ def main(argv=None):
     signal.signal(signal.SIGTERM, on_signal)
     signal.signal(signal.SIGINT, on_signal)
 
+    # milestone-6 §2.7: the account and domain tasks send email (Postmark), like the API
+    from utils.email import Email
+    Email.configure(token=os.getenv('POSTMARK_SERVER_TOKEN'), sender=os.getenv('EMAIL_FROM'),
+                    stream=os.getenv('POSTMARK_MESSAGE_STREAM'))
     start_process_lease()
     worker_id = make_worker_id()
     jobs_conn = db.connect()

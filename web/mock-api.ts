@@ -4,7 +4,7 @@
  * /api like the real `files.gg/api/*` passthrough. It never runs in a build.
  *
  * Implements: fingerprint, limits, single and chunked uploads, unlock, refresh, view and
- * owner passes (Milestone 2); the owner file library, bulk delete / expiry / access,
+ * owner passes (Milestone 2, at `/access/unlock|refresh|view/files|albums/<vanity>`, §20.1); the owner file library, bulk delete / expiry / access,
  * albums and their items, public album reads (Milestone 3); scan states, NSFW, reports,
  * My reports, notices and appeals, badges, restrictions, and every `/admin/*` endpoint
  * with seeded cases of each kind (Milestone 4); accounts (Milestone 6): cookie sessions
@@ -12,7 +12,10 @@
  * password sign-in, register, verify, forgot and reset, a mock Discord with PKCE, re-auth,
  * settings, sessions, data exports, account deletion with its grace period, upload keys
  * (and uploads with them), premium limits, custom domains with time-driven statuses,
- * domain-only mode, and the admin premium, domain and account actions.
+ * domain-only mode, the admin premium, domain and account actions, and view limits
+ * (§19: `view_limit` on uploads and PATCH, `POST /access/open/files/<vanity>` with
+ * unique-viewer counting, the `expire` and `private` actions, and unlock counting on
+ * password files; `cf-connecting-ip` picks the viewer, like the API's abuse IP hash).
  *
  * Seeded accounts sign in at /app/login with the password `mock-password`. Email links
  * (verify, reset) are printed to the dev server's console.
@@ -419,7 +422,76 @@ function checkUpload(anonymous: boolean, key: string, size: number, fields: Reco
     const password = String(fields.password ?? '');
     if (password.length < 6 || password.length > 128) throw new HttpError(400, 'BAD_REQUEST', 'Password must be 6–128 characters.');
   }
+  // Milestone 6 §19.3: view limits, anonymous uploads included (but never `private`).
+  readViewLimit(fields.view_limit);
+  readViewLimitAction(fields.view_limit_action, anonymous);
 }
+
+// ---------------------------------------------------------------------------
+// View limits (milestone-6 §19)
+// ---------------------------------------------------------------------------
+
+type ViewLimitAction = 'expire' | 'private';
+
+/** `view_limit` from an upload or PATCH body: undefined when absent, null to remove, else 1–1000. */
+function readViewLimit(value: unknown): number | null | undefined {
+  if (value === undefined || value === '') return undefined;
+  if (value === null || value === 'null') return null;
+  const limit = Number(value);
+  if (!Number.isInteger(limit) || limit < 1 || limit > 1000) {
+    throw new HttpError(400, 'INVALID_PARAMETERS', 'view_limit must be a whole number from 1 to 1000.', { errors: { view_limit: 'Use a whole number from 1 to 1,000.' } });
+  }
+  return limit;
+}
+
+function readViewLimitAction(value: unknown, anonymous: boolean): ViewLimitAction | undefined {
+  if (value === undefined || value === '') return undefined;
+  if (value !== 'expire' && value !== 'private') {
+    throw new HttpError(400, 'INVALID_PARAMETERS', 'view_limit_action must be expire or private.', { errors: { view_limit_action: 'Pick expire or private.' } });
+  }
+  // §19.3: an anonymous upload has no owner library to keep a private file in.
+  if (value === 'private' && anonymous) throw new HttpError(400, 'PRIVATE_REQUIRES_ACCOUNT', 'Private files need an account.');
+  return value;
+}
+
+/** The viewer: the API uses the abuse IP hash (milestone-4 §1); the mock uses the IP. */
+const viewerOf = (req: IncomingMessage) => `ip:${ipOf(req)}`;
+
+/** §19.4: the owner and staff are served without counting. */
+const servedFree = (who: Caller, file: StoredFile) => (!who.anonymous && who.key === file.owner) || Boolean(who.user?.staff);
+
+/**
+ * Counts `viewer` once (§19.4). Returns true when this viewer is the last one: they get
+ * the file, and the action fires after their response is built (`fireViewLimit`).
+ */
+function countView(file: StoredFile, viewer: string): boolean {
+  if (file.viewLimit === null || file.viewers.has(viewer)) return false;
+  file.viewers.add(viewer);
+  return file.viewers.size >= file.viewLimit;
+}
+
+/**
+ * `expire` keeps the file live for the last viewer's signed URLs (up to 1 h), then it
+ * expires; nobody new gets in meanwhile (`limitUsedUp`). `private` hides it and bumps
+ * `access_version` (revoking signed URLs).
+ */
+function fireViewLimit(file: StoredFile) {
+  if (file.viewLimitAction === 'private') {
+    file.visibility = 'private';
+    file.password = null;
+    file.accessVersion++;
+  } else {
+    file.expiresAt = Math.min(file.expiresAt ?? Number.POSITIVE_INFINITY, now() + 3600);
+  }
+}
+
+/** §19.4: once the limit is used up, a viewer who isn't counted yet gets the normal missing state. */
+const limitUsedUp = (file: StoredFile, viewer: string) =>
+  file.viewLimit !== null && file.viewers.size >= file.viewLimit && !file.viewers.has(viewer);
+
+/** `view_limit: { remaining }` on a public payload (§19.6), or nothing without a limit. */
+const viewLimitPayload = (file: StoredFile) =>
+  file.viewLimit === null ? {} : { view_limit: { remaining: Math.max(0, file.viewLimit - file.viewers.size) } };
 
 /** The upload response: the file payload (contract §4, signed for the uploader), plus a generated password once. The file joins the library. */
 function fileObject(origin: string, owner: string, filename: string, size: number, fields: Record<string, unknown>, anonymous: boolean) {
@@ -501,6 +573,12 @@ interface StoredFile {
   findings: Array<{ check: string; code: string; detail: string }>;
   deletedReason: string | null;
   deletedAtMs: number | null;
+  // ---- Milestone 6 §19: view limits ----
+  /** 1–1000 unique viewers, or null for no limit. */
+  viewLimit: number | null;
+  viewLimitAction: 'expire' | 'private';
+  /** Viewer keys counted so far (the API keeps the abuse IP hash). `views_used` is its size. */
+  viewers: Set<string>;
 }
 
 interface StoredAlbum {
@@ -657,6 +735,10 @@ interface SeedFile {
   mimetype?: string;
   /** Milestone 4 state (scan, moderation, NSFW), on top of `passed` and `visible`. */
   safety?: Partial<StoredFile>;
+  /** A fixed vanity, for the viewer's dev fixtures. */
+  vanity?: string;
+  /** Milestone 6 §19: a view limit, its action and how many viewers already used it. */
+  viewLimit?: { limit: number; action?: 'expire' | 'private'; used?: number };
 }
 
 const GB = 1024 * MB;
@@ -707,6 +789,11 @@ function seedFiles(): SeedFile[] {
     { name: 'Installer', ext: 'dmg', size: 96 * MB, daysAgo: 44, expiresIn: 4 * 86400 },
     { name: 'config', ext: 'json', size: 812, daysAgo: 2 },
     { name: 'font-preview', ext: 'svg', size: 22_000, daysAgo: 10, mimetype: 'image/svg+xml' },
+    // Milestone 6 §19: view limits. The viewer's `limited` and `limited-password` fixtures use these vanities.
+    photo(2, 'limited-photo', 400, 600, 0.2, { vanity: 'limited1', viewLimit: { limit: 3, used: 1 } }),
+    { name: 'limited-notes', ext: 'pdf', size: 17_113, daysAgo: 0.4, cdn: fixture('sample.pdf'), media: { pages: 8 }, vanity: 'limitedpw', visibility: 'password', viewLimit: { limit: 5, action: 'private', used: 2 } },
+    // The `private` action already fired: private, with the hint to raise the limit.
+    photo(3, 'burned-after-reading', 600, 600, 2.5, { visibility: 'private', viewLimit: { limit: 2, action: 'private', used: 2 } }),
   ];
 }
 
@@ -715,6 +802,7 @@ const safeDefaults = (): Pick<
   StoredFile,
   | 'scanState' | 'scanReason' | 'scanReadyAtMs' | 'scanOutcome' | 'moderation' | 'moderationRule' | 'nsfwMarked' | 'nsfwAuto' | 'nsfwScore'
   | 'nsfwOverride' | 'nsfwOverrideSource' | 'nsfwReview' | 'noticeId' | 'warnings' | 'linkWarnings' | 'findings' | 'deletedReason' | 'deletedAtMs'
+  | 'viewLimit' | 'viewLimitAction' | 'viewers'
 > => ({
   scanState: 'passed',
   scanReason: null,
@@ -734,6 +822,9 @@ const safeDefaults = (): Pick<
   findings: [],
   deletedReason: null,
   deletedAtMs: null,
+  viewLimit: null,
+  viewLimitAction: 'expire',
+  viewers: new Set(),
 });
 
 function makeSeedFile(seed: SeedFile, ownerKey: string, nowMs: number): StoredFile {
@@ -742,7 +833,7 @@ function makeSeedFile(seed: SeedFile, ownerKey: string, nowMs: number): StoredFi
   const id = nextId(createdMs);
   const file: StoredFile = {
     id,
-    vanity: vanity(),
+    vanity: seed.vanity ?? vanity(),
     owner: ownerKey,
     name: seed.name,
     extension: seed.ext,
@@ -771,6 +862,11 @@ function makeSeedFile(seed: SeedFile, ownerKey: string, nowMs: number): StoredFi
     ...seed.safety,
   };
   file.owner = ownerKey;
+  if (seed.viewLimit) {
+    file.viewLimit = seed.viewLimit.limit;
+    file.viewLimitAction = seed.viewLimit.action ?? 'expire';
+    file.viewers = new Set(Array.from({ length: seed.viewLimit.used ?? 0 }, (_, i) => `seed-viewer-${i}`));
+  }
   // A non-browser image (HEIC) with a `display` preview counts as an image (contract §4).
   if (mimetype === 'image/heic') {
     file.kind = 'image';
@@ -828,7 +924,7 @@ function seedLibrary(): void {
     'Lisbon, November',
     'Five days of trams, stairs and pastries. Full set: https://files.gg',
     'auto',
-    ['lisbon-tram', 'alfama-stairs', 'pastel-de-nata', 'tagus-panorama', 'belem-tower', 'sunset-timelapse', 'beach-day', 'meme-dump', 'scan-in-progress'],
+    ['lisbon-tram', 'alfama-stairs', 'pastel-de-nata', 'tagus-panorama', 'belem-tower', 'sunset-timelapse', 'beach-day', 'meme-dump', 'scan-in-progress', 'limited-photo'],
     { coverFileId: byName.get('tagus-panorama')!.id },
     0.5,
   );
@@ -913,7 +1009,8 @@ function publicFile(origin: string, file: StoredFile, owner = false): Record<str
 
 /** A protected file's payload signed for its owner: the file grant, 1 h (contract §6). */
 function ownerSigned<T extends Record<string, unknown>>(file: StoredFile, payload: T): T {
-  if (file.visibility === 'link') return payload;
+  // Milestone 6 §19.4: a view-limited file is served like a protected one.
+  if (file.visibility === 'link' && file.viewLimit === null) return payload;
   return signFile(payload, { expires: now() + OWNER_URL_TTL, grant: `file:${file.id}:${file.accessVersion}` });
 }
 
@@ -928,6 +1025,10 @@ function ownerFile(origin: string, file: StoredFile): Record<string, unknown> {
       .filter((album) => album.items.some((item) => item.fileId === file.id))
       .map((album) => ({ id: album.id, vanity: album.vanity, title: album.title })),
     safety: ownerSafety(file),
+    // Milestone 6 §19.6.
+    view_limit: file.viewLimit,
+    view_limit_action: file.viewLimitAction,
+    views_used: file.viewers.size,
   };
 }
 
@@ -955,7 +1056,11 @@ const albumZip = (album: StoredAlbum) => `https://cdn.files.gg/albums/download/$
  * Milestone 4 §6.4: and only items whose effective state is `ok` or `flagged`.
  */
 const shownIn = (album: StoredAlbum, file: StoredFile | undefined) =>
-  isLive(file) && (album.visibility !== 'link' || file.visibility === 'link') && ['ok', 'flagged'].includes(fileState(file));
+  isLive(file) &&
+  (album.visibility !== 'link' || file.visibility === 'link') &&
+  ['ok', 'flagged'].includes(fileState(file)) &&
+  // Milestone 6 §19.6: opening an album can't count each item.
+  file.viewLimit === null;
 
 function albumItems(album: StoredAlbum) {
   return album.items.flatMap((item) => {
@@ -1018,7 +1123,14 @@ function ownerAlbum(origin: string, album: StoredAlbum) {
     password_expires_at: album.passwordExpiresAt,
     show_name_when_locked: album.showName,
     cover_file_id: album.coverFileId,
-    items: items.map((item, position) => ({ ...ownerFile(origin, item.file), position, caption: item.caption, shown: item.shown })),
+    items: items.map((item, position) => ({
+      ...ownerFile(origin, item.file),
+      position,
+      caption: item.caption,
+      shown: item.shown,
+      // Milestone 6 §19.6: why a view-limited file isn't shown.
+      ...(!item.shown && item.file.viewLimit !== null ? { hidden_reason: 'view_limit' } : {}),
+    })),
   };
 }
 
@@ -1171,6 +1283,8 @@ function storeUpload(owner: string, filename: string, size: number, fields: Reco
     scanReadyAtMs: createdMs + env('MOCK_SCAN_MS', 2500),
     scanOutcome: scanOutcomeFor(filename),
     nsfwMarked: !anonymous && String(fields.nsfw) === 'true',
+    viewLimit: readViewLimit(fields.view_limit) ?? null,
+    viewLimitAction: readViewLimitAction(fields.view_limit_action, anonymous) ?? 'expire',
   };
   if (kind === 'text') file.cdn = `${MOCK_API_PREFIX}/raw/${file.vanity}`;
   file.assets = placeholderAssets(file);
@@ -1354,22 +1468,59 @@ async function route(req: IncomingMessage, res: ServerResponse, path: string, or
     }
   }
 
-  // ---- Unlock, refresh, view (contract §5) ----
-  if ((match = /^\/(files|albums)\/([^/]+)\/(unlock|unlock\/refresh|view)$/.exec(path))) {
-    const kind = match[1] === 'albums' ? 'album' : 'file';
-    const vanityName = decodeURIComponent(match[2]!);
+  // ---- Open a view-limited file (milestone-6 §19.4). The vanity is the last path segment. ----
+  if ((match = /^\/access\/open\/files\/(.+)$/.exec(path)) && method === 'POST') {
+    const vanityName = decodeURIComponent(match[1]!);
+    const body = await readJson(req);
+    // The order of checks: Turnstile (action `view`), the rate limit, the file's own access, then counting.
+    if (body.turnstile_token !== TURNSTILE_DUMMY_TOKEN) throw new HttpError(403, 'CAPTCHA_INVALID', 'Human verification failed.');
+    const bucketKey = `open:${vanityName}:${ipOf(req)}`;
+    const recent = (attempts.get(bucketKey) ?? []).filter((t) => t > Date.now() - 60_000);
+    if (recent.length >= 30) {
+      throw new HttpError(429, 'TOO_MANY_ATTEMPTS', 'Too many attempts.', { retry_after: Math.ceil((recent[0]! + 60_000 - Date.now()) / 1000) });
+    }
+    attempts.set(bucketKey, [...recent, Date.now()]);
+    const file = [...library.values()].find((each) => isLive(each) && each.vanity === vanityName);
+    if (!file) throw new HttpError(404, 'UNKNOWN_FILE', 'Unknown file.');
+    checkPublicState('file', file.id);
+    const free = servedFree(who, file);
+    if (!free && limitUsedUp(file, viewerOf(req))) throw new HttpError(404, 'UNKNOWN_FILE', 'Unknown file.');
+    // Private files open only for their owner (so they never count).
+    if (file.visibility === 'private' && !free) throw new HttpError(404, 'UNKNOWN_FILE', 'Unknown file.');
+    if (file.visibility === 'password' && !free) {
+      const claims = verifyToken(String(req.headers['x-filesgg-access'] ?? ''));
+      if (!claims || claims.k !== 'file' || claims.t !== file.id || claims.e <= now() || claims.v !== file.accessVersion) {
+        throw new HttpError(401, 'UNLOCK_REQUIRED', 'Unlock this file first.');
+      }
+    }
+    const last = free ? false : countView(file, viewerOf(req));
+    // Signed for 1 h, or until the file expires, whichever is earlier.
+    const e = Math.min(now() + 3600, file.expiresAt ?? Number.POSITIVE_INFINITY);
+    const payload = signFile({ ...publicFile(origin, file), ...viewLimitPayload(file) }, { expires: e, grant: `file:${file.id}:${file.accessVersion}` });
+    // The last viewer gets the file; the action fires right after their response is built.
+    if (last) fireViewLimit(file);
+    return send(res, 200, { file: payload, expires_at: e });
+  }
+
+  // ---- Unlock, refresh, view (contract §5), at milestone-6 §20.1's paths: the vanity is last ----
+  if ((match = /^\/access\/(unlock|refresh|view)\/(files|albums)\/(.+)$/.exec(path))) {
+    const action = match[1]!;
+    const kind = match[2] === 'albums' ? 'album' : 'file';
+    const vanityName = decodeURIComponent(match[3]!);
     const entry = PROTECTED[vanityName] ?? libraryProtected(kind, (target) => target.vanity === vanityName)?.[1];
     if (!entry || entry.kind !== kind) throw new HttpError(404, kind === 'album' ? 'UNKNOWN_ALBUM' : 'UNKNOWN_FILE', 'Unknown file.');
     checkPublicState(kind, entry.id);
     const key = kind === 'album' ? 'album' : 'file';
+    // Milestone 6 §19: a view-limited library file (a password one counts its unlock).
+    const limited = kind === 'file' && !PROTECTED[vanityName] ? library.get(entry.id) : undefined;
     // Unlock, view and refresh all return the payload with URLs signed until the token expires (milestone-3 §3).
     const granted = (token: string, e: number) => {
       const grant = `${kind}:${entry.id}:${entry.accessVersion}`;
-      const payload = entry.payload(origin);
+      const payload = { ...entry.payload(origin), ...(limited ? viewLimitPayload(limited) : {}) };
       return { token, expires_at: e, [key]: kind === 'album' ? signAlbum(payload, e, grant) : signFile(payload, { expires: e, grant }) };
     };
 
-    if (match[3] === 'view' && method === 'GET') {
+    if (action === 'view' && method === 'GET') {
       const token = String(req.headers['x-filesgg-access'] ?? '');
       const claims = verifyToken(token);
       const valid = claims && claims.k === kind && claims.t === entry.id && claims.e > now() && claims.v === entry.accessVersion;
@@ -1380,7 +1531,7 @@ async function route(req: IncomingMessage, res: ServerResponse, path: string, or
       return send(res, 200, granted(token, claims.e));
     }
 
-    if (match[3] === 'unlock/refresh' && method === 'POST') {
+    if (action === 'refresh' && method === 'POST') {
       const body = await readJson(req);
       const claims = verifyToken(String(body.token ?? ''));
       if (!claims || claims.k !== kind || claims.t !== entry.id || claims.e <= now() || claims.v !== entry.accessVersion) {
@@ -1393,7 +1544,7 @@ async function route(req: IncomingMessage, res: ServerResponse, path: string, or
       return send(res, 200, granted(signToken({ ...claims, e }), e));
     }
 
-    if (match[3] === 'unlock' && method === 'POST') {
+    if (action === 'unlock' && method === 'POST') {
       if (entry.visibility === 'private') throw new HttpError(404, 'UNKNOWN_FILE', 'Unknown file.');
       const body = await readJson(req);
       if (body.turnstile_token !== TURNSTILE_DUMMY_TOKEN) throw new HttpError(403, 'CAPTCHA_INVALID', 'Human verification failed.');
@@ -1408,11 +1559,16 @@ async function route(req: IncomingMessage, res: ServerResponse, path: string, or
       recent.push(Date.now());
       attempts.set(bucketKey, recent);
       if (entry.passwordExpired) throw new HttpError(410, 'PASSWORD_EXPIRED', 'Password expired.');
+      if (limited && !servedFree(who, limited) && limitUsedUp(limited, viewerOf(req))) throw new HttpError(404, 'UNKNOWN_FILE', 'Unknown file.');
       if (body.password !== entry.password) throw new HttpError(401, 'WRONG_PASSWORD', 'Wrong password.');
       attempts.delete(bucketKey);
+      // §19.4: a successful unlock of a view-limited password file is the view.
+      const last = limited && !servedFree(who, limited) ? countView(limited, viewerOf(req)) : false;
       const u = now();
       const e = u + Math.min(entry.unlockTtl, 3600);
-      return send(res, 200, granted(signToken({ e, k: kind, s: 'unlock', t: entry.id, u, v: entry.accessVersion }), e));
+      const response = granted(signToken({ e, k: kind, s: 'unlock', t: entry.id, u, v: entry.accessVersion }), e);
+      if (last && limited) fireViewLimit(limited);
+      return send(res, 200, response);
     }
   }
 
@@ -1573,6 +1729,20 @@ async function libraryRoute(req: IncomingMessage, res: ServerResponse, path: str
       }
       if (body.expires_in !== undefined) applyExpiry(file, body.expires_in, who.anonymous);
       else if (sent.has('expires_at')) applyExpiry(file, body.expires_at === null ? null : Number(body.expires_at) - now(), who.anonymous);
+      // Milestone 6 §19.3: set, raise, lower (above views_used) or remove; never resets the count.
+      if (sent.has('view_limit') || sent.has('view_limit_action')) {
+        if (who.anonymous) throw new HttpError(403, 'FORBIDDEN', 'Anonymous uploads can set a view limit only at upload.');
+        const limit = readViewLimit(body.view_limit);
+        const action = readViewLimitAction(body.view_limit_action, false);
+        if (limit !== undefined && limit !== null && limit <= file.viewers.size) {
+          throw new HttpError(400, 'VIEW_LIMIT_TOO_LOW', 'The view limit must be greater than the views already used.', {
+            views_used: file.viewers.size,
+            errors: { view_limit: `Set a limit above ${file.viewers.size}.` },
+          });
+        }
+        if (limit !== undefined) file.viewLimit = limit;
+        if (action) file.viewLimitAction = action;
+      }
       const accessKeys = ['visibility', 'password', 'generate_password', 'unlock_ttl', 'password_expires_at', 'password_expires_in', 'show_name_when_locked'];
       const generated = accessKeys.some((name) => sent.has(name)) ? applyAccess(file, body, who.anonymous, sent) : undefined;
       const payload = ownerFile(origin, file);
@@ -2688,10 +2858,17 @@ function resolveUrlTarget(raw: string): { type: 'file' | 'album'; vanity: string
   } catch {
     throw new HttpError(400, 'INVALID_REPORT_TARGET', 'That isn’t a files.gg link.');
   }
+  // milestone-6 §20.2: the report pages are `/report/<vanity>` and `/report/a/<vanity>`, and an
+  // album item is `/a/<vanity>?item=<n>`. Nothing comes after a vanity.
   const parts = url.pathname.split('/').filter(Boolean);
-  if (parts.at(-1) === 'report') parts.pop();
+  const reportPage = parts[0] === 'report' && parts.length > 1;
+  if (reportPage) parts.shift();
   const bare = (segment: string) => segment.replace(/\.[^.]+$/, '');
-  if (parts[0] === 'a' && parts[1]) return { type: 'album', vanity: parts[1], ...(parts[2] ? { item: Number(parts[2]) } : {}) };
+  if (parts[0] === 'a' && parts[1]) {
+    if (parts.length > 2) throw new HttpError(400, 'INVALID_REPORT_TARGET', 'That isn’t a files.gg link.');
+    const item = reportPage ? null : url.searchParams.get('item');
+    return { type: 'album', vanity: parts[1], ...(item && /^[1-9][0-9]*$/.test(item) ? { item: Number(item) } : {}) };
+  }
   if (parts[0] === 'files' && parts[1]) return { type: 'file', vanity: bare(parts.slice(1).join('/')) };
   if (parts[0] === 'previews' && parts[2]) return { type: 'file', vanity: bare(parts.slice(2).join('/')) };
   if (parts.length >= 1 && /^(files\.gg|cdn\.files\.gg|localhost(:\d+)?)$/.test(url.host)) return { type: 'file', vanity: bare(parts.join('/')) };

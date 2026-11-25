@@ -2,7 +2,7 @@
     "name": "files.gg-worker",
     "version": "0.1.0",
     "private": true,
-    "description": "Cloudflare Worker for files.gg, cdn.files.gg, api.files.gg and proxy.files.gg",
+    "description": "Cloudflare Worker for files.gg, cdn.files.gg, api.files.gg and custom domains",
     "type": "module",
     "author": "cakedan",
     "license": "MIT",

@@ -1,6 +1,6 @@
 """The API's unlock tokens (contract milestone-3 §3, milestone-2 §5): password unlocks and
-owner passes. They're the visitor's proof for the API only (`X-Filesgg-Access` on /view,
-the body of /unlock/refresh, `#t=` owner passes) and never appear in a CDN URL; the CDN
+owner passes. They're the visitor's proof for the API only (`X-Filesgg-Access` on /access/view,
+the body of /access/refresh, `#t=` owner passes) and never appear in a CDN URL; the CDN
 gets signed URLs instead (utils/cdn_signing.py).
 
     base64url(body_json) + "." + base64url(HMAC_SHA256(SECRET_KEY, base64url(body_json)))

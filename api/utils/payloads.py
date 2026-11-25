@@ -1,5 +1,5 @@
 """The file payload (contract milestone-3 §4): one shape for every endpoint that returns a
-file (`GET /files/<vanity>`, uploads, unlock, /view, refresh, the internal lookup, album
+file (`GET /files/<vanity>`, uploads, /access unlock, view and refresh, the internal lookup, album
 items and the owner's library). snake_case, times in epoch seconds.
 
 URLs are ready to use. `link` files get plain URLs. A protected file's URLs are signed
@@ -30,8 +30,12 @@ def kind_of(mimetype):
     return base_kind(mimetype)
 
 
-def needs_signing(target, grant):
-    return grant is not None and target.visibility != 'link'
+def needs_signing(target, grant, sign_all=False):
+    """A protected target's URLs are signed; with `sign_all` (an owner payload while domain-only is
+    effective, milestone-6 §10.6) every URL is. A view-limited file is served like a protected one
+    (milestone-6 §19.4): its URLs are always signed, and without a grant they're plain, which the CDN refuses."""
+    from utils import view_limits
+    return grant is not None and (target.visibility != 'link' or sign_all or view_limits.limited(target))
 
 
 def file_url(fobj):
@@ -92,10 +96,10 @@ def public_media(fobj, owner=False):
     return media
 
 
-def public_file(fobj, grant=None, owner=False, album_item=False):
+def public_file(fobj, grant=None, owner=False, album_item=False, sign_all=False):
     """The file payload. `grant` (a cdn_signing.Grant) signs a protected file's URLs;
     `album_item` marks it as an album item (album grants then add album=)."""
-    sign = (lambda url: grant.sign(url, item=album_item)) if needs_signing(fobj, grant) else None
+    sign = (lambda url: grant.sign(url, item=album_item)) if needs_signing(fobj, grant, sign_all) else None
     assets = assets_dict(fobj, sign)
     media = public_media(fobj, owner=owner)
     kind = viewer_kind(fobj, assets)
@@ -136,6 +140,10 @@ def public_file(fobj, grant=None, owner=False, album_item=False):
         data['thumbnail'] = thumbnail
     if 'hover' in assets:
         data['hover_url'] = assets['hover']['url']
+    # milestone-6 §19.6: { remaining }, only when the file has a view limit
+    from utils import view_limits
+    if view_limits.limited(fobj):
+        data['view_limit'] = view_limits.public_field(fobj)
     return data
 
 
@@ -187,18 +195,36 @@ def with_safety(data, fobj):
 
 
 def with_password(data, fobj, password):
-    """Right after a password was generated: shown once."""
+    """Right after a password was generated: shown once (on the owner's link domain, milestone-6 §10.9)."""
+    from utils import links
     if password is not None:
         data['password'] = password
-        data['url_with_password'] = public_url('/{}#pw={}'.format(fobj.vanity, password))
+        data['url_with_password'] = links.rehost(public_url('/{}#pw={}'.format(fobj.vanity, password)),
+                                                 links.current().host)
     return data
+
+
+def owner_upload(fobj, grant=None):
+    """An upload response (POST /files, a finished chunked upload): the public payload signed for the
+    uploader, with `safety`, on the owner's link domain with `direct_url` (milestone-6 §10.9)."""
+    from utils import links
+    from utils.cdn_signing import Grant
+    current = links.current()
+    from utils import view_limits
+    data = with_safety(public_file(fobj, grant=grant or Grant.owner_file(fobj), sign_all=current.sign_all), fobj)
+    # milestone-6 §19.6: the owner's view-limit fields (replacing the public `view_limit`)
+    data.update(view_limits.owner_fields(fobj))
+    return links.apply(data, current)
 
 
 def owner_dict(fobj, grant=None):
     """The owner file (contract §6): the public payload signed for 1 h with the file grant,
     plus the access settings, `media.snippet`, and the albums the file is in."""
+    from utils import links
     from utils.cdn_signing import Grant
-    data = public_file(fobj, grant=grant or Grant.owner_file(fobj), owner=True)
+    current = links.current()
+    data = public_file(fobj, grant=grant or Grant.owner_file(fobj), owner=True, sign_all=current.sign_all)
+    links.apply(data, current)
     with_safety(data, fobj)
     data.update({
         'access_version': fobj.access_version,
@@ -208,6 +234,9 @@ def owner_dict(fobj, grant=None):
         'albums': [{'id': str(album_id), 'vanity': vanity, 'title': title}
                    for album_id, vanity, title in (fobj.albums or ())],
     })
+    # milestone-6 §19.6: the owner's view-limit fields (replacing the public `view_limit`)
+    from utils import view_limits
+    data.update(view_limits.owner_fields(fobj))
     return data
 
 

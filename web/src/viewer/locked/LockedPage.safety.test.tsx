@@ -84,7 +84,7 @@ describe('the pending page reloads in the page, keeping #t= / #pw= secrets (mile
 
   it('asks /view again with the in-memory owner pass, and shows the file once it is checked', async () => {
     let views = 0;
-    const fetch = vi.fn(async (url: string) => (String(url).endsWith('/view') && ++views > 1 ? json({ file: image, token: 'pass1', expires_at: future() }) : pending()));
+    const fetch = vi.fn(async (url: string) => (String(url).includes('/access/view/') && ++views > 1 ? json({ file: image, token: 'pass1', expires_at: future() }) : pending()));
     vi.stubGlobal('fetch', fetch);
     render(<LockedPage kind="file" vanity="abc" protection="private" ownerPass="pass1" />);
     expect(await screen.findByRole('heading', { name: 'Checking this file…' })).toBeInTheDocument();
@@ -93,7 +93,7 @@ describe('the pending page reloads in the page, keeping #t= / #pw= secrets (mile
     const calls = fetch.mock.calls as unknown as Call[];
     expect(calls).toHaveLength(2);
     for (const [url, init] of calls) {
-      expect(url).toMatch(/\/files\/abc\/view$/);
+      expect(url).toMatch(/\/access\/view\/files\/abc$/);
       expect((init.headers as Record<string, string>)['X-Filesgg-Access']).toBe('pass1');
     }
     // The schedule is still kept in history.state, as for a full reload.
@@ -115,7 +115,7 @@ describe('the pending page reloads in the page, keeping #t= / #pw= secrets (mile
   it('unlocks again with the same password after a pending unlock', async () => {
     let unlocks = 0;
     const fetch = vi.fn(async (url: string) =>
-      String(url).endsWith('/unlock') && ++unlocks > 1 ? json({ token: 'fresh', expires_at: future(), file: image }) : pending(),
+      String(url).includes('/access/unlock/') && ++unlocks > 1 ? json({ token: 'fresh', expires_at: future(), file: image }) : pending(),
     );
     vi.stubGlobal('fetch', fetch);
     render(<LockedPage kind="file" vanity="abc" protection="password" />);
@@ -126,7 +126,7 @@ describe('the pending page reloads in the page, keeping #t= / #pw= secrets (mile
     expect(await screen.findByRole('heading', { name: 'Checking this file…' })).toBeInTheDocument();
     await act(() => vi.advanceTimersByTimeAsync(2000));
     expect(await screen.findByRole('img', { name: 'holiday.png' })).toBeInTheDocument();
-    const bodies = (fetch.mock.calls as unknown as Call[]).filter(([url]) => url.endsWith('/unlock')).map(([, init]) => JSON.parse(String(init.body)).password);
+    const bodies = (fetch.mock.calls as unknown as Call[]).filter(([url]) => url.includes('/access/unlock/')).map(([, init]) => JSON.parse(String(init.body)).password);
     expect(bodies).toEqual(['hunter2', 'hunter2']);
   });
 });

@@ -201,10 +201,13 @@ CREATE TABLE user_entitlements (
     -- staff only
     note text CHECK (char_length(note) <= 2000),
     action_id bigint REFERENCES moderation_actions (id) ON DELETE SET NULL,
-    -- the hourly entitlements_expiry task has recorded its lapse
+    -- the hourly entitlements_expiry task has recorded its lapse (`entitlement_expired`)
     expired_at timestamptz
 );
-CREATE UNIQUE INDEX user_entitlements_active ON user_entitlements (user_id, kind) WHERE revoked_at IS NULL;
+-- one unrevoked, unlapsed entitlement per kind
+CREATE UNIQUE INDEX user_entitlements_active ON user_entitlements (user_id, kind)
+    WHERE revoked_at IS NULL AND expired_at IS NULL;
+CREATE INDEX user_entitlements_user ON user_entitlements (user_id, id DESC);
 
 
 -- data exports (§8.7) ---------------------------------------------------------------------------------------------

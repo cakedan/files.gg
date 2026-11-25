@@ -1,5 +1,5 @@
-// The public hostnames this Worker answers on, from the MAIN_HOST, CDN_HOST, API_HOST and
-// PROXY_HOST vars (cf-worker/README.md). Unset, they are today's production hosts, so production
+// The public hostnames this Worker answers on, from the MAIN_HOST, CDN_HOST and API_HOST vars
+// (cf-worker/README.md). Unset, they are today's production hosts, so production
 // routing, URLs, the CSPs and CORS are unchanged. A local stack (e2e/) sets them to *.localhost.
 //
 // Pure (no Worker globals), so it is unit-tested with `node --test`.
@@ -8,10 +8,9 @@ export const DEFAULT_HOSTS = Object.freeze({
   main: 'files.gg',
   cdn: 'cdn.files.gg',
   api: 'api.files.gg',
-  proxy: 'proxy.files.gg',
 });
 
-const BINDINGS = Object.freeze({ main: 'MAIN_HOST', cdn: 'CDN_HOST', api: 'API_HOST', proxy: 'PROXY_HOST' });
+const BINDINGS = Object.freeze({ main: 'MAIN_HOST', cdn: 'CDN_HOST', api: 'API_HOST' });
 const HOSTNAME = /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]*[a-z0-9])?)*$/;
 
 function normalizeHost(value, fallback, name) {
@@ -28,7 +27,7 @@ function normalizeHost(value, fallback, name) {
 
 let cache = { key: null, hosts: DEFAULT_HOSTS };
 
-// { main, cdn, api, proxy }: lower-case hostnames, without scheme or port.
+// { main, cdn, api }: lower-case hostnames, without scheme or port.
 export function getHosts(env) {
   const raw = Object.values(BINDINGS).map((name) => {
     const value = (env) ? env[name] : undefined;
@@ -60,7 +59,7 @@ export function hostPattern(host, { www = false } = {}) {
 
 const LOOPBACK = /^(?:localhost|.+\.localhost|127(?:\.\d{1,3}){3}|\[::1\])$/;
 
-// Base for the absolute URLs the Worker writes (CSPs, CORS defaults, og:image, the proxy's links):
+// Base for the absolute URLs the Worker writes (CSPs, CORS defaults, og:image):
 // `https://<host>`, as in production. Only a plain-http request to a loopback name (wrangler dev
 // on *.localhost) keeps its scheme and port, so the local stack links to itself.
 export function originFor(host, requestUrl) {
@@ -73,13 +72,12 @@ export function originFor(host, requestUrl) {
   return `https://${host}`;
 }
 
-// { main, cdn, api, proxy } origins for this request.
+// { main, cdn, api } origins for this request.
 export function publicOrigins(hosts = DEFAULT_HOSTS, requestUrl = null) {
   return {
     main: originFor(hosts.main, requestUrl),
     cdn: originFor(hosts.cdn, requestUrl),
     api: originFor(hosts.api, requestUrl),
-    proxy: originFor(hosts.proxy, requestUrl),
   };
 }
 

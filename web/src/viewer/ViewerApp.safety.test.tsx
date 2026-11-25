@@ -218,14 +218,14 @@ describe('Report in the footer (milestone-4 §7.2)', () => {
   it('links to the report page and opens the dialog on a plain click', async () => {
     render(<ViewerApp state={{ page: 'file', file: image }} />);
     const report = screen.getByRole('link', { name: 'Report' });
-    expect(report).toHaveAttribute('href', '/abc/report');
+    expect(report).toHaveAttribute('href', '/report/abc');
     fireEvent.click(report);
     expect(await screen.findByRole('dialog', { name: 'Report this file' })).toBeInTheDocument();
   });
 
   it('keeps multi-segment vanities as path segments', () => {
     render(<ViewerApp state={{ page: 'file', file: { ...image, vanity: undefined, url: 'https://files.gg/abcd/xyz.png' } }} />);
-    expect(screen.getByRole('link', { name: 'Report' })).toHaveAttribute('href', '/abcd/xyz/report');
+    expect(screen.getByRole('link', { name: 'Report' })).toHaveAttribute('href', '/report/abcd/xyz');
   });
 });
 

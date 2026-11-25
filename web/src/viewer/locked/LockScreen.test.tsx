@@ -54,7 +54,7 @@ describe('LockScreen', () => {
     await submit('files.gg');
     await waitFor(() => expect(onUnlocked).toHaveBeenCalledWith(expect.objectContaining({ token: 'tok' })));
     const [url, init] = fetch.mock.calls[0] as unknown as [string, RequestInit];
-    expect(url).toMatch(/\/files\/abc\/unlock$/);
+    expect(url).toMatch(/\/access\/unlock\/files\/abc$/);
     expect(JSON.parse(String(init.body))).toEqual({ password: 'files.gg', turnstile_token: 'XXXX.DUMMY.TOKEN.XXXX' });
   });
 

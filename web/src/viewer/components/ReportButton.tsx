@@ -8,8 +8,9 @@ import { reportPath, type ReportableTarget } from './reportPath';
 const ReportDialog = lazy(() => import('../report/ReportDialog'));
 
 /**
- * "Report" (milestone-4 §7.2, §11.1). A real link to `/<vanity>/report` (or
- * `/a/<vanity>/report`), so it works in a new tab; a plain click opens the dialog here.
+ * "Report" (milestone-4 §7.2, §11.1). A real link to `/report/<vanity>` (or
+ * `/report/a/<vanity>`, milestone-6 §20.2), so it works in a new tab; a plain click opens
+ * the dialog here.
  */
 export function ReportButton({
   target,

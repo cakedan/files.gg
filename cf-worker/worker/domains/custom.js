@@ -1,5 +1,5 @@
 // Custom domains (docs/redesign/contracts/milestone-6.md §10.8-§10.11): every hostname that isn't
-// MAIN_HOST (or www.), CDN_HOST, API_HOST or PROXY_HOST. Cloudflare for SaaS sends customers'
+// MAIN_HOST (or www.), CDN_HOST or API_HOST. Cloudflare for SaaS sends customers'
 // hostnames to the Worker through the zone's `*/*` route (Worker as origin).
 //
 // Per request:
@@ -32,6 +32,7 @@ import { getHosts, originFor, publicOrigins } from '../utils/hosts.js';
 import { domainServing } from '../utils/owners.js';
 import { CDN_EXPOSE_HEADERS, corsHeaders } from '../utils/security.js';
 import { decideAlbumShell, decideFileShell } from '../utils/viewer.js';
+import { botRefusalResponse } from '../utils/viewlimits.js';
 
 const PAGE_METHODS = ['GET', 'HEAD'];
 const CDN_METHODS = ['GET', 'HEAD', 'OPTIONS'];
@@ -137,6 +138,10 @@ async function handle(event) {
       if (shell.redirect) {
         // Bots and embeds of `link` files: the rehosted cdn_url, https://<host>/files/<vanity>.<ext>.
         return new ApiRedirect(shell.redirect);
+      }
+      if (shell.refuse) {
+        // A link-preview bot asking for a view-limited file (milestone-6.md §19.5): 403, no og media.
+        return botRefusalResponse(event.method);
       }
       return await renderViewer(event, shell, site);
     }

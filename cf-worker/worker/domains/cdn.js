@@ -10,7 +10,8 @@
 // (utils/signing.js), checked before any byte (or cached byte) is touched.
 //
 // Per request (milestone-4.md §10.2, milestone-6.md §10.8): parse → lookup (404 / 503) → staff
-// grant → the owner's pending deletion (404) → access check (signature) → domain-only (a `link`
+// grant → the owner's pending deletion (404) → access check (signature; a view-limited file always
+// needs one, milestone-6.md §19.5) → domain-only (a `link`
 // file of an owner whose domain-only mode is in effect needs a signature too, else 404) → safety
 // state → serve. Access comes before the state, so a protected file's state never leaks to someone
 // without access.
@@ -45,6 +46,7 @@ import {
 import { albumSafety, cdnStateStatus, fileSafety, pendingCount, servesInline } from '../utils/safety.js';
 import { albumGrant, grantForFileRequest, verifySignedUrl, verifyStaffUrl } from '../utils/signing.js';
 import { isExpired, SECURITY_TXT_PATH, visibleAlbumItems } from '../utils/viewer.js';
+import { isViewLimited } from '../utils/viewlimits.js';
 import { createZipStream, zipSize } from '../utils/zip.js';
 
 
@@ -174,9 +176,11 @@ async function lookupFile(event, vanity) {
 
 // null when the file's URLs (the bytes and its previews) may be served, else the refusal.
 // `link` is public; anything else needs a URL signed with the file grant, or with `album=` the
-// grant of an album the file is shown in (contract §3).
+// grant of an album the file is shown in (contract §3). A view-limited file (milestone-6.md §19.5)
+// is served like a protected one whatever its visibility: only through a signed URL (its albums list
+// is empty, since a view-limited file is never an album item), else 404 (401 for a password file).
 async function checkFileAccess(event, data, access) {
-  if (access.visibility === 'link') {
+  if (access.visibility === 'link' && !isViewLimited(data)) {
     return null;
   }
   if (data.file.id === undefined || data.file.id === null || data.file.id === '') {
@@ -246,7 +250,7 @@ async function checkFile(event, data, access, site) {
   if (status) {
     return { response: cdnError(status, PROTECTED_CACHE_CONTROL) };
   }
-  return { staff: false, isProtected: access.visibility !== 'link' || signedOnly };
+  return { staff: false, isProtected: access.visibility !== 'link' || signedOnly || isViewLimited(data) };
 }
 
 

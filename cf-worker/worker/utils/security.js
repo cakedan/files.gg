@@ -28,7 +28,8 @@ export function isForcedText(mimetype) {
   return FORCED_TEXT_MIMETYPES.includes(value) || value.endsWith('+xml');
 }
 
-// X-Filesgg-Access carries unlock tokens and owner passes for /files/<vanity>/view (contract §5).
+// X-Filesgg-Access carries unlock tokens and owner passes for /access/view/files/<vanity> (contract §5,
+// milestone-6.md §20.1).
 export const CORS_ALLOW_HEADERS = 'Authorization, Content-Type, X-Fingerprint, X-Filesgg-Access';
 export const CORS_ALLOW_METHODS = 'DELETE, GET, HEAD, OPTIONS, PATCH, POST, PUT';
 
@@ -233,19 +234,6 @@ export function decideCdnResponse({ mimetype, query, filename, inline = true } =
     filename: safeFilename,
     contentDisposition: contentDisposition(disposition, safeFilename),
   };
-}
-
-
-// Constant-time comparison for the proxy's shared secret. Fails closed when no secret is configured.
-export function isValidProxyToken(token, secret) {
-  if (typeof(secret) !== 'string' || !secret || typeof(token) !== 'string') {
-    return false;
-  }
-  let difference = token.length ^ secret.length;
-  for (let i = 0; i < secret.length; i++) {
-    difference |= secret.charCodeAt(i) ^ token.charCodeAt(i % (token.length || 1));
-  }
-  return difference === 0;
 }
 
 

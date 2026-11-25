@@ -39,6 +39,9 @@ async def caller_of(conn, request):
     from utils.auth import auth_of
     current = auth_of(request)
     if current.kind == 'session':
+        # owner payloads use the owner's link domain and domain-only signing (milestone-6 §10.6, §10.9)
+        from utils import links
+        await links.prepare(conn, current.user)
         return Caller(current.user, None)
     if current.dead:
         raise errors.unauthorized()

@@ -26,7 +26,7 @@ describe('ViewerApp: protected pages', () => {
     vi.stubGlobal('fetch', fetch);
     render(<ViewerApp state={{ page: 'missing' }} secrets={{ ownerPass: 'pass', rest: '' }} />);
     expect(await screen.findByRole('heading', { name: "This file doesn't exist or has expired." })).toBeInTheDocument();
-    expect(String((fetch.mock.calls[0] as unknown as [string])[0])).toMatch(/\/files\/private123\/view$/);
+    expect(String((fetch.mock.calls[0] as unknown as [string])[0])).toMatch(/\/access\/view\/files\/private123$/);
   });
 
   it('a missing shell without #t= makes no request', () => {

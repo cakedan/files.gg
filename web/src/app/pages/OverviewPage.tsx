@@ -1,14 +1,14 @@
 import { useQueries } from '@tanstack/react-query';
-import { Clock, FileUp } from 'lucide-react';
+import { Clock, FileUp, Sparkles } from 'lucide-react';
 import { useEffect } from 'react';
 import { Link } from 'react-router';
 
 import { buttonClass } from '../../components/buttonClass';
-import { api, ensureFingerprint, FILE_TYPE_FILTERS, hasToken, type FileTypeFilter, type MyLimitsResponse } from '../../lib/api';
+import { api, ensureFingerprint, FILE_TYPE_FILTERS, type FileTypeFilter, type MyLimitsResponse, type User } from '../../lib/api';
 import { errorMessage } from '../../lib/errors';
 import { formatBytes } from '../../lib/format';
-import { queryKeys, useMyFiles, useMyLimits } from '../../lib/queries';
-import { epochMs, formatFullDate, formatRelative, RELATIVE_REFRESH_MS } from '../../lib/time';
+import { queryKeys, useMe, useMyFiles, useMyLimits } from '../../lib/queries';
+import { epochMs, formatDay, formatFullDate, formatRelative, RELATIVE_REFRESH_MS } from '../../lib/time';
 import { storageTone, type StorageTone } from '../../lib/storageTone';
 import { useNow } from '../../lib/useNow';
 import { FileThumb } from '../files/FileThumb';
@@ -20,6 +20,17 @@ const EXPIRING_SCAN = 100;
 const EXPIRING_SHOWN = 8;
 
 const TONE_BAR: Record<StorageTone, string> = { ok: 'bg-gg', warn: 'bg-warn', danger: 'bg-danger', full: 'bg-danger' };
+
+/** Milestone 6 §13.3: premium (granted by staff for now), with its expiry if it has one. */
+export function PremiumBadge({ premium }: { premium: User['premium'] }) {
+  if (!premium.active) return null;
+  return (
+    <span className="inline-flex items-center gap-1 rounded-full bg-gg/15 px-2 py-0.5 text-xs font-medium text-gg">
+      <Sparkles aria-hidden className="size-3.5" />
+      Premium{premium.expires_at !== null && ` until ${formatDay(epochMs(premium.expires_at))}`}
+    </span>
+  );
+}
 
 function StorageMeter({ limits }: { limits: MyLimitsResponse }) {
   const { used, limit } = limits.storage;
@@ -60,6 +71,10 @@ function StorageMeter({ limits }: { limits: MyLimitsResponse }) {
       ) : tone === 'warn' ? (
         <p className="text-sm text-warn">Over 80% full.</p>
       ) : null}
+      <p className="text-xs text-muted">
+        Files up to {formatBytes(limits.max_file_size_chunked)} on the website, {formatBytes(limits.max_file_size_single)} from ShareX or curl.
+        {limits.premium === false && ' Premium raises storage to 100 GB and files to 5 GB.'}
+      </p>
     </div>
   );
 }
@@ -84,6 +99,7 @@ export default function OverviewPage() {
     document.title = 'Overview · files.gg';
   }, []);
   const now = useNow(RELATIVE_REFRESH_MS);
+  const user = useMe().data ?? null;
   const limits = useMyLimits();
   const recent = useMyFiles({ sort_by: '-created', limit: 8 });
   const temporary = useMyFiles({ temporary: true, sort_by: '-created', limit: EXPIRING_SCAN });
@@ -119,7 +135,7 @@ export default function OverviewPage() {
       </header>
 
       <div className="grid gap-4 lg:grid-cols-2">
-        <Card title="Storage">
+        <Card title="Storage" action={user ? <PremiumBadge premium={user.premium} /> : undefined}>
           {limits.data ? (
             <StorageMeter limits={limits.data} />
           ) : limits.isError ? (
@@ -216,7 +232,7 @@ export default function OverviewPage() {
           </ul>
         )}
       </Card>
-      {hasToken() ? null : (
+      {user ? null : (
         <p className="text-xs text-muted">You're not signed in, so this shows the files uploaded from this browser.</p>
       )}
     </section>

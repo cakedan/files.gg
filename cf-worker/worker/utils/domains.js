@@ -14,10 +14,10 @@ export function isHostname(value) {
   return typeof(value) === 'string' && HOSTNAME.test(value);
 }
 
-// True for one of the Worker's own hosts (the four routers of index.js).
+// True for one of the Worker's own hosts (the routers of index.js).
 export function isOwnHost(hostname, hosts = DEFAULT_HOSTS) {
   const host = String(hostname || '').toLowerCase();
-  return isMainHost(host, hosts) || host === hosts.cdn || host === hosts.api || host === hosts.proxy;
+  return isMainHost(host, hosts) || host === hosts.cdn || host === hosts.api;
 }
 
 // A hostname that may be a customer's domain, so worth a domain lookup: a valid name that isn't
@@ -145,9 +145,10 @@ export function rehostSources(hosts = DEFAULT_HOSTS, origins = null) {
 }
 
 
-// §10.10: `files.gg/challenge?host=<custom hostname>&action=unlock|report`. Returns { host, action }
-// or null when either is unusable (the domain lookup then decides whether the host is serving).
-export const CHALLENGE_ACTIONS = Object.freeze(['unlock', 'report']);
+// §10.10: `files.gg/challenge?host=<custom hostname>&action=unlock|report|view` (`view` opens a
+// view-limited file, §19.7). Returns { host, action } or null when either is unusable (the domain
+// lookup then decides whether the host is serving).
+export const CHALLENGE_ACTIONS = Object.freeze(['unlock', 'report', 'view']);
 
 export function parseChallengeQuery(query, hosts = DEFAULT_HOSTS) {
   const host = query.get('host');

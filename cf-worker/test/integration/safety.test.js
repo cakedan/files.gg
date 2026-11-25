@@ -460,17 +460,17 @@ describe('report routes (milestone-4.md §7.2, §10.1)', () => {
     await report('/report/', { type: 'any' });
   });
 
-  it('/a/<vanity>/report: the album, whatever its state, with no lookup', async () => {
+  it('/report/a/<vanity>: the album, whatever its state, with no lookup', async () => {
     for (const vanity of ['alb1', 'arem', 'albprivate', 'never-an-album']) {
-      await report(`/a/${vanity}/report`, { type: 'album', vanity });
+      await report(`/report/a/${vanity}`, { type: 'album', vanity });
     }
-    await report('/a/alb1/2/report', { type: 'album', vanity: 'alb1' });
   });
 
-  it('/<vanity>[.<ext>]/report: the file, never saying whether it exists', async () => {
+  it('/report/<vanity>[.<ext>]: the file, never saying whether it exists', async () => {
     const paths = {
-      '/img1/report': 'img1', '/img1.png/report': 'img1', '/abcd/xyz/report': 'abcd/xyz', '/abcd/xyz.jpg/report': 'abcd/xyz',
-      '/sblk/report': 'sblk', '/scsam/report': 'scsam', '/priv1/report': 'priv1', '/nope-never/report': 'nope-never',
+      '/report/img1': 'img1', '/report/img1.png': 'img1', '/report/abcd/xyz': 'abcd/xyz', '/report/abcd/xyz.jpg': 'abcd/xyz',
+      '/report/sblk': 'sblk', '/report/scsam': 'scsam', '/report/priv1': 'priv1', '/report/nope-never': 'nope-never',
+      '/report/unlock/view': 'unlock/view', '/report/report/x': 'report/x',
     };
     for (const [path, vanity] of Object.entries(paths)) {
       await report(path, { type: 'file', vanity });
@@ -478,12 +478,12 @@ describe('report routes (milestone-4.md §7.2, §10.1)', () => {
   });
 
   it('the vanity in #report-data is escaped', async () => {
-    const response = await report('/%3C%2Fscript%3E%3Cscript%3Ealert(1)%3C%2Fscript%3E/report', { type: 'file', vanity: '</script><script>alert(1)</script>' });
+    const response = await report('/report/%3C%2Fscript%3E%3Cscript%3Ealert(1)%3C%2Fscript%3E', { type: 'file', vanity: '</script><script>alert(1)</script>' });
     assert.doesNotMatch(parseShell(response.text).rawData, /</);
   });
 
   it('HEAD has no body; other methods are 405', async () => {
-    const head = await page('/img1/report', { method: 'HEAD' });
+    const head = await page('/report/img1', { method: 'HEAD' });
     assert.equal(head.status, 200);
     assert.equal(head.text, '');
     assert.equal((await page('/report', { method: 'POST' })).status, 405);
@@ -491,7 +491,8 @@ describe('report routes (milestone-4.md §7.2, §10.1)', () => {
 
   it('`report` is reserved: a vanity containing it is missing, without a lookup', async () => {
     const before = upstream.requests.length;
-    for (const path of ['/report.png', '/abc/report/x', '/REPORT/x', '/abc%2Freport']) {
+    // the old report paths (milestone-6.md §20.2) included: nothing after a vanity names a page
+    for (const path of ['/report.png', '/abc/report/x', '/REPORT/x', '/abc%2Freport', '/img1/report', '/a/alb1/report', '/a/alb1/2/report']) {
       const response = await page(path);
       assert.equal(response.status, 404, path);
       assert.deepEqual([parseShell(response.text).page, parseShell(response.text).state], ['file', 'missing'], path);

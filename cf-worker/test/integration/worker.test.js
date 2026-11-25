@@ -242,8 +242,8 @@ describe('viewer shell states', () => {
 
 
 describe('albums', () => {
-  it('/a/<vanity> and /a/<vanity>/<n>: album state with only visible items', async () => {
-    for (const path of ['/a/alb1', '/a/alb1/2']) {
+  it('/a/<vanity> and /a/<vanity>?item=<n>: album state with only visible items', async () => {
+    for (const path of ['/a/alb1', '/a/alb1?item=2', '/a/alb1/?item=1#pw=x', '/a/alb1?item=junk']) {
       const response = await page(path);
       assert.equal(response.status, 200, path);
       assertShellHeaders(response);
@@ -252,6 +252,16 @@ describe('albums', () => {
       assert.deepEqual(shell.data.items.map((item) => item.vanity), ['img1', 'vid1']);
       assert.match(shell.meta, /<meta property="og:title" content="Trip · 2 files">/);
     }
+  });
+
+  it('/a/<vanity>/<n> is gone (milestone-6.md §20.2): missing, without a lookup', async () => {
+    const before = upstream.requests.length;
+    for (const path of ['/a/alb1/2', '/a/alb1/2/', '/a/alb1/x']) {
+      const response = await page(path);
+      assert.equal(response.status, 404, path);
+      assert.equal(parseShell(response.text).state, 'missing', path);
+    }
+    assert.equal(upstream.requests.length, before);
   });
 
   it('a password album is locked', async () => {
@@ -322,7 +332,7 @@ describe('albums', () => {
 
   it('caches album lookups for 5 s, negative ones too', async () => {
     await page('/a/albnocollage');
-    await page('/a/albnocollage/1');
+    await page('/a/albnocollage?item=1');
     assert.equal(lookups('albums', 'albnocollage'), 1);
     await page('/a/never-an-album');
     await page('/a/never-an-album');

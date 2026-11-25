@@ -170,6 +170,10 @@ class File:
     nsfw_unmarked_at: Optional[datetime] = None
     # Milestone 6 (§1.3): the upload key that uploaded it
     upload_key_id: Optional[int] = None
+    # Milestone 6 §19: unique viewers allowed (None = no limit), what happens at the limit, and how many were used
+    view_limit: Optional[int] = None
+    view_limit_action: str = 'expire'
+    views_used: int = 0
     hash: Optional[FileHash] = virtual()
     user: Optional[User] = virtual()
     # [(album id, vanity, title)] for the owner's view, when loaded
@@ -228,6 +232,9 @@ class UploadSession:
     owner_ip_sealed: Optional[bytes] = None
     # Milestone 6 (§7.5): every later call must come from this key (or the owner's session)
     upload_key_id: Optional[int] = None
+    # Milestone 6 §19: copied to the file at finalize
+    view_limit: Optional[int] = None
+    view_limit_action: str = 'expire'
 
     def chunk_length(self, index):
         """The exact size chunk `index` must have."""

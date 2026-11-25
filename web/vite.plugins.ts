@@ -65,7 +65,8 @@ function safeJoin(root: string, relative: string): string | null {
  *   /app, /app/*            -> app.html     (the dashboard SPA)
  *   /challenge              -> challenge.html (the Turnstile frame for custom domains)
  *   /, /convert             -> viewer.html  (home card, convert placeholder)
- *   /a/<vanity>[/<n>]       -> viewer.html  (album page)
+ *   /a/<vanity>             -> viewer.html  (album page; the lightbox item is ?item=<n>)
+ *   /report/<vanity>, /report/a/<vanity> -> viewer.html (report pages, milestone-6 §20.2)
  */
 export function routeEntries(): Plugin {
   const rewrite: Connect.NextHandleFunction = (req, _res, next) => {
@@ -79,7 +80,8 @@ export function routeEntries(): Plugin {
     } else if (
       pathname === '/' ||
       pathname === '/convert' ||
-      /^\/a\/[^/.]+(\/\d+)?\/?$/.test(pathname) ||
+      /^\/a\/[^/.]+\/?$/.test(pathname) ||
+      pathname.startsWith('/report/') ||
       // A bare vanity (no extension), e.g. /private123 for owner-pass testing.
       /^\/[a-z0-9]{3,}$/i.test(pathname)
     ) {

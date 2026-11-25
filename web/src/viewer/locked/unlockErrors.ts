@@ -11,6 +11,8 @@ export type UnlockErrorKind =
   | 'pending'
   | 'removed'
   | 'missing'
+  /** Milestone 6 §19.8: open (`/access/open/files/<vanity>`) on a password file without an unlock (`401 UNLOCK_REQUIRED`). */
+  | 'unlock-required'
   | 'other';
 
 export interface UnlockError {
@@ -36,6 +38,8 @@ export function classifyUnlockError(error: unknown, nowMs: number = Date.now()):
       }
       case 'PASSWORD_EXPIRED':
         return { kind: 'expired' };
+      case 'UNLOCK_REQUIRED':
+        return { kind: 'unlock-required' };
       case 'CAPTCHA_INVALID':
         return { kind: 'captcha' };
       // Milestone 4 §12: the file or album isn't viewable right now, whatever the password.
@@ -60,14 +64,21 @@ export function classifyUnlockError(error: unknown, nowMs: number = Date.now()):
   return { kind: 'other' };
 }
 
+/** Offline, a server error or a rate limit: worth a Retry, not a lock screen or "doesn't exist". */
+export const isTransient = (error: unknown) =>
+  error instanceof ApiError && (error.isNetworkError || error.status >= 500 || error.status === 429);
+
 /** "0:42", "4:05". */
 export function formatCountdown(ms: number): string {
   const total = Math.max(0, Math.ceil(ms / 1000));
   return `${Math.floor(total / 60)}:${String(total % 60).padStart(2, '0')}`;
 }
 
-/** The message shown under the password field. Rate limits never hint at how close a guess was. */
-export function unlockErrorMessage(error: UnlockError, nowMs: number = Date.now()): string {
+/**
+ * The message shown under the password field (or the view-limit card's Open file, with
+ * `action: 'open'`). Rate limits never hint at how close a guess was.
+ */
+export function unlockErrorMessage(error: UnlockError, nowMs: number = Date.now(), action: 'unlock' | 'open' = 'unlock'): string {
   switch (error.kind) {
     case 'wrong':
       return error.fromLink ? "The password in this link didn't work. Type it in instead." : "That password isn't right.";
@@ -89,7 +100,9 @@ export function unlockErrorMessage(error: UnlockError, nowMs: number = Date.now(
       return "It's no longer available.";
     case 'missing':
       return "It doesn't exist or has expired.";
+    case 'unlock-required':
+      return 'This file needs its password first.';
     case 'other':
-      return "Couldn't unlock right now. Try again in a moment.";
+      return action === 'open' ? "Couldn't open it right now. Try again in a moment." : "Couldn't unlock right now. Try again in a moment.";
   }
 }

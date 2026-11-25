@@ -111,6 +111,18 @@ def unlock_expired():
     return coded('UNLOCK_EXPIRED', 401, 'Access expired. Unlock it again')
 
 
+def unlock_required():
+    """milestone-6 §19.8: opening a view-limited password file needs its unlock first."""
+    return coded('UNLOCK_REQUIRED', 401, 'Unlock this file first')
+
+
+def view_limit_too_low(views_used):
+    """milestone-6 §19.8: a new view limit must be greater than the views already used."""
+    message = 'The view limit must be more than the {} {} already used'.format(
+        views_used, 'view' if views_used == 1 else 'views')
+    return coded('VIEW_LIMIT_TOO_LOW', 400, message, views_used=views_used, errors={'view_limit': message})
+
+
 def unknown_file():
     return coded('UNKNOWN_FILE', 404, 'Unknown file')
 

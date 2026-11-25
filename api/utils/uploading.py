@@ -166,6 +166,14 @@ def private_requires_account():
     return ApiError('Private files need an account', 400, code='PRIVATE_REQUIRES_ACCOUNT')
 
 
+def resolve_view_limit(user, view_limit=None, view_limit_action=None):
+    """The view-limit columns of a new file (milestone-6 §19.3). An anonymous upload can't choose `private`:
+    it has no owner library to keep the file in (400 PRIVATE_REQUIRES_ACCOUNT)."""
+    if view_limit_action == 'private' and user is None:
+        raise private_requires_account()
+    return {'view_limit': view_limit, 'view_limit_action': view_limit_action or 'expire'}
+
+
 async def resolve_access(user, visibility=None, password=None, generate_password=False, unlock_ttl=None,
                          password_expires_in=None):
     """Access columns for a new file. Returns (columns, generated password or None)."""
@@ -242,6 +250,10 @@ class TooLarge(Exception):
     pass
 
 
+class FieldMissing(Exception):
+    """A multipart body reached its file part without a field that had to come first."""
+
+
 def _new_tempfile():
     return tempfile.NamedTemporaryFile(prefix='upload-', dir=UPLOAD_TMP_DIR, delete=False)
 
@@ -312,10 +324,11 @@ async def read_urlencoded(request):
     return RequestParameters(parse_qs(body.decode('utf-8', 'replace'), keep_blank_values=True))
 
 
-async def read_multipart(request, limit):
+async def read_multipart(request, limit, require_field_before_file=None):
     """Stream a multipart body: the first file part goes to a temp file (hashed
     on the way), form fields are kept in memory (capped). Returns
-    (RequestParameters of fields, Spooled or None). Raises TooLarge."""
+    (RequestParameters of fields, Spooled or None). Raises TooLarge, and FieldMissing when
+    `require_field_before_file` hasn't arrived by the time the first file part begins."""
     from python_multipart.multipart import MultipartParser, parse_options_header
 
     _, options = parse_options_header(request.content_type or '')
@@ -346,6 +359,8 @@ async def read_multipart(request, limit):
         name = params.get(b'name', b'').decode('utf-8', 'replace')
         state['name'] = name
         if b'filename' in params:
+            if require_field_before_file and require_field_before_file not in fields:
+                raise FieldMissing()
             if upload['spooled'] is None:
                 spooled = Spooled()
                 spooled.filename = params[b'filename'].decode('utf-8', 'replace')

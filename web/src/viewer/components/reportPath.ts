@@ -6,11 +6,14 @@ export type ReportableTarget = { type: 'file' | 'album'; vanity: string } | { ty
 
 const encodeVanity = (vanity: string) => vanity.split('/').map(encodeURIComponent).join('/');
 
-/** `/<vanity>/report` or `/a/<vanity>/report` (milestone-4 §7.2, §10.1). */
+/**
+ * `/report/<vanity>` or `/report/a/<vanity>` (milestone-4 §7.2, §10.1). The vanity is always
+ * the last path segment (milestone-6 §20.2).
+ */
 export function reportPath(target: ReportableTarget): string {
   // A domain is reported from its landing card; the link (new tab) is the domain's report page.
   if (target.type === 'domain') return '/report';
-  return target.type === 'album' ? `/a/${encodeVanity(target.vanity)}/report` : `/${encodeVanity(target.vanity)}/report`;
+  return target.type === 'album' ? `/report/a/${encodeVanity(target.vanity)}` : `/report/${encodeVanity(target.vanity)}`;
 }
 
 /**

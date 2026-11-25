@@ -3,11 +3,12 @@ import { useEffect, useId, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router';
 
 import { Button } from '../../components/Button';
-import { api, hasToken, type AlbumLayout, type OwnerAlbum } from '../../lib/api';
+import { api, type AlbumLayout, type OwnerAlbum } from '../../lib/api';
 import { copyText } from '../../lib/clipboard';
 import { errorMessage } from '../../lib/errors';
 import { formatBytes } from '../../lib/format';
-import { useAlbum, useDeleteAlbum, useRemoveAlbumItem, useSetCaption, useUpdateAlbum } from '../../lib/queries';
+import { useAlbum, useDeleteAlbum, useRemoveAlbumItem, useSetCaption, useSignedIn, useUpdateAlbum } from '../../lib/queries';
+import { SignInLink } from '../components/SignInLink';
 import { AccessDialog } from '../access/AccessDialog';
 import { fieldClass } from '../access/fieldUtils';
 import { AddFilesDialog } from '../albums/AddFilesDialog';
@@ -81,7 +82,7 @@ function Editor({ album }: { album: OwnerAlbum }) {
   const id = useId();
   const notify = useToast();
   const navigate = useNavigate();
-  const readOnly = !hasToken();
+  const readOnly = !useSignedIn();
   const update = useUpdateAlbum(album.id);
   const caption = useSetCaption(album.id);
   const removeItem = useRemoveAlbumItem(album.id);
@@ -165,7 +166,11 @@ function Editor({ album }: { album: OwnerAlbum }) {
             </>
           )}
         </div>
-        {readOnly && <p className="text-sm text-muted">Sign in to edit albums.</p>}
+        {readOnly && (
+          <p className="text-sm text-muted">
+            <SignInLink /> to edit albums.
+          </p>
+        )}
         {moderated && (
           <p role="status" className="flex flex-wrap items-center gap-2 rounded-md border border-warn/40 bg-warn/10 px-3 py-2 text-sm">
             <span className="min-w-0 flex-1">

@@ -1,6 +1,7 @@
 """The admin API (contract milestone-4 §9). Every `/admin/*` endpoint answers a non-staff caller
-(signed out, a bad token, or no `staff` row) with the same 404 as an unknown route; a staff
-member without the needed permission gets 403 FORBIDDEN.
+(signed out, a dead session, an upload key, or no `staff` row) with the same 404 as an unknown route; a
+staff member without the needed permission gets 403 FORBIDDEN. Staff sign in with the session cookie
+(milestone-6 §11.4), with the CSRF header on writes.
 """
 
 from functools import wraps
@@ -17,7 +18,7 @@ from utils import albums as album_rules
 from utils import errors, parameters, params, payloads, standing
 from utils.cdn_signing import sign_staff
 from utils.generators import EPOCH
-from utils.helpers import client_ip, get_user
+from utils.helpers import client_ip
 from utils.responses import ApiError, ApiResponse
 from utils.wrappers import route
 
@@ -27,14 +28,12 @@ admin = Blueprint('admin', url_prefix='/admin')
 def staff_only(func):
     @wraps(func)
     async def wrapper(request, *args, **kwargs):
-        authorization = request.headers.get('authorization')
-        if not authorization:
+        from utils.auth import auth_of
+        current = auth_of(request)
+        if current.kind != 'session':
             raise errors.not_found()
+        user = current.user
         async with db.connection() as conn:
-            try:
-                user = await get_user(conn, authorization)
-            except ApiError:
-                raise errors.not_found()
             cursor = await conn.execute('SELECT role, child_safety FROM staff WHERE user_id = %s', (user.id,))
             row = await cursor.fetchone()
             # a suspended staff member is no staff member (§8.4): the same 404 as everyone else
@@ -159,7 +158,10 @@ async def record_cybertip(request, staff, case_id):
 @route(admin, '/actions', ['POST'])
 @staff_only
 async def take_action(request, staff):
-    return ApiResponse(await in_thread(moderation.perform, staff, body_of(request), transaction=False))
+    from utils import mail
+    result = await in_thread(moderation.perform, staff, body_of(request), transaction=False)
+    await mail.send(result.pop('_mails', None))
+    return ApiResponse(result)
 
 
 @route(admin, '/bans', ['POST'])
@@ -232,7 +234,7 @@ LOOKUP_LIMIT = 10
 @staff_only
 async def lookup(request, staff):
     q = (request.get_args().get('q') or '').strip()
-    out = {'files': [], 'albums': [], 'users': []}
+    out = {'files': [], 'albums': [], 'users': [], 'domains': []}
     if not q:
         return ApiResponse(out)
     file_vanities, album_vanities = [], []
@@ -255,10 +257,21 @@ async def lookup(request, staff):
                                     'vanity = ANY(%s) OR id = %s LIMIT %s',
                                     (album_vanities, int(q) if q.isdigit() else -1, LOOKUP_LIMIT))
         albums = await cursor.fetchall()
+        # milestone-6 §11.4: usernames (exact, lowercased), Discord user ids and upload key prefixes too
         cursor = await conn.execute(
-            'SELECT id, username, email FROM users WHERE id = %s OR lower(email) = lower(%s) OR lower(username) = '
-            'lower(%s) ORDER BY id LIMIT %s', (int(q) if q.isdigit() and len(q) < 20 else -1, q, q, LOOKUP_LIMIT))
+            'SELECT id, username, email FROM users WHERE id = %s OR lower(email) = lower(%s) OR username = lower(%s) '
+            "OR id IN (SELECT user_id FROM user_identities WHERE provider = 'discord' AND provider_user_id = %s) "
+            'OR id IN (SELECT user_id FROM upload_keys WHERE prefix = %s) ORDER BY id LIMIT %s',
+            (int(q) if q.isdigit() and len(q) < 20 else -1, q, q, q, q[:12], LOOKUP_LIMIT))
         users = await cursor.fetchall()
+        host = q.lower().rstrip('.')
+        if '://' in q:
+            from urllib.parse import urlsplit
+            host = (urlsplit(q).hostname or '').lower()
+        cursor = await conn.execute('SELECT id, hostname, status, user_id FROM custom_domains WHERE hostname = %s '
+                                    'ORDER BY id DESC LIMIT %s', (host, LOOKUP_LIMIT))
+        out['domains'] = [{'id': str(r[0]), 'hostname': r[1], 'status': r[2], 'owner_user_id': str(r[3])}
+                          for r in await cursor.fetchall()]
     out['files'] = [admin_file_summary(f) for f in files][:LOOKUP_LIMIT]
     out['albums'] = [{'id': str(a[0]), 'vanity': a[1], 'title': a[2] or '', 'moderation_state': a[3],
                       'owner_user_id': str(a[4]) if a[4] else None} for a in albums]
@@ -447,7 +460,8 @@ async def album_detail(request, staff, album_id):
 async def user_detail(request, staff, user_id):
     user_id = _id(user_id, errors.unknown_user)
     async with db.connection() as conn:
-        user = await queries.get_user(conn, user_id)
+        from utils.accounts import load_user
+        user = await load_user(conn, user_id, include_deleted=True)
         if user is None:
             raise errors.unknown_user()
         files = await queries.files_where(conn, 'f.user_id = %s', (user_id,), limit=50, live=False)
@@ -478,9 +492,11 @@ async def user_detail(request, staff, user_id):
             '(SELECT count(*) FROM reports r WHERE r.user_id = %s OR r.file_id IN (SELECT id FROM files '
             'WHERE user_id = %s) OR r.album_id IN (SELECT id FROM albums WHERE owner_user_id = %s))'),
             (user_id,) * 6)
-        return {
-            'user': {'id': str(user.id), 'username': user.username, 'email': user.email,
-                     'created_at': ((user.id >> 22) + EPOCH) // 1000, 'verified': user.verified},
+        account = account_detail(conn, user)
+        return dict(account, **{
+            'user': {'id': str(user.id), 'username': user.username, 'display_name': user.display_name,
+                     'email': user.email, 'created_at': epoch(user.created_at), 'email_verified': user.email_verified,
+                     'needs_username': user.needs_username, 'state': user.state, 'deleted_at': epoch(user.deleted_at)},
             'staff': staff_row.to_dict() if staff_row else None,
             'restrictions': [{'id': str(r[0]), 'kind': r[1], 'rule': r[2] if r[2] != 'csam' or staff.child_safety
                               else 'review', 'starts_at': epoch(r[3]), 'ends_at': epoch(r[4]),
@@ -488,8 +504,186 @@ async def user_detail(request, staff, user_id):
             'warnings': {'count': warnings, 'strikes': strikes},
             'counts': {'files': counts[0], 'albums': counts[1], 'reports_made': counts[2],
                        'reports_against': counts[3]},
-        }
+        })
     data = await in_thread(work)
     data['files'] = [admin_file(f) for f in files]
     return ApiResponse(data)
 
+
+
+# --- accounts, premium and domains (milestone-6 §9.3, §10.12, §11.4) ---------------------------------------------
+
+def account_detail(conn, user):
+    """What staff see of an account's Milestone 6 side: never tokens, hashes or password hashes."""
+    from db.models import epoch
+    from utils import domains, entitlements, upload_keys
+    identities = [{'provider': r[0], 'provider_user_id': r[1], 'username': r[2], 'linked_at': epoch(r[3])}
+                  for r in core.all_rows(conn, 'SELECT provider, provider_user_id, username, created_at FROM '
+                                               'user_identities WHERE user_id = %s ORDER BY id', (user.id,))]
+    active = core.one(conn, 'SELECT count(*) FROM sessions WHERE user_id = %s AND revoked_at IS NULL AND expires_at > '
+                            'now() AND max_expires_at > now()', (user.id,))[0]
+    keys = []
+    for row in core.all_rows(conn, 'SELECT {}, d.hostname FROM upload_keys k LEFT JOIN custom_domains d ON d.id = '
+                                   'k.domain_id WHERE k.user_id = %s ORDER BY k.id DESC LIMIT 100'.format(
+                                       upload_keys.select()), (user.id,)):
+        key = upload_keys.UploadKey(row)
+        keys.append(upload_keys.key_dict(key, (key.domain_id, row[-1]) if row[-1] else None))
+    premium, active_account = domains.owner_flags(conn, user.id)
+    domain_rows = core.all_rows(conn, 'SELECT {} FROM custom_domains d WHERE d.user_id = %s ORDER BY d.id DESC'.format(
+        domains.select()), (user.id,))
+    return {
+        'premium': {'active': premium, 'expires_at': epoch(user.premium_expires_at)},
+        'entitlements': entitlements.history(conn, user.id),
+        'identities': identities,
+        'sessions': {'active': active},
+        'upload_keys': keys,
+        'domains': [dict(domains.domain_dict(domains.Domain(r), premium, active_account),
+                         deleted=r[domains.COLUMNS.index('deleted_at')] is not None) for r in domain_rows],
+        'deletion': {'requested_at': epoch(user.deletion_requested_at),
+                     'scheduled_for': epoch(user.deletion_scheduled_for)} if user.deletion_requested_at else None,
+    }
+
+
+def _expiry(value, required=False):
+    """An epoch-seconds expiry in the future, or None (until revoked)."""
+    from datetime import datetime, timezone
+    if value is None:
+        if required:
+            raise errors.invalid_parameters({'expires_at': 'Required'})
+        return None
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise errors.invalid_parameters({'expires_at': 'Epoch seconds, or null'})
+    at = datetime.fromtimestamp(int(value), timezone.utc)
+    if at <= datetime.now(timezone.utc):
+        raise errors.invalid_parameters({'expires_at': 'Must be in the future'})
+    return at
+
+
+def _note(body, required=True):
+    note = body.get('note')
+    if note is None and not required:
+        return None
+    if not isinstance(note, str) or not note.strip() or len(note) > 2000:
+        raise errors.invalid_parameters({'note': 'A note of 1 to 2000 characters'})
+    return note.strip()
+
+
+async def _entitlement_call(staff, func, *args):
+    from utils import entitlements, mail
+    moderation.require_admin(staff)
+
+    def work(conn):
+        row, mails = func(conn, *args)
+        return entitlements.entitlement_dict(conn, row), mails
+    body, mails = await in_thread(work)
+    await mail.send(mails)
+    return body
+
+
+@route(admin, '/users/<user_id:str>/entitlements', ['POST'])
+@staff_only
+async def grant_entitlement(request, staff, user_id):
+    from utils import entitlements
+    moderation.require_admin(staff)
+    user_id = _id(user_id, errors.unknown_user)
+    body = body_of(request)
+    if body.get('kind', 'premium') != 'premium':
+        raise errors.invalid_parameters({'kind': 'premium'})
+    note, expires_at = _note(body), _expiry(body.get('expires_at'))
+    result = await _entitlement_call(staff, lambda conn: entitlements.grant(
+        conn, user_id, staff.user_id, None, note, expires_at=expires_at))
+    return ApiResponse(result, status=201)
+
+
+@route(admin, '/users/<user_id:str>/entitlements/<entitlement_id:str>', ['PATCH'])
+@staff_only
+async def change_entitlement(request, staff, user_id, entitlement_id):
+    from utils import entitlements
+    moderation.require_admin(staff)
+    user_id = _id(user_id, errors.unknown_user)
+    entitlement_id = _id(entitlement_id, errors.unknown_entitlement)
+    body = body_of(request)
+    if 'expires_at' not in body:
+        raise errors.invalid_parameters({'expires_at': 'Epoch seconds, or null'})
+    note, expires_at = _note(body), _expiry(body.get('expires_at'))
+    return ApiResponse(await _entitlement_call(staff, lambda conn: entitlements.change(
+        conn, user_id, entitlement_id, staff.user_id, expires_at, note)))
+
+
+@route(admin, '/users/<user_id:str>/entitlements/<entitlement_id:str>', ['DELETE'])
+@staff_only
+async def revoke_entitlement(request, staff, user_id, entitlement_id):
+    from utils import entitlements
+    moderation.require_admin(staff)
+    user_id = _id(user_id, errors.unknown_user)
+    entitlement_id = _id(entitlement_id, errors.unknown_entitlement)
+    note = _note(body_of(request))
+    return ApiResponse(await _entitlement_call(staff, lambda conn: entitlements.revoke(
+        conn, user_id, staff.user_id, note, entitlement_id)))
+
+
+def _admin_domain(conn, row):
+    from utils import domains
+    domain = domains.Domain(row)
+    premium, active = domains.owner_flags(conn, domain.user_id)
+    owner = core.one(conn, 'SELECT username FROM users WHERE id = %s', (domain.user_id,))
+    data = domains.domain_dict(domain, premium, active)
+    data.update({'owner': {'id': str(domain.user_id), 'username': owner[0] if owner else None},
+                 'cf_hostname_id': domain.cf_hostname_id, 'deleted': domain.deleted_at is not None})
+    return data
+
+
+@route(admin, '/domains', ['GET'])
+@staff_only
+async def list_domains(request, staff):
+    from utils import domains
+    args = request.get_args()
+    q = (args.get('q') or '').strip().lower()
+    status = args.get('status') or None
+    if status is not None and status not in domains.STATUSES:
+        raise errors.invalid_parameters({'status': ', '.join(domains.STATUSES)})
+    try:
+        cursor = int(args.get('cursor') or 0)
+    except ValueError:
+        raise errors.invalid_parameters({'cursor': 'Invalid cursor'})
+
+    def work(conn):
+        where, params = ['true'], []
+        if q:
+            where.append('d.hostname LIKE %s')
+            params.append('%' + q.replace('%', '').replace('_', '\\_') + '%')
+        if status:
+            where.append('d.status = %s')
+            params.append(status)
+        if cursor:
+            where.append('d.id < %s')
+            params.append(cursor)
+        rows = core.all_rows(conn, 'SELECT {} FROM custom_domains d WHERE {} ORDER BY d.id DESC LIMIT 51'.format(
+            domains.select(), ' AND '.join(where)), params)
+        items = [_admin_domain(conn, r) for r in rows[:50]]
+        return {'items': items, 'next_cursor': items[-1]['id'] if len(rows) > 50 else None}
+    return ApiResponse(await in_thread(work))
+
+
+@route(admin, '/domains/<domain_id:str>', ['GET'])
+@staff_only
+async def domain_detail(request, staff, domain_id):
+    from utils import domains
+    domain_id = _id(domain_id, errors.unknown_domain)
+
+    def work(conn):
+        row = core.one(conn, 'SELECT {} FROM custom_domains d WHERE d.id = %s'.format(domains.select()), (domain_id,))
+        if row is None:
+            raise errors.unknown_domain()
+        data = _admin_domain(conn, row)
+        cases = core.all_rows(conn, 'SELECT id FROM moderation_cases WHERE domain_id = %s ORDER BY id DESC LIMIT 20',
+                              (domain_id,))
+        data['cases'] = []
+        for (case_id,) in cases:
+            try:
+                data['cases'].append(admin_rules.case_summary(conn, admin_rules.get_case(conn, staff, case_id)))
+            except ApiError:
+                continue
+        data['actions'] = moderation.audit_rows(conn, 'a.domain_id = %s', (domain_id,))
+        return data
+    return ApiResponse(await in_thread(work))

@@ -243,19 +243,20 @@ async def create_file_hash(conn, id, blake2b, md5, sha1, size):
 async def create_file(conn, id, vanity, mimetype_id, extension, filename, fhash, user, fingerprint, size=None,
                       expires_at=None, visibility='link', password_hash=None, unlock_ttl=3600,
                       password_expires_at=None, uploader_ip_hash=None, nsfw_marked=False,
-                      uploader_abuse_ip_hash=None, uploader_ip_sealed=None, upload_key_id=None):
+                      uploader_abuse_ip_hash=None, uploader_ip_sealed=None, upload_key_id=None, view_limit=None,
+                      view_limit_action='expire'):
     """Insert a file; returns None if the vanity was taken meanwhile."""
     row = await _one(
         conn,
         'INSERT INTO files AS f (id, vanity, mimetype_id, extension, filename, hash_id, user_id, fingerprint, '
         'view_count, size, expires_at, visibility, password_hash, unlock_ttl, password_expires_at, uploader_ip_hash, '
-        'nsfw_marked, uploader_abuse_ip_hash, uploader_ip_sealed, upload_key_id) '
-        'VALUES (%s, %s, %s, %s, %s, %s, %s, %s, 0, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s) '
+        'nsfw_marked, uploader_abuse_ip_hash, uploader_ip_sealed, upload_key_id, view_limit, view_limit_action) '
+        'VALUES (%s, %s, %s, %s, %s, %s, %s, %s, 0, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s) '
         'ON CONFLICT (vanity) DO NOTHING RETURNING {}'.format(FILE_COLUMNS),
         (id, vanity, mimetype_id, extension, filename, fhash.id, user.id if user else None, fingerprint,
          fhash.size if size is None else size, expires_at, visibility, password_hash, unlock_ttl,
          password_expires_at, uploader_ip_hash, nsfw_marked, uploader_abuse_ip_hash, uploader_ip_sealed,
-         upload_key_id),
+         upload_key_id, view_limit, view_limit_action),
     )
     if row is None:
         return None

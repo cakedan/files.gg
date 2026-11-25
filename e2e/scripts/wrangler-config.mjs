@@ -5,7 +5,8 @@
 //   node e2e/scripts/wrangler-config.mjs <out.json> <web-dist dir>
 //
 // Without routes, wrangler dev keeps each request's Host, so the Worker routes on
-// files.localhost, cdn.files.localhost, api.files.localhost and proxy.files.localhost.
+// files.localhost, cdn.files.localhost and api.files.localhost, and every other host (for example a
+// custom domain such as <name>.example.localhost) goes to the custom-host router.
 import { writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { dirname, join, resolve } from 'node:path';
@@ -37,9 +38,9 @@ const config = {
     MAIN_HOST: 'files.localhost',
     CDN_HOST: 'cdn.files.localhost',
     API_HOST: 'api.files.localhost',
-    PROXY_HOST: 'proxy.files.localhost',
-    // empty: the default, the MAIN_HOST origin (http://files.localhost:<port>)
-    CORS_ALLOWED_ORIGINS: '',
+    // milestone-6 §3.2, §12: the API's plain-http cookie name (SESSION_COOKIE_INSECURE=1). The Worker
+    // forwards only this cookie, and only on files.localhost/api/*.
+    SESSION_COOKIE_NAME: 'filesgg_session',
     API_ORIGIN: `http://127.0.0.1:${env('E2E_API_PORT', '18080')}`,
     S3_ENDPOINT: `http://127.0.0.1:${env('E2E_MINIO_PORT', '19000')}`,
     S3_REGION: 'us-east-1',

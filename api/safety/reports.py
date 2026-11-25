@@ -6,7 +6,7 @@ thread (safety/run.py), one transaction per request.
 import re
 
 from datetime import timedelta
-from urllib.parse import unquote, urlsplit
+from urllib.parse import parse_qs, unquote, urlsplit
 
 from safety import core, states
 from safety.settings import safety_settings
@@ -17,12 +17,12 @@ REASONS = {
     'csam': (0, ('file', 'album', 'user')),
     'ncii': (0, ('file', 'album', 'user')),
     'violence': (1, ('file', 'album', 'user')),
-    'malware': (1, ('file', 'album')),
+    'malware': (1, ('file', 'album', 'domain')),
     'adult_unmarked': (2, ('file', 'album')),
     'copyright': (2, ('file', 'album')),
-    'harassment': (2, ('file', 'album', 'user')),
-    'spam': (3, ('file', 'album', 'user')),
-    'other': (3, ('file', 'album', 'user')),
+    'harassment': (2, ('file', 'album', 'user', 'domain')),
+    'spam': (3, ('file', 'album', 'user', 'domain')),
+    'other': (3, ('file', 'album', 'user', 'domain')),
     'bug': (3, ('bug',)),
 }
 DETAILS_REQUIRED = ('other', 'bug', 'copyright')
@@ -109,9 +109,10 @@ def _hosts():
     return urlsplit(public_url()).hostname, urlsplit(cdn_url()).hostname
 
 
-def parse_url(url):
-    """A files.gg or CDN URL -> {"type": "file" | "album", "vanity", "item"?}. Query strings and
-    fragments are ignored. INVALID_REPORT_TARGET for anything else."""
+def parse_url(url, conn=None):
+    """A files.gg, CDN or (milestone-6 §10.12, with `conn`) live custom-domain URL -> {"type": "file" | "album",
+    "vanity", "item"?}. Fragments are ignored, and so is every query parameter but an album page's `item`
+    (milestone-6 §20.2). INVALID_REPORT_TARGET for anything else."""
     if not isinstance(url, str) or len(url) > 2048:
         raise errors.invalid_report_target()
     parts = urlsplit(url.strip())
@@ -120,33 +121,51 @@ def parse_url(url):
         raise errors.invalid_report_target()
     path = unquote(parts.path or '/')
     if parts.hostname == site:
-        if path.endswith('/report'):
-            path = path[:-len('/report')]
-        if path.startswith('/a/'):
-            rest = path[3:].strip('/')
-            segments = rest.split('/')
-            if len(segments) == 2 and segments[1].isdigit() and int(segments[1]) >= 1:
-                return {'type': 'album', 'vanity': segments[0], 'item': int(segments[1])}
-            if len(segments) == 1 and segments[0]:
-                return {'type': 'album', 'vanity': segments[0]}
-            raise errors.invalid_report_target()
-        vanity = path.strip('/').split('.', 1)[0]
-        if not vanity or vanity == 'report':
-            raise errors.invalid_report_target()
-        return {'type': 'file', 'vanity': vanity}
+        return _page_target(path, parts.query)
     if parts.hostname == cdn:
-        if path.startswith('/files/'):
-            vanity = path[len('/files/'):].rsplit('.', 1)[0] if '.' in path.rsplit('/', 1)[-1] else path[7:]
+        return _byte_target(path)
+    if conn is not None and core.one(conn, 'SELECT 1 FROM custom_domains WHERE hostname = %s AND deleted_at IS NULL',
+                                     (parts.hostname.lower(),)):
+        # a custom domain serves the CDN's byte paths and the site's pages (§10.8)
+        if path.startswith(('/files/', '/previews/', '/albums/')):
+            return _byte_target(path)
+        return _page_target(path, parts.query)
+    raise errors.invalid_report_target()
+
+
+def _page_target(path, query=''):
+    """The site's pages (milestone-6 §20.2: the vanity is always the last path segment): `/<vanity>[.<ext>]`,
+    `/a/<vanity>` with an optional `?item=<n>` (1-based), and the report pages `/report/<vanity>` and
+    `/report/a/<vanity>`, which name the file or the album itself. Anything after a vanity is part of it."""
+    if path.startswith('/report/'):
+        path, query = path[len('/report'):], ''
+    if path.startswith('/a/'):
+        vanity = path[3:].rstrip('/')
+        if not vanity or '/' in vanity:
+            raise errors.invalid_report_target()
+        item = (parse_qs(query).get('item') or [''])[-1]
+        if re.fullmatch('[0-9]{1,9}', item) and int(item) >= 1:
+            return {'type': 'album', 'vanity': vanity, 'item': int(item)}
+        return {'type': 'album', 'vanity': vanity}
+    vanity = path.strip('/').split('.', 1)[0]
+    if not vanity or vanity == 'report':
+        raise errors.invalid_report_target()
+    return {'type': 'file', 'vanity': vanity}
+
+
+def _byte_target(path):
+    if path.startswith('/files/'):
+        vanity = path[len('/files/'):].rsplit('.', 1)[0] if '.' in path.rsplit('/', 1)[-1] else path[7:]
+        if vanity:
+            return {'type': 'file', 'vanity': vanity}
+    match = CDN_PREVIEW.match(path)
+    if match:
+        return {'type': 'file', 'vanity': match.group(1)}
+    for prefix in ('/albums/collage/', '/albums/download/'):
+        if path.startswith(prefix):
+            vanity = path[len(prefix):].rsplit('.', 1)[0]
             if vanity:
-                return {'type': 'file', 'vanity': vanity}
-        match = CDN_PREVIEW.match(path)
-        if match:
-            return {'type': 'file', 'vanity': match.group(1)}
-        for prefix in ('/albums/collage/', '/albums/download/'):
-            if path.startswith(prefix):
-                vanity = path[len(prefix):].rsplit('.', 1)[0]
-                if vanity:
-                    return {'type': 'album', 'vanity': vanity}
+                return {'type': 'album', 'vanity': vanity}
     raise errors.invalid_report_target()
 
 
@@ -161,10 +180,19 @@ def resolve(conn, target, reporter):
         raise errors.invalid_report_target()
     kind = target.get('type')
     if kind == 'url':
-        target = dict(parse_url(target.get('url')), part=target.get('part'))
+        target = dict(parse_url(target.get('url'), conn), part=target.get('part'))
         kind = target['type']
     if kind == 'bug':
         return 'bug', None, None, {}
+    if kind == 'domain':
+        hostname = target.get('hostname')
+        if not isinstance(hostname, str) or not hostname.strip() or len(hostname) > 253:
+            raise errors.invalid_report_target()
+        row = core.one(conn, 'SELECT id, hostname, user_id FROM custom_domains WHERE hostname = %s AND '
+                             'deleted_at IS NULL', (hostname.strip().rstrip('.').lower(),))
+        if row is None:
+            raise errors.unknown_domain()
+        return 'domain', row[0], row[1], {'user_id': row[2]}
     if kind == 'user':
         if reporter['user_id'] is None:
             raise errors.invalid_report_target('Sign in to report an account')
@@ -209,7 +237,7 @@ def resolve(conn, target, reporter):
             file_row = core.one(conn, (
                 'SELECT f.id, f.vanity, f.user_id, f.fingerprint FROM album_files af JOIN files f ON f.id = af.file_id '
                 'JOIN albums al ON al.id = af.album_id WHERE af.album_id = %s AND f.deleted_at IS NULL AND '
-                "(al.visibility <> 'link' OR f.visibility = 'link') AND " + SHOWN_SQL_SUB +
+                "(al.visibility <> 'link' OR f.visibility = 'link') AND f.view_limit IS NULL AND " + SHOWN_SQL_SUB +
                 ' ORDER BY af.position, af.file_id OFFSET %s LIMIT 1'), (row[0], item - 1))
             if file_row is None:
                 raise errors.unknown_file()
@@ -301,7 +329,7 @@ def distinct_reporters(rows):
 
 
 def target_column(kind):
-    return {'file': 'file_id', 'album': 'album_id', 'user': 'user_id'}[kind]
+    return {'file': 'file_id', 'album': 'album_id', 'user': 'user_id', 'domain': 'domain_id'}[kind]
 
 
 def reporters_for(conn, kind, target_id, reason):
@@ -512,12 +540,12 @@ def store(conn, reporter, kind, target_id, vanity, part, reason, details, contac
     report_id = Snowflake.generate()
     conn.execute(
         'INSERT INTO reports (id, kind, file_id, album_id, user_id, target_vanity, album_part, reason, priority, '
-        'reporter_user_id, reporter_fingerprint, reporter_abuse_ip_hash, contact_email, details, dmca, case_id) '
-        'VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb, %s)',
+        'reporter_user_id, reporter_fingerprint, reporter_abuse_ip_hash, contact_email, details, dmca, case_id, domain_id) '
+        'VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb, %s, %s)',
         (report_id, kind, target_id if kind == 'file' else None, target_id if kind == 'album' else None,
          target_id if kind == 'user' else None, vanity, part if kind == 'album' else None, reason, priority,
          reporter['user_id'], reporter['fingerprint'] if reporter['user_id'] is None else None, reporter['ip_hash'],
-         contact_email, details, json.dumps(dmca) if dmca else None, case_id))
+         contact_email, details, json.dumps(dmca) if dmca else None, case_id, target_id if kind == 'domain' else None))
     automatic_effects(conn, kind, target_id, reason, case_id, settings, part)
     return get_report(conn, report_id), False
 
@@ -536,7 +564,7 @@ def target_dict(report):
         # an album item: the album and the position only (the item's vanity could be inside a
         # protected album)
         album_vanity, _, position = vanity[len(ITEM_PREFIX):].rpartition('/')
-        return {'type': 'file', 'vanity': None, 'url': public_url('/a/{}/{}'.format(album_vanity, position)),
+        return {'type': 'file', 'vanity': None, 'url': public_url('/a/{}?item={}'.format(album_vanity, position)),
                 'part': None, 'album': {'vanity': album_vanity, 'item': int(position)}}
     url = public_url(('/a/' if kind == 'album' else '/') + vanity) if vanity else None
     return {'type': kind, 'vanity': vanity, 'url': url, 'part': report['album_part']}

@@ -58,6 +58,13 @@ const OPTION: Record<ModerationAction, ActionOption> = {
   unrestrict_uploads: { action: 'unrestrict_uploads', label: 'Lift the upload restriction', needsRule: false, notifies: false },
   suspend_user: { action: 'suspend_user', label: 'Suspend the account', needsRule: true, notifies: true, danger: true, confirm: true },
   unsuspend_user: { action: 'unsuspend_user', label: 'Lift the suspension', needsRule: false, notifies: false },
+  // Milestone 6 (§10.12, §11.4)
+  revoke_sessions: { action: 'revoke_sessions', label: 'Sign out everywhere', needsRule: false, notifies: false, confirm: true },
+  revoke_upload_keys: { action: 'revoke_upload_keys', label: 'Revoke every upload key', needsRule: false, notifies: true, danger: true, confirm: true },
+  reset_username: { action: 'reset_username', label: 'Reset the username', needsRule: true, notifies: true, confirm: true },
+  disable_domain: { action: 'disable_domain', label: 'Disable the domain', needsRule: true, notifies: true, danger: true, confirm: true },
+  enable_domain: { action: 'enable_domain', label: 'Enable the domain', needsRule: false, notifies: false },
+  set_domain_scope: { action: 'set_domain_scope', label: 'Force “Only my files”', needsRule: true, notifies: true },
 };
 
 /** Audit rows that aren't actions from the panel (§9.3 system actions, §9.5). */
@@ -84,6 +91,10 @@ const LOG_LABELS: Record<string, string> = {
   rescan: 'Queued rescans',
   grant_staff: 'Granted staff',
   revoke_staff: 'Revoked staff',
+  grant_entitlement: 'Granted premium',
+  change_entitlement: 'Changed premium',
+  revoke_entitlement: 'Revoked premium',
+  entitlement_expired: 'Premium expired',
 };
 
 export const actionLabel = (action: string) => OPTION[action as ModerationAction]?.label ?? LOG_LABELS[action] ?? action.replace(/_/g, ' ');
@@ -129,7 +140,8 @@ export function albumActions(_staff: StaffInfo, album: { moderationState: 'visib
 }
 
 export function userActions(staff: StaffInfo, user: { restricted: boolean; suspended: boolean; csamSuspension: boolean }): ActionOption[] {
-  const list: ModerationAction[] = [user.restricted ? 'unrestrict_uploads' : 'restrict_uploads'];
+  // Milestone 6 §11.4: moderators and admins can end sessions and reset a username.
+  const list: ModerationAction[] = [user.restricted ? 'unrestrict_uploads' : 'restrict_uploads', 'revoke_sessions', 'reset_username'];
   // Suspending and unsuspending are admin only; CSAM suspensions can't be lifted.
   if (isAdmin(staff)) {
     if (!user.suspended) list.push('suspend_user');
@@ -137,3 +149,16 @@ export function userActions(staff: StaffInfo, user: { restricted: boolean; suspe
   }
   return list.map((action) => OPTION[action]);
 }
+
+/** Milestone 6 (§9.3): granting, changing and revoking premium is admin only. */
+export const canManagePremium = isAdmin;
+
+/** §10.12: the domain actions for a domain in its current state (moderators and admins). */
+export function domainActions(_staff: StaffInfo, domain: { status: string; scope: 'own' | 'any' }): ActionOption[] {
+  const list: ModerationAction[] = domain.status === 'disabled' ? ['enable_domain'] : ['disable_domain'];
+  if (domain.scope === 'any') list.push('set_domain_scope');
+  return list.map((action) => OPTION[action]);
+}
+
+/** The option for one action, for panels that offer a single one (revoking one upload key). */
+export const actionOption = (action: ModerationAction): ActionOption => OPTION[action];

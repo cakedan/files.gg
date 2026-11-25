@@ -3,7 +3,7 @@
  * Pure rules, so the UI can't offer a choice the API would reject.
  */
 
-import type { MyLimitsResponse, UnlockTtl, UploadParams, Visibility } from '../api';
+import type { MyLimitsResponse, UnlockTtl, UploadParams, ViewLimitAction, Visibility } from '../api';
 
 const HOUR = 3600;
 const DAY = 24 * HOUR;
@@ -136,6 +136,37 @@ export function validatePassword(password: string): string | null {
 }
 
 // ---------------------------------------------------------------------------
+// View limits (milestone-6 §19.3, §19.7)
+// ---------------------------------------------------------------------------
+
+export const VIEW_LIMIT_MIN = 1;
+export const VIEW_LIMIT_MAX = 1000;
+export const VIEW_LIMIT_RANGE_ERROR = 'Use a whole number from 1 to 1,000.';
+export const VIEW_LIMIT_HINT = 'Counts unique viewers. You never use up a view yourself.';
+export const VIEW_LIMIT_PRIVATE_HINT = 'Sign in to make files private.';
+
+/**
+ * A view-limit input: '' (or spaces) is off (null); otherwise a whole number 1–1000, or
+ * an error message.
+ */
+export function parseViewLimit(raw: string): { value: number | null } | { error: string } {
+  const text = raw.trim();
+  if (!text) return { value: null };
+  if (!/^\d+$/.test(text)) return { error: VIEW_LIMIT_RANGE_ERROR };
+  const value = Number(text);
+  if (value < VIEW_LIMIT_MIN || value > VIEW_LIMIT_MAX) return { error: VIEW_LIMIT_RANGE_ERROR };
+  return { value };
+}
+
+/** "When the limit is reached": expire (default), or private (signed in only). */
+export function viewLimitActionChoices({ anonymous }: PickerContext): Array<Choice<ViewLimitAction>> {
+  return [
+    { value: 'expire', label: 'Expire the file' },
+    { value: 'private', label: 'Make it private', disabled: anonymous, hint: anonymous ? VIEW_LIMIT_PRIVATE_HINT : undefined },
+  ];
+}
+
+// ---------------------------------------------------------------------------
 // Turning the pickers into request fields
 // ---------------------------------------------------------------------------
 
@@ -151,6 +182,9 @@ export interface PickerState {
   passwordExpiryCustomAt: number | null;
   /** Milestone 4 §4.3: "Adult content (NSFW)", signed in only. */
   nsfw: boolean;
+  /** Milestone 6 §19.7: the "View limit" input; '' is off. */
+  viewLimit: string;
+  viewLimitAction: ViewLimitAction;
 }
 
 export function defaultPickerState(context: PickerContext): PickerState {
@@ -164,13 +198,15 @@ export function defaultPickerState(context: PickerContext): PickerState {
     passwordExpiry: 'never',
     passwordExpiryCustomAt: null,
     nsfw: false,
+    viewLimit: '',
+    viewLimitAction: 'expire',
   };
 }
 
 /** Adult content can be marked at upload by signed-in users who aren't restricted: `nsfw_allowed` (§4.3, §13). */
 export const canMarkNsfw = ({ anonymous, limits }: PickerContext) => !anonymous && limits?.nsfw_allowed === true;
 
-export type PickerErrors = Partial<Record<'expiry' | 'visibility' | 'password' | 'unlockTtl' | 'passwordExpiry', string>>;
+export type PickerErrors = Partial<Record<'expiry' | 'visibility' | 'password' | 'unlockTtl' | 'passwordExpiry' | 'viewLimit' | 'viewLimitAction', string>>;
 
 export interface ResolvedPickers {
   params: UploadParams;
@@ -221,6 +257,16 @@ export function resolvePickers(state: PickerState, context: PickerContext, nowMs
   }
 
   if (state.nsfw && canMarkNsfw(context)) params.nsfw = true;
+
+  const limit = parseViewLimit(state.viewLimit);
+  if ('error' in limit) errors.viewLimit = limit.error;
+  else if (limit.value !== null) {
+    if (state.viewLimitAction === 'private' && context.anonymous) errors.viewLimitAction = VIEW_LIMIT_PRIVATE_HINT;
+    else {
+      params.view_limit = limit.value;
+      params.view_limit_action = state.viewLimitAction;
+    }
+  }
 
   return { params, errors };
 }

@@ -19,6 +19,7 @@ import {
   isOwnHost,
   minimalPage,
   NOT_CONNECTED_MESSAGE,
+  CHALLENGE_ACTIONS,
   parseChallengeQuery,
   rehost,
   rehostDeep,
@@ -207,7 +208,8 @@ describe('files.gg routing (§6.2, §6.3)', () => {
   it('keeps the routes that come first', () => {
     assert.equal(classifyStablePath('/app/login').route, 'app');
     assert.equal(classifyStablePath('/api/auth/login').route, 'api');
-    assert.deepEqual(classifyStablePath('/login/report'), { route: 'report', data: { type: 'file', vanity: 'login' } });
+    assert.deepEqual(classifyStablePath('/report/login'), { route: 'report', data: { type: 'file', vanity: 'login' } });
+    assert.equal(classifyStablePath('/login/report').route, 'missing');
   });
 });
 
@@ -317,10 +319,10 @@ describe('custom-domain routing (§10.8)', () => {
     for (const host of ['i.example.com', 'files.example.co.uk', 'xn--bcher-kva.example.com', 'cdn.files.gg.evil.example', 'files.ggx.com']) {
       assert.equal(isCustomHostname(host), true, host);
     }
-    for (const host of ['files.gg', 'www.files.gg', 'cdn.files.gg', 'api.files.gg', 'proxy.files.gg', 'domains.files.gg', 'x.files.gg', 'localhost', '', 'a_b.example.com', '-a.example.com', 'a..b']) {
+    for (const host of ['files.gg', 'www.files.gg', 'cdn.files.gg', 'api.files.gg', 'domains.files.gg', 'x.files.gg', 'localhost', '', 'a_b.example.com', '-a.example.com', 'a..b']) {
       assert.equal(isCustomHostname(host), false, host);
     }
-    const local = getHosts({ MAIN_HOST: 'files.localhost', CDN_HOST: 'cdn.files.localhost', API_HOST: 'api.files.localhost', PROXY_HOST: 'proxy.files.localhost' });
+    const local = getHosts({ MAIN_HOST: 'files.localhost', CDN_HOST: 'cdn.files.localhost', API_HOST: 'api.files.localhost' });
     assert.equal(isCustomHostname('files.gg', local), true);
     assert.equal(isCustomHostname('i.files.localhost', local), false);
     assert.equal(isCustomHostname('custom.localhost', local), true);
@@ -343,8 +345,9 @@ describe('custom-domain routing (§10.8)', () => {
       '/favicon.ico': 'root-file', '/og-image.png': 'root-file',
       '/assets/viewer-x.js': 'asset',
       '/abc123': 'file', '/abc123.png': 'file', '/abcd/xyz.png': 'file',
-      '/a/Ab3dE6gH': 'album', '/a/Ab3dE6gH/3': 'album',
-      '/report': 'report', '/abc123/report': 'report', '/a/Ab3dE6gH/report': 'report',
+      '/a/Ab3dE6gH': 'album', '/a/Ab3dE6gH/3': 'missing',
+      '/report': 'report', '/report/abc123': 'report', '/report/a/Ab3dE6gH': 'report',
+      '/abc123/report': 'missing', '/a/Ab3dE6gH/report': 'missing', '/unlock/view': 'file',
       '/files/abc123.png': 'cdn', '/previews/thumb/abc123.webp': 'cdn', '/albums/collage/x.webp': 'cdn', '/albums/download/x.zip': 'cdn',
       '/files/': 'cdn', '/files/x': 'cdn', '/previews/nope/x.webp': 'cdn',
       '/app': 'not-found', '/app/login': 'not-found', '/api': 'not-found', '/api/users/@me': 'not-found', '/convert': 'not-found',
@@ -417,7 +420,7 @@ describe('rehosting (§10.9, §16.5)', () => {
   });
 
   it('also rehosts the local stack\'s own origins', () => {
-    const local = getHosts({ MAIN_HOST: 'files.localhost', CDN_HOST: 'cdn.files.localhost', API_HOST: 'api.files.localhost', PROXY_HOST: 'proxy.files.localhost' });
+    const local = getHosts({ MAIN_HOST: 'files.localhost', CDN_HOST: 'cdn.files.localhost', API_HOST: 'api.files.localhost' });
     const sources = rehostSources(local, publicOrigins(local, new URL('http://custom.localhost:8787/x')));
     assert.deepEqual(sources, ['https://cdn.files.localhost', 'https://files.localhost', 'http://cdn.files.localhost:8787', 'http://files.localhost:8787']);
     assert.equal(rehost('http://cdn.files.localhost:8787/files/a.png', sources, 'http://custom.localhost:8787'), 'http://custom.localhost:8787/files/a.png');
@@ -438,7 +441,11 @@ describe('CSPs and pages for custom domains (§10.8, §10.10, §10.11)', () => {
     const parse = (query) => parseChallengeQuery(new URLSearchParams(query));
     assert.deepEqual(parse('host=i.example.com&action=unlock'), { host: 'i.example.com', action: 'unlock' });
     assert.deepEqual(parse('host=i.example.com&action=report'), { host: 'i.example.com', action: 'report' });
+    // milestone-6.md §19.7: opening a view-limited file on a custom domain
+    assert.deepEqual(parse('host=i.example.com&action=view'), { host: 'i.example.com', action: 'view' });
+    assert.deepEqual([...CHALLENGE_ACTIONS], ['unlock', 'report', 'view']);
     for (const query of [
+      'host=i.example.com&action=open', 'host=i.example.com&action=VIEW', 'host=i.example.com&action=refresh',
       'host=i.example.com', 'action=unlock', 'host=i.example.com&action=login', 'host=I.Example.com&action=unlock',
       'host=files.gg&action=unlock', 'host=cdn.files.gg&action=unlock', 'host=x.files.gg&action=unlock',
       'host=https://i.example.com&action=unlock', 'host=i.example.com:8443&action=unlock', 'host=i.example.com/x&action=unlock',

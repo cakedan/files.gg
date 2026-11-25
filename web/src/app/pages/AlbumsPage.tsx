@@ -3,9 +3,9 @@ import { useEffect, useId, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router';
 
 import { Button } from '../../components/Button';
-import { hasToken } from '../../lib/api';
 import { errorMessage } from '../../lib/errors';
-import { useCreateAlbum, useMyAlbums } from '../../lib/queries';
+import { useCreateAlbum, useMyAlbums, useSignedIn } from '../../lib/queries';
+import { SignInLink } from '../components/SignInLink';
 import { RELATIVE_REFRESH_MS, formatRelative } from '../../lib/time';
 import { useNow } from '../../lib/useNow';
 import { fieldClass } from '../access/fieldUtils';
@@ -64,7 +64,7 @@ export default function AlbumsPage() {
   useEffect(() => {
     document.title = 'Albums · files.gg';
   }, []);
-  const anonymous = !hasToken();
+  const anonymous = !useSignedIn();
   const [params, setParams] = useSearchParams();
   const page = Math.max(1, Number(params.get('page')) || 1);
   const albums = useMyAlbums({ offset: (page - 1) * PER_PAGE, limit: PER_PAGE });
@@ -89,7 +89,7 @@ export default function AlbumsPage() {
 
       {anonymous && (
         <p className="rounded-md border border-line bg-surface px-3 py-2 text-sm text-muted">
-          Without an account, albums are made from a multi-file upload and can't be edited afterwards. Sign in to make and edit albums.
+          Without an account, albums are made from a multi-file upload and can't be edited afterwards. <SignInLink /> to make and edit albums.
         </p>
       )}
 

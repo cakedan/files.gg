@@ -4,7 +4,6 @@ import { useCallback } from 'react';
 import {
   api,
   ensureFingerprint,
-  hasToken,
   type AccessParams,
   type AppealBody,
   type CreateAlbumBody,
@@ -19,8 +18,10 @@ import {
   type OwnerAlbum,
   type OwnerFile,
   type PatchAlbumBody,
+  type ViewLimitAction,
   type Visibility,
 } from './api';
+import { useSession } from './session';
 import { signedUrlExpiry, URL_SWAP_LEAD_MS } from './signedUrls';
 
 export const queryKeys = {
@@ -34,6 +35,8 @@ export const queryKeys = {
   album: (id: string) => ['users', '@me', 'albums', 'detail', id] as const,
   /** Owner passes ("Open as owner") live outside the files prefix, so list refetches keep them. */
   filePass: (id: string) => ['owner-pass', 'file', id] as const,
+  /** Milestone 6 §10.9: an owner pass on one of your custom domains (under `filePass(id)`, so it's revoked with it). */
+  filePassOn: (id: string, domainId: string) => ['owner-pass', 'file', id, 'domain', domainId] as const,
   /** One owner file (`GET /users/@me/files/<id>`), polled while its scan is pending. */
   myFile: (id: string) => ['users', '@me', 'file', id] as const,
   badges: ['users', '@me', 'badges'] as const,
@@ -45,8 +48,17 @@ export const queryKeys = {
   notices: (params: NoticesParams) => ['users', '@me', 'warnings', params] as const,
 };
 
-export function useMe(enabled = true) {
-  return useQuery({ queryKey: queryKeys.me, queryFn: ({ signal }) => api.me(signal), enabled });
+/**
+ * The signed-in user (milestone-6 §13.1): the same query as `useSession()`, so `data` is
+ * the user, or `null` signed out. The argument is ignored (it used to gate a token check).
+ */
+export function useMe(_enabled?: boolean) {
+  return useSession();
+}
+
+/** True once the session says someone is signed in. */
+export function useSignedIn(): boolean {
+  return Boolean(useSession().data);
 }
 
 /** Anonymous owners (X-Fingerprint) need a fingerprint before their first call. */
@@ -257,6 +269,38 @@ export function useSetExpiry() {
   });
 }
 
+export interface ViewLimitChange {
+  id: string;
+  /** 1–1000, or null to remove the limit. */
+  limit: number | null;
+  action?: ViewLimitAction;
+  /** After a `private` action fired: share it with the link again (§19.3). */
+  visibility?: Visibility;
+}
+
+/**
+ * Milestone 6 §19.3: set, change or remove a file's view limit (`PATCH`). Not optimistic:
+ * a limit at or below `views_used` is refused (`400 VIEW_LIMIT_TOO_LOW { views_used }`).
+ */
+export function useSetViewLimit() {
+  const client = useQueryClient();
+  const settle = useSettle();
+  return useMutation({
+    mutationFn: ({ id, limit, action, visibility }: ViewLimitChange) =>
+      api.updateFile(id, {
+        view_limit: limit,
+        ...(limit !== null && action ? { view_limit_action: action } : {}),
+        ...(visibility ? { visibility } : {}),
+      }),
+    onSuccess: (file, { id, visibility }) => {
+      replaceCachedFiles(client, [file]);
+      // A visibility change bumps access_version, which revokes owner passes.
+      if (visibility) void client.invalidateQueries({ queryKey: queryKeys.filePass(id) });
+    },
+    onSettled: settle,
+  });
+}
+
 export interface AccessTarget {
   kind: 'file' | 'files' | 'album';
   ids: string[];
@@ -426,11 +470,12 @@ export function useCreateAlbum() {
 /** Badges are fetched on load, every 60 s while the page is visible, and on focus (§11.2). */
 export const BADGES_REFRESH_MS = 60_000;
 
-export function useBadges(enabled = hasToken()) {
+export function useBadges(enabled?: boolean) {
+  const signedIn = useSignedIn();
   return useQuery({
     queryKey: queryKeys.badges,
     queryFn: ({ signal }) => api.badges(signal),
-    enabled,
+    enabled: (enabled ?? true) && signedIn,
     staleTime: 5_000,
     refetchInterval: BADGES_REFRESH_MS,
     refetchIntervalInBackground: false,

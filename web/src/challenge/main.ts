@@ -32,7 +32,7 @@ function start() {
   if (import.meta.env.DEV && config.simulate === 'error') return post({ type: MSG_ERROR, code: 'simulated' });
   if (import.meta.env.DEV && config.simulate === 'silent') return;
 
-  const container = document.getElementById('turnstile');
+  const container = document.getElementById('widget');
   if (!container) return;
   loadTurnstile()
     .then((api) => {

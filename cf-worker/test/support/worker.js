@@ -62,10 +62,11 @@ export const USER_P = '88';
 // that doesn't send it), `serveInline` its `serve_inline` (null leaves it out), and `csam: true`
 // makes the lookup answer 404 like an unknown vanity, as the API does for hash-matched CSAM.
 // milestone-6.md §10.7: `owner` is `owner_user_id` (null for anonymous), `servedOn` `served_on`
-// and `ownerState` `owner_state`.
+// and `ownerState` `owner_state`. milestone-6.md §19.5: `viewLimit` is `view_limit` ({ limit, used, action }
+// or null).
 function addFile(vanity, {
   visibility = 'link', s3 = true, accessVersion = 0, previews, safety = OK, serveInline = true, csam = false,
-  owner = USER_U, servedOn = 'files.gg', ownerState = 'active', ...file
+  owner = USER_U, servedOn = 'files.gg', ownerState = 'active', viewLimit = null, ...file
 }) {
   const id = String(nextId++);
   const hash = `h-${vanity.replace(/\W/g, '-')}`;
@@ -87,6 +88,7 @@ function addFile(vanity, {
     owner_user_id: owner,
     served_on: servedOn,
     owner_state: ownerState,
+    view_limit: viewLimit,
     albums: [],
     storage: { key: `files/${hash}`, size: Buffer.byteLength(body) },
     previews: {},
@@ -324,6 +326,17 @@ addFile('ulink', { kind: 'image', filename: 'u.png', mimetype: 'image/png', size
 for (const vanity of ['dolink', 'vlink', 'pdlink']) {
   files[vanity].file.thumbnail = { url: files[vanity].file.assets.thumb.url, type: 'thumb' };
 }
+// Milestone 6 §19: view limits, each with a preview (and a thumbnail an embed would use).
+addFile('vl3', png('limited.png', { width: 640, height: 480, viewLimit: { limit: 3, used: 1, action: 'expire' } }));
+addFile('vlpw', png('limited-pw.png', { visibility: 'password', accessVersion: 2, show_name_when_locked: true, viewLimit: { limit: 2, used: 0, action: 'private' } }));
+addFile('vldone', png('used-up.png', { accessVersion: 1, viewLimit: { limit: 2, used: 2, action: 'expire' } }));
+addFile('vlbad', png('malformed-limit.png', { viewLimit: { limit: 'many' } }));
+addFile('vlvid', { kind: 'video', filename: 'limited.mp4', mimetype: 'video/mp4', size: 12, previews: { poster }, viewLimit: { limit: 5, used: 0, action: 'expire' } });
+addFile('vlv', png('limited-v.png', { owner: USER_V, viewLimit: { limit: 5, used: 0, action: 'expire' } }));
+for (const vanity of ['vl3', 'vldone']) {
+  files[vanity].file.thumbnail = { url: files[vanity].file.assets.thumb.url, type: 'thumb' };
+}
+files.vlvid.file.thumbnail = { url: files.vlvid.file.assets.poster.url, type: 'poster', width: 1280, height: 720 };
 addAlbum('adolink', { items: ['dolink'], title: 'Domain only', collage: true, servedOn: 'custom' });
 addAlbum('adopw', { visibility: 'password', accessVersion: 4, items: ['dolink'], title: 'Domain only locked', collage: true, servedOn: 'custom' });
 addAlbum('avlink', { items: ['vlink'], title: 'V album', collage: true, owner: USER_V });
@@ -448,7 +461,7 @@ function sendObject(req, res, body, type, extraHeaders = {}) {
 }
 
 
-// The API and the proxy's remote URLs, on one server.
+// The API, on one server. Every request is recorded, whatever its path.
 export async function startUpstream() {
   const state = { requests: [], failLookups: new Set() };
   const server = http.createServer(async (req, res) => {
@@ -520,13 +533,6 @@ export async function startUpstream() {
         'access-control-allow-origin': '*',
         'access-control-allow-credentials': 'true',
       });
-    }
-    // Pages the proxy fetches.
-    if (url.pathname === '/remote/page.html') {
-      return send(res, 200, 'text/html', '<html><head><meta property="og:image" content="/img.png"></head></html>');
-    }
-    if (url.pathname === '/remote/img.png') {
-      return send(res, 200, 'image/png', 'PNG', { 'set-cookie': 'session=evil; Domain=files.gg; Path=/' });
     }
     return send(res, 404, 'text/plain', 'Not Found');
   });

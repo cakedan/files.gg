@@ -32,7 +32,7 @@ interface Unlocked {
 
 /**
  * Keeps an unlock (or owner pass) alive while the viewer is open:
- * - refreshes the token (`/unlock/refresh`) shortly before it expires, until the
+ * - refreshes the token (`/access/refresh/…`) shortly before it expires, until the
  *   server's cap (`u + unlock_ttl`, password expiry) stops extending it;
  * - stores each new token for the vanity;
  * - `UNLOCK_EXPIRED`, or reaching the expiry, calls `onExpired` (back to the lock screen);

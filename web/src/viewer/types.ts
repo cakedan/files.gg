@@ -55,7 +55,7 @@ export interface MediaInfo {
 
 /**
  * The file payload (contract §4), inlined by the worker as
- * `<script id="file-data" type="application/json">` and returned by unlock, `/view`
+ * `<script id="file-data" type="application/json">` and returned by unlock, view
  * and refresh. Field names and times are the payload's own (snake_case, epoch seconds).
  */
 export interface FileData {
@@ -96,6 +96,8 @@ export interface FileData {
   warnings?: FileWarning[] | undefined;
   /** Milestone 4 §5.7: up to 20 URLs Web Risk flagged. They're never opened from files.gg. */
   link_warnings?: string[] | undefined;
+  /** Milestone 6 §19.6: views left after this one (from open and unlock). Absent without a limit. */
+  view_limit?: { remaining: number } | undefined;
 }
 
 /** Milestone 4 §2.8 `warnings`, in the order the banner lists them. */
@@ -115,7 +117,7 @@ export interface AlbumItem extends FileData {
 
 /**
  * The album payload (contract §4), inlined as `<script id="album-data" type="application/json">`
- * and returned by album unlock, `/view` and refresh.
+ * and returned by album unlock, view and refresh.
  */
 export interface AlbumData {
   id?: string | undefined;
@@ -158,6 +160,19 @@ export interface LockedTarget {
   name?: string | undefined;
   /** The password stopped working (`password_expired: true`). */
   passwordExpired: boolean;
+  /** Milestone 6 §19.7: a view-limited password file; unlocking uses a view. */
+  viewLimit?: ViewLimitInfo | undefined;
+}
+
+/** Milestone 6 §19.5: what the shell says about a view limit. */
+export interface ViewLimitInfo {
+  /** `views_remaining`, or null when the shell didn't say. */
+  remaining: number | null;
+}
+
+/** A `limited` shell (milestone-6 §19.5): `{ vanity, view_limited: true, views_remaining }`, no media. */
+export interface LimitedTarget extends ViewLimitInfo {
+  vanity: string;
 }
 
 /** Milestone 4 §2.4: the public reason on a removed (or hidden) page. */
@@ -186,6 +201,8 @@ export type BootState =
   | { page: 'removed'; target: StateTarget; reason: RemovedReason }
   | { page: 'report'; target: ReportPageTarget }
   | { page: 'locked'; target: LockedTarget }
+  /** Milestone 6 §19.5: a view-limited file (`data-state="limited"`). */
+  | { page: 'limited'; target: LimitedTarget }
   | { page: 'convert' }
   | { page: 'unavailable' }
   | { page: 'missing' }

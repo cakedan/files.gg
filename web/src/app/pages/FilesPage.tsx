@@ -4,12 +4,13 @@ import { Link, useSearchParams } from 'react-router';
 
 import { Button } from '../../components/Button';
 import { buttonClass } from '../../components/buttonClass';
-import { hasToken, type OwnerFile } from '../../lib/api';
+import type { OwnerFile } from '../../lib/api';
 import { errorMessage } from '../../lib/errors';
 import { formatBytes } from '../../lib/format';
 import { EMPTY_SELECTION, pruneSelection, toggleAllOnPage, toggleSelection, type Selection } from '../../lib/files/selection';
 import { filesSearchParams, pageCount, parseFilesState, patchFilesState, toApiParams, type FilesUrlState } from '../../lib/files/urlState';
-import { useDeleteFiles, useMyFiles, useMyLimits, useRenameFile, useSetExpiry, useSetNsfw } from '../../lib/queries';
+import { useDeleteFiles, useMe, useMyFiles, useMyLimits, useRenameFile, useSetExpiry, useSetNsfw, useSetViewLimit } from '../../lib/queries';
+import { SignInLink } from '../components/SignInLink';
 import { RELATIVE_REFRESH_MS } from '../../lib/time';
 import { useNow } from '../../lib/useNow';
 import { AccessDialog } from '../access/AccessDialog';
@@ -27,6 +28,8 @@ import { FileCardList, FilesGrid, FilesTable } from '../files/FilesViews';
 import { Pagination } from '../files/Pagination';
 import { useFileActions } from '../files/useFileActions';
 import { usePendingPoll } from '../files/usePendingPoll';
+import { ViewLimitDialog } from '../files/ViewLimitDialog';
+import { useDomains } from '../account/accountQueries';
 
 const FileDrawer = lazy(() => import('../files/FileDrawer'));
 
@@ -36,6 +39,7 @@ type DialogState =
   | { type: 'access'; files: OwnerFile[] }
   | { type: 'album'; files: OwnerFile[] }
   | { type: 'review'; files: OwnerFile[] }
+  | { type: 'viewLimit'; files: OwnerFile[] }
   | null;
 
 /** PLAN.md Phase 3 "Files" and milestone-3 contract §8. */
@@ -44,7 +48,11 @@ export default function FilesPage() {
     document.title = 'Files · files.gg';
   }, []);
 
-  const anonymous = !hasToken();
+  const user = useMe().data;
+  const anonymous = !user;
+  // §13.4: "Open on i.example.com" uses the default domain while it's serving (premium only).
+  const domains = useDomains(Boolean(user?.premium.active));
+  const linkDomain = domains.data?.items.find((domain) => domain.is_default && domain.serving) ?? null;
   const [params, setParams] = useSearchParams();
   const state = useMemo(() => parseFilesState(params), [params]);
   const apiParams = useMemo(() => toApiParams(state), [state]);
@@ -83,11 +91,14 @@ export default function FilesPage() {
   const rename = useRenameFile();
   const expiry = useSetExpiry();
   const sensitive = useSetNsfw();
+  const viewLimit = useSetViewLimit();
   usePendingPoll(items);
 
   const handlers: FileHandlers = useMemo(
     () => ({
       copyLink: (file) => void actions.copyLink(file),
+      copyDirectLink: (file) => void actions.copyDirectLink(file),
+      openOnDomain: linkDomain ? { hostname: linkDomain.hostname, open: (file) => void actions.openOnDomain(file, linkDomain.id) } : undefined,
       open: actions.open,
       openAsOwner: (file) => void actions.openAsOwner(file),
       rename: (file) => {
@@ -124,8 +135,17 @@ export default function FilesPage() {
               },
             ),
       askReview: anonymous ? undefined : (file) => setDialog({ type: 'review', files: [file] }),
+      // Milestone 6 §19.3: anonymous uploaders set a view limit only at upload.
+      editViewLimit: anonymous ? undefined : (file) => setDialog({ type: 'viewLimit', files: [file] }),
+      removeViewLimit: anonymous
+        ? undefined
+        : (file) =>
+            viewLimit.mutate(
+              { id: file.id, limit: null },
+              { onSuccess: () => notify('View limit removed.'), onError: (error) => notify(errorMessage(error), 'error') },
+            ),
     }),
-    [actions, anonymous, expiry, notify, sensitive],
+    [actions, anonymous, expiry, notify, sensitive, viewLimit, linkDomain],
   );
 
   const confirmDelete = (list: OwnerFile[]) => {
@@ -189,7 +209,7 @@ export default function FilesPage() {
 
       {anonymous && (
         <p className="rounded-md border border-line bg-surface px-3 py-2 text-sm text-muted">
-          You're not signed in, so these are the files uploaded from this browser. Sign in to keep them.
+          You're not signed in, so these are the files uploaded from this browser. <SignInLink /> to keep them.
         </p>
       )}
 
@@ -273,6 +293,7 @@ export default function FilesPage() {
           }}
         />
       )}
+      {dialog?.type === 'viewLimit' && <ViewLimitDialog file={dialog.files[0]!} onClose={() => setDialog(null)} />}
       {dialog?.type === 'album' && (
         <AddToAlbumDialog files={dialog.files} onClose={() => setDialog(null)} onDone={() => setSelection(EMPTY_SELECTION)} />
       )}

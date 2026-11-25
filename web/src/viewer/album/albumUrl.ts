@@ -1,6 +1,8 @@
 /**
- * Album URLs: `/a/<vanity>` and `/a/<vanity>/<n>`, where n is the 1-based item
- * opened in the lightbox (PLAN.md "Albums").
+ * Album URLs (milestone-6 §20.2): `/a/<vanity>`, with the item open in the lightbox as
+ * `?item=<n>` (1-based). The vanity is always the last path segment, so there is no
+ * `/a/<vanity>/<n>` any more. Other query parameters (dev `?fixture=`) and the fragment
+ * (`#pw=`, `#t=`) are kept as they are.
  */
 
 import { shareUrl } from '../urls';
@@ -11,17 +13,35 @@ export interface AlbumPath {
   index: number | null;
 }
 
-export function parseAlbumPath(pathname: string): AlbumPath | null {
-  const match = /^\/a\/([^/]+)(?:\/(\d+))?\/?$/.exec(pathname);
-  if (!match) return null;
-  const n = match[2] ? Number(match[2]) : null;
-  return { vanity: decodeURIComponent(match[1]!), index: n !== null && n >= 1 ? n - 1 : null };
+/** `?item=<n>` as a 0-based index, or null when it's absent or not a positive integer. */
+export function parseAlbumItem(search: string): number | null {
+  const item = new URLSearchParams(search).get('item');
+  if (item === null || !/^[1-9][0-9]{0,8}$/.test(item)) return null;
+  return Number(item) - 1;
 }
 
-/** Path for the album or one of its items. `search` (e.g. dev `?fixture=`) is kept. */
-export function albumPath(vanity: string, index: number | null, search = ''): string {
-  const base = `/a/${encodeURIComponent(vanity)}`;
-  return `${index === null ? base : `${base}/${index + 1}`}${search}`;
+export function parseAlbumPath(pathname: string, search = ''): AlbumPath | null {
+  const match = /^\/a\/([^/]+)\/?$/.exec(pathname);
+  if (!match) return null;
+  let vanity: string;
+  try {
+    vanity = decodeURIComponent(match[1]!);
+  } catch {
+    return null;
+  }
+  return { vanity, index: parseAlbumItem(search) };
+}
+
+/**
+ * The URL for the album or one of its items: `/a/<vanity>`, then the query with `item`
+ * set (or removed), then `hash`. Every other query parameter is kept.
+ */
+export function albumPath(vanity: string, index: number | null, search = '', hash = ''): string {
+  const params = new URLSearchParams(search);
+  if (index === null) params.delete('item');
+  else params.set('item', String(index + 1));
+  const query = params.toString();
+  return `/a/${encodeURIComponent(vanity)}${query ? `?${query}` : ''}${hash}`;
 }
 
 /** Canonical share URL for the album (on a custom domain, on this domain: see shareUrl). */

@@ -3,8 +3,8 @@ import { ReportForm } from './ReportForm';
 import { initialReportUrl } from './formLogic';
 
 /**
- * `files.gg/report`, `files.gg/<vanity>/report` and `files.gg/a/<vanity>/report`
- * (`data-page="report"`, milestone-4 §10.1). The page never says whether the vanity
+ * `files.gg/report`, `files.gg/report/<vanity>` and `files.gg/report/a/<vanity>`
+ * (`data-page="report"`, milestone-4 §10.1, milestone-6 §20.2). The page never says whether the vanity
  * exists; the API answers that when the form is sent.
  */
 export default function ReportPage({ target }: { target: ReportPageTarget }) {

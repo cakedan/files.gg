@@ -5,7 +5,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { Button } from '../../components/Button';
 import { useTurnstile } from '../../components/useTurnstile';
-import { api, ensureFingerprint, hasToken } from '../../lib/api';
+import { api, ensureFingerprint } from '../../lib/api';
 import { formatBytes } from '../../lib/format';
 import { queryKeys, useBadges, useMe } from '../../lib/queries';
 import { epochMs } from '../../lib/time';
@@ -24,20 +24,19 @@ export default function UploadPage() {
     document.title = 'Upload · files.gg';
   }, []);
 
-  const signedInToken = hasToken();
-  const me = useMe(signedInToken);
-  const anonymous = !signedInToken || me.isError;
+  // The dashboard layout waits for the session, so this is already known.
+  const me = useMe();
+  const anonymous = !me.data;
   const limits = useQuery({
     queryKey: [...queryKeys.myLimits, anonymous ? 'anonymous' : 'user'],
     queryFn: async ({ signal }) => {
       await ensureFingerprint();
       return api.myLimits(signal);
     },
-    enabled: !signedInToken || me.isFetched,
   });
 
   // Milestone 4 §8.4, §11.2: a restricted account can't upload at all.
-  const badges = useBadges(signedInToken);
+  const badges = useBadges(!anonymous);
   const restriction = useMemo(
     () => (badges.data?.restrictions ?? me.data?.restrictions ?? []).find((each) => each.kind === 'uploads' || each.kind === 'suspended') ?? null,
     [badges.data, me.data],
@@ -153,7 +152,16 @@ export default function UploadPage() {
         <p className="text-sm text-muted">
           {anonymous ? 'Uploading without an account.' : `Uploading as ${me.data?.display_name || me.data?.username || 'you'}.`}
           {limitsLine && ` ${limitsLine}.`}
+          {limits.data?.premium && ' Premium limits.'}
         </p>
+        {!anonymous && limits.data && (
+          <p className="text-xs text-muted">
+            ShareX and curl send each file in one request, up to {formatBytes(limits.data.max_file_size_single)}.{' '}
+            <Link to="/integrations" className="text-gg hover:underline">
+              Set up an upload key
+            </Link>
+          </p>
+        )}
       </header>
 
       {restriction && (

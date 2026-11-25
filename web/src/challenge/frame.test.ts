@@ -16,6 +16,14 @@ describe('readChallengeConfig (production)', () => {
     });
   });
 
+  it('accepts action view, for opening view-limited files (milestone-6 §19.7)', () => {
+    expect(readChallengeConfig({ ...prod, json: data('i.example.com', 'view') })).toEqual({
+      host: 'i.example.com',
+      action: 'view',
+      targetOrigin: 'https://i.example.com',
+    });
+  });
+
   it('ignores the query string: only the Worker (after its domain lookup) names the parent', () => {
     expect(readChallengeConfig({ ...prod, json: null, search: '?host=evil.example&action=unlock' })).toBeNull();
     expect(readChallengeConfig({ ...prod, json: data('i.example.com'), search: '?host=evil.example&simulate=error' })).toEqual({
@@ -135,7 +143,7 @@ describe('the frame page (main.ts)', () => {
   });
 
   const page = (json: string | null) => {
-    document.body.innerHTML = '<div id="turnstile"></div><p id="status" hidden></p>';
+    document.body.innerHTML = '<div id="widget"></div><p id="status" hidden></p>';
     if (json !== null) {
       const script = document.createElement('script');
       script.id = 'challenge-data';
@@ -187,5 +195,13 @@ describe('the frame page (main.ts)', () => {
     await import('./main');
     await vi.waitFor(() => expect(postMessage).toHaveBeenCalled());
     expect(postMessage).toHaveBeenCalledWith({ type: MSG_ERROR, code: '110200' }, 'https://i.example.com');
+  });
+});
+
+describe('challenge.html', () => {
+  it('has no element with id "turnstile" (it would become window.turnstile and shadow the API)', async () => {
+    const { default: html } = await import('../../challenge.html?raw');
+    expect(html).not.toMatch(/id=["']turnstile["']/);
+    expect(html).toMatch(/id="widget"/);
   });
 });

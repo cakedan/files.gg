@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import type { StaffInfo } from '../../../lib/api';
 import { createQueryClient } from '../../../lib/queryClient';
-import { calls, stubApi } from '../../../test/apiStub';
+import { calls, stubApi, signIn } from '../../../test/apiStub';
 import { userActions } from '../permissions';
 import { StaffContext } from '../staffContext';
 import { ActionPanel } from './ActionPanel';
@@ -31,7 +31,7 @@ const sentBody = async (fetchMock: ReturnType<typeof stubApi>) => {
   return calls(fetchMock).find((call) => call.path === '/admin/actions')!.body;
 };
 
-beforeEach(() => localStorage.setItem('filesgg.token', 'tok'));
+beforeEach(() => signIn());
 afterEach(() => localStorage.clear());
 
 describe('action panel durations (milestone-4 §9.3)', () => {

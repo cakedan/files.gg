@@ -23,8 +23,23 @@ const DURATIONS = [
 ];
 const DEFAULT_DURATION = 30 * DAY;
 
+/** What a confirmed action does, in a sentence. */
+const CONFIRM_TEXT: Partial<Record<ActionBody['action'], string>> = {
+  confirm_csam: 'This blocks the hash for good, preserves evidence, suspends the uploader and opens a CyberTipline case. It can’t be undone.',
+  delete: 'The file or album is deleted for its owner. A copy is kept for the hold period. This can’t be undone.',
+  suspend_user: 'The account can still read its notices, change its password, manage its sessions and download its data until the suspension is lifted.',
+  revoke_sessions: 'Every session ends, so the account is signed out everywhere. Upload keys keep working.',
+  revoke_upload_keys: 'The upload keys stop working at once. The owner gets a notice.',
+  reset_username: 'The username becomes u followed by the account id, and the owner must choose a new one. The old name is held for 30 days.',
+  disable_domain: 'The domain stops serving within seconds, and the owner can’t remove or re-add it. The owner gets a notice they can appeal.',
+};
+
 interface ActionPanelProps {
   target: ActionBody['target'];
+  /** Extra `details` sent with every action (`{ key_id }` to revoke one upload key). */
+  details?: Record<string, unknown>;
+  /** The section's heading. */
+  title?: string;
   options: ActionOption[];
   caseId?: string;
   /** Shown when nothing applies (hash-matched content, for example). */
@@ -37,7 +52,7 @@ interface ActionPanelProps {
  * contract says so), a staff-only note, the owner's notice text, and the extras some
  * actions take. Destructive ones ask first.
  */
-export function ActionPanel({ target, options, caseId, emptyText, onDone }: ActionPanelProps) {
+export function ActionPanel({ target, details, title = 'Actions', options, caseId, emptyText, onDone }: ActionPanelProps) {
   const id = useId();
   const staff = useStaff();
   const notify = useToast();
@@ -56,7 +71,7 @@ export function ActionPanel({ target, options, caseId, emptyText, onDone }: Acti
   const option = options.find((each) => each.action === actionName) ?? options[0];
   if (!option) {
     return (
-      <Section title="Actions">
+      <Section title={title}>
         <p className="text-sm text-muted">{emptyText ?? 'No actions apply here.'}</p>
       </Section>
     );
@@ -83,6 +98,7 @@ export function ActionPanel({ target, options, caseId, emptyText, onDone }: Acti
     // `0` is `Until lifted` (suspensions only): no `duration` (milestone-4 §9.3).
     ...(timed && shownDuration > 0 ? { duration: shownDuration } : {}),
     ...(option.action === 'delete' ? { hold_days: holdDays, also_block_hash: alsoBlock } : {}),
+    ...(details ? { details } : {}),
   });
 
   const submit = () => {
@@ -112,7 +128,7 @@ export function ActionPanel({ target, options, caseId, emptyText, onDone }: Acti
   };
 
   return (
-    <Section title="Actions" id={`${id}-title`}>
+    <Section title={title} id={`${id}-title`}>
       <form onSubmit={onSubmit} className="flex flex-col gap-3" aria-labelledby={`${id}-title`}>
         <div className="grid gap-3 sm:grid-cols-2">
           <div className="flex flex-col gap-1">
@@ -218,13 +234,7 @@ export function ActionPanel({ target, options, caseId, emptyText, onDone }: Acti
       {confirming && (
         <ConfirmDialog title={`${option.label}?`} confirmLabel={option.label} onConfirm={submit} onClose={() => setConfirming(false)}>
           <p>
-            {option.action === 'confirm_csam'
-              ? 'This blocks the hash for good, preserves evidence, suspends the uploader and opens a CyberTipline case. It can’t be undone.'
-              : option.action === 'delete'
-                ? 'The file or album is deleted for its owner. A copy is kept for the hold period. This can’t be undone.'
-                : option.action === 'suspend_user'
-                  ? 'The account can only read and appeal its notices until the suspension is lifted.'
-                  : 'Every owner of this content gets a notice, and re-uploads are refused.'}
+            {CONFIRM_TEXT[option.action] ?? 'Every owner of this content gets a notice, and re-uploads are refused.'}
           </p>
         </ConfirmDialog>
       )}

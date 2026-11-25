@@ -10,18 +10,16 @@ import uuid
 
 import httpx
 from tests.conftest import ServerProcess, hash_of, s3_client, BUCKET
-from utils.tokens import UserToken
 
 
 def signed_in(temp, user_id=4242):
-    """A user in the server's database, and a token for it (signed-in uploads
-    skip Turnstile and get the 100 MB single-request limit)."""
-    temp.execute(
-        "INSERT INTO users (id, email, bot, username, discriminator, flags, verified, last_email_reset_at, "
-        "last_password_reset_at) VALUES (%s, %s, false, %s, 1, 0, true, to_timestamp(1500000000), "
-        "to_timestamp(1500000000))",
-        (user_id, 'u{}@example.com'.format(user_id), 'u{}'.format(user_id)))
-    return UserToken.generate(user_id)
+    """A user in the server's database, and the headers of a signed-in request (milestone-6: the session
+    cookie as the Worker forwards it from files.gg/api; signed-in uploads skip Turnstile and get the
+    signed-in single-request limit)."""
+    from tests.conftest import cookie_headers, new_session
+    temp.execute("INSERT INTO users (id, email, email_verified, username) VALUES (%s, %s, true, %s)",
+                 (user_id, 'u{}@example.com'.format(user_id), 'n{}'.format(user_id)))
+    return cookie_headers(new_session(user_id, temp))
 
 
 def live_leases(temp):
@@ -61,7 +59,7 @@ async def test_200_concurrent_requests(migrated_db):
             bodies = [uuid.uuid4().bytes * 64 for _ in range(200)]
             uploads = await asyncio.gather(*(
                 client.post('/files?type=raw&filename=f{}.txt'.format(i), content=body,
-                            headers={'Authorization': token, 'Content-Type': 'text/plain'})
+                            headers=dict(token, **{'Content-Type': 'text/plain'}))
                 for i, body in enumerate(bodies)
             ))
     finally:
@@ -101,7 +99,7 @@ async def test_streaming_raw_upload_does_not_buffer_the_body(migrated_db):
             yield chunk
 
     try:
-        headers = {'Authorization': token, 'Content-Type': 'application/octet-stream'}
+        headers = dict(token, **{'Content-Type': 'application/octet-stream'})
         async with httpx.AsyncClient(base_url=server.url, timeout=120) as client:
             # warm up the upload path, then measure the peak RSS around a 50 MB upload
             warm = await client.post('/files?type=raw&filename=warm.bin', content=b'x' * 1024 * 1024, headers=headers)
@@ -143,7 +141,7 @@ async def test_chunked_upload_at_the_limit_across_two_api_workers(migrated_db):
                               stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     size = 40 * 1024 * 1024
     data = os.urandom(size)
-    headers = {'Authorization': token}
+    headers = dict(token)
     try:
         async with httpx.AsyncClient(base_url=server.url, timeout=120) as client:
             response = await client.post('/uploads', headers=headers, json={'filename': 'movie.bin', 'size': size + 1})

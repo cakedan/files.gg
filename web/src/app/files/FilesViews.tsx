@@ -11,6 +11,7 @@ import { fileMenuItems, type FileHandlers } from './fileMenu';
 import { FileThumb } from './FileThumb';
 import { RenameField } from './RenameField';
 import { typeLabel } from './fileLabels';
+import { ViewLimitBadge } from './ViewLimitBadge';
 
 export interface FilesViewProps {
   files: OwnerFile[];
@@ -119,13 +120,16 @@ function TableRow({ file, props }: { file: OwnerFile; props: FilesViewProps }) {
       <td className="py-2 pr-3">
         <div className="flex min-w-0 items-center gap-3">
           <FileThumb file={file} active={active} />
-          <NameCell file={file} props={props} />
+          <div className="flex min-w-0 flex-col gap-0.5">
+            <NameCell file={file} props={props} />
+            <ViewLimitBadge file={file} />
+          </div>
           <SafetyBadge safety={file.safety} />
         </div>
       </td>
-      <td className="px-3 py-2 text-sm whitespace-nowrap text-muted">{typeLabel(file)}</td>
+      <td className="hidden px-3 py-2 text-sm whitespace-nowrap text-muted xl:table-cell">{typeLabel(file)}</td>
       <td className="px-3 py-2 text-sm whitespace-nowrap text-muted">{formatBytes(file.size)}</td>
-      <td className="px-3 py-2 text-sm whitespace-nowrap text-muted" title={formatFullDate(epochMs(file.uploaded_at))}>
+      <td className="hidden px-3 py-2 text-sm whitespace-nowrap text-muted xl:table-cell" title={formatFullDate(epochMs(file.uploaded_at))}>
         {formatRelative(epochMs(file.uploaded_at), props.now)}
       </td>
       <td className="px-3 py-2 text-sm whitespace-nowrap">
@@ -149,17 +153,21 @@ function Th({ children, className = '' }: { children: ReactNode; className?: str
   );
 }
 
-/** Desktop table: ☐, thumbnail + name, type, size, uploaded, expires, access, ⋯. */
+/**
+ * Desktop table: ☐, thumbnail + name, type, size, uploaded, expires, access, ⋯. Below `xl` the type (the
+ * thumbnail shows it) and the upload time are left out, and the minimum width always leaves the name
+ * column about 12rem: narrower than that, the table scrolls sideways instead of squashing the name.
+ */
 export function FilesTable(props: FilesViewProps) {
   return (
     <div className="overflow-x-auto rounded-lg border border-line bg-surface">
-      <table className="w-full min-w-[44rem] table-fixed">
+      <table className="w-full min-w-[38rem] table-fixed xl:min-w-[53rem]">
         <colgroup>
           <col className="w-10" />
           <col />
+          <col className="hidden w-24 xl:table-column" />
           <col className="w-24" />
-          <col className="w-24" />
-          <col className="w-32" />
+          <col className="hidden w-32 xl:table-column" />
           <col className="w-32" />
           <col className="w-28" />
           <col className="w-12" />
@@ -170,9 +178,9 @@ export function FilesTable(props: FilesViewProps) {
               <SelectAll {...props} />
             </th>
             <Th>Name</Th>
-            <Th>Type</Th>
+            <Th className="hidden xl:table-cell">Type</Th>
             <Th>Size</Th>
-            <Th>Uploaded</Th>
+            <Th className="hidden xl:table-cell">Uploaded</Th>
             <Th>Expires</Th>
             <Th>Access</Th>
             <th scope="col">
@@ -211,6 +219,7 @@ function CardRow({ file, props }: { file: OwnerFile; props: FilesViewProps }) {
           <span>{formatRelative(epochMs(file.uploaded_at), props.now)}</span>
           {file.expires_at !== null && <Expires file={file} now={props.now} />}
           <AccessBadge visibility={file.visibility} compact />
+          <ViewLimitBadge file={file} />
         </span>
       </div>
       <Menu label={`Actions for ${file.filename}`} items={fileMenuItems(file, props.handlers)} />
@@ -259,6 +268,7 @@ function GridTile({ file, props }: { file: OwnerFile; props: FilesViewProps }) {
             {formatBytes(file.size)}
             <AccessBadge visibility={file.visibility} compact />
             {file.expires_at !== null && <Expires file={file} now={props.now} />}
+            <ViewLimitBadge file={file} />
           </span>
         </div>
         <Menu label={`Actions for ${file.filename}`} items={fileMenuItems(file, props.handlers)} />

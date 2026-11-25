@@ -1,7 +1,10 @@
 /**
  * Username and display name rules (milestone-6 §2.2, §2.3), so forms can explain a
- * refusal before sending. The API (`api/utils/usernames.py`) is the authority; the dev
- * mock (`mock-api.ts`) imports this module too.
+ * refusal before sending. The API (`api/utils/usernames.py`) is the authority: its
+ * `python -m tools.username_rules` writes `usernameRules.json` next to this file, and
+ * `usernames.test.ts` fails if these constants drift from it. They're constants here,
+ * not a JSON import, because the dev mock (`mock-api.ts`, type-checked without
+ * `resolveJsonModule`) imports this module too.
  */
 
 export type UsernameProblem = 'length' | 'characters' | 'dots' | 'numeric' | 'reserved';
@@ -48,7 +51,8 @@ export const USERNAME_REASON_TEXT: Record<UsernameReason, string> = {
   taken: 'That username is taken.',
 };
 
-const INVISIBLE = /[\u0000-\u001f\u007f-\u009f​-‏‪-‮⁠-⁤⁦-⁩﻿]/g;
+/** Control characters (Cc) and format characters (Cf: bidi controls, zero-width characters, BOM). */
+const INVISIBLE = /[\p{Cc}\p{Cf}]/gu;
 const DISPLAY_RESERVED = new Set(['staff', 'filesggstaff', 'moderator', 'admin', 'support']);
 
 /** §2.3 cleaning: NFC, invisible and control characters removed, whitespace collapsed, trimmed. */

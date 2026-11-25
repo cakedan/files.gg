@@ -21,19 +21,26 @@ ACTION_TARGETS = {
     'confirm_csam': ('file', 'hash'),
     'restrict_uploads': ('user',), 'unrestrict_uploads': ('user',),
     'suspend_user': ('user',), 'unsuspend_user': ('user',),
+    # milestone-6 §11.4, §10.12
+    'revoke_sessions': ('user',), 'revoke_upload_keys': ('user',), 'reset_username': ('user',),
+    'disable_domain': ('domain',), 'enable_domain': ('domain',), 'set_domain_scope': ('domain',),
 }
-RULE_REQUIRED = ('hide', 'remove', 'delete', 'mark_nsfw', 'block_hash', 'restrict_uploads', 'suspend_user')
+RULE_REQUIRED = ('hide', 'remove', 'delete', 'mark_nsfw', 'block_hash', 'restrict_uploads', 'suspend_user',
+                 'reset_username', 'disable_domain', 'set_domain_scope')
 ADMIN_ONLY = ('suspend_user', 'unsuspend_user')
 CHILD_SAFETY_ONLY = ('confirm_csam',)
 # §8.1: (notice?, appealable, strike) per action
 NOTICES = {
     'hide': (True, True, False), 'remove': (True, True, True), 'delete': (True, True, True),
     'mark_nsfw': (True, True, False), 'block_hash': (True, True, False),
+    # milestone-6 §11.4, §10.12
+    'revoke_upload_keys': (True, False, False), 'reset_username': (True, True, False),
+    'disable_domain': (True, True, False), 'set_domain_scope': (True, True, False),
 }
 # what granting an appeal runs (§8.2): the reversing action of the original
 REVERSALS = {'hide': 'unhide', 'remove': 'restore', 'mark_nsfw': 'unmark_nsfw', 'auto_nsfw': 'unmark_nsfw',
              'block_hash': 'unblock_hash', 'scan_block': 'unblock_hash', 'restrict_uploads': 'unrestrict_uploads',
-             'suspend_user': 'unsuspend_user', 'auto_hide': 'unhide'}
+             'suspend_user': 'unsuspend_user', 'auto_hide': 'unhide', 'disable_domain': 'enable_domain'}
 BLOCK_REASONS = {'ncii': 'ncii', 'violence': 'terrorism', 'malware': 'malware', 'phishing': 'malware'}
 MODERATOR_MAX_DAYS = 30
 
@@ -144,6 +151,7 @@ def owns_target(conn, user_id, kind, target_id):
         'album': 'SELECT 1 FROM albums WHERE id = %s AND owner_user_id = %s',
         'hash': 'SELECT 1 FROM files WHERE hash_id = %s AND user_id = %s LIMIT 1',
         'warning': 'SELECT 1 FROM user_warnings WHERE id = %s AND user_id = %s',
+        'domain': 'SELECT 1 FROM custom_domains WHERE id = %s AND user_id = %s',
     }.get(kind)
     return sql is not None and core.one(conn, sql, (target_id, user_id)) is not None
 
@@ -230,7 +238,10 @@ def perform(conn, staff, body, settings=None):
         if body.get('also_block_hash') and action == 'delete' and kind == 'file':
             file = load_file(conn, target_id, lock=False)
             block_hash(ctx, 'hash', file['hash_id'], body)
-        return {'action': audit_row(conn, action_id), 'notice_ids': [str(i) for i in ctx.notices]}
+        result = {'action': audit_row(conn, action_id), 'notice_ids': [str(i) for i in ctx.notices]}
+        if ctx.mails:
+            result['_mails'] = ctx.mails
+        return result
 
 
 class Context:
@@ -245,6 +256,8 @@ class Context:
         self.settings = settings
         self.notices = []
         self.reverses = None
+        # milestone-6: emails a domain action leaves to send (domain-only paused or resumed)
+        self.mails = []
 
     def log(self, action, **targets):
         return core.log_action(self.conn, self.staff.actor, action, rule=self.rule, note=self.note,
@@ -522,11 +535,119 @@ def _user(conn, user_id):
         raise errors.unknown_user()
 
 
+# --- accounts and domains (milestone-6 §11.4, §10.12) ---------------------------------------------------------
+
+def revoke_sessions(ctx, kind, target_id, body):
+    """Ends every session of the account (`staff`). No notice."""
+    _user(ctx.conn, target_id)
+    count = ctx.conn.execute("UPDATE sessions SET revoked_at = now(), revoked_reason = 'staff' WHERE user_id = %s "
+                             'AND revoked_at IS NULL', (target_id,)).rowcount
+    return core.log_action(ctx.conn, ctx.staff.actor, 'revoke_sessions', rule=ctx.rule, note=ctx.note,
+                           case_id=ctx.case_id, user_id=target_id, details={'revoked': count})
+
+
+def revoke_upload_keys(ctx, kind, target_id, body):
+    """Every key, or one (`details.key_id`), revoked with `staff`. A notice, not appealable."""
+    _user(ctx.conn, target_id)
+    details = body.get('details') if isinstance(body.get('details'), dict) else {}
+    key_id = details.get('key_id', body.get('key_id'))
+    sql = ("UPDATE upload_keys SET revoked_at = now(), revoked_reason = 'staff' WHERE user_id = %s AND revoked_at "
+           'IS NULL')
+    params = [target_id]
+    if key_id not in (None, ''):
+        sql += ' AND id = %s'
+        params.append(_id(key_id))
+    ids = [str(r[0]) for r in ctx.conn.execute(sql + ' RETURNING id', params).fetchall()]
+    if not ids:
+        raise errors.invalid_action('No upload key to revoke')
+    action_id = core.log_action(ctx.conn, ctx.staff.actor, 'revoke_upload_keys', rule=ctx.rule, note=ctx.note,
+                                case_id=ctx.case_id, user_id=target_id, details={'key_ids': ids})
+    ctx.rule = ctx.rule or 'other'
+    ctx.message = ctx.message or 'An upload key was revoked'
+    ctx.notice('revoke_upload_keys', target_id, core.account_target(target_id), action_id)
+    return action_id
+
+
+def reset_username(ctx, kind, target_id, body):
+    """`username = 'u' || id`, `needs_username`; the old name is held 30 days. An appealable notice."""
+    from utils.account_settings import account_settings
+    row = core.one(ctx.conn, 'SELECT username FROM users WHERE id = %s AND deleted_at IS NULL FOR UPDATE', (target_id,))
+    if row is None:
+        raise errors.unknown_user()
+    ctx.conn.execute('INSERT INTO username_holds (username, user_id, held_until) VALUES (%s, %s, now() + '
+                     'make_interval(days => %s)) ON CONFLICT (username) DO UPDATE SET user_id = EXCLUDED.user_id, '
+                     'released_at = now(), held_until = EXCLUDED.held_until',
+                     (row[0], target_id, account_settings().username_hold_days))
+    ctx.conn.execute("UPDATE users SET username = 'u' || id, needs_username = true WHERE id = %s", (target_id,))
+    action_id = core.log_action(ctx.conn, ctx.staff.actor, 'reset_username', rule=ctx.rule, note=ctx.note,
+                                case_id=ctx.case_id, user_id=target_id, details={'previous': row[0]})
+    ctx.notice('reset_username', target_id, core.account_target(target_id), action_id)
+    return action_id
+
+
+def _domain(conn, domain_id):
+    row = core.one(conn, 'SELECT id, user_id, hostname, status, scope FROM custom_domains WHERE id = %s AND '
+                         'deleted_at IS NULL FOR UPDATE', (domain_id,))
+    if row is None:
+        raise errors.unknown_domain()
+    return dict(zip(('id', 'user_id', 'hostname', 'status', 'scope'), row))
+
+
+def domain_target(domain):
+    return {'kind': 'domain', 'id': str(domain['id']), 'hostname': domain['hostname']}
+
+
+def disable_domain(ctx, kind, target_id, body):
+    """Stops serving at once; the Cloudflare hostname is kept and the owner can't delete the row."""
+    from utils import domains
+    domain = _domain(ctx.conn, target_id)
+    if domain['status'] == 'disabled':
+        raise errors.invalid_action('This domain is already disabled')
+    action_id = core.log_action(ctx.conn, ctx.staff.actor, 'disable_domain', rule=ctx.rule, note=ctx.note,
+                                case_id=ctx.case_id, user_id=domain['user_id'], domain_id=domain['id'],
+                                reverses=ctx.reverses, details={'hostname': domain['hostname'],
+                                                                'previous_status': domain['status']})
+    ctx.conn.execute("UPDATE custom_domains SET status = 'disabled', status_reason = 'staff', disabled_reason = %s, "
+                     'disabled_action_id = %s, next_check_at = NULL, is_default = false WHERE id = %s',
+                     (ctx.rule, action_id, domain['id']))
+    ctx.mails += domains.refresh_domain_only(ctx.conn, domain['user_id'])
+    ctx.notice('disable_domain', domain['user_id'], domain_target(domain), action_id)
+    return action_id
+
+
+def enable_domain(ctx, kind, target_id, body):
+    from utils import domains
+    domain = _domain(ctx.conn, target_id)
+    if domain['status'] != 'disabled':
+        raise errors.invalid_action("This domain isn't disabled")
+    ctx.conn.execute("UPDATE custom_domains SET status = 'pending_cert', status_reason = NULL, disabled_reason = NULL, "
+                     'disabled_action_id = NULL, pending_since = now(), next_check_at = now() WHERE id = %s',
+                     (domain['id'],))
+    action_id = core.log_action(ctx.conn, ctx.staff.actor, 'enable_domain', rule=ctx.rule, note=ctx.note,
+                                case_id=ctx.case_id, user_id=domain['user_id'], domain_id=domain['id'],
+                                reverses=ctx.reverses, details={'hostname': domain['hostname']})
+    ctx.mails += domains.refresh_domain_only(ctx.conn, domain['user_id'])
+    return action_id
+
+
+def set_domain_scope(ctx, kind, target_id, body):
+    """Forces `scope = 'own'`."""
+    domain = _domain(ctx.conn, target_id)
+    ctx.conn.execute("UPDATE custom_domains SET scope = 'own' WHERE id = %s", (domain['id'],))
+    action_id = core.log_action(ctx.conn, ctx.staff.actor, 'set_domain_scope', rule=ctx.rule, note=ctx.note,
+                                case_id=ctx.case_id, user_id=domain['user_id'], domain_id=domain['id'],
+                                details={'hostname': domain['hostname'], 'previous_scope': domain['scope']})
+    ctx.notice('set_domain_scope', domain['user_id'], domain_target(domain), action_id)
+    return action_id
+
+
 HANDLERS = {
     'hide': hide, 'unhide': unhide, 'remove': remove, 'restore': restore, 'mark_nsfw': mark_nsfw,
     'unmark_nsfw': unmark_nsfw, 'delete': delete, 'block_hash': block_hash, 'unblock_hash': unblock_hash,
     'clear_flag': clear_flag, 'retry_scan': retry_scan, 'restrict_uploads': restrict_uploads, 'unrestrict_uploads': unrestrict_uploads,
     'suspend_user': suspend_user, 'unsuspend_user': unsuspend_user,
+    'revoke_sessions': revoke_sessions, 'revoke_upload_keys': revoke_upload_keys, 'reset_username': reset_username,
+    'disable_domain': disable_domain, 'enable_domain': enable_domain, 'set_domain_scope': set_domain_scope,
 }
 
 
@@ -550,7 +671,7 @@ def confirm_csam(conn, staff, kind, target_id, case_id, note):
 
 AUDIT_COLUMNS = ('id', 'actor_user_id', 'actor_kind', 'action', 'rule', 'file_id', 'album_id', 'user_id', 'hash_id',
                  'report_id', 'case_id', 'warning_id', 'note', 'details', 'reverses_action_id', 'created_at',
-                 'child_safety')
+                 'child_safety', 'domain_id')
 
 
 def audit_rows(conn, where='true', params=(), limit=50):
@@ -569,7 +690,7 @@ def audit_dict(row):
     def sid(value):
         return str(value) if value is not None else None
     target = {k: sid(row[k]) for k in ('file_id', 'album_id', 'user_id', 'hash_id', 'report_id', 'case_id',
-                                       'warning_id') if row[k] is not None}
+                                       'warning_id', 'domain_id') if row[k] is not None}
     return {
         'id': str(row['id']),
         'actor': {'id': sid(row['actor_user_id']), 'username': row.get('username'), 'kind': row['actor_kind']},
@@ -714,13 +835,16 @@ def decide_appeal(conn, staff, case, decision, message):
 
 
 # a reversal that fails with one of these was already done (or has nothing left to act on)
-ALREADY_REVERSED = ('INVALID_ACTION', 'UNKNOWN_FILE', 'UNKNOWN_ALBUM', 'UNKNOWN_USER')
+ALREADY_REVERSED = ('INVALID_ACTION', 'UNKNOWN_FILE', 'UNKNOWN_ALBUM', 'UNKNOWN_USER', 'UNKNOWN_DOMAIN')
 
 
 def _original_target(warning, original):
     action, file_id, album_id, user_id, hash_id = original[1], original[2], original[3], original[4], original[5]
     if action in ('restrict_uploads', 'suspend_user'):
         return 'user', user_id
+    if action in ('disable_domain', 'set_domain_scope'):
+        target = warning['target'] or {}
+        return ('domain', int(target['id'])) if target.get('kind') == 'domain' and target.get('id') else (None, None)
     if action in ('block_hash', 'scan_block'):
         if hash_id is not None:
             return 'hash', hash_id

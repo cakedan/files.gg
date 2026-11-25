@@ -8,6 +8,7 @@ import { domainAllows, ownerPendingDeletion, servedOnCustom } from './owners.js'
 import { shouldRedirectToCdn } from './pages.js';
 import { albumSafety, fileSafety, itemShowable, pendingCount, servesInline } from './safety.js';
 import { formatBytes } from './tools.js';
+import { isLinkPreviewBot, LIMITED_FILE_TITLE, viewLimitOf } from './viewlimits.js';
 
 
 // web/README.md §6, plus Turnstile (the lock screen) and the API (unlock, refresh). `origins` is
@@ -353,8 +354,13 @@ export function hiddenByOwner(data, domain = null) {
 // `lookup` is the internal lookup: { status: 'found', data } | { status: 'missing' } |
 // { status: 'unavailable' }. `vanity` is the one from the path. Returns the shell to render, or
 // { redirect } for bots and embeds of `ok`, non-NSFW `link` files (never for password or private
-// files). Decision order is milestone-4.md §10.1's, first match wins, with milestone-6.md §10.8's
-// owner steps after "blocked". `domain`: the custom domain's lookup on a custom host, else null.
+// files, nor view-limited ones). Decision order is milestone-4.md §10.1's, first match wins, with
+// milestone-6.md §10.8's owner steps after "blocked". `domain`: the custom domain's lookup on a custom
+// host, else null.
+//
+// View limits (milestone-6.md §19.5), after the visibility check: a used-up limit is missing; a
+// link-preview bot gets { refuse: 'view-limited' } (403, utils/viewlimits.js); a password file keeps its
+// lock screen with `view_limited` and `views_remaining`; a link file is the `limited` shell.
 export function decideFileShell({ lookup, vanity, headers, nowMs = Date.now(), mainOrigin = DEFAULT_ORIGINS.main, domain = null }) {
   const missing = { page: 'file', state: 'missing', dataId: 'file-data', data: null, status: 404 };
   if (lookup.status === 'unavailable') {
@@ -386,11 +392,20 @@ export function decideFileShell({ lookup, vanity, headers, nowMs = Date.now(), m
     return missing;
   }
   const shownVanity = file.vanity || vanity;
+  const viewLimit = viewLimitOf(lookup.data);
+  if (viewLimit && viewLimit.remaining <= 0) {
+    // The action fired (or the limit is unreadable): the normal missing state, never "limit reached".
+    return missing;
+  }
   if (safety.state === 'pending') {
     return pendingShell('file', shownVanity);
   }
   if (safety.state === 'hidden' || safety.state === 'removed') {
     return removedShell('file', shownVanity, safety.reason);
+  }
+
+  if (viewLimit) {
+    return limitedShell({ access, file, vanity: shownVanity, headers, nowMs, remaining: viewLimit.remaining });
   }
 
   if (!servesInline(lookup.data)) {
@@ -419,6 +434,33 @@ export function decideFileShell({ lookup, vanity, headers, nowMs = Date.now(), m
     }
   }
   return missing;
+}
+
+
+// milestone-6.md §19.5: a view-limited file's page. Never the name, a URL or any media.
+function limitedShell({ access, file, vanity, headers, nowMs, remaining }) {
+  if (headers && isLinkPreviewBot(headers)) {
+    return { refuse: 'view-limited' };
+  }
+  if (access.visibility === 'password') {
+    const data = { vanity, protected: 'password', view_limited: true, views_remaining: remaining };
+    if (access.show_name_when_locked && file.filename) {
+      data.filename = file.filename;
+    }
+    const passwordExpiresAt = secondsToMs(access.password_expires_at);
+    if (passwordExpiresAt !== null && passwordExpiresAt <= nowMs) {
+      data.password_expired = true;
+    }
+    return {
+      page: 'file', state: 'locked', dataId: 'file-data', data, status: 200, cacheControl: PENDING_CACHE_CONTROL,
+      meta: lockedMetaTags(LOCKED_FILE_TITLE),
+    };
+  }
+  return {
+    page: 'file', state: 'limited', dataId: 'file-data', status: 200, cacheControl: PENDING_CACHE_CONTROL,
+    data: { vanity, view_limited: true, views_remaining: remaining },
+    meta: lockedMetaTags(LIMITED_FILE_TITLE),
+  };
 }
 
 
@@ -536,9 +578,9 @@ export const ROOT_FILES = Object.freeze([
 
 // Served from web/dist on files.gg and cdn.files.gg (milestone-4.md §10.4).
 export const SECURITY_TXT_PATH = '/.well-known/security.txt';
-// `files.gg/<vanity>/report` (milestone-4.md §7.2): `report` is a reserved vanity segment (the
-// API's `blacklisted_ids`, compared case-insensitively), so a path ending in `/report` is always a
-// report page, and a vanity containing that segment can't exist.
+// `files.gg/report/<vanity>` and `files.gg/report/a/<vanity>` (milestone-6.md §20.2: the vanity is
+// always the last path segment). `report` stays a reserved vanity segment (the API's
+// `blacklisted_ids`, compared case-insensitively), so `files.gg/<vanity>` never shadows a report page.
 export const REPORT_SEGMENT = 'report';
 
 // Every reserved vanity segment the Worker knows (milestone-6.md §6.3 adds the auth pages, the
@@ -562,31 +604,33 @@ export const AUTH_REDIRECTS = Object.freeze({
   '/signup/': '/app/register',
 });
 
-// milestone-4.md §10.1's report routes, or null. A report route carries its `#report-data`.
+// milestone-4.md §10.1's report routes at milestone-6.md §20.2's paths, or null. A report route
+// carries its `#report-data`. The Worker never looks anything up for a report page.
 export function classifyReportPath(pathname) {
   // 1. /report: the public form, which asks for a URL.
   if (pathname === '/report' || pathname === '/report/') {
     return { route: 'report', data: { type: 'any' } };
   }
-  // 2. /a/<vanity>/report (and /a/<vanity>/<n>/report, which reports the album too: the Worker
-  // never looks anything up for a report page, so it can't name the item's file).
-  const albumReport = pathname.match(/^\/a\/([^/]+)(?:\/\d+)?\/report\/?$/);
-  if (albumReport) {
-    return { route: 'report', data: { type: 'album', vanity: safeDecode(albumReport[1]) } };
+  if (!pathname.startsWith('/report/')) {
+    return null;
   }
-  // 3. /<vanity>[.<ext>]/report: the vanity is everything before /report, minus any extension.
-  const fileReport = pathname.match(/^\/(.+?)\/report\/?$/);
-  if (fileReport) {
-    const vanity = fileVanity(fileReport[1]);
-    return { route: 'report', data: vanity ? { type: 'file', vanity } : { type: 'any' } };
+  const rest = pathname.slice('/report/'.length).replace(/\/+$/, '');
+  // 2. /report/a/<vanity>: the album (album vanities are one segment).
+  const album = rest.match(/^a\/([^/]+)$/);
+  if (album) {
+    return { route: 'report', data: { type: 'album', vanity: safeDecode(album[1]) } };
   }
-  return null;
+  // 3. /report/<vanity>[.<ext>]: the file, the vanity being the rest of the path minus any
+  // extension, multi-segment vanities included.
+  const vanity = fileVanity(rest);
+  return { route: 'report', data: vanity ? { type: 'file', vanity } : { type: 'any' } };
 }
 
-// `/a/<vanity>[/<n>]` as { route: 'album', vanity }, then `/<vanity>[.<anything>]` as
-// { route: 'file' | 'missing', vanity }, else { route: 'home' }.
+// `/a/<vanity>` as { route: 'album', vanity } (the lightbox item is `?item=<n>`, read by the viewer,
+// milestone-6.md §20.2), then `/<vanity>[.<anything>]` as { route: 'file' | 'missing', vanity },
+// else { route: 'home' }. Nothing comes after an album's vanity: `/a/<vanity>/<anything>` is missing.
 export function classifyVanityPath(pathname) {
-  const album = pathname.match(/^\/a\/([^/]+)(?:\/(\d+))?\/?$/);
+  const album = pathname.match(/^\/a\/([^/]+)\/?$/);
   if (album) {
     return { route: 'album', vanity: safeDecode(album[1]) };
   }
@@ -595,8 +639,10 @@ export function classifyVanityPath(pathname) {
   if (!vanity) {
     return { route: 'home' };
   }
-  // No vanity can contain a reserved segment, so nothing is looked up.
-  return hasReservedSegment(vanity) ? { route: 'missing', vanity } : { route: 'file', vanity };
+  // No vanity can contain a reserved segment, and none starts with `a/` (the API's `blacklisted_ids`
+  // has `a`; it is the albums' prefix), so nothing is looked up.
+  const reserved = hasReservedSegment(vanity) || pathname.startsWith('/a/');
+  return reserved ? { route: 'missing', vanity } : { route: 'file', vanity };
 }
 
 // Classifies a files.gg path, in web/README.md §1 order, then the auth redirects and the challenge

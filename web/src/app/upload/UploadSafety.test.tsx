@@ -1,7 +1,7 @@
 import { fireEvent, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it } from 'vitest';
 
-import { ME, NO_BADGES, renderDashboard, stubApi } from '../../test/apiStub';
+import { ME, NO_BADGES, renderDashboard, stubApi, signIn } from '../../test/apiStub';
 import { installTurnstile } from '../../test/turnstile';
 
 const limits = (anonymous: boolean, extra: object = {}) => ({
@@ -22,7 +22,7 @@ afterEach(() => {
 
 describe('Upload page safety (milestone-4 §4.3, §11.2)', () => {
   it('signed in: an "Adult content (NSFW)" checkbox', async () => {
-    localStorage.setItem('filesgg.token', 'tok');
+    signIn();
     stubApi({ 'GET /users/@me': () => ME, 'GET /users/@me/badges': () => NO_BADGES, 'GET /users/@me/limits': () => limits(false) });
     renderDashboard('/upload');
     const box = await screen.findByRole('checkbox', { name: /Adult content \(NSFW\)/ });
@@ -42,7 +42,7 @@ describe('Upload page safety (milestone-4 §4.3, §11.2)', () => {
   });
 
   it('restricted: explains until when and disables the dropzone', async () => {
-    localStorage.setItem('filesgg.token', 'tok');
+    signIn();
     const until = Math.floor(new Date('2030-01-15T12:00:00Z').getTime() / 1000);
     stubApi({
       'GET /users/@me': () => ME,

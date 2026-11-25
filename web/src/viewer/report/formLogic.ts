@@ -91,9 +91,10 @@ export type ParsedReportUrl =
 
 /**
  * A pasted `files.gg` or `cdn.files.gg` URL (the scheme may be left off). An album
- * page link (`files.gg/a/<vanity>`, optionally `/report`) becomes an album target, so
- * a part can be picked; anything else on those hosts is sent as a `url` target for
- * the API to resolve (§7.3), including album items (`/a/<vanity>/<n>`).
+ * page link (`files.gg/a/<vanity>`, or its report page `files.gg/report/a/<vanity>`)
+ * becomes an album target, so a part can be picked; anything else on those hosts is sent
+ * as a `url` target for the API to resolve (§7.3), including album items
+ * (`/a/<vanity>?item=<n>`, milestone-6 §20.2), which keep their `item` and nothing else.
  */
 export function parseReportUrl(input: string, extraHosts: readonly string[] = extraReportHosts()): ParsedReportUrl {
   const text = input.trim();
@@ -108,11 +109,16 @@ export function parseReportUrl(input: string, extraHosts: readonly string[] = ex
   if ((url.protocol !== 'https:' && url.protocol !== 'http:') || !known) return { kind: 'invalid' };
   const path = url.pathname.replace(/\/+$/, '');
   if (!path || path === '/report') return { kind: 'invalid' };
+  const item = url.searchParams.get('item');
   url.hash = '';
   url.search = '';
-  const album = /^\/a\/([^/]+)(\/report)?$/.exec(path);
+  const album = /^(\/report)?\/a\/([^/]+)$/.exec(path);
   if (url.hostname.toLowerCase() !== 'cdn.files.gg' && album) {
-    return { kind: 'album', vanity: decodeURIComponent(album[1]!), url: url.href };
+    if (!album[1] && item !== null && /^[1-9][0-9]{0,8}$/.test(item)) {
+      url.search = `?item=${item}`;
+      return { kind: 'url', url: url.href };
+    }
+    return { kind: 'album', vanity: decodeURIComponent(album[2]!), url: url.href };
   }
   return { kind: 'url', url: url.href };
 }

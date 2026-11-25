@@ -59,3 +59,23 @@ describe('errorMessage: Milestone 3 codes', () => {
     }
   });
 });
+
+describe('errorMessage: view limits (milestone-6 §19.8)', () => {
+  it('VIEW_LIMIT_TOO_LOW uses views_used', () => {
+    expect(errorMessage(err(400, 'VIEW_LIMIT_TOO_LOW', { views_used: 4 }))).toBe('4 people have already viewed this file. Set a limit of at least 5, or remove it.');
+    expect(errorMessage(err(400, 'VIEW_LIMIT_TOO_LOW', { views_used: 1 }))).toBe('1 person has already viewed this file. Set a limit of at least 2, or remove it.');
+    expect(errorMessage(err(400, 'VIEW_LIMIT_TOO_LOW', { views_used: 1200 }))).toBe('1,200 people have already viewed this file. Set a limit of at least 1,201, or remove it.');
+    expect(errorMessage(err(400, 'VIEW_LIMIT_TOO_LOW'))).toBe('That limit is lower than the views already used. Set a higher one, or remove it.');
+  });
+
+  it('UNLOCK_REQUIRED asks for the password first', () => {
+    expect(errorMessage(err(401, 'UNLOCK_REQUIRED'))).toBe('Unlock this file with its password first.');
+  });
+
+  it('follows the style guide', () => {
+    for (const message of [errorMessage(err(400, 'VIEW_LIMIT_TOO_LOW', { views_used: 2 })), errorMessage(err(401, 'UNLOCK_REQUIRED'))]) {
+      expect(message).not.toMatch(/please|!/i);
+      expect(message[0]).toBe(message[0]!.toUpperCase());
+    }
+  });
+});

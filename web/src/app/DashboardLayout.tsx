@@ -1,18 +1,27 @@
 import { Menu, X } from 'lucide-react';
+import { useQueryClient } from '@tanstack/react-query';
 import { Suspense, useCallback, useEffect, useRef, useState } from 'react';
-import { Navigate, NavLink, Outlet, useLocation } from 'react-router';
+import { Navigate, NavLink, Outlet, useLocation, useNavigate } from 'react-router';
 
 import { Lockup } from '../components/Brand';
-import { hasToken, type Badges } from '../lib/api';
-import { useBadges, useMe } from '../lib/queries';
+import { onAuthEvent, type Badges, type User } from '../lib/api';
+import { useBadges } from '../lib/queries';
+import { loginPath, SESSION_QUERY_KEY, signedOut, useSession, useSessionSync } from '../lib/session';
+import { AccountBanner } from './account/AccountBanner';
+import { AccountMenu } from './account/AccountMenu';
+import { NeedsUsernameDialog } from './account/NeedsUsernameDialog';
+import { PendingDeletionScreen } from './account/PendingDeletionScreen';
 import { Toaster } from './components/Toaster';
-import { ADMIN_NAV_ITEM, NAV_ITEMS, type NavItem } from './nav';
+import { useToast } from './components/toastContext';
+import { ADMIN_NAV_ITEM, NAV_ITEMS, SUSPENDED_PATHS, type NavItem } from './nav';
 import { NoticesBanner, SuspendedBanner } from './notices/NoticesBanner';
 import { CountBadge } from './safety/SafetyBadge';
 
 interface NavState {
   items: readonly NavItem[];
   badges: Badges | undefined;
+  user: User | null;
+  pathname: string;
 }
 
 function badgeFor(item: NavItem, badges: Badges | undefined) {
@@ -63,6 +72,14 @@ function SidebarHeader() {
   );
 }
 
+function SidebarFooter({ nav, onNavigate }: { nav: NavState; onNavigate?: () => void }) {
+  return (
+    <div className="mt-auto border-t border-line pt-3">
+      <AccountMenu user={nav.user} pathname={nav.pathname} onNavigate={onNavigate} />
+    </div>
+  );
+}
+
 function MobileDrawer({ open, onClose, nav }: { open: boolean; onClose: () => void; nav: NavState }) {
   const closeRef = useRef<HTMLButtonElement>(null);
 
@@ -100,9 +117,58 @@ function MobileDrawer({ open, onClose, nav }: { open: boolean; onClose: () => vo
           </button>
         </div>
         <SidebarNav nav={nav} onNavigate={onClose} />
+        <SidebarFooter nav={nav} onNavigate={onClose} />
       </aside>
     </div>
   );
+}
+
+/**
+ * Session failures seen by any request (milestone-6 §13.1): a `401` signs this tab out
+ * with "You were signed out." and **Sign in**; `403 ACCOUNT_PENDING_DELETION` refetches
+ * the session, which then shows the Keep my account screen; `403 CSRF` is a generic error.
+ */
+function SessionEvents() {
+  const client = useQueryClient();
+  const notify = useToast();
+  const { pathname, search } = useLocation();
+  const here = useRef(pathname + search);
+  useEffect(() => {
+    here.current = pathname + search;
+  }, [pathname, search]);
+  useEffect(
+    () =>
+      onAuthEvent((event) => {
+        if (event.type === 'unauthorized') {
+          signedOut(client);
+          notify('You were signed out.', 'info', { label: 'Sign in', to: loginPath(here.current) });
+        } else if (event.type === 'pending-deletion') {
+          void client.invalidateQueries({ queryKey: SESSION_QUERY_KEY });
+        } else {
+          notify('Something went wrong. Reload the page and try again.', 'error');
+        }
+      }),
+    [client, notify],
+  );
+  return null;
+}
+
+/** A toast handed over by a navigation (sign-in, Discord link, sign-out), shown once. */
+function RouteToast() {
+  const location = useLocation();
+  const navigate = useNavigate();
+  const notify = useToast();
+  const toast = (location.state as { toast?: unknown } | null)?.toast;
+  // StrictMode runs effects twice in development: one toast per navigation.
+  const shown = useRef<string | null>(null);
+  useEffect(() => {
+    if (typeof toast !== 'string' || shown.current === location.key) return;
+    shown.current = location.key;
+    notify(toast);
+    const { toast: _shown, ...rest } = (location.state ?? {}) as Record<string, unknown>;
+    navigate(location.pathname + location.search, { replace: true, state: Object.keys(rest).length > 0 ? rest : null });
+  }, [toast, notify, navigate, location.key, location.pathname, location.search, location.state]);
+  return null;
 }
 
 function PageFallback() {
@@ -114,17 +180,24 @@ function PageFallback() {
 }
 
 export function DashboardLayout() {
+  useSessionSync();
   const [drawerOpen, setDrawerOpen] = useState(false);
   const { pathname } = useLocation();
-  const signedIn = hasToken();
-  const me = useMe(signedIn);
-  const badges = useBadges(signedIn);
-  const restrictions = badges.data?.restrictions ?? me.data?.restrictions ?? [];
-  // §8.4 / §11.2: a suspended account sees only Notices.
+  const session = useSession();
+  const user = session.data ?? null;
+  // A pending deletion locks everything but the session and exports (§8.8): no badges.
+  const badges = useBadges(!user?.deletion);
+  const restrictions = badges.data?.restrictions ?? user?.restrictions ?? [];
+  // milestone-4 §8.4 and milestone-6 §11.1: a suspended account sees Notices, and in
+  // Settings only its password, sessions and data export.
   const suspension = restrictions.find((restriction) => restriction.kind === 'suspended') ?? null;
-  const staff = me.data?.staff ?? null;
-  const items = suspension ? NAV_ITEMS.filter((item) => item.badge === 'notices') : staff ? [...NAV_ITEMS, ADMIN_NAV_ITEM] : NAV_ITEMS;
-  const nav: NavState = { items, badges: badges.data };
+  const staff = user?.staff ?? null;
+  const items = suspension
+    ? NAV_ITEMS.filter((item) => item.badge === 'notices' || item.path === '/settings').map((item) => (item.path === '/settings' ? { ...item, path: '/settings/security' } : item))
+    : staff
+      ? [...NAV_ITEMS, ADMIN_NAV_ITEM]
+      : NAV_ITEMS;
+  const nav: NavState = { items, badges: badges.data, user, pathname };
   const unacknowledged = badges.data?.notices_unacknowledged ?? 0;
   const [lastPath, setLastPath] = useState(pathname);
 
@@ -142,6 +215,7 @@ export function DashboardLayout() {
         <aside className="sticky top-0 hidden h-dvh w-64 shrink-0 flex-col border-r border-line bg-surface lg:flex">
           <SidebarHeader />
           <SidebarNav nav={nav} />
+          <SidebarFooter nav={nav} />
         </aside>
 
         <div className="flex min-w-0 flex-1 flex-col">
@@ -161,10 +235,32 @@ export function DashboardLayout() {
           </header>
 
           <main className="mx-auto w-full max-w-6xl min-w-0 flex-1 px-4 py-6 sm:px-6 lg:px-10 lg:py-10">
-            {suspension ? <SuspendedBanner /> : unacknowledged > 0 && <NoticesBanner count={unacknowledged} />}
-            <Suspense fallback={<PageFallback />}>
-              {suspension && !pathname.startsWith('/notices') ? <Navigate to="/notices" replace /> : <Outlet />}
-            </Suspense>
+            <SessionEvents />
+            <RouteToast />
+            {session.isPending ? (
+              // Pages assume the session is known (anonymous or signed in) when they render.
+              <PageFallback />
+            ) : user?.deletion ? (
+              // §8.8, §13.3: a pending deletion shows only the Keep my account screen.
+              <PendingDeletionScreen user={{ ...user, deletion: user.deletion }} />
+            ) : (
+              <>
+                {session.isError && (
+                  <p role="alert" className="mb-6 rounded-lg border border-danger/40 bg-danger/10 px-4 py-3 text-sm">
+                    Couldn’t check whether you’re signed in, so this shows files uploaded from this browser.{' '}
+                    <button type="button" onClick={() => void session.refetch()} className="font-medium text-gg hover:underline">
+                      Try again
+                    </button>
+                  </p>
+                )}
+                {suspension ? <SuspendedBanner /> : unacknowledged > 0 && <NoticesBanner count={unacknowledged} />}
+                {user && !suspension && <AccountBanner user={user} />}
+                {user?.needs_username && !suspension && <NeedsUsernameDialog />}
+                <Suspense fallback={<PageFallback />}>
+                  {suspension && !SUSPENDED_PATHS.some((path) => pathname === path || pathname.startsWith(`${path}/`)) ? <Navigate to="/notices" replace /> : <Outlet />}
+                </Suspense>
+              </>
+            )}
           </main>
         </div>
 

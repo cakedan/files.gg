@@ -25,8 +25,8 @@ const CACHE_NAME = 'filesgg-internal-lookups';
 // changes (v3: milestone 3's `previews`, albums with vanities, items_storage and collage; v4:
 // milestone 4's `safety`, `serve_inline` and `pending_count`; v5: `safety` and `expires_at` in
 // album `items_access`; v6: milestone 6's `served_on` and `owner_state`, `owner_user_id` on albums,
-// and the domain lookup).
-export const CACHE_KEY_BASE = 'https://files.gg/__internal-lookup-cache/v6/';
+// and the domain lookup; v7: milestone-6.md §19.5's `view_limit` on file lookups).
+export const CACHE_KEY_BASE = 'https://files.gg/__internal-lookup-cache/v7/';
 
 export const LOOKUP_KINDS = Object.freeze(['files', 'albums', 'domains']);
 

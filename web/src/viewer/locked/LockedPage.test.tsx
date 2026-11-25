@@ -58,7 +58,7 @@ describe('LockedPage', () => {
     expect(screen.getByRole('link', { name: 'Raw' })).toHaveAttribute('href', SIGNED);
     expect(document.body.innerHTML).not.toContain('t=stored');
     const [url, init] = fetch.mock.calls[0] as unknown as [string, RequestInit];
-    expect(url).toMatch(/\/files\/abc\/view$/);
+    expect(url).toMatch(/\/access\/view\/files\/abc$/);
     expect((init.headers as Record<string, string>)['X-Filesgg-Access']).toBe('stored');
   });
 
@@ -72,12 +72,12 @@ describe('LockedPage', () => {
 
   it('a #t= owner pass opens a private file without unlocking, and is not stored', async () => {
     const fetch = mockFetch((url) =>
-      url.endsWith('/view') ? json({ file: { ...signedPayload, visibility: 'private' }, token: 'owner-token', expires_at: future() }) : json({}, 500),
+      url.includes('/access/view/') ? json({ file: { ...signedPayload, visibility: 'private' }, token: 'owner-token', expires_at: future() }) : json({}, 500),
     );
     render(<LockedPage kind="file" vanity="abc" protection="private" ownerPass="owner-token" />);
     expect(await screen.findByRole('img', { name: 'holiday.png' })).toHaveAttribute('src', SIGNED);
     expect(fetch).toHaveBeenCalledTimes(1);
-    expect(fetch.mock.calls.some(([url]) => String(url).includes('/unlock'))).toBe(false);
+    expect(fetch.mock.calls.some(([url]) => String(url).includes('/access/unlock/'))).toBe(false);
     expect(localStorage.getItem(accessStorageKey('file', 'abc'))).toBeNull();
   });
 
@@ -102,7 +102,7 @@ describe('LockedPage', () => {
 
   it('unlocking stores the token and renders the viewer; plain URLs stay plain', async () => {
     mockFetch((url) =>
-      url.endsWith('/unlock') ? json({ token: 'fresh', expires_at: future(), file: { ...payload, visibility: 'link' } }) : json({}, 500),
+      url.includes('/access/unlock/') ? json({ token: 'fresh', expires_at: future(), file: { ...payload, visibility: 'link' } }) : json({}, 500),
     );
     render(<LockedPage kind="file" vanity="abc" protection="password" password="files.gg" />);
     const img = await screen.findByRole('img', { name: 'holiday.png' });
@@ -115,7 +115,7 @@ describe('LockedPage', () => {
     const zip = `https://cdn.files.gg/albums/download/alb.zip?${sig}`;
     const item = `https://cdn.files.gg/files/abc.png?album=alb&${sig}`;
     const album = { vanity: 'alb', title: 'Trip', layout: 'list', download_url: zip, items: [{ ...payload, cdn_url: item, position: 0, caption: '' }] };
-    mockFetch((url) => (url.endsWith('/albums/alb/unlock') ? json({ token: 'tok', expires_at: future(), album }) : json({}, 500)));
+    mockFetch((url) => (url.endsWith('/access/unlock/albums/alb') ? json({ token: 'tok', expires_at: future(), album }) : json({}, 500)));
     render(<LockedPage kind="album" vanity="alb" protection="password" password="files.gg" />);
     expect(await screen.findByRole('heading', { name: 'Trip' })).toBeInTheDocument();
     expect(screen.getByRole('link', { name: /download all/i })).toHaveAttribute('href', zip);
@@ -133,7 +133,7 @@ describe('LockedPage', () => {
         vi.stubGlobal(
           'fetch',
           vi.fn(async (url: string) =>
-            String(url).endsWith('/view')
+            String(url).includes('/access/view/')
               ? json({ file: payload, token: 'owner', expires_at: soon })
               : json({ code: 'UNLOCK_EXPIRED', message: 'x', status: 401 }, 401),
           ),

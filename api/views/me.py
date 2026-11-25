@@ -13,7 +13,7 @@ from db import albums as album_queries
 from db import queries
 from utils import access, access_settings, access_token, errors, limits as limits_module, passwords, payloads
 from utils import albums as album_rules
-from utils import uploading, urls
+from utils import uploading, urls, view_limits
 from utils.generators import Snowflake
 from utils.owner import Caller, caller_of
 from utils.params import Arg, Args
@@ -159,6 +159,9 @@ class PatchFileArgs(Args):
     filename: Annotated[Optional[str], Arg(type=new_filename)] = None
     # Milestone 4 (§4.5): the uploader's own NSFW mark
     nsfw: Annotated[Optional[bool], Arg(type=uploading.boolean)] = None
+    # Milestone 6 §19.3: set, raise, lower or remove (null) the view limit, and its action
+    view_limit: Annotated[Optional[int], Arg(type=view_limits.limit_value)] = None
+    view_limit_action: Annotated[Optional[str], Arg(type=view_limits.action_value)] = None
 
 
 def _owned_file_id(file_id):
@@ -234,12 +237,16 @@ async def patch_file(request, args, file_id):
         if args.nsfw is not None:
             changes.update(nsfw_change(caller, fobj, args.nsfw))
 
+        changes.update(view_limit_change(caller, fobj, args, sent))
+
         if changes:
             async with conn.transaction():
                 await queries.update_file(conn, fobj.id, **changes)
                 if 'expires_at' in changes:
                     await album_queries.anonymous_album_expiry(conn, [a[0] for a in fobj.albums or ()])
-                if 'visibility' in changes:
+                # a view-limited file isn't shown in albums (§19.6): setting or removing a limit changes that
+                shown_changed = 'view_limit' in changes and (changes['view_limit'] is None) != (fobj.view_limit is None)
+                if 'visibility' in changes or shown_changed:
                     for album_id, _, _ in fobj.albums or ():
                         await media_jobs.queue_collage_async(conn, album_id)
             fobj = await _owner_file(conn, caller, fobj.id)
@@ -247,6 +254,26 @@ async def patch_file(request, args, file_id):
     if password.generated:
         payloads.with_password(body, fobj, password.plain)
     return ApiResponse(body)
+
+
+def view_limit_change(caller, fobj, args, sent):
+    """Milestone-6 §19.3: the owner sets, raises, lowers or removes (`null`) the limit and picks the action. A new
+    limit must be greater than `views_used` (400 VIEW_LIMIT_TOO_LOW { views_used }); `views_used` is never reset.
+    Anonymous uploaders set it only at upload, like the `private` action."""
+    if 'view_limit' not in sent and args.view_limit_action is None:
+        return {}
+    if caller.anonymous:
+        raise errors.forbidden('Sign in to change a view limit')
+    changes = {}
+    if 'view_limit' in sent:
+        limit = args.view_limit
+        if limit is not None and limit <= fobj.views_used:
+            raise errors.view_limit_too_low(fobj.views_used)
+        if limit != fobj.view_limit:
+            changes['view_limit'] = limit
+    if args.view_limit_action is not None and args.view_limit_action != fobj.view_limit_action:
+        changes['view_limit_action'] = args.view_limit_action
+    return changes
 
 
 def nsfw_change(caller, fobj, nsfw):
@@ -536,16 +563,45 @@ async def bulk_access(request, args):
 @only_me
 @authenticate()
 async def file_owner_pass(request, file_id, user):
-    """A 1 h owner token (contract §5): opens the owner's own file anywhere."""
+    """A 1 h owner token (contract §5): opens the owner's own file anywhere. Milestone 6 (§10.9): with
+    `domain_id`, the URL is on that serving domain of the owner's (409 DOMAIN_NOT_ACTIVE otherwise)."""
     async with db.connection() as conn:
         fobj = await queries.get_owned_file(conn, _owned_file_id(file_id), user.id)
-    if fobj is None:
-        raise errors.unknown_file()
+        if fobj is None:
+            raise errors.unknown_file()
+        host = await _pass_host(conn, request, user)
     now = access.now()
     expires_at = now + access_token.OWNER_PASS_SECONDS
     token = access.mint(request, fobj, 'owner', now, expires_at)
     return ApiResponse({'token': token, 'expires_at': expires_at,
-                        'url': urls.public_url('/{}#t={}'.format(fobj.vanity, token))})
+                        'url': _on_host(urls.public_url('/{}#t={}'.format(fobj.vanity, token)), host)})
+
+
+async def _pass_host(conn, request, user):
+    """The hostname of the serving domain an owner pass asks for (`domain_id`), else None (files.gg)."""
+    from utils import domains, params as request_params
+    body = request_params.request_json(request)
+    domain_id = body.get('domain_id') if isinstance(body, dict) else None
+    if domain_id in (None, ''):
+        return None
+    try:
+        domain_id = int(domain_id)
+    except (TypeError, ValueError):
+        raise errors.unknown_domain()
+    cursor = await conn.execute('SELECT d.hostname, ' + domains.SERVING_SQL + ' FROM custom_domains d JOIN users u ON '
+                                'u.id = d.user_id WHERE d.id = %s AND d.user_id = %s AND d.deleted_at IS NULL',
+                                (domain_id, user.id))
+    row = await cursor.fetchone()
+    if row is None:
+        raise errors.unknown_domain()
+    if not row[1]:
+        raise errors.domain_not_active()
+    return row[0]
+
+
+def _on_host(url, host):
+    from utils import links
+    return links.rehost(url, host) if host else url
 
 
 # --- albums (contract milestone-3 §6) ------------------------------------------------------------------
@@ -882,10 +938,11 @@ async def album_owner_pass(request, album_id, user):
     """A 1 h owner token for the album (contract milestone-2 §5)."""
     async with db.connection() as conn:
         album = await album_queries.get_owned_album(conn, _album_id(album_id), Caller(user, None))
-    if album is None:
-        raise errors.unknown_album()
+        if album is None:
+            raise errors.unknown_album()
+        host = await _pass_host(conn, request, user)
     now = access.now()
     expires_at = now + access_token.OWNER_PASS_SECONDS
     token = access.mint(request, album, 'owner', now, expires_at, kind='album')
     return ApiResponse({'token': token, 'expires_at': expires_at,
-                        'url': urls.public_url('/a/{}#t={}'.format(album.vanity, token))})
+                        'url': _on_host(urls.public_url('/a/{}#t={}'.format(album.vanity, token)), host)})

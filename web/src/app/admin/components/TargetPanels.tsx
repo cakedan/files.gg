@@ -4,9 +4,9 @@ import { formatBytes } from '../../../lib/format';
 import { RELATIVE_REFRESH_MS } from '../../../lib/time';
 import { useNow } from '../../../lib/useNow';
 import { RULE_TEXT, WARNING_TEXT } from '../../safety/labels';
-import type { AdminAlbumDetail, AdminFileDetail, AdminUserDetail } from '../adminApi';
+import type { AdminAlbumDetail, AdminDomainDetail, AdminFileDetail, AdminUserDetail } from '../adminApi';
 import { flagLabel } from '../format';
-import { albumActions, canOpenMedia, fileActions, userActions } from '../permissions';
+import { albumActions, canOpenMedia, domainActions, fileActions, userActions } from '../permissions';
 import { useStaff } from '../staffContext';
 import { ActionPanel } from './ActionPanel';
 import { BanForm } from './BanForm';
@@ -262,6 +262,56 @@ export function UserTarget({ detail, caseId, part = 'all' }: { detail: AdminUser
         </Section>
       )}
       {part !== 'info' && <ActionPanel target={{ type: 'user', id: detail.user.id }} options={options} caseId={caseId} />}
+    </>
+  );
+}
+
+const DOMAIN_STATUS: Record<string, string> = {
+  pending_dns: 'Waiting for DNS',
+  pending_cert: 'Issuing certificate',
+  active: 'Active',
+  failing: 'Failing',
+  failed: 'Failed',
+  paused: 'Paused (premium ended)',
+  disabled: 'Disabled by staff',
+};
+
+/** A custom domain target (milestone-6 §10.12): facts, and disable, enable or force “Only my files”. */
+export function DomainTarget({ detail, caseId, part = 'all' }: { detail: AdminDomainDetail; caseId?: string; part?: Part }) {
+  const staff = useStaff();
+  const now = useNow(RELATIVE_REFRESH_MS);
+  return (
+    <>
+      {part !== 'actions' && (
+        <Section title="Domain">
+          <dl className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+            <Fact label="Hostname">
+              <span className="font-mono">{detail.hostname}</span>
+            </Fact>
+            <Fact label="Status">
+              {DOMAIN_STATUS[detail.status] ?? detail.status}
+              {detail.status_reason && <span className="text-muted"> · {detail.status_reason}</span>}
+            </Fact>
+            <Fact label="Serving">{detail.serving ? 'Yes' : 'No'}</Fact>
+            <Fact label="Owner">
+              {detail.owner ? (
+                <Link to={`/admin/users/${detail.owner.id}`} className="text-gg hover:underline">
+                  {detail.owner.username}
+                </Link>
+              ) : (
+                'Unknown'
+              )}
+            </Fact>
+            <Fact label="Shows">{detail.scope === 'own' ? 'Only the owner’s files' : 'Anyone’s files'}</Fact>
+            <Fact label="Added">
+              <When at={detail.created_at} now={now} />
+            </Fact>
+            {detail.disabled_reason && <Fact label="Disabled for">{RULE_TEXT[detail.disabled_reason] ?? detail.disabled_reason}</Fact>}
+            {detail.cf_hostname_id && <Fact label="Cloudflare id">{detail.cf_hostname_id}</Fact>}
+          </dl>
+        </Section>
+      )}
+      {part !== 'info' && <ActionPanel target={{ type: 'domain', id: detail.id }} options={domainActions(staff, detail)} caseId={caseId} />}
     </>
   );
 }

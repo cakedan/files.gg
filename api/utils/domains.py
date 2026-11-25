@@ -46,15 +46,19 @@ COLUMNS = ('id', 'user_id', 'hostname', 'cf_hostname_id', 'status', 'status_reas
 PREMIUM_SQL = ("EXISTS (SELECT 1 FROM user_entitlements e WHERE e.user_id = {u}.id AND e.kind = 'premium' AND "
                "e.revoked_at IS NULL AND (e.expires_at IS NULL OR e.expires_at > now()))")
 # a domain serves when it's active or failing, its owner is premium and the owner's account is active (§10.5)
-SERVING_SQL = ("(d.deleted_at IS NULL AND d.status IN ('active', 'failing') AND u.deleted_at IS NULL AND "
-               "u.deletion_requested_at IS NULL AND " + PREMIUM_SQL.format(u='u') + ')')
-# domain-only is effective when the owner switched it on, is premium and has a serving domain (§10.6)
-DOMAIN_ONLY_SQL = ('({u}.domain_only AND ' + PREMIUM_SQL + " AND EXISTS (SELECT 1 FROM custom_domains d JOIN users u "
-                   "ON u.id = d.user_id WHERE d.user_id = {u}.id AND " + SERVING_SQL + '))')
+def serving_sql(d='d', u='u'):
+    return ("({d}.deleted_at IS NULL AND {d}.status IN ('active', 'failing') AND {u}.deleted_at IS NULL AND "
+            "{u}.deletion_requested_at IS NULL AND ".format(d=d, u=u) + PREMIUM_SQL.format(u=u) + ')')
+
+
+SERVING_SQL = serving_sql()
 
 
 def domain_only_sql(alias):
-    return DOMAIN_ONLY_SQL.format(u=alias)
+    """Domain-only is effective when the owner switched it on, is premium and has a serving domain (§10.6)."""
+    return ('({u}.domain_only AND ' + PREMIUM_SQL.format(u=alias) + ' AND EXISTS (SELECT 1 FROM custom_domains sd '
+            'JOIN users su ON su.id = sd.user_id WHERE sd.user_id = {u}.id AND ' + serving_sql('sd', 'su') + '))'
+            ).format(u=alias)
 
 
 def select(alias='d'):
@@ -84,7 +88,7 @@ def reserved_hosts(settings=None):
     import os
     settings = settings or account_settings()
     hosts = {'files.gg', _host(public_url()), _host(cdn_url()), _host(settings.api_public_url)}
-    for name in ('MAIN_HOST', 'CDN_HOST', 'API_HOST', 'PROXY_HOST'):
+    for name in ('MAIN_HOST', 'CDN_HOST', 'API_HOST'):
         if os.getenv(name):
             hosts.add(os.getenv(name).strip().lower())
     target = settings.custom_domain_target
@@ -176,7 +180,12 @@ def lookup(name, rdtype):
 
 def check_dns(domain, settings=None):
     """(txt_ok, cname_ok): our TXT matches exactly; the CNAME chain reaches CUSTOM_DOMAIN_TARGET."""
+    import os
     settings = settings or account_settings()
+    # the local e2e stack has no real DNS for its test hostnames: with FILESGG_DEV_TOOLS=1, DOMAIN_DNS_STUB=1
+    # treats both records as present (development flags: never set in production)
+    if os.getenv('FILESGG_DEV_TOOLS') == '1' and os.getenv('DOMAIN_DNS_STUB') == '1':
+        return True, True
     txt_ok = (TXT_VALUE + domain.verify_token) in lookup(TXT_PREFIX + domain.hostname, 'TXT')
     name, seen, cname_ok = domain.hostname, set(), False
     for _ in range(8):

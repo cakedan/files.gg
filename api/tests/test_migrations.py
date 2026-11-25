@@ -7,7 +7,8 @@ import media
 import migrate
 from utils import filetypes
 
-VERSIONS = [('0001', 'schema'), ('0002', 'mimetypes'), ('0003', 'trust_safety'), ('0004', 'scan_hardening')]
+VERSIONS = [('0001', 'schema'), ('0002', 'mimetypes'), ('0003', 'trust_safety'), ('0004', 'scan_hardening'),
+            ('0005', 'accounts'), ('0006', 'view_limits')]
 TABLES = {
     'schema_migrations', 'mimetype_types', 'mimetypes', 'mimetype_extensions', 'users', 'file_hashes',
     'file_hash_assets', 'files', 'file_view_days', 'file_view_seen', 'albums', 'album_files', 'upload_sessions',
@@ -16,6 +17,11 @@ TABLES = {
     'file_hash_pdq', 'staff', 'moderation_actions', 'blocked_hashes', 'blocked_hash_pdq', 'user_warnings',
     'user_restrictions', 'bans', 'moderation_cases', 'reports', 'report_messages', 'report_reads', 'content_flags',
     'safety_rate_limits', 'evidence_holds',
+    # Milestone 6 (contract §1)
+    'username_holds', 'user_identities', 'sessions', 'account_tokens', 'custom_domains', 'upload_keys',
+    'user_entitlements', 'data_exports',
+    # Milestone 6 §19.2
+    'file_limit_viewers',
 }
 # PLAN.md "Accepted file types", the v1 blocklist: none of these may be accepted
 # one list for the code and the tests: utils/filetypes.py
@@ -148,8 +154,10 @@ def test_row_types_match_schema(migrated_db):
 def test_no_legacy_objects(migrated_db):
     assert 'file_views' not in table_names(migrated_db)
     users = column_names(migrated_db, 'users')
-    assert 'last_email_reset' not in users and 'last_password_reset' not in users
-    assert {'last_email_reset_at', 'last_password_reset_at'} <= set(users)
+    # milestone-6 §1.1: no token versions (sessions are rows), no discriminator, no Werkzeug hash
+    assert not {'last_email_reset', 'last_password_reset', 'last_email_reset_at', 'last_password_reset_at',
+                'discriminator', 'bot', 'flags', 'password', 'verified'} & set(users)
+    assert {'password_hash', 'email_verified', 'deletion_scheduled_for', 'deleted_at'} <= set(users)
     for table, column in (('file_hashes', 'storage_backend'), ('file_hashes', 'width'), ('file_hashes', 'height'),
                           ('file_hashes', 'duration')):
         assert column not in column_names(migrated_db, table)
@@ -256,6 +264,28 @@ def test_foreign_keys(migrated_db):
         ('user_restrictions', 'warning_id'): ('user_warnings', 'set null'),
         ('user_warnings', 'action_id'): ('moderation_actions', 'set null'),
         ('user_warnings', 'user_id'): ('users', 'cascade'),
+        # Milestone 6 (contract §1): an account's own rows go with it (accounts are tombstoned, never deleted,
+        # §8.8); audit and moderation references are SET NULL
+        ('username_holds', 'user_id'): ('users', 'cascade'),
+        ('user_identities', 'user_id'): ('users', 'cascade'),
+        ('sessions', 'user_id'): ('users', 'cascade'),
+        ('account_tokens', 'user_id'): ('users', 'cascade'),
+        ('custom_domains', 'user_id'): ('users', 'cascade'),
+        ('custom_domains', 'disabled_action_id'): ('moderation_actions', 'set null'),
+        ('upload_keys', 'user_id'): ('users', 'cascade'),
+        ('upload_keys', 'domain_id'): ('custom_domains', 'set null'),
+        ('files', 'upload_key_id'): ('upload_keys', 'set null'),
+        ('upload_sessions', 'upload_key_id'): ('upload_keys', 'set null'),
+        ('user_entitlements', 'user_id'): ('users', 'cascade'),
+        ('user_entitlements', 'granted_by'): ('users', 'set null'),
+        ('user_entitlements', 'revoked_by'): ('users', 'set null'),
+        ('user_entitlements', 'action_id'): ('moderation_actions', 'set null'),
+        ('data_exports', 'user_id'): ('users', 'cascade'),
+        ('moderation_actions', 'domain_id'): ('custom_domains', 'set null'),
+        ('reports', 'domain_id'): ('custom_domains', 'set null'),
+        ('moderation_cases', 'domain_id'): ('custom_domains', 'set null'),
+        # milestone-6 §19.2: a file's viewers go with it
+        ('file_limit_viewers', 'file_id'): ('files', 'cascade'),
     }
 
 
@@ -283,14 +313,33 @@ def insert_file(temp, file_id, **columns):
     "INSERT INTO mimetypes (id, type_id) VALUES ('image/x-thing', 'video')",
     "INSERT INTO mimetype_extensions (mimetype_id, extension) VALUES ('text/plain', 'TXT2')",
     "INSERT INTO mimetype_extensions (mimetype_id, extension) VALUES ('text/plain', '.txt2')",
-    "INSERT INTO users (id, email, bot, username, discriminator, flags, verified) "
-    "VALUES (2, 'a@x', false, repeat('u', 33), 1, 0, false)",
+    "INSERT INTO users (id, email, username) VALUES (2, 'a@x', repeat('u', 33))",
+    # milestone-6 §1: usernames, password hashes, sessions, keys, domains and entitlements
+    "INSERT INTO users (id, email, username) VALUES (2, 'a@x', 'Upper')",
+    "INSERT INTO users (id, email, username) VALUES (2, 'a@x', 'da..n')",
+    "INSERT INTO users (id, email, username) VALUES (2, 'a@x', '.dan')",
+    "INSERT INTO users (id, email, username, password_hash) VALUES (2, 'a@x', 'dan', 'pbkdf2:sha256:1$x$y')",
+    "INSERT INTO users (id, email, username, deletion_requested_at) VALUES (2, 'a@x', 'dan', now())",
+    "INSERT INTO upload_keys (id, user_id, name, prefix, key_hash, scopes) VALUES (1, 9, 'k', 'fgg_01234567', "
+    "sha256('x'::bytea), ARRAY['albums:append'])",
+    "INSERT INTO custom_domains (id, user_id, hostname, verify_token, status) VALUES (1, 9, 'i.example.com', "
+    "'aaaqeayeaudaocajbifqydiob4', 'gone')",
+    "INSERT INTO user_entitlements (id, user_id, kind) VALUES (1, 9, 'gold')",
     "UPDATE albums SET moderation_state = 'gone'",
+    # milestone-6 §19.2: view limits
+    'UPDATE files SET view_limit = 0',
+    'UPDATE files SET view_limit = 1001',
+    "UPDATE files SET view_limit_action = 'delete'",
+    'UPDATE files SET views_used = -1',
+    'UPDATE files SET view_limit = 2, views_used = 3',
+    "INSERT INTO file_limit_viewers (file_id, viewer) VALUES (1, '\\x01'), (1, '\\x01')",
+    "INSERT INTO file_limit_viewers (file_id, viewer) VALUES (2, '\\x01')",
 ])
 def test_constraints(migrated_db, sql):
     migrated_db.execute("INSERT INTO file_hashes (id, blake2b, sha1, md5, size) VALUES (1, 'b', 's', 'm', 1)")
     insert_file(migrated_db, 1, extension='txt')
     migrated_db.execute("INSERT INTO albums (id, vanity, owner_fingerprint) VALUES (1, 'a1', 7)")
+    migrated_db.execute("INSERT INTO users (id, email, username) VALUES (9, 'nine@x', 'nine')")
     with pytest.raises(psycopg.errors.IntegrityError):
         migrated_db.execute(sql)
 

@@ -15,7 +15,13 @@
  *   4a. data-state="pending"      -> pending, from `{ vanity, pending: true }`; else missing
  *   4b. data-state="removed"      -> removed, from `{ vanity, removed: <reason> }`; else missing
  *   4c. data-state="locked"       -> locked (contract §4), when the script tag holds
- *                                    `{ vanity, protected: "password" }`; else missing
+ *                                    `{ vanity, protected: "password" }`; else missing.
+ *                                    `view_limited: true` (+ `views_remaining`) marks a
+ *                                    view-limited password file (milestone-6 §19.7)
+ *   4d. data-state="limited"      -> limited (milestone-6 §19.5), from
+ *                                    `{ vanity, view_limited: true, views_remaining }`; with
+ *                                    `protected: "password"` it's the lock screen instead
+ *                                    (locked, with the view limit); albums are missing
  *   5. data-page="album"          -> album when #album-data is a valid album with at
  *                                    least one visible item, otherwise missing
  *   6. valid file JSON            -> file
@@ -38,12 +44,14 @@ import {
   type FileKind,
   type FileThumbnail,
   type FileWarning,
+  type LimitedTarget,
   type LockedTarget,
   type MediaInfo,
   type MediaTags,
   type RemovedReason,
   type ReportPageTarget,
   type StateTarget,
+  type ViewLimitInfo,
 } from './types';
 
 export interface BootInput {
@@ -216,7 +224,24 @@ export function parseFileData(value: unknown): FileData | null {
     nsfw: value.nsfw === true ? true : undefined,
     warnings: parseWarnings(value.warnings),
     link_warnings: parseLinkWarnings(value.link_warnings),
+    view_limit: parsePayloadViewLimit(value.view_limit),
   };
+}
+
+const viewCount = (value: unknown): number | undefined =>
+  typeof value === 'number' && Number.isInteger(value) && value >= 0 ? value : undefined;
+
+/** Milestone 6 §19.6: `view_limit: { remaining }` on a public payload, or undefined. */
+export function parsePayloadViewLimit(value: unknown): { remaining: number } | undefined {
+  if (!isObject(value)) return undefined;
+  const remaining = viewCount(value.remaining);
+  return remaining === undefined ? undefined : { remaining };
+}
+
+/** Milestone 6 §19.5: `view_limited: true` with `views_remaining` on a shell's payload. */
+function parseShellViewLimit(value: JsonObject): ViewLimitInfo | undefined {
+  if (value.view_limited !== true) return undefined;
+  return { remaining: viewCount(value.views_remaining) ?? null };
 }
 
 const normalizeLayout = (value: unknown): AlbumLayout =>
@@ -277,12 +302,22 @@ export function parseLockedTarget(value: unknown, kind: LockedTarget['kind']): L
   if (!isObject(value)) return null;
   const vanity = nonEmptyString(value.vanity);
   if (!vanity || value.protected !== 'password') return null;
+  const viewLimit = kind === 'file' ? parseShellViewLimit(value) : undefined;
   return {
     kind,
     vanity,
     name: nonEmptyString(kind === 'album' ? value.title : value.filename),
     passwordExpired: value.password_expired === true,
+    ...(viewLimit ? { viewLimit } : {}),
   };
+}
+
+/** `{ vanity, view_limited: true, views_remaining }` (milestone-6 §19.5). Files only. */
+export function parseLimitedTarget(value: unknown): LimitedTarget | null {
+  if (!isObject(value)) return null;
+  const vanity = nonEmptyString(value.vanity);
+  const limit = parseShellViewLimit(value);
+  return vanity && limit ? { vanity, ...limit } : null;
 }
 
 /** `#file-data` / `#album-data` = `{ vanity, pending: true }` (milestone-4 §10.1). */
@@ -338,6 +373,19 @@ export function parseBoot({ page, state, fileJson, albumJson, reportJson }: Boot
     const kind = page === 'album' ? 'album' : 'file';
     const target = parseLockedTarget(parseJson(kind === 'album' ? albumJson : fileJson), kind);
     return target ? { page: 'locked', target } : { page: 'missing' };
+  }
+
+  if (state === 'limited') {
+    // View limits are for files only (§19.6): albums can't count each item.
+    if (page === 'album') return { page: 'missing' };
+    const data = parseJson(fileJson);
+    // A view-limited password file: the lock screen, where unlocking uses the view (§19.4).
+    if (isObject(data) && data.protected === 'password') {
+      const target = parseLockedTarget({ view_limited: true, ...data }, 'file');
+      return target ? { page: 'locked', target } : { page: 'missing' };
+    }
+    const target = parseLimitedTarget(data);
+    return target ? { page: 'limited', target } : { page: 'missing' };
   }
 
   if (page === 'album') {

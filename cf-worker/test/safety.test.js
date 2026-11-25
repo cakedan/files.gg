@@ -309,7 +309,7 @@ describe('album shells per state (milestone-4.md §6.3, §10.1)', () => {
 });
 
 
-describe('report routes and the reserved segment (milestone-4.md §7.2, §10.1)', () => {
+describe('report routes and the reserved segment (milestone-4.md §7.2, §10.1, milestone-6.md §20.2)', () => {
   const report = (path) => classifyStablePath(path);
 
   it('/report: the public form', () => {
@@ -318,22 +318,32 @@ describe('report routes and the reserved segment (milestone-4.md §7.2, §10.1)'
     }
   });
 
-  it('/a/<vanity>/report (and /a/<vanity>/<n>/report): the album', () => {
-    for (const path of ['/a/Ab3dE6gH/report', '/a/Ab3dE6gH/report/', '/a/Ab3dE6gH/3/report']) {
-      assert.deepEqual(report(path), { route: 'report', data: { type: 'album', vanity: 'Ab3dE6gH' } }, path);
+  it('/report/a/<vanity>: the album', () => {
+    for (const path of ['/report/a/Ab3dE6gH', '/report/a/Ab3dE6gH/', '/report/a/caf%C3%A9']) {
+      const vanity = path.includes('caf') ? 'café' : 'Ab3dE6gH';
+      assert.deepEqual(report(path), { route: 'report', data: { type: 'album', vanity } }, path);
     }
   });
 
-  it('/<vanity>[.<ext>]/report: the file, multi-segment vanities included', () => {
+  it('/report/<vanity>[.<ext>]: the file, multi-segment vanities included', () => {
     const cases = {
-      '/abc123/report': 'abc123', '/abc123.png/report': 'abc123', '/abc123/report/': 'abc123',
-      '/abcd/xyz/report': 'abcd/xyz', '/abcd/xyz.jpg/report': 'abcd/xyz', '/caf%C3%A9/report': 'café',
-      // Never a lookup for `report` itself: a vanity can't contain it.
-      '/a/report': 'a',
+      '/report/abc123': 'abc123', '/report/abc123.png': 'abc123', '/report/abc123/': 'abc123',
+      '/report/abcd/xyz': 'abcd/xyz', '/report/abcd/xyz.jpg': 'abcd/xyz', '/report/caf%C3%A9': 'café',
+      // Word vanities are the vanity, never an action: no lookup is made for a report page.
+      '/report/unlock/view': 'unlock/view', '/report/report/x': 'report/x', '/report/a/b/c': 'a/b/c',
+      '/report/a': 'a',
     };
     for (const [path, vanity] of Object.entries(cases)) {
       assert.deepEqual(report(path), { route: 'report', data: { type: 'file', vanity } }, path);
     }
+  });
+
+  it('the old shapes are gone: nothing after a vanity names the report page or an album item', () => {
+    for (const path of ['/abc123/report', '/abcd/xyz/report', '/a/Ab3dE6gH/report', '/a/Ab3dE6gH/3/report', '/a/Ab3dE6gH/3', '/a/Ab3dE6gH/x']) {
+      assert.equal(report(path).route, 'missing', path);
+    }
+    // `<vanity>.<anything>` keeps its meaning (PLAN.md §1.4 item 1): the file, never its report page
+    assert.deepEqual(report('/abc123.png/report'), { route: 'file', vanity: 'abc123' });
   });
 
   it('security.txt is its own route', () => {
@@ -341,18 +351,20 @@ describe('report routes and the reserved segment (milestone-4.md §7.2, §10.1)'
   });
 
   it('a vanity with a `report` segment is missing without a lookup', () => {
-    for (const path of ['/report.png', '/abc/report/x', '/REPORT/x', '/abc%2Freport', '/x/Report.png', '/report/abc.png']) {
+    for (const path of ['/report.png', '/abc/report/x', '/REPORT/x', '/abc%2Freport', '/x/Report.png', '/unlock/report']) {
       assert.equal(report(path).route, 'missing', path);
     }
     assert.equal(hasReservedSegment('reports/x'), false);
     assert.equal(report('/reports').route, 'file');
     assert.equal(report('/reporting/x').route, 'file');
+    // a word vanity is looked up as itself
+    assert.deepEqual(report('/unlock/view'), { route: 'file', vanity: 'unlock/view' });
   });
 
   it('report routes come after the API, the app and static files', () => {
     assert.equal(report('/api/report').route, 'api');
     assert.equal(report('/app/report').route, 'app');
-    assert.equal(report('/assets/x/report').route, 'asset');
+    assert.equal(report('/assets/report/x').route, 'asset');
   });
 });
 

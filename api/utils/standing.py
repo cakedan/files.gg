@@ -27,7 +27,7 @@ PENDING_DELETION_ALLOWED = (
     ('GET', '/users/@me/sessions*'), ('DELETE', '/users/@me/sessions*'),
     ('POST', '/users/@me/exports*'), ('GET', '/users/@me/exports*'),
 )
-# The account's own endpoints, where those rules apply. Public reads (files, albums, unlock, /view) aren't
+# The account's own endpoints, where those rules apply. Public reads (files, albums, /access/...) aren't
 # account actions: a suspended or locked account reads them like anyone else (its own content is offline).
 ACCOUNT_PATHS = ('/users/', '/uploads', '/reports', '/auth/')
 

@@ -66,7 +66,7 @@ afterEach(() => {
 
 describe('custom host: protected files', () => {
   it('unlocks through the challenge frame and api.files.gg without credentials, and shows rehosted, still-signed URLs', async () => {
-    const fetch = mockFetch((url) => (url.endsWith('/unlock') ? json({ token: 'fresh', expires_at: future(), file: payload }) : json({}, 500)));
+    const fetch = mockFetch((url) => (url.includes('/access/unlock/') ? json({ token: 'fresh', expires_at: future(), file: payload }) : json({}, 500)));
     render(<ViewerApp state={{ page: 'locked', target: { kind: 'file', vanity: 'abc', passwordExpired: false } }} />);
     expect(await screen.findByRole('heading', { name: 'This file is password protected' })).toBeInTheDocument();
     expect(document.title).toBe('Password-protected file · i.example.com');
@@ -84,7 +84,7 @@ describe('custom host: protected files', () => {
     expect(document.title).toBe('holiday.png · i.example.com');
 
     const [url, init] = fetch.mock.calls[0]!;
-    expect(url).toBe('https://api.files.gg/files/abc/unlock');
+    expect(url).toBe('https://api.files.gg/access/unlock/files/abc');
     expect(init.credentials).toBe('omit');
     expect(JSON.parse(String(init.body))).toEqual({ password: 'files.gg', turnstile_token: 'XXXX.DUMMY.TOKEN.XXXX' });
     // Kept in this domain's own storage (unlocking on files.gg doesn't unlock here, and back).
@@ -97,7 +97,7 @@ describe('custom host: protected files', () => {
     render(<ViewerApp state={{ page: 'missing' }} secrets={{ ownerPass: 'pass', rest: '' }} />);
     expect(await screen.findByRole('img', { name: 'holiday.png' })).toHaveAttribute('src', `https://i.example.com${SIGNED_PATH}`);
     const [url, init] = fetch.mock.calls[0]!;
-    expect(url).toBe('https://api.files.gg/files/abc/view');
+    expect(url).toBe('https://api.files.gg/access/view/files/abc');
     expect(init.credentials).toBe('omit');
     expect(init.headers).toEqual({ Accept: 'application/json', 'X-Filesgg-Access': 'pass' });
     // Owner passes are never stored.
@@ -154,7 +154,7 @@ describe('custom host: reports', () => {
   it('the domain landing card: "Files hosted with files.gg" and Report, which reports the domain anonymously', async () => {
     const fetch = mockFetch(() => json({ id: '9', status: 'open' }, 201));
     render(<ViewerApp state={{ page: 'domain-home' }} />);
-    expect(screen.getByRole('heading', { name: 'Files hosted with files.gg' })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: 'Files hosted with files.gg' })).toBeInTheDocument();
     expect(screen.getByText('i.example.com')).toBeInTheDocument();
     expect(document.title).toBe('i.example.com');
     expect(document.querySelector('a[href^="/app"]')).toBeNull();
@@ -195,7 +195,7 @@ describe('custom host: reports', () => {
     expect(await screen.findByRole('heading', { name: 'Report this file' })).toBeInTheDocument();
     expect(screen.getByText(/i\.example\.com\//)).toHaveTextContent('i.example.com/abc');
     await frameSays({ type: MSG_ERROR, code: 'load-failed' });
-    expect(screen.getByRole('link', { name: 'Open on files.gg to continue' })).toHaveAttribute('href', 'https://files.gg/abc/report');
+    expect(screen.getByRole('link', { name: 'Open on files.gg to continue' })).toHaveAttribute('href', 'https://files.gg/report/abc');
     expect(fetch).not.toHaveBeenCalled();
   });
 

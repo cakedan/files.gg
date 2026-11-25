@@ -4,7 +4,6 @@ import {
   createApiRouter,
   createCdnRouter,
   createCustomRouter,
-  createProxyRouter,
   createStableRouter,
 } from './domains/index.js';
 
@@ -21,7 +20,7 @@ function isMainApi(hostname, pathname, hosts) {
 }
 
 
-// One router per set of hostnames (MAIN_HOST, CDN_HOST, API_HOST, PROXY_HOST; utils/hosts.js).
+// One router per set of hostnames (MAIN_HOST, CDN_HOST, API_HOST; utils/hosts.js).
 // A deployment only ever has one, so this builds a single router per isolate.
 function createRouter(hosts) {
   const router = new FetchRouter();
@@ -60,16 +59,15 @@ function createRouter(hosts) {
 
   router.addRouter(createApiRouter(hosts));
   router.addRouter(createCdnRouter(hosts));
-  router.addRouter(createProxyRouter(hosts));
   router.addRouter(createStableRouter(hosts));
   return router;
 }
 
-// { own, custom } routers per set of hostnames: `own` for our four hosts, `custom` for every other
+// { own, custom } routers per set of hostnames: `own` for our three hosts (and www.), `custom` for every other
 // hostname (customers' domains, milestone-6.md §10.8).
 const routers = new Map();
 function routersFor(hosts) {
-  const key = [hosts.main, hosts.cdn, hosts.api, hosts.proxy].join('\n');
+  const key = [hosts.main, hosts.cdn, hosts.api].join('\n');
   let entry = routers.get(key);
   if (!entry) {
     entry = { own: createRouter(hosts), custom: createCustomRouter(hosts) };

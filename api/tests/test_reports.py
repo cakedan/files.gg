@@ -14,7 +14,7 @@ def net():
 
 def report(client, headers, body, ip=None, status=None):
     headers = dict(headers, **{'X-Forwarded-For': ip or net()})
-    if 'Authorization' in headers:
+    if 'Cookie' in headers:
         response = client.post('/reports', headers=headers, json=body)
     else:
         response = client.post('/reports/anonymous', headers=headers, json=dict(body, turnstile_token=REPORT_TOKEN))
@@ -119,12 +119,12 @@ def test_url_targets(client, appdb):
     _, reporter = new_user(appdb)
     cases = [
         ('https://files.gg/{}.txt?x=1#y'.format(created['vanity']), 'file', created['vanity']),
-        ('https://files.gg/{}/report'.format(created['vanity']), 'file', created['vanity']),
+        ('https://files.gg/report/{}'.format(created['vanity']), 'file', created['vanity']),
         ('https://cdn.files.gg/files/{}.txt?expires=1&sig=x'.format(created['vanity']), 'file', created['vanity']),
         ('https://cdn.files.gg/previews/thumb/{}.webp?v=5'.format(created['vanity']), 'file', created['vanity']),
         # an album item: the reporter's view names the album and the position, never the item's vanity
-        ('https://files.gg/a/{}/2'.format(album['vanity']), 'file', None),
-        ('https://files.gg/a/{}/report'.format(album['vanity']), 'album', album['vanity']),
+        ('https://files.gg/a/{}?item=2#pw=x'.format(album['vanity']), 'file', None),
+        ('https://files.gg/report/a/{}'.format(album['vanity']), 'album', album['vanity']),
         ('https://cdn.files.gg/albums/download/{}.zip'.format(album['vanity']), 'album', album['vanity']),
     ]
     for reason, (url, kind, vanity) in zip(('spam', 'other', 'harassment', 'violence', 'spam', 'spam', 'other'),
@@ -134,11 +134,40 @@ def test_url_targets(client, appdb):
         target = body.json()['report']['target']
         assert (target['type'], target['vanity']) == (kind, vanity), url
         if vanity is None:
-            assert target['url'] == 'https://files.gg/a/{}/2'.format(album['vanity'])
+            assert target['url'] == 'https://files.gg/a/{}?item=2'.format(album['vanity'])
             assert target['album'] == {'vanity': album['vanity'], 'item': 2}
             assert other['vanity'] not in body.text
             row = appdb.fetchone('SELECT kind, file_id FROM reports WHERE id = %s', (int(body.json()['report']['id']),))
             assert row == ('file', int(other['id']))
+
+
+def test_url_targets_vanity_is_last(client, appdb):
+    """milestone-6 §20.2: the old page shapes (`/<vanity>/report`, `/a/<vanity>/report`, `/a/<vanity>/<n>`) are gone.
+    Anything after a vanity is part of it, so a word after it never names an action or an item."""
+    from safety.reports import parse_url
+    assert parse_url('https://files.gg/report/abcd/xyz.png') == {'type': 'file', 'vanity': 'abcd/xyz'}
+    assert parse_url('https://files.gg/report/a/Ab3') == {'type': 'album', 'vanity': 'Ab3'}
+    # the report page names the album itself, whatever its query
+    assert parse_url('https://files.gg/report/a/Ab3?item=2') == {'type': 'album', 'vanity': 'Ab3'}
+    assert parse_url('https://files.gg/a/Ab3?item=3&x=1#pw=y') == {'type': 'album', 'vanity': 'Ab3', 'item': 3}
+    for junk in ('0', '-1', 'x', '', '²', '1' * 12):
+        assert parse_url('https://files.gg/a/Ab3?item=' + junk) == {'type': 'album', 'vanity': 'Ab3'}, junk
+    # words after a vanity are part of it: never the report page or an action
+    assert parse_url('https://files.gg/abc/report') == {'type': 'file', 'vanity': 'abc/report'}
+    assert parse_url('https://files.gg/unlock/view') == {'type': 'file', 'vanity': 'unlock/view'}
+    assert parse_url('https://files.gg/report/report/x') == {'type': 'file', 'vanity': 'report/x'}
+    for url in ('https://files.gg/a/Ab3/2', 'https://files.gg/a/Ab3/report', 'https://files.gg/report',
+                'https://files.gg/report/', 'https://files.gg/report/a/', 'https://files.gg/report/a/x/y'):
+        with pytest.raises(Exception) as raised:
+            parse_url(url)
+        assert getattr(raised.value, 'code', None) == 'INVALID_REPORT_TARGET', url
+    # the old item shape is no item: an unknown target, never a position of the album
+    created, owner = file_of(client, appdb)
+    album = client.post('/users/@me/albums', headers=owner, json={'file_ids': [created['id']]}).json()
+    _, reporter = new_user(appdb)
+    response = report(client, reporter, {'target': {'type': 'url', 'url': 'https://files.gg/a/{}/1'.format(
+        album['vanity'])}, 'reason': 'spam'})
+    assert response.json()['code'] == 'INVALID_REPORT_TARGET'
 
 
 def test_dmca_reports(client, appdb):
@@ -364,8 +393,8 @@ def test_items_of_a_password_album_need_its_token_and_never_echo_their_vanity(cl
     def item(n, headers, token=None, reason='spam'):
         extra = {'X-Filesgg-Access': token} if token else {}
         return report(client, dict(headers, **extra), {
-            'target': {'type': 'url', 'url': 'https://files.gg/a/{}/{}'.format(album['vanity'], n)}, 'reason': reason,
-            'details': 'd'})
+            'target': {'type': 'url', 'url': 'https://files.gg/a/{}?item={}'.format(album['vanity'], n)},
+            'reason': reason, 'details': 'd'})
 
     # without the album's token, every position answers the same: no enumeration of what's inside
     for headers in (reporter, anon):
@@ -380,7 +409,7 @@ def test_items_of_a_password_album_need_its_token_and_never_echo_their_vanity(cl
                    json={'visibility': 'password', 'password': 'other-pass-9'})
 
     def unlock(vanity, password):
-        response = client.post('/albums/{}/unlock'.format(vanity), json={
+        response = client.post('/access/unlock/albums/{}'.format(vanity), json={
             'password': password, 'turnstile_token': UNLOCK_TOKEN}, headers={'X-Forwarded-For': net()})
         assert response.status_code == 200, response.text
         return response.json()['token']
@@ -397,7 +426,8 @@ def test_items_of_a_password_album_need_its_token_and_never_echo_their_vanity(cl
     response = item(2, reporter, token)
     assert response.status_code == 201, response.text
     body = response.json()['report']
-    assert body['target'] == {'type': 'file', 'vanity': None, 'url': 'https://files.gg/a/{}/2'.format(album['vanity']),
+    assert body['target'] == {'type': 'file', 'vanity': None,
+                              'url': 'https://files.gg/a/{}?item=2'.format(album['vanity']),
                               'part': None, 'album': {'vanity': album['vanity'], 'item': 2}}
     assert other['vanity'] not in response.text
     assert appdb.fetchone('SELECT kind, file_id FROM reports WHERE id = %s', (int(body['id']),)) == (

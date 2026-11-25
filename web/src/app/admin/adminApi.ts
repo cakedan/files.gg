@@ -17,12 +17,14 @@ import {
   type Restriction,
   type StaffInfo,
 } from '../../lib/api';
+import type { Domain, DomainStatus, UploadKey } from '../../lib/accountApi';
 
-export type CaseKind = 'file' | 'album' | 'user' | 'hash' | 'bug' | 'appeal';
+/** Milestone 6 adds `domain` cases (§10.12). */
+export type CaseKind = 'file' | 'album' | 'user' | 'domain' | 'hash' | 'bug' | 'appeal';
 export type Priority = 0 | 1 | 2 | 3;
 
 export interface CaseTarget {
-  type: 'file' | 'album' | 'user' | 'hash' | 'bug';
+  type: 'file' | 'album' | 'user' | 'domain' | 'hash' | 'bug';
   id: string;
   vanity?: string | null;
   name?: string | null;
@@ -169,9 +171,57 @@ export interface AdminRestriction {
   notice_id?: string | null;
 }
 
-/** `GET /admin/users/<id>`. */
+/** §9.3 entitlement object (`note` is staff only). */
+export interface Entitlement {
+  id: string;
+  kind: 'premium';
+  active: boolean;
+  granted_at: number;
+  granted_by: { id: string; username: string } | null;
+  expires_at: number | null;
+  revoked_at: number | null;
+  revoked_by: { id: string; username: string } | null;
+  note: string | null;
+}
+
+/** §9.3 identities on the admin user page. */
+export interface AdminIdentity {
+  provider: 'discord';
+  provider_user_id: string;
+  username: string | null;
+  created_at: number;
+}
+
+/** `GET /admin/domains/<id>` (§10.12): the domain object plus its owner, Cloudflare id, cases and actions. */
+export interface AdminDomainDetail extends Domain {
+  owner: { id: string; username: string } | null;
+  cf_hostname_id?: string | null;
+  cases?: CaseSummary[];
+  actions?: AuditEntry[];
+}
+
+/** `GET /admin/domains` items (§10.12): the domain object plus its owner. */
+export interface AdminDomainSummary extends Domain {
+  owner: { id: string; username: string | null } | null;
+  cf_hostname_id?: string | null;
+}
+
+export interface AdminDomainsParams {
+  q?: string | undefined;
+  status?: DomainStatus | undefined;
+  cursor?: string | undefined;
+}
+
+/** `GET /admin/users/<id>`. Milestone 6 adds the account fields (§9.3). */
 export interface AdminUserDetail {
-  user: { id: string; username: string; email: string | null; created_at: number; verified: boolean };
+  user: { id: string; username: string; display_name?: string | null; email: string | null; created_at: number; verified?: boolean; email_verified?: boolean };
+  premium?: boolean;
+  entitlements?: Entitlement[];
+  identities?: AdminIdentity[];
+  sessions?: { active: number };
+  upload_keys?: UploadKey[];
+  domains?: Domain[];
+  deletion?: { requested_at: number; scheduled_for: number } | null;
   staff: StaffInfo | null;
   restrictions: AdminRestriction[];
   warnings: { count: number; strikes?: number; items?: Notice[] };
@@ -181,11 +231,12 @@ export interface AdminUserDetail {
   cases?: CaseSummary[];
 }
 
-export type TargetDetail = AdminFileDetail | AdminAlbumDetail | AdminUserDetail;
+export type TargetDetail = AdminFileDetail | AdminAlbumDetail | AdminUserDetail | AdminDomainDetail;
 
 export const isFileDetail = (detail: TargetDetail | null | undefined): detail is AdminFileDetail => Boolean(detail && 'file' in detail);
 export const isAlbumDetail = (detail: TargetDetail | null | undefined): detail is AdminAlbumDetail => Boolean(detail && 'album' in detail);
 export const isUserDetail = (detail: TargetDetail | null | undefined): detail is AdminUserDetail => Boolean(detail && 'user' in detail && 'counts' in detail);
+export const isDomainDetail = (detail: TargetDetail | null | undefined): detail is AdminDomainDetail => Boolean(detail && 'hostname' in detail && 'status' in detail);
 
 /** §9.2 "Case": the summary plus reports, flags in full, history and the target. */
 export interface CaseDetail extends Omit<CaseSummary, 'flags'> {
@@ -255,12 +306,19 @@ export type ModerationAction =
   | 'restrict_uploads'
   | 'unrestrict_uploads'
   | 'suspend_user'
-  | 'unsuspend_user';
+  | 'unsuspend_user'
+  // Milestone 6 (§10.12, §11.4)
+  | 'revoke_sessions'
+  | 'revoke_upload_keys'
+  | 'reset_username'
+  | 'disable_domain'
+  | 'enable_domain'
+  | 'set_domain_scope';
 
 /** `POST /admin/actions` (§9.3). */
 export interface ActionBody {
   action: ModerationAction;
-  target: { type: 'file' | 'album' | 'user' | 'hash'; id: string };
+  target: { type: 'file' | 'album' | 'user' | 'hash' | 'domain'; id: string };
   rule?: string;
   /** Staff-only. */
   note?: string;
@@ -272,6 +330,8 @@ export interface ActionBody {
   duration?: number;
   hold_days?: number;
   also_block_hash?: boolean;
+  /** `revoke_upload_keys`: `{ key_id }` revokes one key instead of all (§11.4). */
+  details?: Record<string, unknown>;
 }
 
 export interface ActionResult {
@@ -324,6 +384,8 @@ export interface LookupResult {
   files: Array<OwnerFile & { owner?: TargetOwner; deleted?: boolean }>;
   albums: Array<OwnerAlbumSummary & { owner?: TargetOwner; deleted?: boolean }>;
   users: LookupUser[];
+  /** Milestone 6: hostnames match too (§10.12). */
+  domains?: Domain[];
 }
 
 export interface StaffMember {
@@ -371,4 +433,14 @@ export const adminApi = {
   user: (id: string, signal?: AbortSignal) => request<AdminUserDetail>(`/admin/users/${encodeURIComponent(id)}`, { signal }),
   rescans: (body: RescanBody) => request<{ queued: number }>('/admin/rescans', { method: 'POST', body }),
   staff: (signal?: AbortSignal) => request<{ items: StaffMember[] }>('/admin/staff', { signal }),
+
+  // Milestone 6: premium (§9.3) and domains (§10.12)
+  grantPremium: (userId: string, body: { expires_at?: number | null; note: string }) =>
+    request<Entitlement>(`/admin/users/${encodeURIComponent(userId)}/entitlements`, { method: 'POST', body: { kind: 'premium', ...body } }),
+  changeEntitlement: (userId: string, id: string, body: { expires_at: number | null; note: string }) =>
+    request<Entitlement>(`/admin/users/${encodeURIComponent(userId)}/entitlements/${encodeURIComponent(id)}`, { method: 'PATCH', body }),
+  revokeEntitlement: (userId: string, id: string, note: string) =>
+    request<Entitlement>(`/admin/users/${encodeURIComponent(userId)}/entitlements/${encodeURIComponent(id)}`, { method: 'DELETE', body: { note } }),
+  domain: (id: string, signal?: AbortSignal) => request<AdminDomainDetail>(`/admin/domains/${encodeURIComponent(id)}`, { signal }),
+  domains: (params: AdminDomainsParams, signal?: AbortSignal) => request<Page<AdminDomainSummary>>('/admin/domains', { query: query(params), signal }),
 };

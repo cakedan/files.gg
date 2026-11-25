@@ -28,8 +28,12 @@ COLLAGE_SIZE = (1200, 630)
 # aliases: f = files, al = albums
 FILE_LIVE_SQL = '(f.deleted_at IS NULL AND (f.expires_at IS NULL OR f.expires_at > now()))'
 VISIBILITY_SQL = "(al.visibility <> 'link' OR f.visibility = 'link')"
-# milestone-4 §6.4: and the item's effective state is `ok` or `flagged`
-SHOWN_SQL = "({} AND {} AND {})".format(FILE_LIVE_SQL, VISIBILITY_SQL, states.SHOWN_SQL_SUB)
+# milestone-4 §6.4: and the item's effective state is `ok` or `flagged`; milestone-6 §19.6: and it has no view
+# limit (opening an album can't count each item), so it's in no album page, collage, ZIP or album grant
+VIEW_LIMIT_SQL = '(f.view_limit IS NULL)'
+SHOWN_SQL = "({} AND {} AND {} AND {})".format(FILE_LIVE_SQL, VISIBILITY_SQL, VIEW_LIMIT_SQL, states.SHOWN_SQL_SUB)
+# the owner editor's reason for an item that isn't shown because of its view limit (§19.6)
+HIDDEN_VIEW_LIMIT = 'view_limit'
 # not deleted or expired; a hidden or removed album is live (its pages answer 410)
 ALBUM_LIVE_SQL = "(al.deleted_at IS NULL AND (al.expires_at IS NULL OR al.expires_at > now()))"
 ALBUM_VISIBLE_SQL = "({} AND al.moderation_state = 'visible')".format(ALBUM_LIVE_SQL)
@@ -50,6 +54,8 @@ def clean_text(value, limit, field):
 
 def shown(album, fobj):
     """The Python twin of SHOWN_SQL, for a live file."""
+    if getattr(fobj, 'view_limit', None) is not None:
+        return False
     if fobj.hash is not None and not states.shown(fobj.hash.scan_state, fobj.moderation_state):
         return False
     return album.visibility != 'link' or fobj.visibility == 'link'
@@ -101,40 +107,51 @@ def best_image(data):
     return None
 
 
-def _signer(album, grant):
-    if grant is not None and album.visibility != 'link':
+def _signer(album, grant, force=False):
+    if grant is not None and (album.visibility != 'link' or force):
         return grant.sign
     return lambda url: url
 
 
-def collage_of(album, grant=None):
+def _sign_all(owner):
+    """Owner payloads while domain-only is effective sign every URL (milestone-6 §10.6)."""
+    if not owner:
+        return False
+    from utils import links
+    return links.current().sign_all
+
+
+def collage_of(album, grant=None, force=False):
     """https://cdn.files.gg/albums/collage/<vanity>.webp?v=<collage_version>."""
     if not album.collage_key or album.collage_version is None:
         return None
     url = cdn_url('/albums/collage/{}.webp?v={}'.format(path_segment(album.vanity), album.collage_version))
-    return {'url': _signer(album, grant)(url), 'width': COLLAGE_SIZE[0], 'height': COLLAGE_SIZE[1]}
+    return {'url': _signer(album, grant, force)(url), 'width': COLLAGE_SIZE[0], 'height': COLLAGE_SIZE[1]}
 
 
 def album_url(album):
     return public_url('/a/' + album.vanity)
 
 
-def download_url(album, grant=None):
+def download_url(album, grant=None, force=False):
     """https://cdn.files.gg/albums/download/<vanity>.zip, signed for a protected album."""
-    return _signer(album, grant)(cdn_url('/albums/download/{}.zip'.format(path_segment(album.vanity))))
+    return _signer(album, grant, force)(cdn_url('/albums/download/{}.zip'.format(path_segment(album.vanity))))
 
 
-def item_dict(fobj, position, caption, grant=None, owner=False, album=None):
+def item_dict(fobj, position, caption, grant=None, owner=False, album=None, sign_all=False):
     """An album item: the file payload (signed with the album grant, album=<vanity>), or for
     the owner, the owner file (signed with its own file grant), plus position and caption."""
     if owner:
         data = payloads.owner_dict(fobj)
     else:
-        data = payloads.public_file(fobj, grant=grant, album_item=True)
+        data = payloads.public_file(fobj, grant=grant, album_item=True, sign_all=sign_all)
     data['position'] = position
     data['caption'] = caption or ''
     if owner and album is not None:
         data['shown'] = fobj_is_shown(album, fobj)
+        if getattr(fobj, 'view_limit', None) is not None:
+            # the editor shows "View-limited files aren't shown in albums."
+            data['hidden_reason'] = HIDDEN_VIEW_LIMIT
     return data
 
 
@@ -152,9 +169,10 @@ def album_payload(album, items, count, total_size, next_cursor=None, cover_items
     """The public album payload (contract §4). `items` are [(file, position, caption)]
     already filtered to shown items. `grant` (the album grant of an unlock, a token or the
     owner) signs a protected album's URLs; without one they're plain."""
-    if album.visibility == 'link':
+    force = _sign_all(owner)
+    if album.visibility == 'link' and not force:
         grant = None
-    rendered = [(f, item_dict(f, position, caption, grant=grant)) for f, position, caption in items]
+    rendered = [(f, item_dict(f, position, caption, grant=grant, sign_all=force)) for f, position, caption in items]
     data = {
         'id': str(album.id),
         'vanity': album.vanity,
@@ -169,16 +187,16 @@ def album_payload(album, items, count, total_size, next_cursor=None, cover_items
         'count': count,
         'total_size': total_size,
         'next_cursor': next_cursor,
-        'download_url': download_url(album, grant),
+        'download_url': download_url(album, grant, force),
         'items': [data for _, data in rendered],
     }
     data['link_warnings'], data['link_warning_types'] = webrisk.payload_fields(album.link_warnings)
     cover_source = rendered if cover_items is None else [
-        (f, payloads.public_file(f, grant=grant, album_item=True)) for f in cover_items]
+        (f, payloads.public_file(f, grant=grant, album_item=True, sign_all=force)) for f in cover_items]
     cover = cover_of(album, cover_source)
     if cover is not None:
         data['cover'] = cover
-    collage = collage_of(album, grant)
+    collage = collage_of(album, grant, force)
     # a public NSFW album omits its collage (milestone-4 §4.6); owner payloads keep it
     if collage is not None and (owner or not data['nsfw']):
         data['collage'] = collage
@@ -237,23 +255,28 @@ def owner_album(album, items, notice_id=None):
     data['nsfw_marked'] = bool(album.nsfw)
     data['safety'] = album_safety(album, notice_id, owner=True)
     data['link_warnings'], data['link_warning_types'] = webrisk.payload_fields(album.link_warnings)
+    from utils import links
+    data['url'] = links.rehost(data['url'], links.current().host)
     return data
 
 
 def owner_summary(album, count, shown_files=()):
     """The owner album summary (contract §6), its cover and collage signed for 1 h."""
-    grant = Grant.owner_album(album) if album.visibility != 'link' else None
-    cover = cover_of(album, [(f, payloads.public_file(f, grant=grant, album_item=True)) for f in shown_files])
+    from utils import links
+    force = _sign_all(True)
+    grant = Grant.owner_album(album) if album.visibility != 'link' or force else None
+    cover = cover_of(album, [(f, payloads.public_file(f, grant=grant, album_item=True, sign_all=force))
+                             for f in shown_files])
     return {
         'id': str(album.id),
         'vanity': album.vanity,
-        'url': album_url(album),
+        'url': links.rehost(album_url(album), links.current().host),
         'title': album.title or '',
         'layout': album.layout,
         'visibility': album.visibility,
         'count': count,
         'cover': cover,
-        'collage': collage_of(album, grant),
+        'collage': collage_of(album, grant, force),
         'created_at': epoch(album.created_at),
         'updated_at': epoch(album.updated_at),
     }

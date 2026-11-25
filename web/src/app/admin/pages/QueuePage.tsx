@@ -15,7 +15,7 @@ import { isAdmin } from '../permissions';
 import { useStaff } from '../staffContext';
 import { Failure, Loading, PriorityPill, TargetLink, TargetState } from '../components/bits';
 
-const KINDS: CaseKind[] = ['file', 'album', 'user', 'hash', 'appeal', 'bug'];
+const KINDS: CaseKind[] = ['file', 'album', 'user', 'domain', 'hash', 'appeal', 'bug'];
 
 
 /** Claim, Release, or (admins) Take over, straight from the queue (§9.2). */

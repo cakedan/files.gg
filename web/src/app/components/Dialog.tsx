@@ -15,19 +15,23 @@ interface DialogProps {
   size?: 'sm' | 'md' | 'lg';
   /** role="alertdialog" for confirmations. */
   alert?: boolean;
+  /** False for a dialog that must be answered (no close button; Escape and the backdrop do nothing). */
+  dismissible?: boolean;
 }
 
 const SIZES = { sm: 'max-w-sm', md: 'max-w-lg', lg: 'max-w-3xl' } as const;
+const noop = () => undefined;
 
 /** A centred modal dialog (a bottom sheet on phones). */
-export function Dialog({ title, description, onClose, children, footer, initialFocus, size = 'md', alert = false }: DialogProps) {
+export function Dialog({ title, description, onClose, children, footer, initialFocus, size = 'md', alert = false, dismissible = true }: DialogProps) {
   const panel = useRef<HTMLDivElement>(null);
   const titleId = useId();
   const descriptionId = useId();
-  useModal(panel, onClose, initialFocus);
+  const close = dismissible ? onClose : noop;
+  useModal(panel, close, initialFocus);
 
   return createPortal(
-    <div className="fixed inset-0 z-[60] flex items-end justify-center bg-black/60 sm:items-center sm:p-4" onMouseDown={onClose}>
+    <div className="fixed inset-0 z-[60] flex items-end justify-center bg-black/60 sm:items-center sm:p-4" onMouseDown={close}>
       <div
         ref={panel}
         data-modal=""
@@ -50,9 +54,11 @@ export function Dialog({ title, description, onClose, children, footer, initialF
               </div>
             )}
           </div>
-          <button type="button" onClick={onClose} aria-label="Close" className="-mr-1 rounded-md p-1 text-muted hover:bg-surface-2 hover:text-text">
-            <X aria-hidden className="size-5" />
-          </button>
+          {dismissible && (
+            <button type="button" onClick={onClose} aria-label="Close" className="-mr-1 rounded-md p-1 text-muted hover:bg-surface-2 hover:text-text">
+              <X aria-hidden className="size-5" />
+            </button>
+          )}
         </div>
         <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">{children}</div>
         {footer && <div className="flex flex-wrap justify-end gap-2 border-t border-line px-5 py-3">{footer}</div>}

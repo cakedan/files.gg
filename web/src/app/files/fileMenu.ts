@@ -1,4 +1,4 @@
-import { Clock, Eye, EyeOff, ExternalLink, Images, Infinity as InfinityIcon, KeyRound, Link2, Lock, MessageSquareWarning, Pencil, Trash2 } from 'lucide-react';
+import { Clock, Eye, EyeOff, ExternalLink, Gauge, Globe, Images, Infinity as InfinityIcon, KeyRound, Link, Link2, Lock, MessageSquareWarning, Pencil, Trash2 } from 'lucide-react';
 
 import type { OwnerFile } from '../../lib/api';
 import type { MenuItem } from '../components/Menu';
@@ -17,6 +17,14 @@ export interface FileHandlers {
   setSensitive?: ((files: OwnerFile[], nsfw: boolean) => void) | undefined;
   /** Ask for a review of an automatic NSFW mark. */
   askReview?: ((file: OwnerFile) => void) | undefined;
+  /** Milestone 6 §10.9: copies `direct_url` (files whose payload has one). */
+  copyDirectLink?: ((file: OwnerFile) => void) | undefined;
+  /** Milestone 6 §13.4: an owner pass on the default serving custom domain. */
+  openOnDomain?: { hostname: string; open: (file: OwnerFile) => void } | undefined;
+  /** Milestone 6 §19.7: set, edit or remove the view limit. Signed in only (anonymous files set it at upload). */
+  editViewLimit?: ((file: OwnerFile) => void) | undefined;
+  /** Removes the limit at once (`PATCH { view_limit: null }`). */
+  removeViewLimit?: ((file: OwnerFile) => void) | undefined;
 }
 
 /** Why Unmark is disabled (§4.5, §11.2). */
@@ -29,8 +37,15 @@ export const canAskReview = (file: OwnerFile) => file.safety?.nsfw_source === 'a
 export function fileMenuItems(file: OwnerFile, handlers: FileHandlers): MenuItem[] {
   return [
     { label: 'Copy link', icon: Link2, onSelect: () => handlers.copyLink(file) },
+    { label: 'Copy direct link', icon: Link, onSelect: () => handlers.copyDirectLink?.(file), hidden: !handlers.copyDirectLink || !file.direct_url },
     { label: 'Open', icon: ExternalLink, onSelect: () => handlers.open(file) },
     { label: 'Open as owner', icon: KeyRound, onSelect: () => handlers.openAsOwner(file), hidden: file.visibility === 'link' },
+    {
+      label: `Open on ${handlers.openOnDomain?.hostname ?? 'your domain'}`,
+      icon: Globe,
+      onSelect: () => handlers.openOnDomain?.open(file),
+      hidden: !handlers.openOnDomain,
+    },
     { label: 'Rename', icon: Pencil, onSelect: () => handlers.rename?.(file), hidden: !handlers.rename },
     { label: 'Set expiry…', icon: Clock, onSelect: () => handlers.setExpiry([file]) },
     {
@@ -40,6 +55,7 @@ export function fileMenuItems(file: OwnerFile, handlers: FileHandlers): MenuItem
       hidden: !handlers.keepForever || file.expires_at === null,
     },
     { label: 'Change access…', icon: Lock, onSelect: () => handlers.changeAccess([file]) },
+    { label: 'View limit…', icon: Gauge, onSelect: () => handlers.editViewLimit?.(file), hidden: !handlers.editViewLimit },
     { label: 'Add to album…', icon: Images, onSelect: () => handlers.addToAlbum([file]) },
     { label: 'Mark as sensitive', icon: EyeOff, onSelect: () => handlers.setSensitive?.([file], true), hidden: !handlers.setSensitive || Boolean(file.nsfw) },
     {
