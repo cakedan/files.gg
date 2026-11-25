@@ -371,6 +371,8 @@ describe('classifyStablePath (web/README.md §1 order)', () => {
     // milestone-5.md §19.1: the changelog and legal pages; /legal redirects to the Terms.
     '/changelog': 'page', '/changelog/': 'page', '/legal/terms': 'page', '/legal/privacy/': 'page', '/legal': 'redirect',
     '/legal/other': 'missing', '/changelog/x': 'missing', '/x/changelog.png': 'missing', '/convert/x': 'missing',
+    // milestone-7.md §7: the link warnings help page; `help` is reserved, so nothing else under it is a vanity.
+    '/help/link-warnings': 'page', '/help/link-warnings/': 'page', '/help': 'missing', '/help/other': 'missing', '/x/help.png': 'missing',
     // ...except where they contain a reserved segment (milestone-6.md §6.3): never looked up.
     '/auth/login': 'missing', '/dashboard/files': 'missing',
     '/img1': 'file', '/img1.png': 'file', '/abcd/xyz.png': 'file', '/favicon': 'file', '/apple': 'file',
@@ -389,13 +391,14 @@ describe('classifyStablePath (web/README.md §1 order)', () => {
 });
 
 
-describe('the public app pages: Convert, changelog, Terms and Privacy (milestone-5.md §11, §19.1)', () => {
+describe('the public app pages: Convert, changelog, Terms, Privacy and link warnings (milestone-5.md §11, §19.1, milestone-7.md §7)', () => {
   it('maps each path to its page, and /legal to a 302 to the Terms', () => {
     assert.deepEqual(PUBLIC_PAGE_PATHS, {
       '/convert': 'convert', '/convert/': 'convert',
       '/changelog': 'changelog', '/changelog/': 'changelog',
       '/legal/terms': 'terms', '/legal/terms/': 'terms',
       '/legal/privacy': 'privacy', '/legal/privacy/': 'privacy',
+      '/help/link-warnings': 'link-warnings', '/help/link-warnings/': 'link-warnings',
     });
     for (const [path, page] of Object.entries(PUBLIC_PAGE_PATHS)) {
       assert.deepEqual(classifyStablePath(path), { route: 'page', page }, path);
@@ -408,6 +411,7 @@ describe('the public app pages: Convert, changelog, Terms and Privacy (milestone
   it('gives each page its own title and description', () => {
     const titles = {
       convert: 'Convert · files.gg', changelog: 'Changelog · files.gg', terms: 'Terms of Service · files.gg', privacy: 'Privacy Policy · files.gg',
+      'link-warnings': 'Link warnings · files.gg',
     };
     const descriptions = new Set();
     for (const [page, title] of Object.entries(titles)) {
@@ -420,7 +424,7 @@ describe('the public app pages: Convert, changelog, Terms and Privacy (milestone
       assert.match(head.meta, new RegExp(`<meta property="og:description" content="${description}">`));
       descriptions.add(description);
     }
-    assert.equal(descriptions.size, 4);
+    assert.equal(descriptions.size, Object.keys(titles).length);
     assert.match(publicPageHead('terms', { mainOrigin: 'http://files.localhost:8787' }).meta, /content="http:\/\/files.localhost:8787\/og-image.png"/);
   });
 });

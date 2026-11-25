@@ -1,0 +1,13 @@
+# Loads monitoring/grafana/dashboards/ (mounted at /etc/grafana/dashboards by docker-compose.yml) into a "files.gg"
+# folder.
+apiVersion: 1
+
+providers:
+  - name: filesgg
+    folder: files.gg
+    type: file
+    # edits made in Grafana are kept until the file changes: export the JSON back to monitoring/grafana/dashboards/
+    # to keep them for good
+    allowUiUpdates: true
+    options:
+      path: /etc/grafana/dashboards

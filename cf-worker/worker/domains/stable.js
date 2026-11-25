@@ -84,8 +84,8 @@ async function handle(event) {
     case 'app': return await serveApp(event);
     // The home page: the dashboard entry's, with the upload box (a public page, like /convert).
     case 'home': return await serveApp(event, publicPageHead('home', { mainOrigin: mainOriginOf(event) }));
-    // /convert (milestone-5.md §11), /changelog, /legal/terms and /legal/privacy (§19.1): the dashboard
-    // entry's public pages, with their own title and description. No lookup.
+    // /convert (milestone-5.md §11), /changelog, /legal/terms, /legal/privacy (§19.1) and /help/link-warnings
+    // (milestone-7.md §7): the dashboard entry's public pages, with their own title and description. No lookup.
     case 'page': return await serveApp(event, publicPageHead(route.page, { mainOrigin: mainOriginOf(event) }));
     // /login, /register, /signup: the dashboard's auth pages, 308 (milestone-6.md §6.2); /legal: 302
     // to the Terms (milestone-5.md §19.1). The query is kept.

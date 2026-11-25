@@ -70,15 +70,15 @@ The exact formats are in [`contracts/milestone-3.md`](contracts/milestone-3.md).
 - **`e2e/down.sh` used to fail silently** when `.env` lacked a newly required variable. Fixed: it now tears down by project name and checks that the volumes are gone.
 
 **Milestone 4 follow-ups:**
-- The viewer shows all three Web Risk "learn more" links. The API now sends `link_warning_types` (threat types per URL), so it can show just the matched type's link, as Google's warning rules prefer.
+- The viewer shows all three Web Risk "learn more" links. The API now sends `link_warning_types` (threat types per URL), so it can show just the matched type's link, as Google's warning rules prefer. *(Milestone 7: the links now go to files.gg's own page, `files.gg/help/link-warnings`, a section per threat type; showing only the matched type is still to do.)*
 - `lib/reports.ts` and `lib/api.ts` both define the report reasons and DMCA types; unify them.
 - The DMCA good-faith and perjury statements in the report and appeal forms need legal review.
 - ~~A Terms page at `/legal/terms` is linked from removed-file pages and doesn't exist yet.~~ Planned in Milestone 5 with the Privacy Policy and the changelog ([`contracts/milestone-5.md`](contracts/milestone-5.md) §19), as drafts with placeholders pending legal review.
-- Scanner efficiency (found by the security review):
-  - each blob is read from B2 about 4 times across scan, probe and derive;
-  - the ONNX model is loaded and re-hashed in every scan child.
+- ~~Scanner efficiency (found by the security review):~~ *Milestone 7:*
+  - ~~each blob is read from B2 about 4 times across scan, probe and derive;~~ each job (scan, probe, derive, document preview, conversion) now reads its blob with one GetObject (boto3's `download_file` split anything over 8 MiB into 8 MiB ranged GETs: 13 requests for 100 MiB, 128 for 1 GiB). The scan, probe and derive jobs still read it once each, in different services;
+  - ~~the ONNX model is loaded and re-hashed in every scan child.~~ The sandboxed child preprocesses the images; the scanner process loads the model once and classifies the child's array.
   
-  Share one local copy per job chain and keep a warm model process. These are performance, not correctness.
+  Sharing one local copy across the scan → probe → derive chain would need a scratch volume shared by the `scanner` and `worker` services; not done.
 - Security review (2026-11-25) leftovers:
   - ~~**W1:** server-cut Web Risk links rendering live.~~ Fixed: the client reduces links the server's way, and a link is flagged on a match or prefix match, with a host boundary.
   - ~~**W2:** download-confirmation gaps.~~ Fixed: middle-clicks, per-item album links and "Download all" with any warned item ask first, and PDF middle-clicks get the "leaving files.gg" notice.
@@ -1491,7 +1491,8 @@ Sidebar sections:
   - Search Console set up, and `security.txt` and the `abuse@` mailbox live.
 - [ ] Load-test the streaming and chunked uploads with **two or more API servers** behind the load balancer. Spread the chunks of one session across servers on purpose, and run several `worker` replicas to confirm each scheduled task runs once.
 - [ ] Launch the new stack on `files.gg`, `cdn.files.gg` and `api.files.gg`: a new database and a new B2 bucket. The old site and its data are retired, not migrated.
-- [x] Remove the old Mithril frontend and the legacy `/files` list route. *(Milestone 3)*
+- [x] Remove the old Mithril frontend and the legacy `/files` list route. *(The route in Milestone 3; `frontend/` itself in Milestone 7.)*
+- The launch runbook, every step that's an account, a form or a setting: [`LAUNCH.md`](LAUNCH.md).
 
 ---
 
@@ -1549,7 +1550,7 @@ Open, from "Trust & safety" (Phase 1):
 
     When an anonymous visitor hits a limit, the error explains which one, and offers "Sign in for bigger conversions".
 12. ~~Where does Postgres run, and how is it backed up?~~ **Postgres 19.0 (latest major) in Docker, with restic + Ofelia backups to B2, matching `notsobot.api`'s setup** (decided 2026-11-24; built; §2.1 item 8).
-    - **Still open:** where the API and worker servers themselves run.
+    - ~~**Still open:** where the API and worker servers themselves run.~~ **One dedicated server for the whole stack** (decided 2026-11-25, [`contracts/milestone-7.md`](contracts/milestone-7.md) decision 1).
 13. ~~Backblaze region?~~ **US** (decided 2026-11-24).
 14. ~~Email provider?~~ **Postmark** for sending (decided 2026-11-24; built). Cloudflare Email Routing (free) for receiving `abuse@`, `support@` and `dmca@`.
     - `api/utils/email.py` sends over Postmark's HTTP API.

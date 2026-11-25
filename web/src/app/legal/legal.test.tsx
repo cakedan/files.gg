@@ -116,6 +116,27 @@ describe('the Terms and Privacy pages (milestone-5 §19.1, §19.4, §19.5)', () 
   });
 });
 
+describe('the link warnings help page (milestone-7 §7)', () => {
+  it('/help/link-warnings explains each threat type under a stable anchor, says Google Web Risk flags it, with no draft banner', async () => {
+    renderPublic('/help/link-warnings');
+    expect(await screen.findByRole('heading', { level: 1, name: 'Link warnings' })).toBeInTheDocument();
+    await waitFor(() => expect(document.title).toBe('Link warnings · files.gg'));
+    for (const [name, id] of [
+      ['Malware', 'malware'],
+      ['Social engineering', 'social-engineering'],
+      ['Unwanted software', 'unwanted-software'],
+      ['Potentially harmful applications', 'potentially-harmful-applications'],
+    ] as const) {
+      expect(screen.getByRole('heading', { level: 2, name: new RegExp(`^${name}`) })).toHaveAttribute('id', id);
+    }
+    expect(screen.getAllByText('What to do.', { selector: 'strong' })).toHaveLength(4);
+    expect(screen.getByRole('link', { name: 'Google Web Risk' })).toHaveAttribute('href', 'https://cloud.google.com/web-risk');
+    expect(screen.getByRole('link', { name: 'report it' })).toHaveAttribute('href', '/report');
+    expect(screen.queryByRole('note')).not.toBeInTheDocument();
+    expectFooter(screen.getByRole('contentinfo'));
+  });
+});
+
 describe('the changelog (milestone-5 §19.3)', () => {
   it('/changelog renders CHANGELOG.md, each entry anchored by its date, with no banner', async () => {
     renderPublic('/changelog');

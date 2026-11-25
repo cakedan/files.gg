@@ -71,3 +71,11 @@ db-dumps/
 
 # macOS Finder metadata
 .DS_Store
+
+# ops/deploy.sh's lock and deploy history (milestone-7 §3.2)
+.deploy/
+
+# the Cloudflare origin certificate and its key, put on the server by hand (milestone-7 §2.2); the origin-pull CA next
+# to them is public and committed
+nginx/certificates/certificate.cert
+nginx/certificates/certificate.key

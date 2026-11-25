@@ -13,6 +13,7 @@ process.
 import logging
 import math
 import os
+import socket
 
 
 log = logging.getLogger('files.gg')
@@ -69,7 +70,7 @@ def create_app(name='filesgg', database_url=None, storage=None):
     from sanic_ext import Extend
 
     import db
-    from utils import auth as auth_module, cdn_signing, client_ip, http, tokens
+    from utils import auth as auth_module, cdn_signing, client_ip, http, metrics, tokens
     from utils.generators import EPOCH, Snowflake
     from utils.email import Email
     from utils.access import ACCESS_HEADER
@@ -106,6 +107,9 @@ def create_app(name='filesgg', database_url=None, storage=None):
         # the outer cap (milestone-6 §9.5): a premium single-request upload (500 MB) plus multipart framing.
         # The per-endpoint limits (§4.8) sit inside it, and PROXY_BODY_LIMIT_BYTES caps single uploads.
         'REQUEST_MAX_SIZE': int(os.getenv('REQUEST_MAX_SIZE', str(501 * 1024 * 1024))),
+        # milestone-7 §3.1: on SIGTERM (a deploy stopping the old container) in-flight requests get this long, so a
+        # 10 MiB chunk being sent finishes; the container's stop_grace_period (60 s) is longer
+        'GRACEFUL_SHUTDOWN_TIMEOUT': 50.0,
         # sanic-ext: our own CORS, OPTIONS and HEAD handling (Flask-compatible)
         'CORS': False,
         'HTTP_AUTO_OPTIONS': False,
@@ -182,6 +186,24 @@ def create_app(name='filesgg', database_url=None, storage=None):
             app.ctx.storage = await S3Storage().open()
             app.ctx.own_storage = True
 
+    @app.after_server_start
+    async def announce_ready(app):
+        # ops/deploy.sh waits for this line from every worker before it stops the old container (milestone-7 §3.1)
+        print('[api] worker {} ready'.format(os.getpid()), flush=True)
+
+    @app.before_server_stop
+    async def stop_accepting(app):
+        # On SIGTERM, refuse new connections at once, while in-flight requests finish: Sanic's main process keeps the
+        # listening socket open until every worker has drained, and meanwhile the kernel would accept connections
+        # nobody answers. Refused, nginx sends them to the other api container (milestone-7 §3.1).
+        for info in app.state.server_info:
+            sock = info.settings.get('sock')
+            if sock is not None:
+                try:
+                    sock.shutdown(socket.SHUT_RDWR)
+                except OSError:
+                    pass
+
     @app.after_server_stop
     async def close_resources(app):
         lease = getattr(app.ctx, 'lease', None)
@@ -227,6 +249,8 @@ def create_app(name='filesgg', database_url=None, storage=None):
 
     # milestone-5 §18.1: the global limit and the route limits (priority 70, after the session and key lookups)
     ratelimit.limiter.init_app(app)
+    # milestone-7 §4.2: requests counted by route pattern, method and status class, and this worker's pool reported
+    metrics.init_app(app)
 
     @app.on_request(priority=50)
     async def account_standing(request):

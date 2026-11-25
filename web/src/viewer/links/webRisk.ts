@@ -5,8 +5,9 @@
  * Google's user-warning rules (https://docs.cloud.google.com/web-risk/docs/user-warnings)
  * apply to every warning built from this data: hedged wording ("suspected", "may be"),
  * the line "Advisory provided by Google" linked to Google's advisory page, and a
- * learn-more link for the threat type. The payload carries URLs only, not the threat
- * type, so all three learn-more links are offered.
+ * learn-more link for the threat type: a section of files.gg's own help page
+ * (milestone-7 §7). The viewer reads URLs only, not the threat types, so the three
+ * types files.gg checks are all linked.
  */
 
 import { createContext, useContext } from 'react';
@@ -15,11 +16,14 @@ export const WEB_RISK_WARNING = "This link may be dangerous: it's suspected of h
 
 export const WEB_RISK_ADVISORY_URL = 'https://docs.cloud.google.com/web-risk/docs/advisory';
 
-/** Google's learn-more pages, one per threat type (SOCIAL_ENGINEERING, MALWARE, UNWANTED_SOFTWARE). */
+/** files.gg's help page on link warnings (`content/help/link-warnings.md`), on files.gg itself. */
+export const LINK_WARNINGS_PATH = '/help/link-warnings';
+
+/** Its section per threat type files.gg checks (SOCIAL_ENGINEERING, MALWARE, UNWANTED_SOFTWARE; `api/safety/webrisk.py`). */
 export const WEB_RISK_LEARN_MORE = [
-  { threat: 'SOCIAL_ENGINEERING', label: 'Phishing', href: 'https://www.antiphishing.org/' },
-  { threat: 'MALWARE', label: 'Malware', href: 'https://developers.google.com/search/docs/advanced/security/malware' },
-  { threat: 'UNWANTED_SOFTWARE', label: 'Unwanted software', href: 'https://www.google.com/about/company/unwanted-software-policy.html' },
+  { threat: 'SOCIAL_ENGINEERING', label: 'Phishing', anchor: 'social-engineering' },
+  { threat: 'MALWARE', label: 'Malware', anchor: 'malware' },
+  { threat: 'UNWANTED_SOFTWARE', label: 'Unwanted software', anchor: 'unwanted-software' },
 ] as const;
 
 /**

@@ -9,6 +9,7 @@ for those two checks are skipped; production secrets are always checked fully.
 
 import logging
 
+from utils import metrics
 from utils.http import get_client
 
 log = logging.getLogger(__name__)
@@ -41,19 +42,30 @@ class Turnstile:
     @classmethod
     async def verify(cls, token, action, remoteip=None):
         """True only for a valid token for this action. Fails closed."""
-        if not cls.secret or not isinstance(token, str) or not token or len(token) > MAX_TOKEN_LENGTH:
-            return False
+        outcome = await cls._verify(token, action, remoteip)
+        metrics.incr('filesgg_turnstile_verifications_total', {'action': action, 'outcome': outcome})
+        return outcome == 'passed'
+
+    @classmethod
+    async def _verify(cls, token, action, remoteip):
+        """`passed`, or why not (`filesgg_turnstile_verifications_total`'s outcomes)."""
+        if not cls.secret:
+            return 'unconfigured'
+        if not isinstance(token, str) or not token or len(token) > MAX_TOKEN_LENGTH:
+            return 'missing'
         data = {'secret': cls.secret, 'response': token}
         if remoteip:
             data['remoteip'] = remoteip
         try:
             response = await (cls.http or get_client()).post(SITEVERIFY_URL, data=data)
-            result = response.json() if response.status_code == 200 else {}
+            result = response.json() if response.status_code == 200 else None
         except Exception:
             log.exception('turnstile siteverify failed')
-            return False
+            return 'error'
+        if result is None:
+            return 'error'
         if result.get('success') is not True:
-            return False
+            return 'failed'
         if cls.secret in TEST_SECRETS:
-            return True
-        return result.get('action') == action and result.get('hostname') in cls.hostnames
+            return 'passed'
+        return 'passed' if result.get('action') == action and result.get('hostname') in cls.hostnames else 'mismatch'

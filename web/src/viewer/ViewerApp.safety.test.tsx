@@ -201,10 +201,9 @@ describe('link warnings on files (milestone-4 §5.7)', () => {
       'href',
       'https://docs.cloud.google.com/web-risk/docs/advisory',
     );
-    expect(within(banner).getByRole('link', { name: 'Malware' })).toHaveAttribute(
-      'href',
-      'https://developers.google.com/search/docs/advanced/security/malware',
-    );
+    // milestone-7 §7: learn more is files.gg's own page, a section per threat type
+    expect(within(banner).getByRole('link', { name: 'Malware' })).toHaveAttribute('href', '/help/link-warnings#malware');
+    expect(within(banner).getByRole('link', { name: 'Phishing' })).toHaveAttribute('href', '/help/link-warnings#social-engineering');
   });
 });
 

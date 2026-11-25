@@ -4,7 +4,7 @@
 
 import { MINIMAL_PAGE_CSP, minimalPage, rehost } from './utils/domains.js';
 import { getHosts, publicOrigins } from './utils/hosts.js';
-import { challengeCsp, customViewerCsp, escapeJsonForHtml, viewerCsp } from './utils/viewer.js';
+import { appCsp, challengeCsp, customViewerCsp, escapeJsonForHtml, viewerCsp } from './utils/viewer.js';
 
 const HTML_TYPE = 'text/html; charset=utf-8';
 const IMMUTABLE = 'public, max-age=31536000, immutable';
@@ -102,8 +102,9 @@ export async function serveApp(event, head = null) {
       'Content-Type': HTML_TYPE,
       'Cache-Control': 'no-cache',
       'X-Content-Type-Options': 'nosniff',
-      // The signed-in dashboard (deletes, access changes, passwords) is never framed: clickjacking.
-      'Content-Security-Policy': "frame-ancestors 'none'",
+      // A strict policy (PLAN.md "Hardening"): scripts only from files.gg and Turnstile. The signed-in dashboard
+      // (deletes, access changes, passwords) is never framed: clickjacking.
+      'Content-Security-Policy': appCsp(publicOrigins(getHosts(event.environment), event.url)),
       'X-Frame-Options': 'DENY',
       'Referrer-Policy': 'strict-origin-when-cross-origin',
     },

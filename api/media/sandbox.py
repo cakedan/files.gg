@@ -34,7 +34,8 @@ PROBE_CPU = 15
 PROBE_WALL = 20
 DERIVE_CPU = 60
 DERIVE_WALL = 90
-# the scan child (contract milestone-4 §2.2): ONNX Runtime needs more than 1.5 GiB of address space
+# the scan child (contract milestone-4 §2.2). 2 GiB was set for ONNX Runtime (over 1.5 GiB of address space), which
+# runs in the scan job since milestone-7 §7; measure the child's own peak before lowering it
 SCAN_CPU = 90
 SCAN_WALL = 120
 SCAN_ADDRESS_SPACE = 2 * GIB

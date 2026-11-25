@@ -22,6 +22,8 @@ import time
 
 from datetime import timezone
 
+from utils import metrics
+
 log = logging.getLogger(__name__)
 
 PREMIUM = 'convert_premium'
@@ -80,6 +82,7 @@ def enqueue_conversion(conversion_id, queue, time_limit, connection=None):
         return True
     except Exception:
         log.exception('could not enqueue conversion %s; the sweeper will', conversion_id)
+        metrics.incr('filesgg_redis_errors_total', {'client': 'convert_queue'})
         return False
 
 
@@ -92,6 +95,7 @@ def enqueue_preview(hash_id, connection=None):
         return True
     except Exception:
         log.exception('could not enqueue the preview of hash %s; the sweeper will', hash_id)
+        metrics.incr('filesgg_redis_errors_total', {'client': 'convert_queue'})
         return False
 
 
@@ -182,6 +186,7 @@ def admin_health(connection=None):
         raw = connection.hgetall(METRICS_KEY) or {}
     except Exception:
         log.warning('could not read the conversion queues for the admin summary', exc_info=True)
+        metrics.incr('filesgg_redis_errors_total', {'client': 'convert_queue'})
         return None
     jobs = {}
     for field, value in raw.items():

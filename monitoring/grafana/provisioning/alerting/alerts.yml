@@ -1,0 +1,505 @@
+# files.gg's alerts (contract milestone-7 §4.3), sent to a Discord channel through its webhook
+# (GRAFANA_ALERT_DISCORD_WEBHOOK, from the grafana service's environment in docker-compose.yml). Each one's summary says
+# what it means, its description what to check first; docs/redesign/LAUNCH.md has the runbook line for each.
+# The daily backup's alert isn't here: healthchecks.io alerts on its own when the backup doesn't report in 26 hours
+# (DB_BACKUP_HEALTHCHECK_URL, monitoring/README.md).
+apiVersion: 1
+
+contactPoints:
+  - orgId: 1
+    name: discord
+    receivers:
+      - uid: filesgg-discord
+        type: discord
+        settings:
+          url: ${GRAFANA_ALERT_DISCORD_WEBHOOK}
+          use_discord_username: false
+
+policies:
+  - orgId: 1
+    receiver: discord
+    group_by: ['alertname']
+    group_wait: 30s
+    group_interval: 5m
+    repeat_interval: 4h
+
+groups:
+  # --- the API -------------------------------------------------------------------------------------------------------
+  - orgId: 1
+    name: api
+    folder: files.gg
+    interval: 1m
+    rules:
+      - uid: api-5xx
+        title: API 5xx above 2%
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange: { from: 600, to: 0 }
+            datasourceUid: prometheus
+            model:
+              refId: A
+              instant: true
+              expr: >-
+                sum(rate(filesgg_http_requests_total{status="5xx"}[5m]))
+                / sum(rate(filesgg_http_requests_total[5m]))
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator: { type: gt, params: [0.02] }
+        for: 5m
+        # no traffic isn't an error
+        noDataState: OK
+        execErrState: Error
+        annotations:
+          summary: '{{ humanizePercentage $values.A.Value }} of API requests are answering 5xx'
+          description: >-
+            The dashboard's "5xx by route" panel says which route. `docker compose logs --since 15m api` has the
+            tracebacks (`unhandled error`); a 503 on every route is usually Postgres (the API's health check) or B2
+        labels:
+          severity: critical
+
+      # the routes a page view waits on: the Worker's lookups for the viewer and album pages and custom domains, and
+      # the website's own file and album reads
+      - uid: api-page-latency
+        title: Page routes slow (p95 above 1 s)
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange: { from: 600, to: 0 }
+            datasourceUid: prometheus
+            model:
+              refId: A
+              instant: true
+              expr: >-
+                histogram_quantile(0.95, sum by (le) (rate(filesgg_http_request_duration_seconds_bucket{
+                route=~"/internal/(files|albums|domains)/.+|/files/<vanity:path>|/albums/<vanity:str>"}[5m])))
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator: { type: gt, params: [1] }
+        for: 10m
+        noDataState: OK
+        execErrState: Error
+        annotations:
+          summary: 'Page routes p95 is {{ humanizeDuration $values.A.Value }} (over 1 s for 10 minutes)'
+          description: >-
+            Check the dashboard's Postgres pool (requests waiting for a connection), the API containers' CPU and the
+            Postgres panels (slow queries, connections). Pages are slow for every visitor while this fires
+        labels:
+          severity: warning
+
+      # without the scrape every files.gg alert below is blind
+      - uid: metrics-scrape-failing
+        title: files.gg metrics not scraped
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange: { from: 600, to: 0 }
+            datasourceUid: prometheus
+            model:
+              refId: A
+              instant: true
+              expr: min(up{job="filesgg"}) * min(filesgg_metrics_collector_up)
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator: { type: lt, params: [1] }
+        for: 5m
+        noDataState: Alerting
+        execErrState: Error
+        annotations:
+          summary: "Prometheus can't read part or all of files.gg's metrics: the other files.gg alerts can't fire"
+          description: >-
+            Prometheus' Targets page (job filesgg) has the scrape error; `filesgg_metrics_collector_up` says which part
+            failed (redis, jobs, scans, conversion_queues, db_pools) and the API logs say why. A 404 means the
+            origin secret Prometheus sends isn't the API's ORIGIN_SHARED_SECRET
+        labels:
+          severity: critical
+
+  # --- uploads: scans and the CSAM matcher ----------------------------------------------------------------------------
+  - orgId: 1
+    name: scans
+    folder: files.gg
+    interval: 1m
+    rules:
+      - uid: scans-pending
+        title: Scans pending over 10 minutes
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange: { from: 600, to: 0 }
+            datasourceUid: prometheus
+            model:
+              refId: A
+              instant: true
+              expr: max(filesgg_scans_pending_oldest_seconds)
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator: { type: gt, params: [600] }
+        for: 2m
+        noDataState: OK
+        execErrState: Error
+        annotations:
+          summary: >-
+            A file has waited {{ humanizeDuration $values.A.Value }} for its first scan: new uploads can't publish
+          description: >-
+            Check the scanner container (`docker compose ps scanner`, its logs), ClamAV (the ClamAV alert, `docker
+            compose ps clamav`), the CSAM matcher alert and B2. The dashboard's Scans row shows whether scans stopped or
+            just fell behind
+        labels:
+          severity: critical
+
+      - uid: csam-matcher-errors
+        title: CSAM matcher errors
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange: { from: 600, to: 0 }
+            datasourceUid: prometheus
+            model:
+              refId: A
+              instant: true
+              expr: sum(increase(filesgg_csam_matcher_calls_total{outcome="error"}[5m]))
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator: { type: gt, params: [0] }
+        for: 0s
+        noDataState: OK
+        execErrState: Error
+        annotations:
+          summary: >-
+            The CSAM matcher failed {{ printf "%.0f" $values.A.Value }} time(s) in 5 minutes: images and videos
+            uploaded meanwhile stay pending (fail closed)
+          description: >-
+            The scanner's logs have the error (`PhotoDNA HTTP ...`, a timeout or a 429). Check PhotoDNA's status and the
+            subscription key (PHOTODNA_SUBSCRIPTION_KEY); the scans retry by themselves once it answers
+        labels:
+          severity: critical
+
+  # --- conversions -------------------------------------------------------------------------------------------------
+  - orgId: 1
+    name: conversions
+    folder: files.gg
+    interval: 1m
+    rules:
+      - uid: conversion-queue-member
+        title: Member conversions waiting over 10 minutes
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange: { from: 600, to: 0 }
+            datasourceUid: prometheus
+            model:
+              refId: A
+              instant: true
+              expr: max(filesgg_conversion_queue_oldest_seconds{queue="convert_member"})
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator: { type: gt, params: [600] }
+        for: 1m
+        noDataState: OK
+        execErrState: Error
+        annotations:
+          summary: "The member queue's oldest conversion has waited {{ humanizeDuration $values.A.Value }}"
+          description: >-
+            Check the `converter` and `converter-premium` containers (both drain convert_member) and their CPU on the
+            dashboard; the Conversions row shows whether jobs are finishing or timing out. More processes:
+            CONVERTER_PROCESSES in .env
+        labels:
+          severity: warning
+
+      - uid: conversion-queue-premium
+        title: Premium conversions waiting over 30 minutes
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange: { from: 600, to: 0 }
+            datasourceUid: prometheus
+            model:
+              refId: A
+              instant: true
+              expr: max(filesgg_conversion_queue_oldest_seconds{queue="convert_premium"})
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator: { type: gt, params: [1800] }
+        for: 1m
+        noDataState: OK
+        execErrState: Error
+        annotations:
+          summary: "The premium queue's oldest conversion has waited {{ humanizeDuration $values.A.Value }}"
+          description: >-
+            Check the `converter-premium` container (it alone takes convert_premium) and its logs; its jobs can each
+            run 30 minutes, so a few long transcodes fill it. More processes: CONVERTER_PREMIUM_PROCESSES in .env
+        labels:
+          severity: warning
+
+  # --- the host and the containers ---------------------------------------------------------------------------------
+  - orgId: 1
+    name: host
+    folder: files.gg
+    interval: 1m
+    rules:
+      - uid: host-disk
+        title: Disk above 85%
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange: { from: 600, to: 0 }
+            datasourceUid: prometheus
+            model:
+              refId: A
+              instant: true
+              expr: >-
+                max by (mountpoint) (1 - node_filesystem_avail_bytes{fstype!~"tmpfs|ramfs|overlay|squashfs|nsfs"}
+                / node_filesystem_size_bytes{fstype!~"tmpfs|ramfs|overlay|squashfs|nsfs"})
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator: { type: gt, params: [0.85] }
+        for: 5m
+        noDataState: Alerting
+        execErrState: Error
+        annotations:
+          summary: '{{ $labels.mountpoint }} is {{ humanizePercentage $values.A.Value }} full'
+          description: >-
+            `docker system df` (old images: `docker image prune`), `du -sh .data/*` (Postgres, ClamAV), the scan and
+            convert scratch space, and the container logs (capped by the json-file driver). No data means
+            exporter-node is down
+        labels:
+          severity: critical
+
+      - uid: host-memory
+        title: Memory above 90%
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange: { from: 600, to: 0 }
+            datasourceUid: prometheus
+            model:
+              refId: A
+              instant: true
+              expr: 1 - max(node_memory_MemAvailable_bytes) / max(node_memory_MemTotal_bytes)
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator: { type: gt, params: [0.9] }
+        for: 5m
+        noDataState: Alerting
+        execErrState: Error
+        annotations:
+          summary: 'The server is using {{ humanizePercentage $values.A.Value }} of its memory'
+          description: >-
+            The dashboard's container memory panel says which service grew (`docker stats --no-stream`). The converters
+            and office are capped by mem_limit; the OOM killer is next (`journalctl -k | grep -i oom`). No data means
+            exporter-node is down
+        labels:
+          severity: critical
+
+      - uid: container-restarts
+        title: A container keeps restarting
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange: { from: 900, to: 0 }
+            datasourceUid: prometheus
+            model:
+              refId: A
+              instant: true
+              expr: >-
+                max by (container_label_com_docker_compose_service) (
+                changes(container_start_time_seconds{container_label_com_docker_compose_service!=""}[10m]))
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator: { type: gt, params: [3] }
+        for: 0s
+        noDataState: OK
+        execErrState: Error
+        annotations:
+          summary: >-
+            {{ $labels.container_label_com_docker_compose_service }} restarted {{ $values.A.Value }} times in 10 minutes
+          description: >-
+            `docker compose logs --tail 200 <service>` for why it exits; `docker inspect` shows OOMKilled. A service
+            that refuses to start says what's missing (a secret, a migration)
+        labels:
+          severity: critical
+
+  # --- Postgres, Redis, ClamAV ---------------------------------------------------------------------------------------
+  - orgId: 1
+    name: services
+    folder: files.gg
+    interval: 1m
+    rules:
+      - uid: postgres-down
+        title: Postgres down
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange: { from: 300, to: 0 }
+            datasourceUid: prometheus
+            model:
+              refId: A
+              instant: true
+              expr: min(pg_up)
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator: { type: lt, params: [1] }
+        for: 1m
+        # no data: exporter-postgres itself is gone, so nothing is watching Postgres
+        noDataState: Alerting
+        execErrState: Error
+        annotations:
+          summary: "Postgres isn't answering: the API and every worker are failing"
+          description: >-
+            `docker compose ps postgres` and its logs (a full disk, an OOM kill, a failed recovery). If Postgres is up,
+            check exporter-postgres (its logs, POSTGRES_PASSWORD)
+        labels:
+          severity: critical
+
+      - uid: redis-down
+        title: Redis down
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange: { from: 300, to: 0 }
+            datasourceUid: prometheus
+            model:
+              refId: A
+              instant: true
+              expr: min(redis_up)
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator: { type: lt, params: [1] }
+        for: 1m
+        noDataState: Alerting
+        execErrState: Error
+        annotations:
+          summary: "Redis isn't answering: sign-in, unlocks and reports answer 503, conversions can't queue"
+          description: >-
+            `docker compose ps redis` and its logs (maxmemory, a full disk for its append-only file). Metrics are
+            counted in each process meanwhile and arrive once Redis is back. If Redis is up, check exporter-redis
+        labels:
+          severity: critical
+
+      # fail-closed limits (sign-in, register, password reset, unlock, reports) answer 503 RATE_LIMIT_UNAVAILABLE
+      # while Redis errors, and Redis refuses writes when it's out of memory or can't persist
+      - uid: redis-refusing
+        title: Redis refusing (fail-closed limits answering 503)
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange: { from: 600, to: 0 }
+            datasourceUid: prometheus
+            model:
+              refId: A
+              instant: true
+              expr: >-
+                (sum(increase(filesgg_ratelimit_unavailable_total{fail="closed"}[5m])) or vector(0))
+                + (sum(increase(redis_errorstat_total{err=~"OOM|MISCONF|READONLY"}[5m])) or vector(0))
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator: { type: gt, params: [0] }
+        for: 0s
+        noDataState: OK
+        execErrState: Error
+        annotations:
+          summary: >-
+            Redis refused {{ printf "%.0f" $values.A.Value }} command(s) in 5 minutes: sign-in, unlocks and reports
+            answer 503
+          description: >-
+            `docker compose exec redis redis-cli -a ... info memory` (used_memory against maxmemory) and `info persistence`
+            (a failed save is MISCONF); the API logs say `rate limit check failed, refusing`
+        labels:
+          severity: critical
+
+      # running at all; a running clamd that stopped answering shows up as scans pending
+      - uid: clamav-down
+        title: ClamAV down
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange: { from: 300, to: 0 }
+            datasourceUid: prometheus
+            model:
+              refId: A
+              instant: true
+              expr: count(container_last_seen{container_label_com_docker_compose_service="clamav"})
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator: { type: lt, params: [1] }
+        for: 2m
+        # no data: cAdvisor sees no clamav container
+        noDataState: Alerting
+        execErrState: Error
+        annotations:
+          summary: "The ClamAV container isn't running: scans can't finish, uploads stay pending"
+          description: >-
+            `docker compose ps clamav` and its logs (freshclam, its 4 GB mem_limit while loading signatures); it takes
+            a few minutes to load. No data from cAdvisor at all means cadvisor is down
+        labels:
+          severity: critical

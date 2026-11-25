@@ -51,7 +51,9 @@ not_found_handling = "none"
 
 # B2 (S3-compatible), the only storage cdn.files.gg reads, e.g.
 # S3_ENDPOINT = "https://s3.us-west-004.backblazeb2.com". Until all three are set (plus the two
-# read-key secrets below), the CDN answers 503 for every file, preview and ZIP.
+# read-key secrets below), the CDN answers 503 for every file, preview and ZIP. `wrangler deploy`
+# re-applies these on every deploy, so ops/deploy.sh passes the real ones from the server's .env
+# (`--var S3_ENDPOINT:...`, the same bucket as the API's); a bare `wrangler deploy` empties them.
 S3_ENDPOINT = ""
 S3_REGION = ""
 S3_BUCKET_FILES = ""
@@ -69,3 +71,25 @@ S3_BUCKET_FILES = ""
 #
 # Generate shared secrets with `openssl rand -hex 32`. For `npm run dev`, put local values in
 # .dev.vars (git-ignored).
+
+# --- The staging run (docs/redesign/LAUNCH.md §7) -------------------------------------------------
+# `wrangler deploy --env staging` (ops/deploy.sh with WORKER_ENV=staging in the staging .env): the
+# Worker `files-gg-staging`, on the three staging host names only (no `*/*`, the production Worker
+# keeps everything else). vars and routes aren't inherited from the top level, so they're all here;
+# the S3 values come from the staging .env like production's. Its secrets are its own:
+# `npx wrangler secret put <NAME> --env staging`. Deleted with the staging Worker after the run (§7.8).
+[env.staging]
+name = "files-gg-staging"
+routes = [
+  { pattern = "staging.files.gg/*", zone_name = "files.gg" },
+  { pattern = "cdn-staging.files.gg/*", zone_name = "files.gg" },
+  { pattern = "api-staging.files.gg/*", zone_name = "files.gg" },
+]
+
+[env.staging.vars]
+MAIN_HOST = "staging.files.gg"
+CDN_HOST = "cdn-staging.files.gg"
+API_HOST = "api-staging.files.gg"
+S3_ENDPOINT = ""
+S3_REGION = ""
+S3_BUCKET_FILES = ""

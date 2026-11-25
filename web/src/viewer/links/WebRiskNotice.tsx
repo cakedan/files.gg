@@ -1,6 +1,7 @@
 import './links.css';
 
-import { WEB_RISK_ADVISORY_URL, WEB_RISK_LEARN_MORE } from './webRisk';
+import { mainUrl } from '../host/context';
+import { LINK_WARNINGS_PATH, WEB_RISK_ADVISORY_URL, WEB_RISK_LEARN_MORE } from './webRisk';
 
 const linkClass = 'text-gg underline-offset-2 hover:underline';
 
@@ -13,7 +14,7 @@ export function WebRiskNotice({ className = '' }: { className?: string }) {
         {WEB_RISK_LEARN_MORE.map((item, index) => (
           <span key={item.threat}>
             {index > 0 && ' · '}
-            <a href={item.href} target="_blank" rel="noopener noreferrer" className={linkClass}>
+            <a href={mainUrl(`${LINK_WARNINGS_PATH}#${item.anchor}`)} target="_blank" rel="noopener noreferrer" className={linkClass}>
               {item.label}
             </a>
           </span>

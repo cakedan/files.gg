@@ -171,7 +171,7 @@ class Workspace:
         os.mkdir(self.out, 0o700)
 
     def download(self, client, hash_id):
-        client.download_file(bucket(), storage_module.blob_key(hash_id), self.input)
+        storage_module.download_sync(client, bucket(), storage_module.blob_key(hash_id), self.input)
 
     def __enter__(self):
         return self

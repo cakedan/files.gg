@@ -19,6 +19,7 @@ import os
 import shutil
 import sys
 import tempfile
+import time
 
 from datetime import datetime, timedelta, timezone
 
@@ -27,7 +28,7 @@ from jobs.queue import register
 from media import sandbox
 from safety import core, csam
 from safety.settings import safety_settings
-from utils import document_previews, storage as storage_module
+from utils import document_previews, metrics, storage as storage_module
 
 log = logging.getLogger(__name__)
 
@@ -234,6 +235,16 @@ def pdq_near(conn, hashes, settings):
     return hits
 
 
+def classify_nsfw(child, outdir):
+    """§4 on the images the child kept (its `nsfw.npy`), with this process's model, which is loaded once
+    and kept for every later scan (milestone-7 §7). None when the child kept none."""
+    batch = child.get('nsfw_batch')
+    if not batch:
+        return None
+    from media import nsfw
+    return nsfw.classifier().classify_batch(os.path.join(outdir, nsfw.BATCH_FILE), batch.get('count'))
+
+
 # --- the scan ------------------------------------------------------------------------------------------------
 
 class Workspace:
@@ -269,7 +280,8 @@ def run_checks(info, checks, client, settings, rescan=False):
     needs_blob = needs_child or 'clamav' in checks
     with Workspace(info['id']) as space:
         if needs_blob:
-            client.download_file(bucket(), storage_module.blob_key(info['id']), space.input)
+            # the scan's one B2 read: every check below reads this copy (milestone-7 §7)
+            storage_module.download_sync(client, bucket(), storage_module.blob_key(info['id']), space.input)
         child = None
         if needs_child:
             child = run_child(space.input, space.out, child_hints(info, settings, nsfw='nsfw' in checks), settings)
@@ -305,8 +317,8 @@ def run_checks(info, checks, client, settings, rescan=False):
                 extra['pdq_near'] = {'blocked_hash_id': blocked_id, 'reason': reason, 'distance': distance,
                                      'frame': frame}
         if child is not None and 'nsfw' in checks:
-            nsfw = child.get('nsfw')
-            if nsfw and nsfw.get('classified'):
+            nsfw = classify_nsfw(child, space.out)
+            if nsfw:
                 results['nsfw'] = {'result': 'done', 'score': round(float(nsfw['score']), 4),
                                    'classified': nsfw['classified'], 'model': nsfw['model']}
                 extra['nsfw'] = float(nsfw['score'])
@@ -418,6 +430,7 @@ def next_rescan(kind, first_at, now, initial):
 
 def scan(hash_id, job=None, client=None):
     """The first scan of a hash. Returns its new state (or the current one if it isn't pending)."""
+    started = time.monotonic()
     settings = safety_settings()
     with db.connect() as conn:
         info = load(conn, hash_id)
@@ -463,6 +476,9 @@ def scan(hash_id, job=None, client=None):
             if matched_csam:
                 # committed with the match, so §3.6 runs even if this process dies or the steps fail
                 handle_job = csam.queue_handle(conn, hash_id, csam_source, extra['csam'])
+    # milestone-7 §4.2, once the result is committed: labels only from fixed values (the states, §2.3's codes)
+    metrics.incr('filesgg_scans_total', {'state': state, 'reason': reason or 'none'})
+    metrics.observe('filesgg_scan_seconds', time.monotonic() - started)
     document_previews.enqueue(previews)
     if matched_csam:
         csam.handle_now(hash_id, csam_source, extra['csam'], handle_job, client=client)

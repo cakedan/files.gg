@@ -171,6 +171,7 @@ class CreateUploadArgs(Args):
 
 
 @route(uploads, '', ['POST'])
+@uploading.count_refusals('chunked')
 @limiter.limit('60 per minute', scope='chunked_upload')
 @parse_args(CreateUploadArgs)
 async def create_upload(request, args):
@@ -334,7 +335,8 @@ async def put_chunk(request, upload_id, index):
     return ApiResponse(status=204)
 
 
-route(uploads, '/<upload_id:str>/chunks/<index:str>', ['PUT'], stream=True)(put_chunk)
+route(uploads, '/<upload_id:str>/chunks/<index:str>', ['PUT'], stream=True)(
+    uploading.count_refusals('chunked')(put_chunk))
 
 
 @route(uploads, '/<upload_id:str>', ['GET'])
@@ -358,6 +360,7 @@ async def get_upload(request, upload_id):
 
 
 @route(uploads, '/<upload_id:str>/complete', ['POST'])
+@uploading.count_refusals('chunked')
 async def complete_upload(request, upload_id):
     caller = await caller_of(request)
     async with db.connection() as conn:

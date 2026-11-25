@@ -6,8 +6,12 @@ implementation (`photodna` or `standin`); another vendor (Thorn Safer, StopNCII,
 another implementation, and several can run in sequence later (any hit is a match).
 """
 
+import functools
+
 from dataclasses import dataclass, field
 from typing import List, Optional, Protocol, Sequence
+
+from utils import metrics
 
 
 @dataclass(frozen=True)
@@ -45,6 +49,22 @@ class HashMatcher(Protocol):
     name: str
 
     def match(self, images: Sequence[MatchImage], blake2b: Optional[str] = None) -> MatchOutcome: ...
+
+
+def counted(match):
+    """A matcher's `match`, counted in `filesgg_csam_matcher_calls_total` (milestone-7 §4.2): `match`, `no_match`,
+    or `error` when it raised (uploads fail closed: the hash stays pending)."""
+    @functools.wraps(match)
+    def wrapper(self, images, blake2b=None):
+        try:
+            outcome = match(self, images, blake2b)
+        except Exception:
+            metrics.incr('filesgg_csam_matcher_calls_total', {'matcher': self.name, 'outcome': 'error'})
+            raise
+        metrics.incr('filesgg_csam_matcher_calls_total',
+                     {'matcher': self.name, 'outcome': 'match' if outcome.hits else 'no_match'})
+        return outcome
+    return wrapper
 
 
 def get_matcher(settings=None):

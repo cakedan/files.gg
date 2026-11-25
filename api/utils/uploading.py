@@ -2,6 +2,7 @@
 and streaming request bodies to a temp file (PLAN.md "Limits", "Expiry",
 "Private and password-protected files")."""
 
+import functools
 import hashlib
 import os
 import re
@@ -16,7 +17,7 @@ from sanic.request.parameters import RequestParameters
 from db import queries
 from utils import filetypes, limits as limits_module
 from utils import passwords, view_hash
-from utils import errors
+from utils import errors, metrics
 from utils.generators import EPOCH
 from utils.responses import ApiError
 from utils.vanity import generate_vanity
@@ -36,6 +37,33 @@ IP_PURPOSE = 'upload-ip'
 
 def utcnow():
     return datetime.now(timezone.utc)
+
+
+# --- metrics (milestone-7 §4.2) ----------------------------------------------------------------------------------
+
+def uploader_kind(user, key):
+    """`filesgg_uploads_total`'s `uploader`: an upload key, a signed-in session, or a guest."""
+    return 'key' if key is not None else 'signed_in' if user is not None else 'guest'
+
+
+def count_upload(kind, uploader, size):
+    labels = {'kind': kind, 'uploader': uploader}
+    metrics.incr('filesgg_uploads_total', labels)
+    metrics.incr('filesgg_upload_bytes_total', labels, size)
+
+
+def count_refusals(kind):
+    """An upload handler whose errors are counted in `filesgg_upload_refusals_total` by code."""
+    def decorator(handler):
+        @functools.wraps(handler)
+        async def wrapper(request, *args, **kwargs):
+            try:
+                return await handler(request, *args, **kwargs)
+            except ApiError as error:
+                metrics.incr('filesgg_upload_refusals_total', {'kind': kind, 'code': error.code})
+                raise
+        return wrapper
+    return decorator
 
 
 def from_epoch(seconds):

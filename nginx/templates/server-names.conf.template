@@ -1,0 +1,4 @@
+# Rendered into /etc/nginx/conf.d/server-names.conf at start, included by nginx.conf's API server: api.files.gg, the
+# fallback origin custom domains reach (origin.files.gg), and NGINX_EXTRA_API_HOSTS (the staging run's
+# api-staging.files.gg, docs/redesign/LAUNCH.md §7; empty in production, ops/check-env.sh refuses it there).
+server_name api.files.gg origin.files.gg ${NGINX_EXTRA_API_HOSTS};

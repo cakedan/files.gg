@@ -1,8 +1,13 @@
 import { fireEvent, render, screen } from '@testing-library/react';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
+import { headings } from '../../content/help/link-warnings.md?meta';
+import { resetHostContext } from '../host/context';
 import { FlaggedLinkDialog } from './FlaggedLinkDialog';
-import { isFlaggedLink, normalizeLink, serverForm, WEB_RISK_WARNING } from './webRisk';
+import { isFlaggedLink, LINK_WARNINGS_PATH, normalizeLink, serverForm, WEB_RISK_LEARN_MORE, WEB_RISK_WARNING } from './webRisk';
+import { WebRiskNotice } from './WebRiskNotice';
+
+afterEach(() => resetHostContext());
 
 describe('isFlaggedLink', () => {
   it('matches regardless of host case, fragment and a trailing slash', () => {
@@ -52,16 +57,42 @@ describe('FlaggedLinkDialog (milestone-4 §11.1)', () => {
     expect(WEB_RISK_WARNING).toBe("This link may be dangerous: it's suspected of hosting malware, phishing or unwanted software.");
     expect(screen.getByTestId('flagged-url')).toHaveTextContent('https://bad.example/x');
     expect(screen.getByRole('link', { name: 'Advisory provided by Google' })).toHaveAttribute('href', 'https://docs.cloud.google.com/web-risk/docs/advisory');
-    expect(screen.getByRole('link', { name: 'Phishing' })).toHaveAttribute('href', 'https://www.antiphishing.org/');
-    expect(screen.getByRole('link', { name: 'Unwanted software' })).toHaveAttribute(
-      'href',
-      'https://www.google.com/about/company/unwanted-software-policy.html',
-    );
+    expect(screen.getByRole('link', { name: 'Phishing' })).toHaveAttribute('href', '/help/link-warnings#social-engineering');
+    expect(screen.getByRole('link', { name: 'Unwanted software' })).toHaveAttribute('href', '/help/link-warnings#unwanted-software');
     // The flagged URL itself is never a link, and there's no Continue.
     expect(screen.queryByRole('link', { name: /bad\.example/ })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Continue' })).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Copy link' })).toBeInTheDocument();
     fireEvent.keyDown(document, { key: 'Escape' });
     expect(onClose).toHaveBeenCalled();
+  });
+});
+
+describe('learn more: the link warnings page on files.gg (milestone-7 §7)', () => {
+  it('links each threat type files.gg checks to its section of /help/link-warnings', () => {
+    render(<WebRiskNotice />);
+    expect(screen.getByRole('link', { name: 'Malware' })).toHaveAttribute('href', '/help/link-warnings#malware');
+    expect(screen.getByRole('link', { name: 'Phishing' })).toHaveAttribute('href', '/help/link-warnings#social-engineering');
+    expect(screen.getByRole('link', { name: 'Unwanted software' })).toHaveAttribute('href', '/help/link-warnings#unwanted-software');
+    expect(screen.getByRole('link', { name: 'Advisory provided by Google' })).toHaveAttribute('href', 'https://docs.cloud.google.com/web-risk/docs/advisory');
+  });
+
+  it('every anchor is a section of the page, which also covers potentially harmful apps', () => {
+    const sections = headings.filter((heading) => heading.depth === 2).map((heading) => heading.id);
+    for (const item of WEB_RISK_LEARN_MORE) expect(sections).toContain(item.anchor);
+    expect(sections).toContain('potentially-harmful-applications');
+  });
+
+  it('goes to files.gg from a custom domain, which has no help page', () => {
+    resetHostContext({
+      custom: true,
+      host: 'i.example.com',
+      origin: 'https://i.example.com',
+      mainOrigin: 'https://files.gg',
+      apiOrigin: 'https://api.files.gg',
+      cdnOrigin: 'https://cdn.files.gg',
+    });
+    render(<WebRiskNotice />);
+    expect(screen.getByRole('link', { name: 'Malware' })).toHaveAttribute('href', `https://files.gg${LINK_WARNINGS_PATH}#malware`);
   });
 });

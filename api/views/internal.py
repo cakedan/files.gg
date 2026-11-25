@@ -13,6 +13,9 @@ lookup `serve_inline`. A hash-matched CSAM file answers 404, exactly like an unk
 Milestone 6 §19.5: the file lookup adds `view_limit` ({ limit, used, action } or null); view-limited files are
 never album items, so they're never in an album lookup.
 
+Milestone 7 (§4.2): `GET /internal/metrics`, Prometheus' scrape (utils/metrics.py), behind the same guard: Prometheus
+sends the secret and the lookup header from the compose network (monitoring/prometheus/prometheus.yml).
+
 Milestone 6 (§10.7): `GET /internal/domains/<hostname>` (the custom-host router's lookup), and the file and
 album lookups add `owner_state` ("active" | "pending_deletion", null for anonymous owners) and `served_on`
 ("files.gg" | "custom", domain-only mode); the album lookup also `owner_user_id`.
@@ -23,13 +26,14 @@ id. Payloads here are unsigned; the Worker verifies signed URLs against `access`
 """
 
 from sanic import Blueprint
+from sanic.response import HTTPResponse
 
 import db
 from db import albums as album_queries
 from db import queries
 from db.models import epoch
 from utils import albums as album_rules
-from utils import errors, payloads, storage as storage_module, view_limits
+from utils import errors, metrics, payloads, storage as storage_module, view_limits
 from safety.states import CSAM_REASONS
 from utils.responses import ApiResponse
 from utils.wrappers import route
@@ -159,3 +163,11 @@ async def lookup_domain(request, hostname):
     if found is None or found['hostname'] != hostname.lower():
         raise errors.not_found()
     return ApiResponse({'domain': found})
+
+
+@route(internal, '/metrics', ['GET'])
+async def scrape_metrics(request):
+    """Every files.gg metric in Prometheus' text format; the same 404 as any unknown path otherwise."""
+    if not request.ctx.internal_lookup:
+        raise errors.not_found()
+    return HTTPResponse(await metrics.render(), content_type=metrics.CONTENT_TYPE)

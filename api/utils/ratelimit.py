@@ -28,7 +28,7 @@ from functools import lru_cache
 
 from redis.exceptions import RedisError
 
-from utils import errors, redis as redis_clients
+from utils import errors, metrics, redis as redis_clients
 
 log = logging.getLogger(__name__)
 
@@ -263,12 +263,15 @@ REFUSALS = {
 }
 ATTEMPT_SCOPES = frozenset(('login_ip', 'login_account', 'reauth', 'register', 'forgot_ip', 'forgot_account',
                             'verify_resend', 'discord', 'username_check', 'unlock', 'access', 'domain_add'))
+# the scopes `filesgg_ratelimit_refusals_total` may name; route limits add theirs as they're declared (`limit`)
+metrics.allow('scope', *DEFAULTS, *CLOSED_SCOPES, *REFUSALS, *ATTEMPT_SCOPES)
 
 
 def refusal(hits):
     """The error for a refused check: the first refused limit's code, with the longest wait."""
     limit = next(hit.limit for hit in hits if not hit.allowed)
     wait = retry_after(hits)
+    metrics.incr('filesgg_ratelimit_refusals_total', {'scope': limit.scope})
     if limit.scope in REFUSALS:
         return REFUSALS[limit.scope](limit, wait)
     if limit.scope in ATTEMPT_SCOPES:
@@ -285,7 +288,10 @@ def settle(hits, quiet):
 def unavailable(checks, error, where):
     """Redis failed: 503 RATE_LIMIT_UNAVAILABLE when any of the limits fails closed, else let it through."""
     scopes = ', '.join(sorted({limit.scope for limit, _ in checks}))
-    if any(limit.fail == 'closed' for limit, _ in checks):
+    closed = any(limit.fail == 'closed' for limit, _ in checks)
+    metrics.incr('filesgg_redis_errors_total', {'client': 'ratelimit'})
+    metrics.incr('filesgg_ratelimit_unavailable_total', {'fail': 'closed' if closed else 'open'})
+    if closed:
         log.warning('rate limit check failed, refusing (%s) - %s - %r', scopes, where, error)
         raise errors.rate_limit_unavailable()
     log.warning('rate limit check failed, letting it through (%s) - %s - %r', scopes, where, error)
@@ -324,6 +330,7 @@ class Limiter:
         def decorator(func):
             name = scope or '{}.{}'.format(func.__module__.rpartition('.')[2], func.__qualname__)
             Limit.parse(text, name, fail)
+            metrics.allow('scope', name)
             setattr(func, HANDLER_ATTRIBUTE, (*getattr(func, HANDLER_ATTRIBUTE, ()), RouteLimit(name, text, fail, key)))
             return func
         return decorator

@@ -1,0 +1,7 @@
+# Rendered into /etc/nginx/conf.d/internal-lookup.conf by the nginx image at start (NGINX_ENVSUBST_FILTER limits it to
+# ORIGIN_SHARED_SECRET), included by nginx.conf. 1 only for the Worker's own lookups: its secret and the lookup header
+# (cf-worker/worker/domains/internal.js). The API checks both again (api/utils/client_ip.py).
+map "$http_x_filesgg_origin_secret:$http_x_filesgg_internal_lookup" $filesgg_worker_lookup {
+    default 0;
+    "${ORIGIN_SHARED_SECRET}:1" 1;
+}

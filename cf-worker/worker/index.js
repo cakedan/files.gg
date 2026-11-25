@@ -9,7 +9,7 @@ import {
 
 import { applyCdnSecurityHeaders } from './domains/cdn.js';
 import { filterSetCookies, sessionCookieName } from './utils/cookies.js';
-import { isOwnHost } from './utils/domains.js';
+import { OWN_HSTS, isOwnHost } from './utils/domains.js';
 import { DEFAULT_HOSTS, getHosts, isMainHost, originFor } from './utils/hosts.js';
 import { CDN_EXPOSE_HEADERS, corsHeaders } from './utils/security.js';
 
@@ -38,6 +38,8 @@ function createRouter(hosts) {
     filterSetCookies(response.headers, isMainApi(hostname, pathname, hosts) ? sessionCookieName(event.environment) : null);
     // Never credentialed CORS (§12 item 2), whatever the API sent.
     response.headers.delete('access-control-allow-credentials');
+    // Every response from our own hosts, errors included.
+    response.headers.set('Strict-Transport-Security', OWN_HSTS);
 
     // CDN bytes always carry CORS `*` (pdf.js and canvas on files.gg fetch them, and the browser
     // cache must not keep a copy without it). Elsewhere, only cross-origin requests get CORS

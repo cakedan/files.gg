@@ -88,12 +88,14 @@ def nsfw_score(monkeypatch):
     state = {'score': None}
 
     def run_child(path, outdir, hints, settings):
-        result = original(path, outdir, dict(hints, nsfw=False), settings)
-        if state['score'] is not None and result.get('images'):
-            result['nsfw'] = {'score': state['score'], 'classified': len(result['images']),
-                              'model': 'mock@00000000'}
-        return result
+        return original(path, outdir, dict(hints, nsfw=False), settings)
+
+    def classify_nsfw(child, outdir):
+        if state['score'] is None or not child.get('images'):
+            return None
+        return {'score': state['score'], 'classified': len(child['images']), 'model': 'mock@00000000'}
     monkeypatch.setattr(scan_module, 'run_child', run_child)
+    monkeypatch.setattr(scan_module, 'classify_nsfw', classify_nsfw)
 
     def set_score(value):
         state['score'] = value

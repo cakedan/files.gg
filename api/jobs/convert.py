@@ -286,7 +286,7 @@ class Conversion:
 
     def download(self, hash_id, directory, name):
         path = os.path.join(directory, name)
-        media_jobs.s3().download_file(media_jobs.bucket(), storage_module.blob_key(hash_id), path)
+        storage_module.download_sync(media_jobs.s3(), media_jobs.bucket(), storage_module.blob_key(hash_id), path)
         return path
 
     def source(self):
@@ -477,7 +477,7 @@ def preview_child(op, directory, params, wall=PREVIEW_TIMEOUT):
 def make_preview(conn, hash_id, extension, directory):
     client = media_jobs.s3()
     path = os.path.join(directory, 'input')
-    client.download_file(media_jobs.bucket(), storage_module.blob_key(hash_id), path)
+    storage_module.download_sync(client, media_jobs.bucket(), storage_module.blob_key(hash_id), path)
     outdir = os.path.join(directory, 'out')
     os.mkdir(outdir)
     if preview_child('document_info', outdir, {'input': path}).get('encrypted'):

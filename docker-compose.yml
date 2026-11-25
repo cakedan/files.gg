@@ -1,25 +1,26 @@
-# Secrets come from the shell or an untracked .env file next to this file; compose refuses to
-# start if a required one is missing (the API also refuses to boot without them).
-#   POSTGRES_PASSWORD, SECRET_KEY, RPC_KEY, ORIGIN_SHARED_SECRET, VIEW_HASH_SECRET,
-#   DB_BACKUP_RESTIC_PASSWORD, S3_BACKUP_ACCESS_KEY_ID, S3_BACKUP_SECRET_ACCESS_KEY,
-#   POSTMARK_SERVER_TOKEN, CDN_SIGNING_SECRET, TURNSTILE_SECRET,
-#   S3_ENDPOINT, S3_REGION, S3_BUCKET_FILES, S3_ACCESS_KEY_ID, S3_SECRET_ACCESS_KEY,
-#   (Milestone 4) CSAM_MATCHER, PHOTODNA_SUBSCRIPTION_KEY (scanner and rescanner only), ABUSE_HASH_SECRET, EVIDENCE_PUBLIC_KEY,
-#   S3_BUCKET_EVIDENCE, S3_EVIDENCE_ACCESS_KEY_ID, S3_EVIDENCE_SECRET_ACCESS_KEY (WEB_RISK_API_KEY is optional),
-#   (Milestone 5) REDIS_PASSWORD
+# The production stack (docs/redesign/contracts/milestone-7.md §2), on one server (§1). Every variable is listed in
+# .env.example, grouped by service; `ops/check-env.sh` refuses a deploy when a required one is missing or still a
+# placeholder, and compose itself refuses to start without the ones marked `:?` below. Deploys go through
+# `ops/deploy.sh` (ops/README.md), never a bare `docker compose up`.
 #
-# Order on `docker compose up`: postgres becomes healthy, migrate runs once and must succeed,
-# then api and worker start. Scale either independently, e.g. `docker compose up --scale worker=2`;
-# scheduled tasks still run once (advisory locks), and every process leases its own Snowflake
-# node id.
+# Order on `docker compose up`: postgres becomes healthy, migrate runs once and must succeed, then the API, the workers
+# and the converters start. Scheduled tasks run once however many workers there are (advisory locks), and every
+# process leases its own Snowflake node id.
 #
-# Postgres runs here in Docker, next to files.gg, the same way as notsobot.api (docs/redesign/PLAN.md §2.1 item 8):
-# Postgres 19.0 pinned by digest, published on localhost only, data in ./.data/postgres, and daily encrypted restic
-# backups to Backblaze by backup-db, scheduled by scheduler-ofelia (backup/README.md).
+# Nothing is published but nginx's 443 (§1): Postgres, Redis, Prometheus and Grafana are reached over SSH
+# (ops/README.md). Postgres runs here in Docker as in notsobot.api (docs/redesign/PLAN.md §2.1 item 8), data in
+# ./.data/postgres, with daily encrypted restic backups to Backblaze by backup-db (backup/README.md).
+#
+# Sizes (`cpus`, `mem_limit`) are for §1's server, 16 cores / 32 threads and 128 GB; the limits add up to under the
+# RAM so the host never swaps. `stop_grace_period` is how long a service gets to finish its work on SIGTERM.
+
+x-logging: &logging
+  driver: json-file
+  options: { max-size: "50m", max-file: "5" }
 
 x-api-environment: &api-environment
-  # Defaults to the postgres service below; override to point at another host (e.g. over a
-  # private network when the API runs on several servers).
+  # Defaults to the postgres service below; override to point at another host (e.g. over a private network once the
+  # converters move to a second server, decision 1).
   DATABASE_URL: ${DATABASE_URL:-postgresql://filesgg:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}@postgres:5432/filesgg}
   # account email through Postmark (api/utils/email.py). Send from the mail.files.gg subdomain with SPF, DKIM
   # and DMARC set up in Postmark; receiving (abuse@, support@) is Cloudflare Email Routing, not this.
@@ -28,7 +29,7 @@ x-api-environment: &api-environment
   RPC_KEY: ${RPC_KEY:?RPC_KEY must be set}
   SECRET_KEY: ${SECRET_KEY:?SECRET_KEY must be set}
   # The public site and CDN origins written into file URLs, #pw=/#t= links, owner passes and email links
-  # (api/utils/urls.py). Change them only for another deployment (staging, or the local stack in e2e/).
+  # (api/utils/urls.py). Change them only for another deployment (staging).
   PUBLIC_URL: ${PUBLIC_URL:-https://files.gg}
   CDN_URL: ${CDN_URL:-https://cdn.files.gg}
   # Comma-separated hostnames a Turnstile token must have been issued for (siteverify's `hostname`).
@@ -41,7 +42,7 @@ x-api-environment: &api-environment
   # Signs CDN URLs for password and private files and albums (milestone-3 §3); the Worker's CDN_SIGNING_SECRET
   # secret must be the same value. The API's own unlock tokens are signed with SECRET_KEY.
   CDN_SIGNING_SECRET: ${CDN_SIGNING_SECRET:?CDN_SIGNING_SECRET must be set (openssl rand -hex 32, shared with the Worker)}
-  # Cloudflare Turnstile secret key (contract §8); the site key goes in web/ config.
+  # Cloudflare Turnstile secret key (contract §8); the site key goes into the web build (VITE_TURNSTILE_SITE_KEY).
   TURNSTILE_SECRET: ${TURNSTILE_SECRET:?TURNSTILE_SECRET must be set (Cloudflare Turnstile secret key)}
   # The files bucket on B2 (S3-compatible API), with the API's write/delete application key (contract §3).
   # The CDN Worker reads with its own read-only key.
@@ -59,9 +60,10 @@ x-api-environment: &api-environment
   # libsodium public key (base64) the raw uploader IP is sealed to; the private key stays offline (milestone-4 §3.6)
   EVIDENCE_PUBLIC_KEY: ${EVIDENCE_PUBLIC_KEY:?EVIDENCE_PUBLIC_KEY must be set (the evidence key pair's public key, base64)}
   NSFW_THRESHOLD: ${NSFW_THRESHOLD:-0.85}
-  # Milestone 6 (docs/redesign/contracts/milestone-6.md §15). All optional: without the Discord pair, Discord
-  # sign-in is off (GET /auth/config); without the Cloudflare token, custom domains are off (503 DOMAINS_UNAVAILABLE).
-  # The worker gets them too: domain_checker, domain_delete, account_export and account_deletion run there.
+  # Milestone 6 (docs/redesign/contracts/milestone-6.md §15). Without the Discord pair, Discord sign-in is off
+  # (GET /auth/config); without the Cloudflare token, custom domains are off (503 DOMAINS_UNAVAILABLE). Production
+  # sets all of them (ops/check-env.sh). The worker gets them too: domain_checker, domain_delete, account_export and
+  # account_deletion run there.
   DISCORD_CLIENT_ID: ${DISCORD_CLIENT_ID:-}
   DISCORD_CLIENT_SECRET: ${DISCORD_CLIENT_SECRET:-}
   DISCORD_REDIRECT_URI: ${DISCORD_REDIRECT_URI:-}
@@ -69,7 +71,8 @@ x-api-environment: &api-environment
   CLOUDFLARE_ZONE_ID: ${CLOUDFLARE_ZONE_ID:-}
   CUSTOM_DOMAIN_TARGET: ${CUSTOM_DOMAIN_TARGET:-domains.files.gg}
   API_PUBLIC_URL: ${API_PUBLIC_URL:-https://api.files.gg}
-  # Cloudflare's request-body limit for the zone's plan: caps single-request uploads for everyone (§9.5)
+  # Cloudflare's request-body limit for the zone's plan: caps single-request uploads for everyone (§9.5). nginx's
+  # client_max_body_size (nginx/nginx.conf) is this plus 1 MiB of framing; ops/check-env.sh checks they agree.
   PROXY_BODY_LIMIT_BYTES: ${PROXY_BODY_LIMIT_BYTES:-104857600}
   # Milestone 5 (docs/redesign/contracts/milestone-5.md §3.1, §14): the RQ queues of the converter services and the
   # rate limits, on the redis service below. The password is hex (openssl rand -hex 32), so it fits in the URL as is.
@@ -108,16 +111,34 @@ x-api-service: &api-service
   # the processes run as uid 10001 and need no Linux capabilities; the media and scan children inherit this
   cap_drop: [ALL]
   security_opt: ["no-new-privileges:true"]
-  logging:
-    driver: json-file
-    options: { max-size: "20m", max-file: "5" }
+  logging: *logging
+
+# The Postgres-queue workers (worker, scanner, rescanner): `python -m worker` finishes its current job on SIGTERM. A
+# job that runs longer than JOBS_LOCK_TIMEOUT (600 s) is taken over by another worker anyway, so that is the grace.
+x-queue-worker: &queue-worker
+  <<: *api-service
+  build:
+    context: ./api/
+    target: worker
+  image: filesgg-worker:latest
+  command: ["python", "-m", "worker"]
+  stop_grace_period: 10m
+  depends_on:
+    postgres:
+      condition: service_healthy
+    migrate:
+      condition: service_completed_successfully
+    redis:
+      condition: service_healthy
 
 # Milestone 5 (docs/redesign/contracts/milestone-5.md §3.1, §3.3): the converter services, one image (api/Dockerfile
 # `converter`: the worker plus resvg and img2pdf) on different RQ queues, as notsobot.api's api-rq-worker-* services.
 # `rq worker-pool` forks one work horse per job; the worker class is convert_worker.ConvertWorker. Each has its own
-# tmpfs for the jobs' directories (CONVERT_TMP_DIR) and shares the office spool with `office`. `cpus` and `cpu_shares`
-# only matter once the host's CPUs are all wanted; CONVERT_PROCESSES is the pool's size, and with it the thread
-# budget (CONVERT_THREADS, else the service's cpus divided by its processes, media/sandbox.py).
+# tmpfs for the jobs' directories (CONVERT_TMP_DIR, counted in its mem_limit) and shares the office spool with
+# `office`. `cpus` and `cpu_shares` only matter once the host's CPUs are all wanted; CONVERT_PROCESSES is the pool's
+# size, and with it the thread budget (CONVERT_THREADS, else the service's cpus divided by its processes,
+# media/sandbox.py). On SIGTERM rq's warm shutdown waits for the running horses: `stop_grace_period` is the pool's
+# longest time limit (utils/limits.py TIME_LIMIT) plus a minute.
 x-converter-service: &converter-service
   <<: *api-service
   build:
@@ -152,16 +173,12 @@ services:
     # 2026.11.24, PostgreSQL 19 (latest major, released 2026-11-19, supported to 2031-11). backup/Dockerfile uses the
     # same image so pg_dump matches the server. notsobot.api is on 18.7; files.gg starts on 19 to avoid a major upgrade later
     image: postgres:19.0@sha256:aaa10f7ba7328b4a221a6c3184d83eef885bd16bf1f6de864757863156b0a4d1
-    restart: always
+    restart: unless-stopped
     command: -c config_file=/etc/postgres/postgresql.conf
     environment:
       POSTGRES_DB: filesgg
       POSTGRES_USER: filesgg
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}
-    ports:
-      # only published on localhost by default (docker bypasses ufw), as in notsobot.api. set POSTGRES_BIND to a
-      # private-network address when API servers on other machines need it, and firewall it some other way
-      - ${POSTGRES_BIND:-127.0.0.1}:${POSTGRES_PORT:-5432}:5432
     volumes:
       # 18+ keeps its data in a versioned folder under /var/lib/postgresql (19/docker), so the mount is the parent
       - ./.data/postgres:/var/lib/postgresql
@@ -171,6 +188,12 @@ services:
       interval: 5s
       timeout: 5s
       retries: 5
+    # a fast shutdown checkpoints first; never cut it short
+    stop_grace_period: 2m
+    cpus: 8
+    mem_limit: 24g
+    shm_size: 1g
+    logging: *logging
 
   # Milestone 5 (§3.1): the RQ queues of the converter services and the rate-limit windows, the same as notsobot.api's
   # db-api-redis. Append-only with fsync every second (redis/redis.conf) and RDB snapshots on; a named volume, and
@@ -180,7 +203,7 @@ services:
     # 2026.11.25, Redis 8.10.3, pinned by digest (the same as notsobot.api's)
     image: redis:8.10.3-alpine@sha256:7958cfbb9d152f87dadfbc89f1b0b15938f0b81ff8982feb327476f4911935c3
     command: ["redis-server", "/usr/local/etc/redis/redis.conf", "--requirepass", "${REDIS_PASSWORD:?REDIS_PASSWORD must be set (openssl rand -hex 32)}"]
-    restart: always
+    restart: unless-stopped
     environment:
       REDISCLI_AUTH: ${REDIS_PASSWORD:?REDIS_PASSWORD must be set}
     volumes:
@@ -191,6 +214,10 @@ services:
       interval: 5s
       timeout: 5s
       retries: 5
+    stop_grace_period: 1m
+    cpus: 2
+    mem_limit: 4g
+    logging: *logging
 
   # backup/: daily encrypted backups of postgres into a restic repository on backblaze (US), restic encrypts before
   # uploading. same setup as notsobot.api's backup-db. restore steps in backup/README.md
@@ -233,6 +260,9 @@ services:
       ofelia.job-exec.db-backup-check.schedule: "0 0 5 * * 0" # 05:00:00 every sunday
       ofelia.job-exec.db-backup-check.command: "backup check"
       ofelia.job-exec.db-backup-check.no-overlap: "true"
+    cpus: 2
+    mem_limit: 4g
+    logging: *logging
 
   # runs backup-db's jobs from its labels, as in notsobot.api. it needs the docker socket (read-only) to exec them
   scheduler-ofelia:
@@ -244,8 +274,12 @@ services:
     command: daemon --docker
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
+    cpus: 0.5
+    mem_limit: 256m
+    logging: *logging
 
-  # One-off: applies pending SQL migrations, then exits. Never create tables on boot.
+  # One-off: applies pending SQL migrations, then exits. Never create tables on boot. A deploy runs it while the old
+  # API is still serving, so a migration must work with the code before and after it (milestone-7 decision 6).
   migrate:
     <<: *api-service
     command: ["python", "-m", "migrate"]
@@ -253,7 +287,13 @@ services:
       postgres:
         condition: service_healthy
     restart: "no"
+    cpus: 2
+    mem_limit: 1g
 
+  # Sanic, 4 worker processes (api/Dockerfile). A deploy runs a second container next to this one until the new
+  # one's workers have all logged `[api] worker <pid> ready`, then stops the old one (ops/deploy.sh); nginx
+  # resolves `api` through Docker's DNS, so both get requests meanwhile. On SIGTERM Sanic finishes in-flight requests
+  # for up to GRACEFUL_SHUTDOWN_TIMEOUT (50 s, api/app.py), inside the 60 s grace.
   api:
     <<: *api-service
     depends_on:
@@ -270,41 +310,30 @@ services:
       interval: 30s
       timeout: 5s
       retries: 3
+      start_period: 30s
+    stop_grace_period: 60s
+    cpus: 8
+    mem_limit: 6g
 
   # Background jobs (uploads finalising, media processing) and the scheduler; scans run in `scanner` below. Its own image
   # target (api/Dockerfile `worker`) adds ffmpeg and poppler-utils; the API image has neither.
   # `default` carries finalize_upload and delete_blob, `media` probe / derive / album_collage
   # (milestone-3 §2); a dedicated media worker can be split out later with WORKER_QUEUES=media.
   worker:
-    <<: *api-service
-    build:
-      context: ./api/
-      target: worker
-    image: filesgg-worker:latest
+    <<: *queue-worker
     environment:
       <<: *api-environment
       WORKER_QUEUES: default,media
-    command: ["python", "-m", "worker"]
-    depends_on:
-      postgres:
-        condition: service_healthy
-      migrate:
-        condition: service_completed_successfully
-      redis:
-        condition: service_healthy
+    cpus: 4
+    mem_limit: 8g
 
   # Milestone 4 (§2.2): a new hash's `scan` never waits behind a slow derive or a rescan backlog, so the scan and
   # rescan queues get their own services from the worker image (Python 3.14, the scanning tools, the NSFW model).
   scanner:
-    <<: *api-service
-    build:
-      context: ./api/
-      target: worker
-    image: filesgg-worker:latest
+    <<: *queue-worker
     environment:
       <<: *scanner-environment
       WORKER_QUEUES: scan
-    command: ["python", "-m", "worker"]
     depends_on:
       postgres:
         condition: service_healthy
@@ -314,17 +343,14 @@ services:
         condition: service_healthy
       clamav:
         condition: service_healthy
+    cpus: 4
+    mem_limit: 8g
 
   rescanner:
-    <<: *api-service
-    build:
-      context: ./api/
-      target: worker
-    image: filesgg-worker:latest
+    <<: *queue-worker
     environment:
       <<: *scanner-environment
       WORKER_QUEUES: rescan
-    command: ["python", "-m", "worker"]
     depends_on:
       postgres:
         condition: service_healthy
@@ -334,10 +360,13 @@ services:
         condition: service_healthy
       clamav:
         condition: service_healthy
+    cpus: 2
+    mem_limit: 4g
 
   # ClamAV (milestone-4 §5.2): official signatures only, through the image's own freshclam; YARA rules from
   # clamav/rules/ are linked into the database directory at start and loaded by clamd itself. Never published:
   # only the scanner and rescanner reach it. The `-debian` tags are multi-arch (the plain ones are amd64 only).
+  # A signature reload briefly holds two databases, hence 6 GB.
   clamav:
     image: clamav/clamav:1.5.5-debian@sha256:85f35b3eee903dbd96c5ca250c5aa13d230d97987c0f876f7d46f001f9414239   # digest as of 2026-11-23
     restart: unless-stopped
@@ -350,10 +379,13 @@ services:
       - ./clamav/rules:/var/lib/clamav-rules:ro
     expose: ["3310"]
     healthcheck: { test: ["CMD", "clamdcheck.sh"], interval: 60s, timeout: 10s, retries: 3, start_period: 6m }
-    mem_limit: 4g
+    cpus: 2
+    mem_limit: 6g
+    logging: *logging
 
   # Milestone 5 (§3.1): premium never waits behind anyone (it drains convert_premium first, then helps with
   # convert_member), signed-in users never wait behind anonymous visitors, previews never hold up a conversion.
+  # Time limits: premium 30 min, members 10, anonymous 2, previews 2 (utils/limits.py, jobs/convert.py).
   converter-premium:
     <<: *converter-service
     command: ["rq", "worker-pool", "convert_premium", "convert_member", "-n", "${CONVERTER_PREMIUM_PROCESSES:-2}", "--worker-class", "convert_worker.ConvertWorker"]
@@ -361,8 +393,10 @@ services:
       <<: *converter-environment
       CONVERT_PROCESSES: ${CONVERTER_PREMIUM_PROCESSES:-2}
       CONVERT_THREADS: ${CONVERTER_PREMIUM_THREADS:-}
+    stop_grace_period: 31m
     cpus: ${CONVERTER_PREMIUM_CPUS:-4}
     cpu_shares: 768
+    mem_limit: 16g
 
   converter:
     <<: *converter-service
@@ -371,8 +405,10 @@ services:
       <<: *converter-environment
       CONVERT_PROCESSES: ${CONVERTER_PROCESSES:-4}
       CONVERT_THREADS: ${CONVERTER_THREADS:-}
+    stop_grace_period: 11m
     cpus: ${CONVERTER_CPUS:-4}
     cpu_shares: 512
+    mem_limit: 16g
 
   converter-previews:
     <<: *converter-service
@@ -381,11 +417,14 @@ services:
       <<: *converter-environment
       CONVERT_PROCESSES: ${CONVERTER_PREVIEW_PROCESSES:-1}
       CONVERT_THREADS: ${CONVERTER_PREVIEW_THREADS:-}
+    stop_grace_period: 3m
     cpus: ${CONVERTER_PREVIEW_CPUS:-1}
     cpu_shares: 256
+    mem_limit: 10g
 
   # Milestone 5 (§3.2): LibreOffice, and only here: no network at all, a read-only root, tmpfs for /tmp (the profiles),
   # no capabilities. It shares nothing but the tmpfs spool with the converter services, and runs as their uid.
+  # A deploy recreates it only while the converters are stopped (ops/deploy.sh), so no document is cut off.
   office:
     build:
       context: ./api/
@@ -399,6 +438,7 @@ services:
     cap_drop: [ALL]
     security_opt: ["no-new-privileges:true"]
     pids_limit: 512
+    cpus: 2
     mem_limit: 2g
     environment:
       OFFICE_PROCESSES: ${OFFICE_PROCESSES:-2}
@@ -410,22 +450,185 @@ services:
       interval: 10s
       timeout: 5s
       retries: 3
-    logging:
-      driver: json-file
-      options: { max-size: "20m", max-file: "5" }
+    stop_grace_period: 3m
+    logging: *logging
 
+  # TLS with the Cloudflare origin certificate and Authenticated Origin Pulls (nginx/nginx.conf), the only published
+  # port. The firewall lets 443 in from Cloudflare's ranges only (ops/nftables.conf.example). The whole nginx/
+  # directory is mounted (not single files), so a `git pull` is seen and a deploy only has to reload. The templates
+  # render the Worker's lookup secret and the host names into conf.d at start (the image's envsubst step).
   nginx:
     # 2026.11.24, nginx mainline 1.31 (latest), pinned by digest
     image: nginx:1.31@sha256:6a3df739b6312289e87d70947d900669c1b3087474ece5814b9c01bbf2e6dde3
+    command: ["nginx", "-c", "/etc/nginx/filesgg/nginx.conf", "-g", "daemon off;"]
     depends_on:
       - api
     restart: unless-stopped
+    environment:
+      ORIGIN_SHARED_SECRET: ${ORIGIN_SHARED_SECRET:?ORIGIN_SHARED_SECRET must be set}
+      # more API host names, only for the staging run (docs/redesign/LAUNCH.md §7): api-staging.files.gg
+      NGINX_EXTRA_API_HOSTS: ${NGINX_EXTRA_API_HOSTS:-}
+      NGINX_ENVSUBST_FILTER: ^(ORIGIN_SHARED_SECRET|NGINX_EXTRA_API_HOSTS)$$
     volumes:
-      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
-      - ./nginx/certificates:/certificates:ro
+      - ./nginx:/etc/nginx/filesgg:ro
+      - ./nginx/templates:/etc/nginx/templates:ro
     ports:
-      - 80:80
       - 443:443
+    healthcheck:
+      # the image has neither curl nor wget: bash's /dev/tcp against the local-only health listener
+      test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/127.0.0.1/8081 && printf 'GET /healthz HTTP/1.0\\r\\n\\r\\n' >&3 && head -n 1 <&3 | grep -q ' 204 '"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    stop_grace_period: 60s
+    cpus: 2
+    mem_limit: 1g
+    logging: *logging
+
+  # --- monitoring (milestone-7 §4): configured in monitoring/, none of it published -------------------------------
+  # Prometheus scrapes the API (`api:8080/internal/metrics`) and the exporters below on the compose network.
+  prometheus:
+    # 2026.11.05, the same as notsobot.api's
+    image: prom/prometheus:v3.16.0@sha256:e04987641b57704f408e31f6373ba4138ecf27cb4a165d24aabb6c38fddd0f06
+    restart: unless-stopped
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=15d
+    volumes:
+      # the directory, so a `git pull` is seen (a deploy restarts prometheus when monitoring/ changed)
+      - ./monitoring/prometheus:/etc/prometheus:ro
+      # a named volume, prometheus runs as nobody and can't write to a bind mount docker creates as root
+      - prometheus-data:/prometheus
+    # /internal/metrics answers only with the Worker's origin secret and `X-Filesgg-Internal-Lookup: 1`;
+    # prometheus.yml reads the secret from /run/secrets/origin_shared_secret
+    secrets:
+      - origin_shared_secret
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:9090/-/healthy"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    cpus: 2
+    mem_limit: 4g
+    logging: *logging
+
+  # Reached through an SSH tunnel (ops/README.md). The datasource is http://prometheus:9090.
+  grafana:
+    # 2026.11.10, the same as notsobot.api's
+    image: grafana/grafana:13.2.6@sha256:b21409d7951ddcfd63a4b49083e4ef2cc35bc1437d071813bf82bfb238b00bca
+    restart: unless-stopped
+    depends_on:
+      - prometheus
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:?set GRAFANA_ADMIN_PASSWORD in .env}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+      GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
+      # the address alert links point at: the SSH tunnel's local end
+      GF_SERVER_ROOT_URL: http://localhost:3000/
+      # read by monitoring/grafana/provisioning/alerting, a Discord channel's webhook the alerts are sent to
+      GRAFANA_ALERT_DISCORD_WEBHOOK: ${GRAFANA_ALERT_DISCORD_WEBHOOK:?set GRAFANA_ALERT_DISCORD_WEBHOOK in .env}
+    volumes:
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+      # a dashboard provider in provisioning/dashboards points at this path
+      - ./monitoring/grafana/dashboards:/etc/grafana/dashboards:ro
+      - grafana-data:/var/lib/grafana
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:3000/api/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    cpus: 1
+    mem_limit: 1g
+    logging: *logging
+
+  # The host's CPU, memory, disks and filesystems (it sees the host's processes and root filesystem; network counters
+  # are its own container's, the host's are not needed for §4.3's alerts). Port 9100.
+  exporter-node:
+    # 2026.11.19, the same as notsobot.api's
+    image: prom/node-exporter:v1.13.1@sha256:7296504d4ada44b7d7ab4431e27e9f9900d8488f8d55842f4b12ae2704e16dfe
+    restart: unless-stopped
+    pid: host
+    command:
+      - --path.rootfs=/host
+    volumes:
+      - /:/host:ro,rslave
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:9100/metrics"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    cpus: 0.5
+    mem_limit: 256m
+    logging: *logging
+
+  # Port 9187.
+  exporter-postgres:
+    # 2026.11.18, the same as notsobot.api's
+    image: prometheuscommunity/postgres-exporter:v0.21.1@sha256:3b8e05a84282cd1199ad2fb6c66f362738bf4c68c1547d8f4226a34a7dd6d8d7
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    # v0.21 deprecated DATA_SOURCE_URI for this flag (removed in v0.22), the user and password stay env vars (secrets)
+    command:
+      - --datasource.uri=postgres:5432/filesgg?sslmode=disable
+    environment:
+      DATA_SOURCE_USER: filesgg
+      DATA_SOURCE_PASS: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:9187/metrics"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    cpus: 0.5
+    mem_limit: 256m
+    logging: *logging
+
+  # Port 9121. A scratch image: no shell, so no health check (Prometheus' `up` covers it).
+  exporter-redis:
+    # 2026.11.04, the same as notsobot.api's
+    image: oliver006/redis_exporter:v1.97.0@sha256:f5f903fbe77571d455ede0453b084d6840bc62fc105efac001034421cab83b99
+    restart: unless-stopped
+    depends_on:
+      - redis
+    environment:
+      REDIS_ADDR: redis://redis:6379
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?REDIS_PASSWORD must be set}
+    cpus: 0.5
+    mem_limit: 256m
+    logging: *logging
+
+  # Per-container CPU, memory and restarts, port 8080 (its image has its own health check). Containers are labelled
+  # by compose service (`container_label_com_docker_compose_service`), nothing else of their labels is kept.
+  cadvisor:
+    # 2026.11, cAdvisor 0.57.0 (google's ghcr.io images; gcr.io stopped at 0.55)
+    image: ghcr.io/google/cadvisor:0.57.0@sha256:e75bdb03b74b0b6995f208f166fead2e6e555dde73e44200113bb26f41b1981d
+    restart: unless-stopped
+    privileged: true
+    devices:
+      - /dev/kmsg
+    command:
+      - --docker_only=true
+      - --housekeeping_interval=15s
+      - --store_container_labels=false
+      - --whitelisted_container_labels=com.docker.compose.service,com.docker.compose.project
+      - --disable_metrics=percpu,sched,tcp,udp,hugetlb,referenced_memory,cpu_topology,resctrl,advtcp
+    volumes:
+      - /:/rootfs:ro
+      - /var/run:/var/run:ro
+      - /sys:/sys:ro
+      - /var/lib/docker/:/var/lib/docker:ro
+      - /dev/disk/:/dev/disk:ro
+    cpus: 1
+    mem_limit: 512m
+    logging: *logging
+
+secrets:
+  # ORIGIN_SHARED_SECRET as a file, for prometheus' scrape of the API
+  origin_shared_secret:
+    environment: ORIGIN_SHARED_SECRET
 
 volumes:
   # Redis's append-only file and snapshots (§3.1)
@@ -436,3 +639,5 @@ volumes:
       type: tmpfs
       device: tmpfs
       o: size=2g,uid=10001,mode=0770
+  prometheus-data:
+  grafana-data:

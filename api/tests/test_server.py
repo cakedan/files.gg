@@ -3,6 +3,7 @@
 import asyncio
 import hashlib
 import os
+import re
 import signal
 import tempfile
 import time
@@ -190,3 +191,21 @@ async def test_chunked_upload_at_the_limit_across_two_api_workers(migrated_db):
         stored.update(block)
     assert stored.hexdigest() == hashlib.sha1(data).hexdigest()
     assert migrated_db.fetchone("SELECT status FROM upload_sessions WHERE id = %s", (int(upload_id),))[0] == 'complete'
+
+
+def test_every_worker_logs_the_ready_marker(migrated_db):
+    """milestone-7 §3.1: ops/deploy.sh waits for `[api] worker <pid> ready` from each worker of a new container
+    before it stops the old one; the main process never prints it."""
+    server = ServerProcess(migrated_db, '--workers', '3').wait_ready()
+    try:
+        # the first worker answers /health before the others have started on a busy machine
+        deadline = time.time() + 60
+        while True:
+            pids = set(re.findall(r'^\[api\] worker ([0-9]+) ready$', server.output(), re.M))
+            if len(pids) == 3 or time.time() > deadline:
+                break
+            time.sleep(0.2)
+    finally:
+        _, output = server.stop(signal.SIGTERM)
+    assert len(pids) == 3, output
+    assert str(server.proc.pid) not in pids

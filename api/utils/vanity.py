@@ -19,11 +19,7 @@ VANITY_PART = r'^(?:\(?((\d+)|\d+\-?\d+)\)?)$'
 # No vanity segment may be one of these: they are routes on files.gg (contract §9).
 blacklisted_ids = (
     'assets',
-    'auth',
-    'dashboard',
-    'details',
     'legal',
-    'options',
     'app',
     'api',
     'a',
@@ -49,6 +45,8 @@ blacklisted_ids = (
     'albums',
     # milestone-5 §19.1: the changelog page (`legal` is above)
     'changelog',
+    # milestone-7 §7: the link warnings help page, /help/link-warnings
+    'help',
 )
 
 

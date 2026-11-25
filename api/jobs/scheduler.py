@@ -14,6 +14,7 @@ import logging
 import time
 import traceback
 
+from utils import metrics
 
 log = logging.getLogger(__name__)
 
@@ -85,6 +86,8 @@ class Scheduler:
                     type(error).__name__, error, traceback.format_exc()))
                 raise
             self._record(task)
+            metrics.set_gauge('filesgg_scheduled_task_last_success_timestamp_seconds', time.time(),
+                              {'task': task.name})
             return True
         finally:
             if not conn.closed:

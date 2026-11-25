@@ -4,7 +4,7 @@ import { AdminGate } from './AdminGate';
 import { AuthLayout } from './auth/AuthLayout';
 import { DiscordPage, ForgotPage, LoginPage, RegisterPage, ResetPage, VerifyPage } from './auth/lazy';
 import { DashboardLayout } from './DashboardLayout';
-import { ChangelogPage, PrivacyPage, TermsPage } from './legal/lazy';
+import { ChangelogPage, LinkWarningsPage, PrivacyPage, TermsPage } from './legal/lazy';
 import {
   AlbumEditorPage,
   AlbumsPage,
@@ -31,8 +31,8 @@ export const APP_BASENAME = '/app';
 export const isDashboardPath = (pathname: string) => pathname === APP_BASENAME || pathname.startsWith(`${APP_BASENAME}/`);
 
 /**
- * The public pages this entry serves outside /app, without a basename (milestone-5 §19.1): the
- * Worker sends exactly these paths here, and `/legal` to `/legal/terms` (302).
+ * The public pages this entry serves outside /app, without a basename (milestone-5 §19.1, milestone-7
+ * §7): the Worker sends exactly these paths here, and `/legal` to `/legal/terms` (302).
  */
 export const publicRoutes: RouteObject[] = [
   {
@@ -46,6 +46,8 @@ export const publicRoutes: RouteObject[] = [
       { path: '/legal', element: <Navigate to="/legal/terms" replace /> },
       { path: '/legal/terms', element: <TermsPage /> },
       { path: '/legal/privacy', element: <PrivacyPage /> },
+      // Milestone 7 §7: what a Web Risk link warning means, one anchor per threat type.
+      { path: '/help/link-warnings', element: <LinkWarningsPage /> },
     ],
   },
 ];

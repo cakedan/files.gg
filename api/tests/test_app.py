@@ -431,7 +431,7 @@ def test_login_and_register_claim_anonymous_files(client, appdb, monkeypatch, ou
     other = GuestToken.generate(Snowflake.generate())
     other_file = upload(other)
     response = client.post('/auth/login', headers=dict(VIA_MAIN, **{'Authorization': 'Guest ' + other}),
-                           data={'email': email, 'password': 'hunter22', 'turnstile_token': LOGIN_TOKEN})
+                           json={'email': email, 'password': 'hunter22', 'turnstile_token': LOGIN_TOKEN})
     assert response.status_code == 200, response.text
     assert appdb.fetchone('SELECT user_id FROM files WHERE id = %s', (int(other_file),))[0] == user_id
 

@@ -49,10 +49,8 @@ SIGNUP_SECONDS = 900
 
 
 def body_of(request):
-    """The JSON body, or a form body (the old clients sent forms)."""
+    """The JSON body, or {} when there's none or it isn't an object."""
     body = params.request_json(request)
-    if body is None and request.form:
-        body = {k: v[0] if isinstance(v, list) and len(v) == 1 else v for k, v in request.form.items()}
     return body if isinstance(body, dict) else {}
 
 

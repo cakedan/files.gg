@@ -26,7 +26,7 @@
 // Milestone 5 (docs/redesign/contracts/milestone-5.md): steps 28-43 cover conversions on the RQ converter pools and
 // the network-less office service (polled as the web app does, GET /conversions/<id> until finished, with each
 // conversion's time printed at the end), document previews, the moderation cascade, the anonymous limits, a Redis
-// rate limit, the home, changelog, Terms and Privacy pages, and the 100 MB single-request limit for upload keys.
+// rate limit, the home, changelog, Terms, Privacy and link-warnings help pages (with the app CSP and HSTS), and the 100 MB single-request limit for upload keys.
 import { execFileSync, spawnSync } from 'node:child_process';
 import { createHash, randomBytes, randomInt } from 'node:crypto';
 import { lookup } from 'node:dns/promises';
@@ -2509,18 +2509,24 @@ await step('41. a Redis rate limit refuses with 429 RATE_LIMITED and Retry-After
   equal(other.status, 404, 'the limit is per caller: another user isn\'t affected');
 });
 
-await step('42. pages: home, changelog, Terms and Privacy signed out; /legal redirects; the removed page\'s Terms link resolves', async () => {
+await step('42. pages: home, changelog, Terms, Privacy and the link-warnings help signed out, with the app CSP and HSTS; /legal redirects; the removed page\'s Terms link resolves', async () => {
   for (const [path, title] of [
     ['/', 'files.gg: share any file with a link'],
     ['/changelog', 'Changelog · files.gg'],
     ['/legal/terms', 'Terms of Service · files.gg'],
     ['/legal/privacy', 'Privacy Policy · files.gg'],
+    ['/help/link-warnings', 'Link warnings · files.gg'],
   ]) {
     const response = await page(path);
     equal([response.status, response.headers.get('content-type')], [200, 'text/html; charset=utf-8'], `files.localhost${path}, signed out`);
     equal((/<title>([^<]*)<\/title>/.exec(response.text) || [])[1], title, `${path}: <title>`);
     check(/<script type="module"[^>]+src="\/assets\/app-[^"]+\.js"/.test(response.text) && response.text.includes('<div id="root"></div>'), `${path}: the app bundle's page`);
     check(!response.headers.getSetCookie().length, `${path}: no cookie`);
+    // Milestone 7: the app pages carry the viewer's strict CSP (plus Discord avatars) and our own hosts' HSTS.
+    const csp = response.headers.get('content-security-policy') || '';
+    check(/script-src 'self' 'wasm-unsafe-eval' https:\/\/challenges\.cloudflare\.com;/.test(csp) && csp.includes("object-src 'none'")
+      && csp.includes("frame-ancestors 'none'") && csp.includes('https://cdn.discordapp.com'), `${path}: the app CSP`, csp);
+    equal(response.headers.get('strict-transport-security'), 'max-age=63072000; includeSubDomains; preload', `${path}: HSTS`);
   }
   const legal = await page('/legal');
   equal([legal.status, legal.headers.get('location')], [302, '/legal/terms'], '/legal: 302 to /legal/terms');

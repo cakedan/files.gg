@@ -126,7 +126,7 @@ describe('static files from web/dist (routed before any vanity lookup)', () => {
 
 
 describe('viewer shell states', () => {
-  it('/ (the home page), /convert, /changelog, /legal/terms and /legal/privacy: app.html with their own title and description, no lookup (milestone-5.md §11, §19.1)', async () => {
+  it('/ (the home page), /convert, /changelog, /legal/terms, /legal/privacy and /help/link-warnings: app.html with their own title and description, no lookup (milestone-5.md §11, §19.1, milestone-7.md §7)', async () => {
     const pages = {
       '/': 'files.gg: share any file with a link',
       '/convert': 'Convert · files.gg',
@@ -134,6 +134,7 @@ describe('viewer shell states', () => {
       '/legal/terms': 'Terms of Service · files.gg',
       '/legal/privacy': 'Privacy Policy · files.gg',
       '/legal/privacy/': 'Privacy Policy · files.gg',
+      '/help/link-warnings': 'Link warnings · files.gg',
     };
     const app = await page('/app');
     const before = upstream.requests.length;
@@ -161,14 +162,14 @@ describe('viewer shell states', () => {
     assert.match((await worker.request('https://www.files.gg/legal/terms', { headers: browser })).text, /<title>Terms of Service · files.gg<\/title>/);
   });
 
-  it('/legal: a 302 to the Terms, query kept; other /legal and /changelog paths are missing without a lookup', async () => {
+  it('/legal: a 302 to the Terms, query kept; other /legal, /changelog and /help paths are missing without a lookup', async () => {
     for (const [path, location] of [['/legal', '/legal/terms'], ['/legal/', '/legal/terms'], ['/legal?x=1', '/legal/terms?x=1']]) {
       const response = await page(path);
       assert.equal(response.status, 302, path);
       assert.equal(new URL(response.headers.location, 'https://files.gg').pathname + new URL(response.headers.location, 'https://files.gg').search, location, path);
     }
     const before = upstream.requests.length;
-    for (const path of ['/legal/cookies', '/changelog/2026-11-25', '/x/legal']) {
+    for (const path of ['/legal/cookies', '/changelog/2026-11-25', '/x/legal', '/help', '/help/other']) {
       const response = await page(path);
       assert.equal(response.status, 404, path);
       assert.equal(parseShell(response.text).state, 'missing', path);
@@ -176,8 +177,8 @@ describe('viewer shell states', () => {
     assert.equal(upstream.requests.length, before, 'no lookup');
   });
 
-  it('the changelog and legal pages are never served on cdn.files.gg or api.files.gg', async () => {
-    for (const path of ['/changelog', '/legal', '/legal/terms', '/legal/privacy']) {
+  it('the changelog, legal and help pages are never served on cdn.files.gg or api.files.gg', async () => {
+    for (const path of ['/changelog', '/legal', '/legal/terms', '/legal/privacy', '/help/link-warnings']) {
       const cdn = await worker.request('https://cdn.files.gg' + path, { headers: browser });
       assert.equal(cdn.status, 404, path);
       assert.doesNotMatch(cdn.text, /id="root"/, path);
@@ -486,6 +487,16 @@ describe('bots and embeds (PLAN.md §1.4 item 3, contract §4)', () => {
       }
     });
   }
+});
+
+
+describe('HSTS on our own hosts (PLAN.md hardening)', () => {
+  it('is on every response from files.gg, www., cdn. and api., errors included', async () => {
+    for (const url of ['https://files.gg/', 'https://www.files.gg/legal/terms', 'https://files.gg/nope-not-a-file', 'https://cdn.files.gg/nope', 'https://api.files.gg/health', 'https://files.gg/assets/missing.js']) {
+      const response = await worker.request(url, { headers: browser });
+      assert.equal(response.headers['strict-transport-security'], 'max-age=63072000; includeSubDomains; preload', url);
+    }
+  });
 });
 
 

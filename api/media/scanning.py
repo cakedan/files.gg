@@ -5,9 +5,10 @@
 Everything that parses the upload runs here, under media/sandbox.py's limits (wall 120 s,
 CPU 90 s, 2 GiB address space, no core files) with no secrets and no network: it sniffs the
 type, decodes images and frames and writes the images to be matched as JPEG files into
-<outdir> (fit 1024x1024, quality 90), computes PDQ, runs the NSFW model, lists archives,
-checks Office files and PDFs, looks for appended archives, and extracts URLs. The job process
-(safety/scan.py) does everything that talks to a service.
+<outdir> (fit 1024x1024, quality 90), computes PDQ, preprocesses the classifier's images into
+<outdir>/nsfw.npy, lists archives, checks Office files and PDFs, looks for appended archives,
+and extracts URLs. The job process (safety/scan.py) does everything that talks to a service,
+and runs the NSFW model (loaded once per process) on nsfw.npy.
 
 The type is decided by every type the bytes or the name say it is (the libmagic-sniffed
 type, the declared mimetype and the extension's type), so a polyglot is checked as each
@@ -883,7 +884,7 @@ def scan(path, outdir, hints, deadline=None):
                   [hints.get('extension')] + [extension_of(n) for n in names if n], head)
     images = Images(outdir)
     result = {'sniffed': sniffed, 'types': sorted(types.mimetypes), 'size': size, 'decodable': None,
-              'archive': None, 'office': None, 'pdf': None, 'polyglot': [], 'urls': [], 'nsfw': None,
+              'archive': None, 'office': None, 'pdf': None, 'polyglot': [], 'urls': [], 'nsfw_batch': None,
               'blocked_types': types.blocked()}
     if filetypes.sniff_executable(head):
         result['blocked_types'].append('executable:' + filetypes.sniff_executable(head))
@@ -925,8 +926,7 @@ def scan(path, outdir, hints, deadline=None):
     result['images'] = images.items
     result['pdq'] = images.pdq
     if hints.get('nsfw', True) and images.pil:
+        # the scan job classifies them with its own, already loaded model (media/nsfw.py)
         from media import nsfw
-        classifier = nsfw.Classifier()
-        result['nsfw'] = classifier.classify([image for _, _, image in images.pil])
-        result['nsfw'].pop('scores', None)
+        result['nsfw_batch'] = nsfw.write_batch([image for _, _, image in images.pil], outdir)
     return result

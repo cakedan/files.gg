@@ -23,7 +23,7 @@ from db import file_rows
 from db.models import UploadSession, columns, from_row
 from jobs.queue import register
 from safety import scan as safety_scan, uploads as safety_uploads
-from utils import filetypes
+from utils import filetypes, metrics, uploading
 from utils import storage as storage_module
 from utils.uploading import Hasher
 
@@ -99,6 +99,7 @@ def finalize(upload_id, conn=None, client=None):
                 raise UploadProblem(code)
         except UploadProblem as problem:
             _fail(conn, upload_id, problem.code)
+            metrics.incr('filesgg_upload_refusals_total', {'kind': 'chunked', 'code': problem.code})
             # a refused upload stores nothing: its (completed) staging object goes now
             try:
                 client.delete_object(Bucket=name, Key=session.storage_key)
@@ -136,6 +137,8 @@ def finalize(upload_id, conn=None, client=None):
                 safety_scan.queue_scan(conn, hash_id)
             if session.album_id is not None:
                 append_to_album(conn, session.album_id, file_id, session.owner_user_id)
+        uploading.count_upload('chunked', uploading.uploader_kind(session.owner_user_id, session.upload_key_id),
+                               session.size)
         try:
             client.delete_object(Bucket=name, Key=session.storage_key)
         except Exception:
@@ -188,4 +191,5 @@ def finalize_upload(payload, job):
         if job.attempts >= job.max_attempts:
             with db.connect() as conn:
                 _fail(conn, upload_id, 'FINALIZE_FAILED')
+            metrics.incr('filesgg_upload_refusals_total', {'kind': 'chunked', 'code': 'FINALIZE_FAILED'})
         raise

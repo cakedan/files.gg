@@ -60,14 +60,15 @@ function safeJoin(root: string, relative: string): string | null {
   }
 }
 
-/** The dashboard entry's public pages: the home page, and milestone-5 §11 and §19.1's. */
-const APP_PUBLIC_PAGES = /^\/(|convert|changelog|legal|legal\/terms|legal\/privacy)\/?$/;
+/** The dashboard entry's public pages: the home page, milestone-5 §11 and §19.1's, and milestone-7 §7's help page. */
+const APP_PUBLIC_PAGES = /^\/(|convert|changelog|legal|legal\/terms|legal\/privacy|help\/link-warnings)\/?$/;
 
 /**
  * Mirrors the production routing in dev and preview:
  *   /app, /app/*            -> app.html     (the dashboard SPA)
- *   /, /convert, /changelog, /legal, /legal/terms, /legal/privacy -> app.html (its public pages, milestone-5
- *                              §11, §19.1; the Worker answers /legal with a 302, the dev server leaves it to the app)
+ *   /, /convert, /changelog, /legal, /legal/terms, /legal/privacy, /help/link-warnings -> app.html (its public
+ *                              pages, milestone-5 §11, §19.1, milestone-7 §7; the Worker answers /legal with a 302,
+ *                              the dev server leaves it to the app)
  *   /challenge              -> challenge.html (the Turnstile frame for custom domains)
  *   /a/<vanity>             -> viewer.html  (album page; the lightbox item is ?item=<n>)
  *   /report/<vanity>, /report/a/<vanity> -> viewer.html (report pages, milestone-6 §20.2)

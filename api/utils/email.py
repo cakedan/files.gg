@@ -12,6 +12,7 @@ they are versioned with the API and switching providers only touches this file.
 
 import logging
 
+from utils import metrics
 from utils.http import get_client
 from utils.responses import ApiError
 
@@ -31,6 +32,10 @@ class EmailUnavailable(ApiError):
 def _header_value(value):
     """Strip characters that could break or inject into an email header."""
     return ''.join(ch for ch in str(value) if ch not in '\r\n"<>').strip()
+
+
+def count(tag, outcome):
+    metrics.incr('filesgg_emails_total', {'tag': tag, 'outcome': outcome})
 
 
 def format_address(email, name=None):
@@ -75,6 +80,7 @@ class Email:
         EmailUnavailable like `send`."""
         import httpx
         if not cls.token:
+            count(tag, 'unconfigured')
             raise EmailUnavailable()
         payload, headers = cls._request(to, subject, html, text, tag, to_name)
         try:
@@ -82,10 +88,13 @@ class Email:
                 response = client.post(POSTMARK_URL, json=payload, headers=headers)
         except Exception:
             log.exception('postmark request failed (tag=%s)', tag)
+            count(tag, 'failed')
             raise EmailUnavailable()
         if response.status_code != 200:
             log.error('postmark refused message (tag=%s, status=%s)', tag, response.status_code)
+            count(tag, 'failed')
             raise EmailUnavailable()
+        count(tag, 'sent')
         return response.json()
 
     @classmethod
@@ -93,6 +102,7 @@ class Email:
         """Send one message. Raises EmailUnavailable if Postmark isn't configured or refuses it;
         the reason is logged, never returned to the client."""
         if not cls.token:
+            count(tag, 'unconfigured')
             raise EmailUnavailable()
         payload = {
             'From': cls.sender,
@@ -115,6 +125,7 @@ class Email:
             response = await get_client().post(POSTMARK_URL, json=payload, headers=headers)
         except Exception:
             log.exception('postmark request failed (tag=%s)', tag)
+            count(tag, 'failed')
             raise EmailUnavailable()
 
         if response.status_code != 200:
@@ -125,5 +136,7 @@ class Email:
                 body = {'Message': response.text[:200]}
             log.error('postmark refused message (tag=%s, status=%s, code=%s): %s', tag,
                       response.status_code, body.get('ErrorCode'), body.get('Message'))
+            count(tag, 'failed')
             raise EmailUnavailable()
+        count(tag, 'sent')
         return response.json()

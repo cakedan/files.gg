@@ -51,7 +51,7 @@ from rq.timeouts import JobTimeoutException
 
 import db
 from jobs import convert as convert_jobs
-from utils import conversions, errors, limits as limits_module
+from utils import conversions, errors, limits as limits_module, metrics
 from utils.responses import ApiError
 
 # a child of rq's logger, so the lines go where rq's own do (rq sets up the `rq.worker` handler)
@@ -68,8 +68,9 @@ REAP_WAIT = 5
 PR_SET_CHILD_SUBREAPER = 36
 
 METRICS_KEY = 'filesgg:metrics:jobs'
-DURATION_BUCKETS = (0.5, 1, 2.5, 5, 10, 30, 60, 120, 300, 600, 1800)
-WAIT_BUCKETS = (0.1, 0.5, 1, 2.5, 5, 10, 30, 60, 300, 600, 3600)
+# GET /internal/metrics re-exports these fields with the same buckets (utils/metrics.py)
+DURATION_BUCKETS = metrics.CONVERSION_DURATION_BUCKETS
+WAIT_BUCKETS = metrics.CONVERSION_WAIT_BUCKETS
 
 # rq's failure for a horse that died without raising (a signal; the OOM killer is SIGKILL). `None` is a horse rq
 # killed itself for running past its timeout + 60 s (it drops the kill's exit status)

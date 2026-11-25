@@ -33,6 +33,17 @@ export function viewerCsp(origins = DEFAULT_ORIGINS) {
 
 export const VIEWER_CSP = viewerCsp();
 
+// The dashboard and the public pages of the same entry (app.html: /app/*, the home page, Convert, the changelog,
+// the legal and help pages): the viewer's policy, since they use its renderers (pdf.js, media) and Turnstile, plus
+// Discord's avatar CDN for Settings → Login methods (web/src/lib/api.ts). Strict `script-src` as PLAN.md's
+// hardening requires; never framed.
+export function appCsp(origins = DEFAULT_ORIGINS) {
+  return viewerCsp(origins).replace(
+    `img-src 'self' ${origins.cdn} blob: data:`,
+    `img-src 'self' ${origins.cdn} https://cdn.discordapp.com blob: data:`,
+  );
+}
+
 // The viewer on a custom domain (milestone-6.md §10.11): its own origin is 'self', it calls the
 // API and the CDN cross-origin, and Turnstile runs in the files.gg/challenge frame, so it needs no
 // Turnstile script, only frame-src for MAIN_HOST. `origins` is utils/hosts.js publicOrigins().
@@ -586,9 +597,10 @@ export const REPORT_SEGMENT = 'report';
 // Every reserved vanity segment the Worker knows (milestone-6.md §6.3 adds the auth pages, the
 // challenge frame and the custom-domain byte paths `files`, `previews` and `albums`). A vanity
 // containing one can't exist, so nothing is looked up for it.
-// milestone-5.md §19.1 adds the public pages `convert`, `legal` and `changelog`.
+// milestone-5.md §19.1 adds the public pages `convert`, `legal` and `changelog`; milestone-7.md §7 adds `help`.
 export const RESERVED_SEGMENTS = Object.freeze([
   REPORT_SEGMENT, 'login', 'register', 'signup', 'challenge', 'files', 'previews', 'albums', 'convert', 'legal', 'changelog',
+  'help',
 ]);
 
 export function hasReservedSegment(vanity) {
@@ -606,9 +618,9 @@ export const AUTH_REDIRECTS = Object.freeze({
 });
 
 // files.gg only (milestone-5.md §11, §19.1): the public pages of the dashboard entry (app.html), outside
-// /app and readable signed out: the home page (`/`, the `home` route), Convert, the changelog, the Terms and the
-// Privacy Policy. Each gets its own
-// <title> and description; the app's router picks the page from the path.
+// /app and readable signed out: the home page (`/`, the `home` route), Convert, the changelog, the Terms, the
+// Privacy Policy, and the link warnings help page that Web Risk warnings link to (milestone-7.md §7). Each gets
+// its own <title> and description; the app's router picks the page from the path.
 const PUBLIC_PAGES = Object.freeze({
   home: Object.freeze({
     title: 'files.gg: share any file with a link',
@@ -630,6 +642,10 @@ const PUBLIC_PAGES = Object.freeze({
     title: 'Privacy Policy · files.gg',
     description: 'What files.gg collects, why, who it shares it with, how long it keeps it, and your rights.',
   }),
+  'link-warnings': Object.freeze({
+    title: 'Link warnings · files.gg',
+    description: 'Why files.gg warns about a link: malware, phishing, unwanted software and harmful apps, and what to do.',
+  }),
 });
 
 export const PUBLIC_PAGE_PATHS = Object.freeze({
@@ -641,6 +657,8 @@ export const PUBLIC_PAGE_PATHS = Object.freeze({
   '/legal/terms/': 'terms',
   '/legal/privacy': 'privacy',
   '/legal/privacy/': 'privacy',
+  '/help/link-warnings': 'link-warnings',
+  '/help/link-warnings/': 'link-warnings',
 });
 
 // `/legal` has no page of its own: a 302 to the Terms (milestone-5.md §19.1), query kept.

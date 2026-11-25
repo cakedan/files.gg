@@ -5,6 +5,7 @@ archives, Office, PDFs, polyglots, Web Risk, rescans and upload-time refusals. S
 some tests) are stood in."""
 
 import base64
+import io
 import time
 
 import pytest
@@ -1337,3 +1338,90 @@ def test_derive_drops_previews_when_the_hash_is_held_meanwhile(client, appdb, mo
     assert uploaded and all(key.startswith('derived/{}/'.format(hash_id)) for key in uploaded)
     assert s3_keys('derived/{}/'.format(hash_id)) == []
     assert appdb.fetchone('SELECT count(*) FROM file_hash_assets WHERE hash_id = %s', (hash_id,))[0] == 0
+
+
+# --- milestone-7 §7: one B2 read per scan, the NSFW model loaded once per process --------------------------------
+
+def counting_client():
+    """A worker S3 client that records the operation of every request it sends."""
+    from utils import storage
+    s3 = storage.sync_client()
+    calls = []
+    s3.meta.events.register('before-call.s3', lambda model, **kwargs: calls.append(model.name))
+    return s3, calls
+
+
+def test_a_scan_reads_the_blob_from_b2_exactly_once(client, appdb):
+    from safety import scan
+    _, owner = new_user(appdb)
+    # a small image (every check: the child, CSAM, PDQ, NSFW, ClamAV) and a 9 MiB text file, past boto3's
+    # 8 MiB multipart threshold (boto3's download_file would send two ranged GETs)
+    for content, name, mimetype in ((png(640, 480), 'small.png', 'image/png'),
+                                    (nonce() * (9 * 1024 * 1024 // 32), 'big.txt', 'text/plain')):
+        hash_id = hash_id_of(appdb, send(client, owner, content, name, mimetype))
+        s3, calls = counting_client()
+        assert scan.scan(hash_id, client=s3) == 'passed'
+        assert calls == ['GetObject'], name
+
+
+def test_the_nsfw_model_loads_once_for_many_scans(client, appdb, monkeypatch):
+    from PIL import Image
+    from media import nsfw
+    loads = []
+    real = nsfw.Classifier
+
+    class Counted(real):
+        def __init__(self):
+            loads.append(1)
+            super().__init__()
+    monkeypatch.setattr(nsfw, 'Classifier', Counted)
+    monkeypatch.setattr(nsfw, '_classifier', None)
+    _, owner = new_user(appdb)
+    images = [png(640, 480), png(300, 900), pattern()]
+    rows = [run_scan(appdb, send(client, owner, data, 'n{}.png'.format(i), 'image/png')) for i, data in enumerate(images)]
+    assert len(loads) == 1
+    # the same scores as the model run on the child's image (RGB, fit 1024x1024), as before the split
+    model = nsfw.classifier()
+    for data, row in zip(images, rows):
+        image = Image.open(io.BytesIO(data)).convert('RGB')
+        image.thumbnail((1024, 1024), Image.Resampling.LANCZOS)
+        logits = model.session.run(None, {model.input_name: nsfw.preprocess(image, model.config)})[0]
+        expected = float(nsfw.softmax(logits)[0][model.config['nsfw_index']])
+        check = row['scan']['checks']['nsfw']
+        assert (check['result'], check['classified'], check['model']) == ('done', 1, nsfw.model_id())
+        assert check['score'] == round(expected, 4) and row['nsfw_score'] == pytest.approx(expected)
+
+
+def test_a_malformed_nsfw_batch_fails_the_scan_closed(tmp_path):
+    import numpy as np
+    from media import nsfw
+    path = str(tmp_path / nsfw.BATCH_FILE)
+    model = nsfw.classifier()
+    for array, count in ((np.zeros((1, 3, 384, 384), dtype=np.float64), 1),  # not float32
+                         (np.zeros((2, 3, 384, 384), dtype=np.float32), 1),  # not the count the child said
+                         (np.zeros((1, 3, 224, 224), dtype=np.float32), 1),  # not the model's input size
+                         (np.zeros((9, 3, 384, 384), dtype=np.float32), 9),  # more than the child keeps
+                         (np.zeros((1, 3, 384, 384), dtype=np.float32), '1')):
+        np.save(path, array, allow_pickle=False)
+        with pytest.raises(nsfw.BadBatch):
+            model.classify_batch(path, count)
+    np.save(path, np.array([{'a': 1}], dtype=object), allow_pickle=True)
+    with pytest.raises(nsfw.BadBatch):
+        model.classify_batch(path, 1)
+
+
+def test_scan_results_are_counted_by_state_and_reason_with_their_duration(client, appdb, monkeypatch):
+    from safety import scan
+    counted, timed = [], []
+    monkeypatch.setattr(scan.metrics, 'incr', lambda name, labels=None, value=1: counted.append((name, labels, value)))
+    monkeypatch.setattr(scan.metrics, 'observe', lambda name, seconds, labels=None: timed.append((name, seconds, labels)))
+    _, owner = new_user(appdb)
+    run_scan(appdb, send(client, owner, png(), 'ok.png', 'image/png'))
+    run_scan(appdb, send(client, owner, PUA_STRING + b' ' + nonce(), 'tool.txt', 'text/plain'))
+    # other code (the API's own instrumentation) may count too: only the scan's names are checked
+    assert [c for c in counted if c[0].startswith('filesgg_scan')] == [
+        ('filesgg_scans_total', {'state': 'passed', 'reason': 'none'}, 1),
+        ('filesgg_scans_total', {'state': 'flagged', 'reason': 'unwanted_software'}, 1)]
+    timed = [t for t in timed if t[0].startswith('filesgg_scan')]
+    assert [(name, labels) for name, _, labels in timed] == [('filesgg_scan_seconds', None)] * 2
+    assert all(0 < seconds < 120 for _, seconds, _ in timed)

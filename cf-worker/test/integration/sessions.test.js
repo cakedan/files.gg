@@ -248,7 +248,12 @@ describe('auth redirects on files.gg (§6.2)', () => {
       const response = await worker.request(`https://files.gg${path}?next=/app`, { headers: browser });
       assert.equal(response.status, 200, path);
       assert.match(response.text, /<title>Dashboard · files\.gg<\/title>/, path);
-      assert.equal(response.headers['content-security-policy'], "frame-ancestors 'none'", path);
+      // the strict app policy (PLAN.md hardening): scripts only from files.gg and Turnstile, never framed
+      const csp = response.headers['content-security-policy'];
+      assert.match(csp, /(^|; )script-src 'self' 'wasm-unsafe-eval' https:\/\/challenges\.cloudflare\.com(;|$)/, path);
+      assert.match(csp, /(^|; )frame-ancestors 'none'(;|$)/, path);
+      assert.match(csp, /(^|; )object-src 'none'(;|$)/, path);
+      assert.match(csp, /img-src [^;]*https:\/\/cdn\.discordapp\.com/, path);
     }
   });
 });

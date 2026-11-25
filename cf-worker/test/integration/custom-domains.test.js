@@ -217,10 +217,10 @@ describe('pages on a custom domain (§10.8, §13.4)', () => {
     assert.equal((await at('i.example.com', '/assets/nope.js')).status, 404);
   });
 
-  it('nothing else: no dashboard, API, converter, changelog, legal pages, challenge, auth pages or security.txt', async () => {
+  it('nothing else: no dashboard, API, converter, changelog, legal and help pages, challenge, auth pages or security.txt', async () => {
     for (const path of [
       '/app', '/app/login', '/api', '/api/users/@me', '/api/auth/session', '/convert', '/.well-known/security.txt', '/challenge', '/login', '/register', '/signup',
-      '/changelog', '/legal', '/legal/terms', '/legal/privacy',
+      '/changelog', '/legal', '/legal/terms', '/legal/privacy', '/help/link-warnings',
     ]) {
       const before = upstream.requests.length;
       const response = await at('i.example.com', path, { headers: { ...browser, cookie: '__Host-filesgg_session=fgs_x' } });

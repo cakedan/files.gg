@@ -1,9 +1,15 @@
-"""NSFW classification (contract milestone-4 §4), inside the sandboxed `scan` child.
+"""NSFW classification (contract milestone-4 §4; milestone-7 §7: the model loads once per process).
 
 The model is Marqo `nsfw-image-detection-384` (a timm ViT-Tiny/16 at 384 px, Apache-2.0),
 exported once to ONNX by `tools/export_nsfw_model.py` and checked in under `media/models/`
 with its preprocessing JSON. Both files are pinned by SHA-256 here; a file that doesn't
 match is refused (`ModelUnavailable`, which keeps the scan pending: a required check).
+
+Split in two, so the model is verified and loaded once per scanner process, not per scan:
+- the sandboxed `scan` child decodes the upload and preprocesses the images it keeps for the
+  classifier (`write_batch`): one float32 array, saved as `nsfw.npy` in its output directory;
+- the scan job (safety/scan.py) runs the process's `classifier()` on that array
+  (`classify_batch`), after checking its dtype and shape. It never decodes an image itself.
 
 Only ONNX Runtime, NumPy and Pillow are used at runtime (torch and timm never are). The
 preprocessing reproduces timm's evaluation transform from the JSON (never hard-coded):
@@ -27,10 +33,17 @@ CONFIG_SHA256 = 'c196f9f316da819ac3545a20321dd87573e74a8da3b7f57810a4baaa448f2c1
 MODEL_NAME = 'marqo-vit-tiny-384'
 INTRA_OP_THREADS = 2
 INTER_OP_THREADS = 1
+# the child's preprocessed images (media/scanning.py keeps at most 8: NSFW_FRAMES)
+BATCH_FILE = 'nsfw.npy'
+MAX_BATCH = 8
 
 
 class ModelUnavailable(Exception):
     """The model or its preprocessing file is missing or doesn't match its pinned hash."""
+
+
+class BadBatch(Exception):
+    """The child's `nsfw.npy` isn't the array it must be (a required check: the scan retries)."""
 
 
 def model_id():
@@ -137,6 +150,16 @@ def softmax(logits):
     return exp / exp.sum(axis=-1, keepdims=True)
 
 
+def write_batch(images, outdir):
+    """In the child: the kept PIL images, preprocessed, as one (n, 3, H, W) float32 array in
+    `<outdir>/nsfw.npy`. Returns {"count": n} for the child's result."""
+    import numpy as np
+    config = load_config()
+    batch = np.concatenate([preprocess(image, config) for image in images])
+    np.save(os.path.join(outdir, BATCH_FILE), batch, allow_pickle=False)
+    return {'count': len(images)}
+
+
 # --- the classifier --------------------------------------------------------------------------------------
 
 class Classifier:
@@ -155,13 +178,37 @@ class Classifier:
             _verified(MODEL_FILE, MODEL_SHA256), sess_options=options, providers=['CPUExecutionProvider'])
         self.input_name = self.session.get_inputs()[0].name
 
-    def score(self, image):
-        """The NSFW probability of one PIL image."""
-        logits = self.session.run(None, {self.input_name: preprocess(image, self.config)})[0]
-        return float(softmax(logits)[0][self.config['nsfw_index']])
+    def load_batch(self, path, count):
+        """The child's array, refused unless it's exactly `count` float32 images of the model's input size.
+        `allow_pickle=False`: the file comes from the sandbox, so it's read as plain numbers only."""
+        import numpy as np
+        if type(count) is not int or not 0 < count <= MAX_BATCH:
+            raise BadBatch('{} images in {}, expected 1 to {}'.format(count, BATCH_FILE, MAX_BATCH))
+        expected = (count, *self.config['input_size'])
+        try:
+            batch = np.load(path, allow_pickle=False)
+        except (OSError, ValueError) as error:
+            raise BadBatch('{} is unreadable: {}'.format(BATCH_FILE, error))
+        if batch.dtype != np.float32 or batch.shape != expected:
+            raise BadBatch('{} is {} {}, expected float32 {}'.format(BATCH_FILE, batch.dtype, batch.shape, expected))
+        return batch
 
-    def classify(self, images):
-        """{"score": max, "scores": [...], "classified": n, "model": id}."""
-        scores = [self.score(image) for image in images]
-        return {'score': max(scores) if scores else None, 'scores': scores, 'classified': len(scores),
-                'model': model_id()}
+    def classify_batch(self, path, count):
+        """{"score": max, "classified": n, "model": id} of the child's array, one image per run."""
+        batch = self.load_batch(path, count)
+        scores = []
+        for index in range(count):
+            logits = self.session.run(None, {self.input_name: batch[index:index + 1]})[0]
+            scores.append(float(softmax(logits)[0][self.config['nsfw_index']]))
+        return {'score': max(scores), 'classified': count, 'model': model_id()}
+
+
+_classifier = None
+
+
+def classifier():
+    """This process's classifier: the model is verified and loaded on first use, then kept."""
+    global _classifier
+    if _classifier is None:
+        _classifier = Classifier()
+    return _classifier

@@ -1,0 +1,64 @@
+#!/usr/sbin/nft -f
+# The server's firewall (docs/redesign/contracts/milestone-7.md §1, decision 7): SSH from the admin addresses only, 443
+# from Cloudflare only, nothing else inbound. Install as /etc/nftables.conf (`systemctl enable nftables`), fill in WAN
+# and the admin sets, run `ops/cloudflare-ips.sh` once (it writes /etc/nftables.d/cloudflare.nft), then
+# `nft -c -f /etc/nftables.conf && nft -f /etc/nftables.conf`. Keep an SSH session open while trying a change.
+#
+# Docker keeps its own tables (its iptables rules), so this file never `flush ruleset`s: it replaces only its own
+# table, atomically. Docker's published ports never pass the input chain (they're DNATed to the container in
+# prerouting and forwarded), so 443 is filtered in prerouting, before Docker's DNAT, and anything else forwarded in
+# from the internet is dropped, in case a port is ever published by mistake. A drop here is final, whatever Docker's
+# own chains would accept.
+
+# the public interface: `ip route get 1.1.1.1` shows it
+define WAN = "eth0"
+
+table inet filesgg
+delete table inet filesgg
+
+table inet filesgg {
+    # cloudflare_v4 and cloudflare_v6, refreshed weekly by ops/cloudflare-ips.sh
+    include "/etc/nftables.d/cloudflare.nft"
+
+    # the owner's addresses, the only ones SSH answers (replace the documentation ranges)
+    set admin_v4 {
+        type ipv4_addr
+        flags interval
+        elements = { 192.0.2.10 }
+    }
+    set admin_v6 {
+        type ipv6_addr
+        flags interval
+        elements = { 2001:db8::/48 }
+    }
+
+    # before Docker's DNAT (dstnat is -100): 443 from Cloudflare only
+    chain prerouting {
+        type filter hook prerouting priority dstnat - 10; policy accept;
+        iifname != $WAN accept
+        tcp dport 443 ip saddr @cloudflare_v4 accept
+        tcp dport 443 ip6 saddr @cloudflare_v6 accept
+        tcp dport 443 drop
+    }
+
+    # the host itself: SSH from the admin sets, replies, and what IPv6 needs to work
+    chain input {
+        type filter hook input priority filter; policy drop;
+        iif lo accept
+        ct state invalid drop
+        ct state established,related accept
+        icmpv6 type { nd-neighbor-solicit, nd-neighbor-advert, nd-router-advert } ip6 hoplimit 255 accept
+        tcp dport 22 ip saddr @admin_v4 accept
+        tcp dport 22 ip6 saddr @admin_v6 accept
+        # docker-proxy answers 443 on the host for IPv6 (the containers are IPv4 only)
+        tcp dport 443 ip saddr @cloudflare_v4 accept
+        tcp dport 443 ip6 saddr @cloudflare_v6 accept
+    }
+
+    # new connections from the internet to containers: only Docker's published 443 (already limited to Cloudflare)
+    chain forward {
+        type filter hook forward priority filter - 10; policy accept;
+        iifname $WAN ct state new ct status dnat ct original proto-dst 443 accept
+        iifname $WAN ct state new drop
+    }
+}

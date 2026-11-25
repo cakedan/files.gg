@@ -836,3 +836,10 @@ def test_document_asset_in_payloads(client, appdb):
 def test_changelog_is_reserved():
     from utils.vanity import is_reserved
     assert is_reserved('changelog') and is_reserved('a/changelog')
+
+
+def test_help_is_reserved_and_the_old_frontends_routes_are_not():
+    from utils.vanity import is_reserved
+    # milestone-7 §7: /help/link-warnings; the Worker serves /auth, /dashboard, /details and /options as vanities
+    assert is_reserved('help') and is_reserved('HELP/x') and is_reserved('x/help.png')
+    assert not any(is_reserved(name) for name in ('auth', 'dashboard', 'details', 'options'))

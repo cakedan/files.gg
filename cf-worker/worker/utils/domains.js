@@ -45,9 +45,10 @@ export function isDcvPath(pathname) {
 }
 
 // First path segments that are never served on a custom domain (§10.8 "anything else"): the
-// dashboard, the API passthrough, the converter, the changelog and legal pages (milestone-5.md
-// §19.1: files.gg only), and everything under /.well-known/ but the DCV paths (security.txt included).
-const NOT_SERVED = Object.freeze(['app', 'api', 'convert', 'changelog', 'legal', '.well-known']);
+// dashboard, the API passthrough, the converter, the changelog, legal and help pages (milestone-5.md
+// §19.1, milestone-7.md §7: files.gg only), and everything under /.well-known/ but the DCV paths
+// (security.txt included).
+const NOT_SERVED = Object.freeze(['app', 'api', 'convert', 'changelog', 'legal', 'help', '.well-known']);
 
 // Classifies a custom-domain path (§10.8 step 3):
 //   dcv | home | root-file | asset | cdn (with `parsed` and `kind`: file, preview, album) |
@@ -176,3 +177,8 @@ export const MINIMAL_PAGE_CSP = "default-src 'none'; base-uri 'none'; form-actio
 
 // §10.11: HSTS on custom domains, without includeSubDomains or preload (the domain isn't ours).
 export const CUSTOM_HSTS = 'max-age=31536000';
+
+// PLAN.md hardening: HSTS on our own hosts (files.gg, cdn., api., www.), with includeSubDomains and preload. Two
+// years is what the preload list asks for. Browsers ignore it over plain http, so wrangler dev is unaffected.
+// Not Cloudflare's zone HSTS setting: that would also reach customers' custom hostnames on this zone.
+export const OWN_HSTS = 'max-age=63072000; includeSubDomains; preload';

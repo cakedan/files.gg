@@ -33,6 +33,7 @@ import {
   AUTH_REDIRECTS,
   challengeCsp,
   classifyStablePath,
+  appCsp,
   customViewerCsp,
   decideAlbumShell,
   decideFileShell,
@@ -186,9 +187,9 @@ describe('files.gg routing (§6.2, §6.3)', () => {
     assert.equal(classifyStablePath('/challenge.html').route, 'missing');
   });
 
-  it('reserves login, register, signup, challenge, files, previews, albums, convert, legal and changelog', () => {
+  it('reserves login, register, signup, challenge, files, previews, albums, convert, legal, changelog and help', () => {
     assert.deepEqual([...RESERVED_SEGMENTS], [
-      'report', 'login', 'register', 'signup', 'challenge', 'files', 'previews', 'albums', 'convert', 'legal', 'changelog',
+      'report', 'login', 'register', 'signup', 'challenge', 'files', 'previews', 'albums', 'convert', 'legal', 'changelog', 'help',
     ]);
     for (const segment of RESERVED_SEGMENTS) {
       assert.ok(hasReservedSegment(segment), segment);
@@ -355,6 +356,8 @@ describe('custom-domain routing (§10.8)', () => {
       '/app': 'not-found', '/app/login': 'not-found', '/api': 'not-found', '/api/users/@me': 'not-found', '/convert': 'not-found',
       // milestone-5.md §19.1: the changelog and legal pages are files.gg's only.
       '/changelog': 'not-found', '/legal': 'not-found', '/legal/terms': 'not-found', '/legal/privacy': 'not-found',
+      // milestone-7.md §7: so is the link warnings help page.
+      '/help': 'not-found', '/help/link-warnings': 'not-found',
       '/.well-known/security.txt': 'not-found', '/.well-known/x': 'not-found',
       '/login': 'missing', '/register': 'missing', '/signup': 'missing', '/challenge': 'missing', '/files': 'cdn',
     };
@@ -428,6 +431,13 @@ describe('rehosting (§10.9, §16.5)', () => {
     const sources = rehostSources(local, publicOrigins(local, new URL('http://custom.localhost:8787/x')));
     assert.deepEqual(sources, ['https://cdn.files.localhost', 'https://files.localhost', 'http://cdn.files.localhost:8787', 'http://files.localhost:8787']);
     assert.equal(rehost('http://cdn.files.localhost:8787/files/a.png', sources, 'http://custom.localhost:8787'), 'http://custom.localhost:8787/files/a.png');
+  });
+});
+
+
+describe('the dashboard and public pages CSP (milestone-7: PLAN.md hardening)', () => {
+  it('is the viewer\'s strict policy plus Discord avatars', () => {
+    assert.equal(appCsp(), "default-src 'self'; script-src 'self' 'wasm-unsafe-eval' https://challenges.cloudflare.com; worker-src 'self'; connect-src 'self' https://cdn.files.gg https://api.files.gg; img-src 'self' https://cdn.files.gg https://cdn.discordapp.com blob: data:; media-src 'self' https://cdn.files.gg blob: data:; style-src 'self' 'unsafe-inline'; font-src 'self' data:; frame-src https://challenges.cloudflare.com; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'");
   });
 });
 

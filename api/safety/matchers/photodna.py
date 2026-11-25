@@ -23,7 +23,7 @@ contract, and adjust this file and its tests (tests/test_safety_matchers.py) to 
 import threading
 import time
 
-from safety.matchers import MatchHit, MatcherUnavailable, MatchOutcome
+from safety.matchers import MatchHit, MatcherUnavailable, MatchOutcome, counted
 
 HEADER = 'Ocp-Apim-Subscription-Key'
 SUCCESS = 3000
@@ -79,6 +79,7 @@ class PhotoDNAMatcher:
             self._http = httpx.Client(timeout=self.timeout, follow_redirects=False)
         return self._http
 
+    @counted
     def match(self, images, blake2b=None):
         hits, unmatchable, refs = [], [], []
         for image in sorted(images, key=lambda i: i.frame):

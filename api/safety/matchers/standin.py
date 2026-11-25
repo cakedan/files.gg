@@ -13,7 +13,7 @@ to test failing closed. Refuses to exist without FILESGG_DEV_TOOLS=1 (§3.1).
 
 import hashlib
 
-from safety.matchers import MatchHit, MatcherUnavailable, MatchOutcome
+from safety.matchers import MatchHit, MatcherUnavailable, MatchOutcome, counted
 from safety.pdq import MIN_QUALITY, distance
 
 LIST_ID = 'STANDIN'
@@ -34,6 +34,7 @@ class StandinMatcher:
             raise RuntimeError('the stand-in matcher needs FILESGG_DEV_TOOLS=1')
         return cls(read_list(settings.standin_match_file), settings.standin_mode, settings.pdq_match_distance)
 
+    @counted
     def match(self, images, blake2b=None):
         if self.mode == 'unavailable':
             raise MatcherUnavailable('STANDIN_MODE=unavailable')

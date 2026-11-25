@@ -184,3 +184,16 @@ def sync_client(settings=None):
     from botocore.config import Config
     settings = settings or S3Settings.from_env()
     return boto3.client('s3', config=Config(**settings.config_kwargs()), **settings.client_kwargs())
+
+
+def download_sync(client, bucket, key, path):
+    """Stream one object to `path` with a single GetObject: one B2 read (milestone-7 §7). boto3's
+    `download_file` splits anything above 8 MiB into ranged GETs of 8 MiB (13 requests for 100 MiB,
+    128 for 1 GiB). A broken stream raises, and the job's retry downloads it again."""
+    body = client.get_object(Bucket=bucket, Key=key)['Body']
+    try:
+        with open(path, 'wb') as out:
+            for chunk in body.iter_chunks(MB):
+                out.write(chunk)
+    finally:
+        body.close()

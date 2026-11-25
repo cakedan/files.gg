@@ -121,7 +121,9 @@ async def create_file(request):
 
 create_file.__params_model__ = CreateFileArgs
 # milestone-5 §18.2
-route(files, '', ['POST'], stream=True)(limiter.limit('60 per minute', scope='file_upload')(create_file))
+# the limit on the handler itself (tests read it there); the refusal counter copies it (functools.wraps)
+route(files, '', ['POST'], stream=True)(
+    uploading.count_refusals('single')(limiter.limit('60 per minute', scope='file_upload')(create_file)))
 
 
 async def _create_file(request, args, user, upload, declared, key=None):
@@ -187,6 +189,7 @@ async def _create_file(request, args, user, upload, declared, key=None):
     finally:
         if spooled is not upload:
             spooled.discard()
+    uploading.count_upload('single', uploading.uploader_kind(user, key), fobj.size)
     # the uploader owns it: a protected file's URLs are signed for 1 h; milestone-4 §6.2 adds `safety`, and
     # milestone-6 §10.9 the link domain and `direct_url`
     data = payloads.with_password(payloads.owner_upload(fobj), fobj, generated)
