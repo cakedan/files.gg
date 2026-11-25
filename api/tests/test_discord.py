@@ -130,11 +130,18 @@ def test_config_and_the_authorize_url(client, discord):
     assert credentials.unsign(body['state'], credentials.STATE_LABEL, 'test-secret-key')['u'] == str(user_id)
 
 
-def test_discord_off_without_its_credentials(client):
+def test_discord_off_without_its_credentials(client, appdb):
     assert client.get('/auth/config').json() == {'discord': False}
     response = client.post('/auth/discord/authorize', headers=VIA_MAIN, json={'purpose': 'login',
                                                                               'code_challenge': pkce()[1]})
     assert (response.status_code, response.json()['code']) == (503, 'DISCORD_UNAVAILABLE')
+    # a Discord account linked while it was on isn't offered for re-auth (its button couldn't work)
+    user_id = make_user(appdb, password='a-password')
+    appdb.execute("INSERT INTO user_identities (id, user_id, provider, provider_user_id) VALUES (%s, %s, 'discord', %s)",
+                  (Snowflake.generate(), user_id, str(Snowflake.generate())))
+    headers = cookie_headers(new_session(user_id, appdb, authenticated_ago=3600))
+    response = client.post('/users/@me/email', headers=headers, json={'email': 'x@example.com'})
+    assert (response.status_code, response.json()['methods']) == (403, ['password'])
 
 
 def test_sign_up_with_a_verified_unused_email(client, appdb, discord):

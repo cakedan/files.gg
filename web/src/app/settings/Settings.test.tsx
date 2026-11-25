@@ -1,4 +1,4 @@
-import { fireEvent, screen, waitFor, within } from '@testing-library/react';
+import { cleanup, fireEvent, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, describe, expect, it } from 'vitest';
 
 import type { User } from '../../lib/api';
@@ -150,6 +150,18 @@ describe('Settings → Security (§3.5, §5.6, §8.3–§8.5)', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'Unlink' }));
     fireEvent.click(within(screen.getByRole('alertdialog')).getByRole('button', { name: 'Unlink' }));
     await waitFor(() => expect(calls(fetchMock).some((call) => call.method === 'DELETE' && call.path === '/users/@me/identities/discord')).toBe(true));
+  });
+
+  it('hides Discord when the server has no Discord sign-in, unless one is still linked (to unlink it)', async () => {
+    setup(ME, { 'GET /auth/config': () => ({ discord: false }) });
+    renderDashboard('/settings/security');
+    expect(await screen.findByLabelText('Current password')).toBeInTheDocument();
+    expect(screen.queryByText('Login methods')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Link' })).not.toBeInTheDocument();
+    cleanup();
+    setup({ ...ME, identities: [DISCORD] }, { 'GET /auth/config': () => ({ discord: false }) });
+    renderDashboard('/settings/security');
+    expect(await screen.findByRole('button', { name: 'Unlink' })).toBeEnabled();
   });
 
   it('changes the password with the current one, and says what it did', async () => {

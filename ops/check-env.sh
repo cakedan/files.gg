@@ -19,11 +19,10 @@ cd "$(dirname "$0")/.."
 CERT_DIR=${NGINX_CERT_DIR:-nginx/certificates}
 MIB=1048576
 
-# Required in production although compose lets them be empty (§2.3): the matcher's key, Web Risk, Discord sign-in,
-# custom domains, the backup healthcheck, and the web build's Turnstile site key (ops/deploy.sh). Every `${NAME:?...}`
+# Required in production although compose lets them be empty (§2.3): the matcher's key, Web Risk, custom domains, the backup healthcheck, and the web build's Turnstile site key (ops/deploy.sh). Every `${NAME:?...}`
 # in docker-compose.yml is required too, read from the file below so the two never drift apart.
-PRODUCTION_REQUIRED='PHOTODNA_SUBSCRIPTION_KEY WEB_RISK_API_KEY DISCORD_CLIENT_ID DISCORD_CLIENT_SECRET
-DISCORD_REDIRECT_URI CLOUDFLARE_API_TOKEN CLOUDFLARE_ZONE_ID DB_BACKUP_HEALTHCHECK_URL VITE_TURNSTILE_SITE_KEY'
+# Discord sign-in is optional: all three DISCORD_* empty turns it off (checked below).
+PRODUCTION_REQUIRED='PHOTODNA_SUBSCRIPTION_KEY WEB_RISK_API_KEY CLOUDFLARE_API_TOKEN CLOUDFLARE_ZONE_ID DB_BACKUP_HEALTHCHECK_URL VITE_TURNSTILE_SITE_KEY'
 # openssl rand -hex 32 (64 characters); 32 is the floor
 GENERATED_SECRETS='SECRET_KEY RPC_KEY ORIGIN_SHARED_SECRET VIEW_HASH_SECRET CDN_SIGNING_SECRET ABUSE_HASH_SECRET
 REDIS_PASSWORD POSTGRES_PASSWORD DB_BACKUP_RESTIC_PASSWORD GRAFANA_ADMIN_PASSWORD'
@@ -115,6 +114,16 @@ for name in DISCORD_REDIRECT_URI DB_BACKUP_HEALTHCHECK_URL; do
     problem "$name must be an https:// URL"
   fi
 done
+# Discord sign-in: off with the id and secret both empty (the sign-in, link and re-auth buttons are hidden); on, it
+# needs both (the API refuses to start with one) and the redirect registered in Discord's developer portal
+if [ -n "$(env_value DISCORD_CLIENT_ID)" ] || [ -n "$(env_value DISCORD_CLIENT_SECRET)" ]; then
+  for name in DISCORD_CLIENT_ID DISCORD_CLIENT_SECRET DISCORD_REDIRECT_URI; do
+    if [ -z "$(env_value "$name")" ]; then
+      problem "$name is empty: Discord sign-in needs DISCORD_CLIENT_ID, DISCORD_CLIENT_SECRET and DISCORD_REDIRECT_URI (or none of them, to turn it off)"
+    fi
+  done
+fi
+
 webhook=$(env_value GRAFANA_ALERT_DISCORD_WEBHOOK)
 if [ -n "$webhook" ] && ! is_placeholder "$webhook" && [[ ! $webhook =~ ^https://(discord|discordapp)\.com/api/webhooks/ ]]; then
   problem "GRAFANA_ALERT_DISCORD_WEBHOOK must be a Discord webhook URL (https://discord.com/api/webhooks/...)"

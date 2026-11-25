@@ -40,7 +40,7 @@ Every value the stack needs, who produces it, and the variable it goes into. `.e
 | Web Risk | `WEB_RISK_API_KEY` | `.env` | Dan, Google Cloud | 4.3 |
 | Turnstile | `VITE_TURNSTILE_SITE_KEY` (web build), `TURNSTILE_SECRET`, `TURNSTILE_HOSTNAMES=files.gg` | `.env` | Dan, Cloudflare | 2.7 |
 | Email | `POSTMARK_SERVER_TOKEN`, `EMAIL_FROM` (default `files.gg <noreply@mail.files.gg>`) | `.env` | Dan, Postmark | 4.4 |
-| Discord sign-in | `DISCORD_CLIENT_ID`, `DISCORD_CLIENT_SECRET`, `DISCORD_REDIRECT_URI=https://files.gg/app/auth/discord` | `.env` | Dan, Discord | 4.5 |
+| Discord sign-in (optional) | `DISCORD_CLIENT_ID`, `DISCORD_CLIENT_SECRET`, `DISCORD_REDIRECT_URI=https://files.gg/app/auth/discord`, all three or none | `.env` | Dan, Discord | 4.5 |
 | Custom domains | `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ZONE_ID`, `CUSTOM_DOMAIN_TARGET=domains.files.gg` | `.env` | Dan, Cloudflare | 2.5 |
 | Origin certificate | `nginx/certificates/certificate.cert`, `certificate.key` (files on the server, never committed) | server | Dan creates, Claude installs | 2.3 |
 | Body limit | `PROXY_BODY_LIMIT_BYTES` (default `104857600`) and nginx `client_max_body_size` (together) | `.env`, `nginx/nginx.conf` | Claude, after the check | 7.5 |
@@ -211,7 +211,9 @@ These change HTML or block API clients, so they're off:
 - Server → **API Tokens** → `POSTMARK_SERVER_TOKEN`. `EMAIL_FROM` stays `files.gg <noreply@mail.files.gg>`. Open and link tracking stay off (the emails carry one-time links).
 - **Check:** Postmark's domain page shows DKIM and Return-Path **Verified**; on staging, sign up, verify, forgot-password and each milestone-6 §2.7 template reach Gmail, Outlook and iCloud inboxes (not spam), and Gmail's "Show original" says `DKIM: PASS`, `SPF: PASS`, `DMARC: PASS`.
 
-### 4.5 Discord application — **Dan**
+### 4.5 Discord application — **Dan**, optional
+**Optional.** Leave `DISCORD_CLIENT_ID`, `DISCORD_CLIENT_SECRET` and `DISCORD_REDIRECT_URI` empty and Discord sign-in is off: the sign-in and register pages, Settings → Security and the re-auth dialog show no Discord button, and `ops/check-env.sh` accepts it. It can be added any time later with a redeploy (`ops/deploy.sh --no-build`).
+
 From milestone-6 §17:
 - **Discord Developer Portal → New Application** "files.gg", with the logo (`branding/png/filesgg-mark-512.png`) and the Terms and Privacy URLs (`https://files.gg/legal/terms`, `https://files.gg/legal/privacy`).
 - **OAuth2 → Redirects:** `https://files.gg/app/auth/discord`, and for the staging run `https://staging.files.gg/app/auth/discord`. They must match `DISCORD_REDIRECT_URI` exactly (no trailing slash; Discord's matching rules aren't documented).

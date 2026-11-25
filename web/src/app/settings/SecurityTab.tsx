@@ -222,6 +222,9 @@ function LoginMethodsPanel({ user, run, locked }: { user: User; run: Run; locked
   const lastMethod = !(user.has_password && user.email_verified);
   const lastReason = 'Add a password and verify your email first, so you can still sign in.';
 
+  // Discord sign-in off on this server (no DISCORD_CLIENT_ID): no Discord row, unless one is still linked (to unlink it)
+  const hidden = !config.data?.discord && !discord;
+
   const link = async () => {
     setLinkError(null);
     try {
@@ -231,6 +234,7 @@ function LoginMethodsPanel({ user, run, locked }: { user: User; run: Run; locked
     }
   };
 
+  if (hidden) return null;
   return (
     <Panel title="Login methods" description="Connected accounts you can sign in with.">
       <div className="flex flex-wrap items-center gap-3 rounded-md border border-line px-3 py-2">
@@ -254,11 +258,9 @@ function LoginMethodsPanel({ user, run, locked }: { user: User; run: Run; locked
             </Button>
           </span>
         ) : (
-          config.data?.discord !== false && (
-            <Button onClick={() => void link()} disabled={locked}>
-              Link
-            </Button>
-          )
+          <Button onClick={() => void link()} disabled={locked}>
+            Link
+          </Button>
         )}
       </div>
       {discord && lastMethod && (

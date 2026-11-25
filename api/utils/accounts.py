@@ -149,7 +149,9 @@ async def login_methods(conn, user):
     methods = []
     if user.password_hash:
         methods.append('password')
-    if await _one(conn, "SELECT 1 FROM user_identities WHERE user_id = %s AND provider = 'discord'", (user.id,)):
+    # A linked Discord account re-authenticates only while Discord sign-in is configured (DISCORD_CLIENT_ID/SECRET)
+    if account_settings().discord_enabled and await _one(
+            conn, "SELECT 1 FROM user_identities WHERE user_id = %s AND provider = 'discord'", (user.id,)):
         methods.append('discord')
     return methods
 
