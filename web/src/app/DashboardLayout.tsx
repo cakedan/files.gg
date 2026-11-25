@@ -1,15 +1,33 @@
 import { Menu, X } from 'lucide-react';
 import { Suspense, useCallback, useEffect, useRef, useState } from 'react';
-import { NavLink, Outlet, useLocation } from 'react-router';
+import { Navigate, NavLink, Outlet, useLocation } from 'react-router';
 
 import { Lockup } from '../components/Brand';
+import { hasToken, type Badges } from '../lib/api';
+import { useBadges, useMe } from '../lib/queries';
 import { Toaster } from './components/Toaster';
-import { NAV_ITEMS } from './nav';
+import { ADMIN_NAV_ITEM, NAV_ITEMS, type NavItem } from './nav';
+import { NoticesBanner, SuspendedBanner } from './notices/NoticesBanner';
+import { CountBadge } from './safety/SafetyBadge';
 
-function SidebarNav({ onNavigate }: { onNavigate?: () => void }) {
+interface NavState {
+  items: readonly NavItem[];
+  badges: Badges | undefined;
+}
+
+function badgeFor(item: NavItem, badges: Badges | undefined) {
+  if (!badges || !item.badge) return null;
+  if (item.badge === 'reports') return <CountBadge count={badges.reports_unread} label="unread" />;
+  if (item.badge === 'notices') return <CountBadge count={badges.notices_unacknowledged} label="new" />;
+  return badges.staff ? <CountBadge count={badges.staff.open} urgent={badges.staff.p0 > 0} label={badges.staff.p0 > 0 ? 'open, with P0 cases' : 'open'} /> : null;
+}
+
+function SidebarNav({ nav, onNavigate }: { nav: NavState; onNavigate?: () => void }) {
   return (
     <nav aria-label="Dashboard" className="flex flex-col gap-0.5 px-3">
-      {NAV_ITEMS.map(({ path, label, icon: Icon }) => (
+      {nav.items.map((item) => {
+        const { path, label, icon: Icon } = item;
+        return (
         <NavLink
           key={path}
           to={path}
@@ -25,10 +43,12 @@ function SidebarNav({ onNavigate }: { onNavigate?: () => void }) {
             <>
               <Icon aria-hidden className={`size-4 shrink-0 ${isActive ? 'text-gg' : ''}`} />
               <span className="truncate">{label}</span>
+              {badgeFor(item, nav.badges)}
             </>
           )}
         </NavLink>
-      ))}
+        );
+      })}
     </nav>
   );
 }
@@ -43,7 +63,7 @@ function SidebarHeader() {
   );
 }
 
-function MobileDrawer({ open, onClose }: { open: boolean; onClose: () => void }) {
+function MobileDrawer({ open, onClose, nav }: { open: boolean; onClose: () => void; nav: NavState }) {
   const closeRef = useRef<HTMLButtonElement>(null);
 
   useEffect(() => {
@@ -79,7 +99,7 @@ function MobileDrawer({ open, onClose }: { open: boolean; onClose: () => void })
             <X aria-hidden className="size-5" />
           </button>
         </div>
-        <SidebarNav onNavigate={onClose} />
+        <SidebarNav nav={nav} onNavigate={onClose} />
       </aside>
     </div>
   );
@@ -96,6 +116,16 @@ function PageFallback() {
 export function DashboardLayout() {
   const [drawerOpen, setDrawerOpen] = useState(false);
   const { pathname } = useLocation();
+  const signedIn = hasToken();
+  const me = useMe(signedIn);
+  const badges = useBadges(signedIn);
+  const restrictions = badges.data?.restrictions ?? me.data?.restrictions ?? [];
+  // §8.4 / §11.2: a suspended account sees only Notices.
+  const suspension = restrictions.find((restriction) => restriction.kind === 'suspended') ?? null;
+  const staff = me.data?.staff ?? null;
+  const items = suspension ? NAV_ITEMS.filter((item) => item.badge === 'notices') : staff ? [...NAV_ITEMS, ADMIN_NAV_ITEM] : NAV_ITEMS;
+  const nav: NavState = { items, badges: badges.data };
+  const unacknowledged = badges.data?.notices_unacknowledged ?? 0;
   const [lastPath, setLastPath] = useState(pathname);
 
   // Close the drawer on navigation (including back/forward).
@@ -111,7 +141,7 @@ export function DashboardLayout() {
       <div className="flex min-h-dvh">
         <aside className="sticky top-0 hidden h-dvh w-64 shrink-0 flex-col border-r border-line bg-surface lg:flex">
           <SidebarHeader />
-          <SidebarNav />
+          <SidebarNav nav={nav} />
         </aside>
 
         <div className="flex min-w-0 flex-1 flex-col">
@@ -131,13 +161,14 @@ export function DashboardLayout() {
           </header>
 
           <main className="mx-auto w-full max-w-6xl min-w-0 flex-1 px-4 py-6 sm:px-6 lg:px-10 lg:py-10">
+            {suspension ? <SuspendedBanner /> : unacknowledged > 0 && <NoticesBanner count={unacknowledged} />}
             <Suspense fallback={<PageFallback />}>
-              <Outlet />
+              {suspension && !pathname.startsWith('/notices') ? <Navigate to="/notices" replace /> : <Outlet />}
             </Suspense>
           </main>
         </div>
 
-        <MobileDrawer open={drawerOpen} onClose={closeDrawer} />
+        <MobileDrawer open={drawerOpen} onClose={closeDrawer} nav={nav} />
       </div>
     </Toaster>
   );

@@ -77,8 +77,12 @@ def _hash_params(kind, hash_id, delay=0):
     return (kind, json.dumps({'hash_id': str(hash_id)}), delay, MAX_ATTEMPTS)
 
 
-def _collage_params(album_id, delay=COLLAGE_DELAY):
-    return (json.dumps({'album_id': str(album_id)}), delay, MAX_ATTEMPTS, str(album_id))
+def _collage_params(album_id, delay=COLLAGE_DELAY, old_key=None):
+    payload = {'album_id': str(album_id)}
+    if old_key:
+        # a collage dropped for a moderation or scan reason (milestone-4 §6.4): deleted once replaced
+        payload['old_key'] = old_key
+    return (json.dumps(payload), delay, MAX_ATTEMPTS, str(album_id))
 
 
 def queue_probe(conn, hash_id):
@@ -89,8 +93,15 @@ async def queue_probe_async(conn, hash_id):
     await conn.execute(ENQUEUE_SQL, _hash_params('probe', hash_id))
 
 
-def queue_collage(conn, album_id, delay=COLLAGE_DELAY):
-    conn.execute(ENQUEUE_COLLAGE_SQL, _collage_params(album_id, delay))
+def queue_collage(conn, album_id, delay=COLLAGE_DELAY, old_key=None):
+    if old_key and conn.execute(ENQUEUE_COLLAGE_SQL, _collage_params(album_id, delay, old_key)).fetchone() is None:
+        # a collage job is already waiting: it gets the old key to delete too
+        conn.execute("UPDATE jobs SET payload = payload || jsonb_build_object('old_key', %s::text) "
+                     "WHERE kind = 'album_collage' AND payload->>'album_id' = %s AND done_at IS NULL "
+                     "AND failed_at IS NULL AND locked_by IS NULL AND NOT payload ? 'old_key'", (old_key, str(album_id)))
+        return
+    if not old_key:
+        conn.execute(ENQUEUE_COLLAGE_SQL, _collage_params(album_id, delay))
 
 
 async def queue_collage_async(conn, album_id, delay=COLLAGE_DELAY):
@@ -131,13 +142,17 @@ def _fetch_hints(conn, hash_id):
     """The hash and the type of its earliest file (processing is per content; a blob's
     files share their bytes, the first one's type decides how it is read)."""
     row = conn.execute(
-        'SELECT h.processing_state, h.media, f.mimetype_id, f.extension FROM file_hashes h '
+        'SELECT h.processing_state, h.media, f.mimetype_id, f.extension, h.scan_state FROM file_hashes h '
         'LEFT JOIN LATERAL (SELECT mimetype_id, extension FROM files WHERE hash_id = h.id ORDER BY id LIMIT 1) f '
         'ON true WHERE h.id = %s', (hash_id,)).fetchone()
     if row is None:
         return None
-    state, media, mimetype, extension = row
-    return {'state': state, 'media': media, 'mimetype': mimetype, 'extension': extension}
+    state, media, mimetype, extension, scan_state = row
+    return {'state': state, 'media': media, 'mimetype': mimetype, 'extension': extension, 'scan_state': scan_state}
+
+
+# contract milestone-4 §2.1: nothing reads a blob for metadata or previews before its scan passes
+PUBLISHED = ('passed', 'flagged')
 
 
 def _set_failed(hash_id, reason):
@@ -187,6 +202,8 @@ def probe(hash_id, job=None, client=None):
         hints = _fetch_hints(conn, hash_id)
     if hints is None or hints['state'] not in ('pending', 'failed'):
         return None  # gone, or already probed (a duplicate job)
+    if hints['scan_state'] not in PUBLISHED:
+        return None  # not scanned, held or blocked: the second guard of the strict order
 
     def work():
         with Workspace(hash_id) as space:
@@ -200,7 +217,8 @@ def probe(hash_id, job=None, client=None):
             with conn.transaction():
                 updated = conn.execute(
                     "UPDATE file_hashes SET media = %s::jsonb, processing_state = %s, probed_at = now() "
-                    "WHERE id = %s AND processing_state IN ('pending', 'failed') RETURNING id",
+                    "WHERE id = %s AND processing_state IN ('pending', 'failed') "
+                    "AND scan_state IN ('passed', 'flagged') RETURNING id",
                     (json.dumps(media) if media is not None else None, state, hash_id)).fetchone()
                 if updated is not None and state == 'probed':
                     conn.execute(ENQUEUE_SQL, _hash_params('derive', hash_id))
@@ -220,7 +238,7 @@ def derive(hash_id, job=None, client=None):
     client = client or s3()
     with db.connect() as conn:
         hints = _fetch_hints(conn, hash_id)
-    if hints is None or hints['state'] != 'probed':
+    if hints is None or hints['state'] != 'probed' or hints['scan_state'] not in PUBLISHED:
         return None
 
     def work():
@@ -245,9 +263,15 @@ def derive(hash_id, job=None, client=None):
                 assets.append((kind, key, content_type, size, item.get('width'), item.get('height')))
         with db.connect() as conn:
             with conn.transaction():
-                state = conn.execute('SELECT processing_state FROM file_hashes WHERE id = %s FOR UPDATE',
+                state = conn.execute('SELECT processing_state, scan_state FROM file_hashes WHERE id = %s FOR UPDATE',
                                      (hash_id,)).fetchone()
-                if state is None or state[0] != 'probed':
+                unpublished = state is None or state[1] not in PUBLISHED
+                if unpublished or state[0] != 'probed':
+                    # held or blocked meanwhile: the previews just uploaded must not stay. (Another
+                    # derive that already finished wrote the same keys, so those are kept.)
+                    if unpublished:
+                        for asset in assets:
+                            _delete_quietly(client, asset[1])
                     return None
                 old = {r[0] for r in conn.execute('SELECT kind FROM file_hash_assets WHERE hash_id = %s',
                                                   (hash_id,)).fetchall()}
@@ -336,9 +360,11 @@ def render_collage(images):
     return out.getvalue()
 
 
-def album_collage(album_id, client=None):
+def album_collage(album_id, client=None, old_key=None):
     from PIL import Image
     client = client or s3()
+    if old_key:
+        _delete_quietly(client, old_key)
     with db.connect() as conn:
         album = conn.execute('SELECT collage_key, collage_version FROM albums WHERE id = %s AND deleted_at IS NULL',
                              (album_id,)).fetchone()
@@ -367,4 +393,4 @@ def album_collage(album_id, client=None):
 
 @register('album_collage')
 def album_collage_job(payload, job):
-    album_collage(int(payload['album_id']))
+    album_collage(int(payload['album_id']), old_key=payload.get('old_key'))

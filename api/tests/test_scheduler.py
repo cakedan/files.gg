@@ -89,10 +89,13 @@ def test_scheduler_markers_are_never_claimed_as_jobs(migrated_db):
 def test_snowflake_cleanup_task_is_registered_and_works(migrated_db):
     from jobs import tasks
     scheduler = tasks.register_scheduled(Scheduler(migrated_db.conn, check_every=0))
-    assert sorted(scheduler.tasks) == ['album_reaper', 'expiry_reaper', 'file_view_seen_cleanup',
-                                       'snowflake_nodes_cleanup', 'unlock_attempts_cleanup', 'upload_reaper']
+    assert sorted(scheduler.tasks) == ['album_reaper', 'expiry_reaper', 'file_view_seen_cleanup', 'jobs_purge',
+                                       'report_closer', 'rescan_scheduler', 'safety_rate_limits_cleanup',
+                                       'safety_retention', 'scan_sweeper', 'snowflake_nodes_cleanup',
+                                       'unlock_attempts_cleanup', 'upload_reaper']
     for name in ('file_view_seen_cleanup', 'expiry_reaper', 'upload_reaper', 'unlock_attempts_cleanup',
-                 'album_reaper'):
+                 'album_reaper', 'scan_sweeper', 'rescan_scheduler', 'report_closer', 'safety_retention',
+                 'safety_rate_limits_cleanup', 'jobs_purge'):
         del scheduler.tasks[name]
 
     migrated_db.execute(

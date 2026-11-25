@@ -53,6 +53,42 @@ class Email:
             log.warning('POSTMARK_SERVER_TOKEN is not set: account emails will fail with 503')
 
     @classmethod
+    def _request(cls, to, subject, html, text, tag, to_name):
+        payload = {
+            'From': cls.sender,
+            'To': format_address(to, to_name),
+            'Subject': subject,
+            'HtmlBody': html,
+            'TextBody': text,
+            'Tag': tag,
+            'MessageStream': cls.stream,
+            'TrackOpens': False,
+            'TrackLinks': 'None',
+        }
+        headers = {'Accept': 'application/json', 'Content-Type': 'application/json',
+                   'X-Postmark-Server-Token': cls.token}
+        return payload, headers
+
+    @classmethod
+    def send_sync(cls, *, to, subject, html, text, tag, to_name=None):
+        """The same message from synchronous code (`python -m worker`'s account and domain tasks). Raises
+        EmailUnavailable like `send`."""
+        import httpx
+        if not cls.token:
+            raise EmailUnavailable()
+        payload, headers = cls._request(to, subject, html, text, tag, to_name)
+        try:
+            with httpx.Client(timeout=15.0) as client:
+                response = client.post(POSTMARK_URL, json=payload, headers=headers)
+        except Exception:
+            log.exception('postmark request failed (tag=%s)', tag)
+            raise EmailUnavailable()
+        if response.status_code != 200:
+            log.error('postmark refused message (tag=%s, status=%s)', tag, response.status_code)
+            raise EmailUnavailable()
+        return response.json()
+
+    @classmethod
     async def send(cls, *, to, subject, html, text, tag, to_name=None):
         """Send one message. Raises EmailUnavailable if Postmark isn't configured or refuses it;
         the reason is logged, never returned to the client."""

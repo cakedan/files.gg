@@ -30,37 +30,42 @@ def virtual(default=None, factory=None):
 
 @dataclass
 class User:
+    """A row of `users` (contract milestone-6 §1.1), plus `premium` from `user_entitlements`
+    (§9.1), which the user loaders (utils/accounts.py) select with it."""
     TABLE = 'users'
 
     id: int
-    email: str
-    bot: bool
+    email: Optional[str]
     username: str
-    discriminator: int
-    password: Optional[str]
-    flags: int
-    verified: bool
-    # tokens issued before these (whole seconds) are rejected; None = never reset
-    last_email_reset_at: Optional[datetime]
-    last_password_reset_at: Optional[datetime]
-    # manual storage limit bump (PLAN.md "Limits"); None = the default
+    # manual storage limit (PLAN.md "Limits"); wins over the plan and premium defaults
     storage_limit_override: Optional[int]
+    display_name: Optional[str] = None
+    email_verified: bool = False
+    pending_email: Optional[str] = None
+    password_hash: Optional[str] = None
+    needs_username: bool = False
+    username_changed_at: Optional[datetime] = None
+    show_name_on_albums: bool = False
+    domain_only: bool = False
+    domain_only_paused_at: Optional[datetime] = None
+    created_at: Optional[datetime] = None
+    deletion_requested_at: Optional[datetime] = None
+    deletion_scheduled_for: Optional[datetime] = None
+    deleted_at: Optional[datetime] = None
+    premium: bool = virtual(False)
+    premium_expires_at: Optional[datetime] = virtual()
 
-    def to_dict(self, me=False):
-        data = {
-            'id': str(self.id),
-            'username': self.username,
-            'discriminator': '{:04d}'.format(self.discriminator),
-            'flags': self.flags,
-        }
-        if self.bot:
-            data['bot'] = self.bot
-        if me:
-            data.update({
-                'email': self.email,
-                'verified': self.verified,
-            })
-        return data
+    @property
+    def state(self):
+        if self.deleted_at is not None:
+            return 'deleted'
+        if self.deletion_requested_at is not None:
+            return 'pending_deletion'
+        return 'active'
+
+    def public_dict(self):
+        """The public user object (§2.1): album owner lines, report targets shown to staff."""
+        return {'id': str(self.id), 'username': self.username, 'display_name': self.display_name}
 
 
 @dataclass
@@ -112,6 +117,18 @@ class FileHash:
     probed_at: Optional[datetime] = None
     # also the version of the previews (?v=)
     derived_at: Optional[datetime] = None
+    # Milestone 4 (contract §1, §2): the scan, per content
+    scan_state: str = 'pending'
+    scan_reason: Optional[str] = None
+    scan: Optional[dict] = None
+    scanned_at: Optional[datetime] = None
+    next_rescan_at: Optional[datetime] = None
+    nsfw_score: Optional[float] = None
+    nsfw_auto: bool = False
+    serve_inline: bool = True
+    # migration 0004: scan jobs the sweeper found failed; held for staff (still pending) at the limit
+    scan_failures: int = 0
+    scan_stuck_at: Optional[datetime] = None
     # file_hash_assets rows, when loaded (queries.attach_assets)
     assets: List['FileHashAsset'] = virtual(factory=list)
 
@@ -139,10 +156,26 @@ class File:
     password_expires_at: Optional[datetime] = None
     show_name_when_locked: bool = False
     uploader_ip_hash: Optional[bytes] = None
+    # Milestone 4 (contract §1): moderation, NSFW marks, rejections and abuse IP hashes
+    moderation_state: str = 'visible'
+    moderation_rule: Optional[str] = None
+    moderated_at: Optional[datetime] = None
+    moderation_auto: bool = False
+    nsfw_marked: bool = False
+    nsfw_override: Optional[str] = None
+    nsfw_override_source: Optional[str] = None
+    deleted_reason: Optional[str] = None
+    uploader_abuse_ip_hash: Optional[bytes] = None
+    uploader_ip_sealed: Optional[bytes] = None
+    nsfw_unmarked_at: Optional[datetime] = None
+    # Milestone 6 (§1.3): the upload key that uploaded it
+    upload_key_id: Optional[int] = None
     hash: Optional[FileHash] = virtual()
     user: Optional[User] = virtual()
     # [(album id, vanity, title)] for the owner's view, when loaded
     albums: Optional[list] = virtual()
+    # Milestone 4, for owner payloads (queries.attach_safety): {"notice_id", "nsfw_review"}
+    safety_extra: Optional[dict] = virtual()
 
     @property
     def suffix(self):
@@ -189,6 +222,12 @@ class UploadSession:
     expires_at: datetime
     # Milestone 3: `album=<vanity>` on POST /uploads; the file joins it when finalized
     album_id: Optional[int] = None
+    # Milestone 4: copied to the file at finalize
+    nsfw_marked: bool = False
+    owner_abuse_ip_hash: Optional[bytes] = None
+    owner_ip_sealed: Optional[bytes] = None
+    # Milestone 6 (§7.5): every later call must come from this key (or the owner's session)
+    upload_key_id: Optional[int] = None
 
     def chunk_length(self, index):
         """The exact size chunk `index` must have."""
@@ -260,6 +299,13 @@ class Album:
     collage_key: Optional[str]
     collage_version: Optional[int]
     empty_since: Optional[datetime]
+    # Milestone 4: `nsfw` is the explicit mark, by `owner` or `moderator`
+    nsfw_source: Optional[str] = None
+    moderation_rule: Optional[str] = None
+    moderated_at: Optional[datetime] = None
+    moderation_auto: bool = False
+    link_warnings: list = field(default_factory=list)
+    deleted_reason: Optional[str] = None
 
 
 @dataclass

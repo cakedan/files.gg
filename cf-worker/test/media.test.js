@@ -5,6 +5,7 @@ import assert from 'node:assert/strict';
 import {
   PREVIEW_KINDS,
   ZIP_LIMIT,
+  ZIP_MAX_ENTRIES,
   albumZipPlan,
   parseAlbumPath,
   parseFilePath,
@@ -97,12 +98,13 @@ describe('previewContentType', () => {
 
 
 describe('albumZipPlan', () => {
+  const OK = { state: 'ok', reason: null };
   const item = (id, filename, visibility = 'link', extra = {}) => ({ id, filename, visibility, size: 10, ...extra });
   const storage = (id, size = 10, filename = 'x') => ({ key: `files/${id}`, size, filename });
   const data = (visibility, items, overrides = {}) => ({
     album: { id: '9', vanity: 'Ab3dE6gH', title: 'Trip', items },
     access: { visibility, access_version: 0 },
-    items_access: Object.fromEntries(items.map((i) => [i.id, { visibility: i.visibility, access_version: 0 }])),
+    items_access: Object.fromEntries(items.map((i) => [i.id, { visibility: i.visibility, access_version: 0, safety: OK, expires_at: i.expires_at ?? null }])),
     items_storage: Object.fromEntries(items.map((i) => [i.id, storage(i.id, i.size)])),
     ...overrides,
   });
@@ -144,9 +146,9 @@ describe('albumZipPlan', () => {
     const d = data('link', [item('1', 'a.png')], {});
     d.album.next_cursor = 'abc';
     d.items_storage['8'] = storage('8', 5, 'later.png');
-    d.items_access['8'] = { visibility: 'link', access_version: 0 };
+    d.items_access['8'] = { visibility: 'link', access_version: 0, safety: OK };
     d.items_storage['9'] = storage('9', 5, 'hidden.png');
-    d.items_access['9'] = { visibility: 'password', access_version: 0 };
+    d.items_access['9'] = { visibility: 'password', access_version: 0, safety: OK };
     assert.deepEqual(albumZipPlan(d).entries.map((e) => [e.id, e.name]), [['1', 'a.png'], ['8', 'later.png']]);
     delete d.album.next_cursor;
     assert.deepEqual(albumZipPlan(d).entries.map((e) => e.id), ['1']);
@@ -161,6 +163,27 @@ describe('albumZipPlan', () => {
     // Hidden items don't count.
     const hidden = data('link', [item('1', 'a', 'link', { size: 1 }), item('2', 'b', 'private', { size: ZIP_LIMIT })]);
     assert.equal(albumZipPlan(hidden).tooLarge, false);
+  });
+
+  it('fails closed: no items_access entry, no ok safety, or expired means not zipped', () => {
+    const d = data('password', [item('1', 'a.png'), item('2', 'b.png'), item('3', 'c.png'), item('4', 'd.png'), item('5', 'e.png')]);
+    delete d.items_access['2'];
+    delete d.items_access['3'].safety;
+    d.items_access['4'].safety = { state: 'hidden', reason: 'review' };
+    d.items_access['5'].expires_at = Math.floor(Date.now() / 1000) - 1;
+    assert.deepEqual(albumZipPlan(d).entries.map((e) => e.id), ['1']);
+    // the same on the items_storage-only (paginated) path
+    d.album.next_cursor = 'abc';
+    d.items_storage['8'] = storage('8', 5, 'later.png');
+    assert.deepEqual(albumZipPlan(d).entries.map((e) => e.id), ['1']);
+    d.items_access['8'] = { visibility: 'link', access_version: 0, safety: { state: 'flagged', reason: null } };
+    assert.deepEqual(albumZipPlan(d).entries.map((e) => e.id), ['1', '8']);
+  });
+
+  it('more items than ZIP_MAX_ENTRIES is too large, whatever the bytes', () => {
+    const many = Array.from({ length: ZIP_MAX_ENTRIES + 1 }, (_, i) => item(String(i + 1), `f${i}.txt`, 'link', { size: 1 }));
+    assert.equal(albumZipPlan(data('link', many)).tooLarge, true);
+    assert.equal(albumZipPlan(data('link', many.slice(0, ZIP_MAX_ENTRIES))).tooLarge, false);
   });
 
   it('an unknown size leaves the total unknown (streamed without a length)', () => {

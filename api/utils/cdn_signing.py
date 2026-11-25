@@ -60,6 +60,33 @@ def album_grant(album):
     return 'album:{}:{}'.format(album.id, int(album.access_version))
 
 
+def staff_grant(staff_user_id, file_id):
+    """milestone-4 §10.3: "staff:" + <staff user id> + ":" + <file id>."""
+    return 'staff:{}:{}'.format(int(staff_user_id), int(file_id))
+
+
+# staff URLs live at most 10 minutes (the Worker also refuses anything later)
+STAFF_MAX_SECONDS = 600
+
+
+def sign_staff(url, staff_user_id, file_id, ttl=STAFF_MAX_SECONDS, now=None):
+    """`url` with `staff=<id>&expires=<e>&sig=<s>` (milestone-4 §10.3): skips the CDN's access and
+    safety checks for 10 minutes. Only the admin endpoints sign these, and each signing is logged."""
+    expires = _now(now) + min(int(ttl), STAFF_MAX_SECONDS)
+    sig = signature(urlsplit(url).path, expires, staff_grant(staff_user_id, file_id))
+    return append_query(url, [('staff', str(int(staff_user_id))), ('expires', str(expires)), ('sig', sig)])
+
+
+def verify_staff(path, staff_user_id, file_id, expires, sig, now=None, secret=None):
+    """The Worker's check, mirrored for tests: the grant built from `staff=` and the file id,
+    `expires > now` and `expires <= now + 600`."""
+    now = _now(now)
+    if not (now < int(expires) <= now + STAFF_MAX_SECONDS):
+        return False
+    expected = signature(path, int(expires), staff_grant(staff_user_id, file_id), secret)
+    return hmac.compare_digest(expected, sig)
+
+
 @dataclass(frozen=True)
 class Grant:
     """Who a payload's URLs are signed for: a file grant, or an album grant (whose item

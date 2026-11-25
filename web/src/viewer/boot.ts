@@ -6,10 +6,15 @@
  * worker. The payloads have one shape (contract §4: snake_case, epoch seconds).
  * Precedence:
  *   1. data-page="home"           -> home (landing card)
+ *   1b. data-page="domain-home"   -> domain-home (a custom domain's landing card, milestone-6 §10.8)
  *   2. data-page="convert"        -> convert (placeholder)
+ *   2b. data-page="report"        -> report (milestone-4 §10.1), from #report-data
+ *                                    `{ type: "any" | "file" | "album", vanity? }`; else missing
  *   3. data-state="unavailable"   -> unavailable (Retry button)
- *   4. data-state="missing"       -> missing
- *   4b. data-state="locked"       -> locked (contract §4), when the script tag holds
+ *   4. data-state="missing"       -> missing (also CSAM-blocked and private files)
+ *   4a. data-state="pending"      -> pending, from `{ vanity, pending: true }`; else missing
+ *   4b. data-state="removed"      -> removed, from `{ vanity, removed: <reason> }`; else missing
+ *   4c. data-state="locked"       -> locked (contract §4), when the script tag holds
  *                                    `{ vanity, protected: "password" }`; else missing
  *   5. data-page="album"          -> album when #album-data is a valid album with at
  *                                    least one visible item, otherwise missing
@@ -20,7 +25,9 @@
 import {
   ALBUM_LAYOUTS,
   FILE_KINDS,
+  FILE_WARNINGS,
   PREVIEW_KINDS,
+  REMOVED_REASONS,
   type AlbumData,
   type AlbumItem,
   type AlbumLayout,
@@ -30,9 +37,13 @@ import {
   type FileData,
   type FileKind,
   type FileThumbnail,
+  type FileWarning,
   type LockedTarget,
   type MediaInfo,
   type MediaTags,
+  type RemovedReason,
+  type ReportPageTarget,
+  type StateTarget,
 } from './types';
 
 export interface BootInput {
@@ -42,6 +53,8 @@ export interface BootInput {
   fileJson?: string | null | undefined;
   /** Raw text content of #album-data, or null when the script tag is absent. */
   albumJson?: string | null | undefined;
+  /** Raw text content of #report-data (milestone-4 §10.1), or null when absent. */
+  reportJson?: string | null | undefined;
 }
 
 type JsonObject = Record<string, unknown>;
@@ -144,6 +157,20 @@ export function parseMedia(value: unknown): MediaInfo | undefined {
   };
 }
 
+/** Milestone 4 §2.8 `warnings`: known codes only, deduplicated, in FILE_WARNINGS order. */
+export function parseWarnings(value: unknown): FileWarning[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const found = FILE_WARNINGS.filter((code) => value.includes(code));
+  return found.length > 0 ? found : undefined;
+}
+
+/** Milestone 4 §5.7 `link_warnings`: http(s) URLs only, at most 20. */
+export function parseLinkWarnings(value: unknown): string[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const urls = value.filter((url): url is string => typeof url === 'string' && /^https?:\/\//i.test(url)).slice(0, 20);
+  return urls.length > 0 ? urls : undefined;
+}
+
 /**
  * Validates and normalises a file payload (contract §4). Returns null when it can't be
  * shown (not an object, or missing `cdn_url` / `filename`). URLs are kept exactly as
@@ -158,10 +185,14 @@ export function parseFileData(value: unknown): FileData | null {
   const extension =
     nonEmptyString(value.extension) ?? (filename.includes('.') ? (filename.split('.').pop() ?? '') : '');
   const media = parseMedia(value.media);
-  const assets = parseAssets(value.assets);
+  // Milestone 4 §2.3: media our decoders couldn't check is download-only. The API
+  // already sends `kind: "file"`; if `serve_inline: false` arrives anyway, nothing
+  // renders inline and no preview (which the CDN refuses) is requested.
+  const inline = value.serve_inline !== false;
+  const assets = inline ? parseAssets(value.assets) : undefined;
 
   return {
-    kind: normalizeKind(value.kind),
+    kind: inline ? normalizeKind(value.kind) : 'file',
     filename,
     mimetype: nonEmptyString(value.mimetype) ?? 'application/octet-stream',
     extension,
@@ -174,14 +205,17 @@ export function parseFileData(value: unknown): FileData | null {
     height: positiveNumber(value.height) ?? media?.height,
     duration: positiveNumber(value.duration) ?? media?.duration,
     framecount: positiveNumber(value.framecount) ?? media?.framecount,
-    thumbnail: parseThumbnail(value.thumbnail),
+    thumbnail: inline ? parseThumbnail(value.thumbnail) : undefined,
     media,
     assets,
-    hover_url: nonEmptyString(value.hover_url) ?? assets?.hover?.url,
+    hover_url: inline ? (nonEmptyString(value.hover_url) ?? assets?.hover?.url) : undefined,
     processing: value.processing === true ? true : undefined,
     visibility: parseVisibility(value.visibility),
     uploaded_at: epochSeconds(value.uploaded_at) ?? 0,
     expires_at: epochSeconds(value.expires_at) ?? null,
+    nsfw: value.nsfw === true ? true : undefined,
+    warnings: parseWarnings(value.warnings),
+    link_warnings: parseLinkWarnings(value.link_warnings),
   };
 }
 
@@ -234,6 +268,7 @@ export function parseAlbumData(value: unknown, now: number = Date.now()): AlbumD
     total_size: finiteNumber(value.total_size) ?? summedSize,
     next_cursor: nonEmptyString(value.next_cursor) ?? null,
     items,
+    link_warnings: parseLinkWarnings(value.link_warnings),
   };
 }
 
@@ -250,11 +285,55 @@ export function parseLockedTarget(value: unknown, kind: LockedTarget['kind']): L
   };
 }
 
-export function parseBoot({ page, state, fileJson, albumJson }: BootInput, now: number = Date.now()): BootState {
+/** `#file-data` / `#album-data` = `{ vanity, pending: true }` (milestone-4 §10.1). */
+export function parsePendingTarget(value: unknown, kind: StateTarget['kind']): StateTarget | null {
+  if (!isObject(value)) return null;
+  const vanity = nonEmptyString(value.vanity);
+  return vanity && value.pending === true ? { kind, vanity } : null;
+}
+
+/** `{ vanity, removed: "review" | "terms" | "copyright" | "malware" }` (milestone-4 §10.1). */
+export function parseRemovedTarget(
+  value: unknown,
+  kind: StateTarget['kind'],
+): { target: StateTarget; reason: RemovedReason } | null {
+  if (!isObject(value)) return null;
+  const vanity = nonEmptyString(value.vanity);
+  const reason = value.removed;
+  if (!vanity || typeof reason !== 'string' || !(REMOVED_REASONS as readonly string[]).includes(reason)) return null;
+  return { target: { kind, vanity }, reason: reason as RemovedReason };
+}
+
+/** `#report-data`: `{ type: "any" }`, or `{ type: "file" | "album", vanity }` (milestone-4 §10.1). */
+export function parseReportTarget(value: unknown): ReportPageTarget | null {
+  if (!isObject(value)) return null;
+  if (value.type === 'any') return { type: 'any' };
+  const vanity = nonEmptyString(value.vanity);
+  if (!vanity) return null;
+  if (value.type === 'file' || value.type === 'album') return { type: value.type, vanity };
+  return null;
+}
+
+export function parseBoot({ page, state, fileJson, albumJson, reportJson }: BootInput, now: number = Date.now()): BootState {
   if (page === 'home') return { page: 'home' };
+  if (page === 'domain-home') return { page: 'domain-home' };
   if (page === 'convert') return { page: 'convert' };
+  if (page === 'report') {
+    const target = parseReportTarget(parseJson(reportJson));
+    return target ? { page: 'report', target } : { page: 'missing' };
+  }
   if (state === 'unavailable') return { page: 'unavailable' };
   if (state === 'missing') return { page: 'missing' };
+  if (state === 'pending' || state === 'removed') {
+    const kind = page === 'album' ? 'album' : 'file';
+    const data = parseJson(kind === 'album' ? albumJson : fileJson);
+    if (state === 'pending') {
+      const target = parsePendingTarget(data, kind);
+      return target ? { page: 'pending', target } : { page: 'missing' };
+    }
+    const removed = parseRemovedTarget(data, kind);
+    return removed ? { page: 'removed', ...removed } : { page: 'missing' };
+  }
   if (state === 'locked') {
     const kind = page === 'album' ? 'album' : 'file';
     const target = parseLockedTarget(parseJson(kind === 'album' ? albumJson : fileJson), kind);
@@ -278,5 +357,6 @@ export function readBootInput(doc: Document = document): BootInput {
     state: root?.dataset.state ?? null,
     fileJson: doc.getElementById('file-data')?.textContent ?? null,
     albumJson: doc.getElementById('album-data')?.textContent ?? null,
+    reportJson: doc.getElementById('report-data')?.textContent ?? null,
   };
 }

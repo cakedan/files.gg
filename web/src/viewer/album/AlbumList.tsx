@@ -3,6 +3,7 @@ import { createElement, Suspense, type CSSProperties } from 'react';
 import { RendererFallback } from '../components/RendererFallback';
 import { getRenderer } from '../renderers';
 import type { AlbumItem } from '../types';
+import { LinkedText } from './LinkedText';
 
 /** Lets each renderer use the full list width; tall images (comics) aren't height-capped. */
 const listVars = {
@@ -28,7 +29,7 @@ export function AlbumList({ items, onOpen }: { items: AlbumItem[]; onOpen: (inde
             </Suspense>
           </div>
           <div className="flex items-baseline justify-between gap-3 px-1 text-sm">
-            <p className="min-w-0 break-words">{item.caption || <span className="text-muted">{item.filename}</span>}</p>
+            <p className="min-w-0 break-words">{item.caption ? <LinkedText text={item.caption} /> : <span className="text-muted">{item.filename}</span>}</p>
             <button type="button" onClick={() => onOpen(index)} className="shrink-0 text-xs text-muted hover:text-text">
               {index + 1} / {items.length}
             </button>

@@ -264,3 +264,13 @@ A very long line that keeps going so the wrap toggle has something to do: lorem 
 export function manyLines(count = 25_000): string {
   return Array.from({ length: count }, (_, i) => `line ${i + 1}`).join('\n');
 }
+
+/** Milestone 4: a text file with links, two of them in its `link_warnings` fixture. */
+export const LINKS_SAMPLE = `Useful links
+============
+
+Docs:      https://example.com/docs
+Download:  http://malware.testing.google.test/testing/malware/
+Coupon:    https://example.net/free-gift-card
+Changelog: https://example.com/changelog
+`;

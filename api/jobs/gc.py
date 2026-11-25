@@ -85,17 +85,32 @@ async def after_delete_async(conn, file_ids, hash_ids):
 # --- step 2: delete_blob -----------------------------------------------------------------------------
 
 def delete_blob(hash_id, client=None, conn=None):
-    """Returns 'deleted', 'kept' (a live file uses it again) or None (already gone)."""
+    """Returns 'deleted', 'kept' (a live file uses it again), 'held' (an evidence hold),
+    'unpreserved' (a CSAM match whose evidence isn't preserved yet: never deleted) or None
+    (already gone)."""
     from jobs.media import bucket, s3
+    from safety import csam
     client = client or s3()
     with (db.connect() if conn is None else _Borrowed(conn)) as conn:
         with conn.transaction():
-            row = conn.execute('SELECT id FROM file_hashes WHERE id = %s FOR UPDATE', (hash_id,)).fetchone()
+            row = conn.execute("SELECT id, scan_reason, scan->'checks'->'csam'->>'matcher' FROM file_hashes "
+                               'WHERE id = %s FOR UPDATE', (hash_id,)).fetchone()
             if row is None:
                 return None
+            # milestone-4 §3.6: a matched hash's bytes go to the evidence bucket before anything
+            # deletes them; until then they stay, and §3.6 is queued (again) to preserve them
+            if row[1] == 'csam_match' and not csam.preserved(conn, hash_id):
+                log.critical('refusing to delete blob %s: a CSAM match with no evidence hold; queued %s',
+                             hash_id, csam.HANDLE_JOB)
+                csam.queue_handle(conn, hash_id, row[2] if row[2] in ('photodna', 'standin') else 'staff', delay=0)
+                return 'unpreserved'
             if conn.execute('SELECT 1 FROM files WHERE hash_id = %s AND deleted_at IS NULL LIMIT 1',
                             (hash_id,)).fetchone():
                 return 'kept'
+            # milestone-4 §1: a moderator's evidence hold keeps the blob in the files bucket
+            if conn.execute("SELECT 1 FROM evidence_holds WHERE hash_id = %s AND bucket = 'files' "
+                            "AND released_at IS NULL AND retain_until > now() LIMIT 1", (hash_id,)).fetchone():
+                return 'held'
             derived = [r[0] for r in conn.execute('SELECT storage_key FROM file_hash_assets WHERE hash_id = %s',
                                                   (hash_id,)).fetchall()]
             keys = derived + [storage_module.blob_key(hash_id)]

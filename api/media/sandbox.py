@@ -25,6 +25,10 @@ PROBE_CPU = 15
 PROBE_WALL = 20
 DERIVE_CPU = 60
 DERIVE_WALL = 90
+# the scan child (contract milestone-4 §2.2): ONNX Runtime needs more than 1.5 GiB of address space
+SCAN_CPU = 90
+SCAN_WALL = 120
+SCAN_ADDRESS_SPACE = 2 * GIB
 
 # ffmpeg demuxers allowed to read uploads: real containers only. Not hls, dash, concat,
 # image2 (patterns), tee, ... anything that opens other files or URLs by itself.
@@ -72,14 +76,15 @@ def clean_env(**extra):
     return env
 
 
-def run(cmd, timeout, cpu_seconds, input=None, cwd=None, env=None, new_session=True, stdout=subprocess.PIPE):
+def run(cmd, timeout, cpu_seconds, input=None, cwd=None, env=None, new_session=True, stdout=subprocess.PIPE,
+        address_space=ADDRESS_SPACE):
     """Run `cmd` sandboxed; returns its stdout bytes. Raises Timeout or Failed.
     `new_session` puts it in its own process group, killed as a whole on timeout
     (so tools it starts die with it)."""
     proc = subprocess.Popen(
         cmd, stdin=subprocess.PIPE if input is not None else subprocess.DEVNULL, stdout=stdout,
         stderr=subprocess.PIPE, cwd=cwd, env=env if env is not None else clean_env(),
-        preexec_fn=limiter(cpu_seconds), start_new_session=new_session, close_fds=True)
+        preexec_fn=limiter(cpu_seconds, address_space), start_new_session=new_session, close_fds=True)
     try:
         out, err = proc.communicate(input=input, timeout=timeout)
     except subprocess.TimeoutExpired:

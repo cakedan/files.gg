@@ -1,7 +1,7 @@
 #:schema node_modules/wrangler/config-schema.json
 # files.gg edge Worker: files.gg pages (the viewer and dashboard from web/dist), cdn.files.gg (files,
-# previews, album collages and ZIPs from B2), the api.files.gg passthrough and proxy.files.gg.
-# See README.md.
+# previews, album collages and ZIPs from B2), the api.files.gg passthrough, proxy.files.gg, and
+# customers' custom domains (Cloudflare for SaaS, Worker as origin). See README.md.
 #
 # Build order: `npm run build` in ../web first (it writes ../web/dist), then deploy this Worker.
 name = "files-gg"
@@ -12,11 +12,16 @@ compatibility_date = "2026-11-23"
 workers_dev = false
 preview_urls = false
 
+# `*/*` sends every other hostname on the zone to the Worker, which is how Cloudflare for SaaS
+# custom hostnames reach it (docs/redesign/contracts/milestone-6.md §17, "Worker as your fallback
+# origin"). The specific routes above it win for our own hosts. Any other hostname on the zone that
+# must not reach the Worker (mail, status...) needs its own route with no Worker.
 routes = [
   { pattern = "files.gg/*", zone_name = "files.gg" },
   { pattern = "cdn.files.gg/*", zone_name = "files.gg" },
   { pattern = "api.files.gg/*", zone_name = "files.gg" },
   { pattern = "proxy.files.gg/*", zone_name = "files.gg" },
+  { pattern = "*/*", zone_name = "files.gg" },
 ]
 
 # web/dist as Workers static assets. The Worker always runs first: it decides which host may see
@@ -38,9 +43,13 @@ not_found_handling = "none"
 # API_HOST = "api.files.gg"       # also the default API origin when API_ORIGIN is unset
 # PROXY_HOST = "proxy.files.gg"
 
-# Comma-separated origins allowed credentialed CORS on API_HOST and MAIN_HOST/api/*. Empty: the
-# MAIN_HOST origin.
-CORS_ALLOWED_ORIGINS = "https://files.gg"
+# The web session cookie the Worker forwards on MAIN_HOST/api/* (and nowhere else). Unset, it is
+# the production name, __Host-filesgg_session; the plain-http local stack (e2e/) sets
+# "filesgg_session", matching the API's SESSION_COOKIE_INSECURE. Must equal the API's name.
+# SESSION_COOKIE_NAME = "__Host-filesgg_session"
+#
+# CORS is never credentialed: every cross-origin caller gets `*` (CORS_ALLOWED_ORIGINS is gone;
+# delete it from deployed Workers).
 
 # B2 (S3-compatible), the only storage cdn.files.gg reads, e.g.
 # S3_ENDPOINT = "https://s3.us-west-004.backblazeb2.com". Until all three are set (plus the two
@@ -54,7 +63,8 @@ S3_BUCKET_FILES = ""
 #   ORIGIN_SHARED_SECRET       Must equal the API's. Sent as X-Filesgg-Origin-Secret on every API
 #                              request and on the internal lookups. Unset: pages say "unavailable".
 #   CDN_SIGNING_SECRET         Must equal the API's. Verifies signed CDN URLs (expires & sig) for
-#                              password and private files and albums. The Worker never signs.
+#                              password and private files and albums, and staff URLs (staff=, at
+#                              most 10 minutes). The Worker never signs.
 #                              Unset: protected targets can't be opened on the CDN (401/404).
 #   S3_READ_ACCESS_KEY_ID      B2 application key id with readFiles only, scoped to the files bucket.
 #   S3_READ_SECRET_ACCESS_KEY  Its secret.

@@ -7,6 +7,8 @@ import { epochMs, epochMsOrNull, formatExpiry, formatFullDate, formatUploaded, R
 import { useNow } from '../../lib/useNow';
 import type { FileData } from '../types';
 import { downloadUrl, shareUrl } from '../urls';
+import { ReportButton } from './ReportButton';
+import { fileReportTarget } from './reportPath';
 
 export function FileFooter({ file }: { file: FileData }) {
   const now = useNow(RELATIVE_REFRESH_MS);
@@ -14,6 +16,7 @@ export function FileFooter({ file }: { file: FileData }) {
   const expiresAt = epochMsOrNull(file.expires_at);
   const expiry = formatExpiry(expiresAt, now);
   const pages = file.media?.pages;
+  const reportTarget = fileReportTarget(file);
   const details = [
     formatBytes(file.size),
     formatDimensions(file.width, file.height),
@@ -53,6 +56,7 @@ export function FileFooter({ file }: { file: FileData }) {
           <ExternalLink aria-hidden className="size-4" />
           Raw
         </LinkButton>
+        {reportTarget && <ReportButton target={reportTarget} />}
       </div>
     </footer>
   );

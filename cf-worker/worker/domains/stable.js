@@ -1,13 +1,16 @@
 // files.gg: the viewer and dashboard from web/dist (Workers static assets), the viewer shell with
-// inlined boot data, and the API passthrough. Routing order is web/README.md "Worker contract" §1;
-// see classifyStablePath().
+// inlined boot data, the API passthrough (the only route that forwards the session cookie,
+// milestone-6.md §12), the auth redirects and the custom domains' Turnstile frame. Routing order is
+// web/README.md "Worker contract" §1 and milestone-6.md §6.2; see classifyStablePath().
 
 import { ApiError, ApiRedirect, DomainRouter } from 'cf-worker-router';
 
 import { requestApi } from './api.js';
 import { internalLookup } from './internal.js';
 import { DEFAULT_HOSTS, getHosts, hostPattern, isMainHost, originFor } from '../utils/hosts.js';
-import { renderViewer, serveApp, serveStatic } from '../shell.js';
+import { renderChallenge, renderViewer, serveApp, serveSecurityTxt, serveStatic } from '../shell.js';
+import { parseChallengeQuery } from '../utils/domains.js';
+import { domainServing } from '../utils/owners.js';
 import { classifyStablePath, decideAlbumShell, decideFileShell } from '../utils/viewer.js';
 
 export const STABLE_DOMAIN = hostPattern(DEFAULT_HOSTS.main, { www: true });
@@ -30,6 +33,37 @@ async function serveFromDist(event, { immutable }) {
 }
 
 
+// files.gg/challenge?host=<custom hostname>&action=unlock|report (milestone-6.md §10.10): only on
+// MAIN_HOST itself (Turnstile's hostname is files.gg), and only for a serving custom domain.
+// Anything else is a 404 that says nothing about the domain.
+async function serveChallenge(event) {
+  const hosts = getHosts(event.environment);
+  const refused = () => {
+    const response = new ApiError({ status: 404 });
+    response.headers.set('Cache-Control', 'no-store');
+    return response;
+  };
+  if (event.url.hostname !== hosts.main) {
+    return refused();
+  }
+  const query = parseChallengeQuery(event.url.searchParams, hosts);
+  if (!query) {
+    return refused();
+  }
+  const lookup = await internalLookup(event, 'domains', query.host);
+  if (lookup.status === 'unavailable') {
+    const response = new ApiError({ status: 503 });
+    response.headers.set('Cache-Control', 'private, no-store');
+    return response;
+  }
+  const domain = (lookup.status === 'found' && lookup.data) ? lookup.data.domain : null;
+  if (!domainServing(domain) || String(domain.hostname || '').toLowerCase() !== query.host) {
+    return refused();
+  }
+  return await renderChallenge(event, { ...query, frameAncestor: originFor(query.host, event.url) });
+}
+
+
 async function handle(event) {
   const route = classifyStablePath(event.url.pathname);
 
@@ -46,6 +80,15 @@ async function handle(event) {
     case 'app': return await serveApp(event);
     case 'home': return await renderViewer(event, { page: 'home', status: 200 });
     case 'convert': return await renderViewer(event, { page: 'convert', status: 200 });
+    // /login, /register, /signup: the dashboard's auth pages, with the query kept (milestone-6.md §6.2).
+    case 'redirect': return new ApiRedirect(route.location + event.url.search, { status: 308 });
+    case 'challenge': return await serveChallenge(event);
+    // Report pages: always 200, no lookup, the default meta tags (milestone-4.md §10.1). They never
+    // say whether the target exists; the API answers that when the form is sent.
+    case 'report': return await renderViewer(event, { page: 'report', dataId: 'report-data', data: route.data, status: 200, cacheControl: 'no-cache' });
+    case 'security-txt': return (await serveSecurityTxt(event)) || new ApiError({ status: 404 });
+    // A vanity with a reserved segment (`report`) can't exist: missing, without a lookup.
+    case 'missing': return await renderViewer(event, { page: 'file', state: 'missing', dataId: 'file-data', data: null, status: 404 });
     case 'album': {
       const lookup = await internalLookup(event, 'albums', route.vanity);
       return await renderViewer(event, decideAlbumShell({ lookup, vanity: route.vanity }));

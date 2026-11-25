@@ -2,7 +2,6 @@
 anonymous fingerprint (`X-Fingerprint`) that gets its own anonymous files and albums."""
 
 from utils import limits as limits_module
-from utils.helpers import get_user
 from utils import errors
 
 import utils.parameters as parameters
@@ -35,11 +34,14 @@ class Caller:
 
 
 async def caller_of(conn, request):
-    """The signed-in user, else the fingerprint; 401 with neither. A bad token is a 401,
-    never a silent fall back to the fingerprint."""
-    authorization = request.headers.get('authorization')
-    if authorization is not None:
-        return Caller(await get_user(conn, authorization), None)
+    """The signed-in user (the session cookie), else the fingerprint; 401 with neither. A dead session
+    cookie is a 401, never a silent fall back to the fingerprint."""
+    from utils.auth import auth_of
+    current = auth_of(request)
+    if current.kind == 'session':
+        return Caller(current.user, None)
+    if current.dead:
+        raise errors.unauthorized()
     raw = request.headers.get('x-fingerprint')
     fingerprint = parameters.fingerprint(raw) if raw else None
     if fingerprint is None:

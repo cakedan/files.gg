@@ -3,6 +3,8 @@
  * opened in the lightbox (PLAN.md "Albums").
  */
 
+import { shareUrl } from '../urls';
+
 export interface AlbumPath {
   vanity: string;
   /** 0-based item index, or null for the album itself. */
@@ -22,9 +24,9 @@ export function albumPath(vanity: string, index: number | null, search = ''): st
   return `${index === null ? base : `${base}/${index + 1}`}${search}`;
 }
 
-/** Canonical share URL for the album. */
+/** Canonical share URL for the album (on a custom domain, on this domain: see shareUrl). */
 export function albumShareUrl(vanity: string, url: string | undefined, origin: string = window.location.origin): string {
-  return url ?? `${origin}${albumPath(vanity, null)}`;
+  return url ? shareUrl(url) : `${origin}${albumPath(vanity, null)}`;
 }
 
 /** Index within bounds, or null. */

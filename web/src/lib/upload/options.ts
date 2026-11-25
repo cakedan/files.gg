@@ -22,7 +22,7 @@ export interface Choice<T> {
 export interface PickerContext {
   anonymous: boolean;
   /** From `/users/@me/limits`; null while loading or unavailable. */
-  limits?: Pick<MyLimitsResponse, 'max_expiry' | 'allow_no_expiry'> | null;
+  limits?: Pick<MyLimitsResponse, 'max_expiry' | 'allow_no_expiry' | 'nsfw_allowed'> | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -149,6 +149,8 @@ export interface PickerState {
   unlockTtl: UnlockTtl;
   passwordExpiry: PasswordExpiryValue;
   passwordExpiryCustomAt: number | null;
+  /** Milestone 4 §4.3: "Adult content (NSFW)", signed in only. */
+  nsfw: boolean;
 }
 
 export function defaultPickerState(context: PickerContext): PickerState {
@@ -161,8 +163,12 @@ export function defaultPickerState(context: PickerContext): PickerState {
     unlockTtl: DEFAULT_UNLOCK_TTL,
     passwordExpiry: 'never',
     passwordExpiryCustomAt: null,
+    nsfw: false,
   };
 }
+
+/** Adult content can be marked at upload by signed-in users who aren't restricted: `nsfw_allowed` (§4.3, §13). */
+export const canMarkNsfw = ({ anonymous, limits }: PickerContext) => !anonymous && limits?.nsfw_allowed === true;
 
 export type PickerErrors = Partial<Record<'expiry' | 'visibility' | 'password' | 'unlockTtl' | 'passwordExpiry', string>>;
 
@@ -213,6 +219,8 @@ export function resolvePickers(state: PickerState, context: PickerContext, nowMs
       else params.password_expires_in = passwordIn;
     }
   }
+
+  if (state.nsfw && canMarkNsfw(context)) params.nsfw = true;
 
   return { params, errors };
 }

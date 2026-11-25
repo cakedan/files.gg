@@ -1,0 +1,40 @@
+{
+  "crop_mode": "center",
+  "crop_pct": 1.0,
+  "input_size": [
+    3,
+    384,
+    384
+  ],
+  "interpolation": "bicubic",
+  "labels": [
+    "NSFW",
+    "SFW"
+  ],
+  "mean": [
+    0.5,
+    0.5,
+    0.5
+  ],
+  "nsfw_index": 0,
+  "provenance": {
+    "architecture": "vit_tiny_patch16_384",
+    "input": "pixel_values",
+    "onnx": "1.23.2",
+    "opset": 17,
+    "output": "logits",
+    "repository": "Marqo/nsfw-image-detection-384",
+    "revision": "0c26ec22111b83f106d72a55f611ec35962bcb65",
+    "source_sha256": {
+      "config.json": "ae848d1dca0aeccd38f2ebb4b1bb47219cdc7f34e3ddc50c8d6430abe74d79b4",
+      "model.safetensors": "6bf2e0f64a1d20169736c2836e3a787b12379fdc08ba87f7d94a7a3d58eeefce"
+    },
+    "timm": "1.0.31",
+    "torch": "2.15.0+cpu"
+  },
+  "std": [
+    0.5,
+    0.5,
+    0.5
+  ]
+}

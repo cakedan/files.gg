@@ -6,6 +6,12 @@ import { ALBUM_ERROR_CODES, errorMessage } from './errors';
 const err = (status: number, code: string | null, details: Record<string, unknown> = {}) =>
   new ApiError(status, code, 'raw server message', { code, ...details });
 
+describe('errorMessage: upload limits', () => {
+  it('explains a custom link pattern with no free links', () => {
+    expect(errorMessage(err(409, 'VANITY_EXHAUSTED'))).toBe('That link pattern has no free links left. Pick a longer or different pattern.');
+  });
+});
+
 describe('errorMessage: file types', () => {
   it('explains why an executable was refused', () => {
     expect(errorMessage(err(400, 'FILE_TYPE_NOT_ALLOWED'))).toBe(

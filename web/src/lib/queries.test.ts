@@ -1,8 +1,11 @@
-import { QueryClient } from '@tanstack/react-query';
-import { describe, expect, it } from 'vitest';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { act, renderHook, waitFor } from '@testing-library/react';
+import { createElement, type ReactNode } from 'react';
+import { describe, expect, it, vi } from 'vitest';
 
+import { stubApi } from '../test/apiStub';
 import { filesResponse, ownerAlbum, ownerFile } from '../test/ownerFiles';
-import { mapFilesResponse, queryKeys, reorderAlbum, restore, updateCachedFiles } from './queries';
+import { mapFilesResponse, queryKeys, reorderAlbum, restore, updateCachedFiles, useReportMessages } from './queries';
 
 describe('optimistic cache helpers', () => {
   const files = [ownerFile({ id: '1', size: 100 }), ownerFile({ id: '2', size: 200 }), ownerFile({ id: '3', size: 300 })];
@@ -35,5 +38,29 @@ describe('optimistic cache helpers', () => {
       ['1', 1],
       ['2', 2],
     ]);
+  });
+});
+
+describe('useReportMessages (milestone-4 §11.2)', () => {
+  it('refreshes the badges only when the thread changed, not on every poll', async () => {
+    localStorage.setItem('filesgg.token', 'tok');
+    let messages = [{ id: 'm1', author: 'staff', body: 'Hi', created_at: 1 }];
+    stubApi({ 'GET /users/@me/reports/:id/messages': () => ({ items: messages }) });
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const invalidate = vi.spyOn(client, 'invalidateQueries');
+    const badgeRefreshes = () => invalidate.mock.calls.filter(([filters]) => JSON.stringify(filters?.queryKey) === JSON.stringify(queryKeys.badges)).length;
+    const wrapper = ({ children }: { children: ReactNode }) => createElement(QueryClientProvider, { client }, children);
+    const { result } = renderHook(() => useReportMessages('r1'), { wrapper });
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(badgeRefreshes()).toBe(1);
+    // A poll with nothing new.
+    await act(() => result.current.refetch());
+    expect(badgeRefreshes()).toBe(1);
+    // A new staff message.
+    messages = [...messages, { id: 'm2', author: 'staff', body: 'Done', created_at: 2 }];
+    await act(() => result.current.refetch());
+    expect(badgeRefreshes()).toBe(2);
+    localStorage.clear();
   });
 });

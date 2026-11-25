@@ -1,28 +1,26 @@
-import { Download, Flag, Loader2 } from 'lucide-react';
-import { useState, type MouseEvent } from 'react';
+import { Download, Loader2 } from 'lucide-react';
+import { lazy, Suspense, useState, type MouseEvent } from 'react';
 
 import { LinkButton } from '../../components/Button';
 import { CopyButton } from '../../components/CopyButton';
 import { formatBytes } from '../../lib/format';
 import { epochMsOrNull, formatExpiry, formatFullDate, RELATIVE_REFRESH_MS } from '../../lib/time';
 import { useNow } from '../../lib/useNow';
+import { ReportButton } from '../components/ReportButton';
 import type { AlbumData } from '../types';
 import { downloadUrl } from '../urls';
 import { browser, checkZip } from './downloadAll';
-import { linkify } from './linkify';
+import { LinkedText } from './LinkedText';
+import { ConfirmDownload, DownloadLinksGuard } from '../components/DownloadGuard';
+import { albumDownloadWarning } from '../components/stateCopy';
+
+/** Only albums Web Risk flagged need it. */
+const LinkWarningsBanner = lazy(() => import('../links/LinkWarningsBanner'));
 
 export function AlbumDescription({ text }: { text: string }) {
   return (
     <p className="text-sm whitespace-pre-line break-words text-muted">
-      {linkify(text).map((segment, index) =>
-        segment.type === 'link' ? (
-          <a key={index} href={segment.href} target="_blank" rel="nofollow ugc noopener" className="text-gg underline-offset-2 hover:underline">
-            {segment.text}
-          </a>
-        ) : (
-          <span key={index}>{segment.text}</span>
-        ),
-      )}
+      <LinkedText text={text} links />
     </p>
   );
 }
@@ -33,6 +31,7 @@ function TooLargePanel({ album }: { album: AlbumData }) {
     <div role="status" className="flex flex-col gap-2 rounded-md border border-warn/40 bg-warn/10 p-3 text-sm">
       <p className="font-medium text-text">This album is too large to download as one file</p>
       <p className="text-muted">Download the files one at a time instead.</p>
+      <DownloadLinksGuard files={album.items}>
       <ul className="flex flex-col divide-y divide-line" aria-label="Files to download">
         {album.items.map((item, index) => (
           <li key={`${item.vanity ?? item.filename}-${index}`} className="flex items-center gap-3 py-1.5">
@@ -52,6 +51,7 @@ function TooLargePanel({ album }: { album: AlbumData }) {
           </li>
         ))}
       </ul>
+      </DownloadLinksGuard>
       {album.next_cursor && (
         <p className="text-xs text-muted">
           Showing the first {album.items.length} of {album.count} files.
@@ -65,16 +65,30 @@ export function AlbumHeader({ album, shareUrl, title }: { album: AlbumData; shar
   const now = useNow(RELATIVE_REFRESH_MS);
   const zipUrl = album.download_url;
   const [zip, setZip] = useState<'idle' | 'checking' | 'too-large'>('idle');
-  const onDownloadAll = (event: MouseEvent<HTMLAnchorElement>) => {
-    // Modified clicks (new tab, save link as) keep their normal behaviour.
-    if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
-    event.preventDefault();
+  const [confirming, setConfirming] = useState(false);
+  // Any warned item puts the whole ZIP behind the confirmation (security review W2).
+  const warning = albumDownloadWarning(album.items);
+  const startDownload = () => {
     if (zip === 'checking' || !zipUrl) return;
     setZip('checking');
     void checkZip(zipUrl, album.total_size).then((result) => {
       setZip(result === 'too-large' ? 'too-large' : 'idle');
       if (result === 'ok') browser.download(zipUrl);
     });
+  };
+  const onDownloadAll = (event: MouseEvent<HTMLAnchorElement>) => {
+    const modified = event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey;
+    // Modified clicks (new tab, save link as) keep their normal behaviour, unless an item is warned.
+    if (modified && !warning) return;
+    event.preventDefault();
+    if (warning) setConfirming(true);
+    else startDownload();
+  };
+  const onAuxClick = (event: MouseEvent<HTMLAnchorElement>) => {
+    if (event.button === 1 && warning) {
+      event.preventDefault();
+      setConfirming(true);
+    }
   };
   const expiresAt = epochMsOrNull(album.expires_at);
   const expiry = formatExpiry(expiresAt, now);
@@ -102,17 +116,29 @@ export function AlbumHeader({ album, shareUrl, title }: { album: AlbumData; shar
       <div className="flex flex-wrap gap-2">
         <CopyButton text={shareUrl} />
         {zipUrl && (
-          <LinkButton href={zipUrl} download onClick={onDownloadAll} aria-busy={zip === 'checking'}>
+          <LinkButton href={zipUrl} download onClick={onDownloadAll} onAuxClick={onAuxClick} aria-busy={zip === 'checking'}>
             {zip === 'checking' ? <Loader2 aria-hidden className="size-4 animate-spin" /> : <Download aria-hidden className="size-4" />}
             Download all
           </LinkButton>
         )}
-        <LinkButton href={`/report?url=${encodeURIComponent(shareUrl)}`} variant="ghost">
-          <Flag aria-hidden className="size-4" />
-          Report
-        </LinkButton>
+        <ReportButton target={{ type: 'album', vanity: album.vanity }} />
       </div>
       {zip === 'too-large' && <TooLargePanel album={album} />}
+      {confirming && warning && (
+        <ConfirmDownload
+          message={warning}
+          onCancel={() => setConfirming(false)}
+          onConfirm={() => {
+            setConfirming(false);
+            startDownload();
+          }}
+        />
+      )}
+      {album.link_warnings && album.link_warnings.length > 0 && (
+        <Suspense fallback={null}>
+          <LinkWarningsBanner urls={album.link_warnings} kind="album" />
+        </Suspense>
+      )}
     </header>
   );
 }

@@ -128,7 +128,7 @@ describe('/previews/<kind>/<vanity>.<ext> for link files', () => {
     assert.equal(upstream.requests.length, before);
   });
 
-  it('caches the vanity lookup for 30 s, and edge-caches the preview by key and previews_version', async () => {
+  it('caches the vanity lookup for 5 s, and edge-caches the preview by key and previews_version', async () => {
     await preview('mwave', 'waveform');
     await preview('mwave', 'waveform');
     await preview('mwave', 'peaks');
@@ -433,7 +433,7 @@ describe('/albums/download/<vanity>.zip', () => {
     }
   });
 
-  it('caches the album lookup for 30 s', async () => {
+  it('caches the album lookup for 5 s', async () => {
     assert.equal(lookups('albums', 'albzip'), 1);
   });
 

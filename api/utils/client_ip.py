@@ -17,6 +17,8 @@ import ipaddress
 
 CLIENT_IP_HEADER = 'x-filesgg-client-ip'
 ORIGIN_SECRET_HEADER = 'x-filesgg-origin-secret'
+# Sent only on the Worker's own /internal lookups; it strips it from every request it forwards.
+INTERNAL_LOOKUP_HEADER = 'x-filesgg-internal-lookup'
 
 
 def valid_ip(value):
@@ -39,6 +41,11 @@ def from_trusted_worker(headers, secret):
     if given is None:
         return False
     return hmac.compare_digest(given.encode('utf-8', 'surrogateescape'), secret.encode('utf-8'))
+
+
+def internal_lookup(headers, secret):
+    """The Worker's own /internal lookup: the shared secret and the lookup header together."""
+    return headers.get(INTERNAL_LOOKUP_HEADER) == '1' and from_trusted_worker(headers, secret)
 
 
 def forwarded_for(headers, proxies_count):

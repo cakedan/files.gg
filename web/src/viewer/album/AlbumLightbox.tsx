@@ -5,11 +5,15 @@ import { createPortal } from 'react-dom';
 import { LinkButton } from '../../components/Button';
 import { CopyButton } from '../../components/CopyButton';
 import { isEditableTarget } from '../../lib/dom';
+import { DownloadGuard } from '../components/DownloadGuard';
 import { RendererFallback } from '../components/RendererFallback';
+import { ReportButton } from '../components/ReportButton';
+import { fileReportTarget } from '../components/reportPath';
 import { getRenderer } from '../renderers';
 import type { AlbumItem } from '../types';
 import { downloadUrl, shareUrl } from '../urls';
 import { stepIndex } from './albumUrl';
+import { LinkedText } from './LinkedText';
 
 interface AlbumLightboxProps {
   items: AlbumItem[];
@@ -71,6 +75,8 @@ export function AlbumLightbox({ items, index, onGo, onClose }: AlbumLightboxProp
     return () => document.removeEventListener('keydown', onKey);
   }, [index, count, onGo, onClose]);
 
+  const reportTarget = fileReportTarget(item);
+
   return createPortal(
     <div
       role="dialog"
@@ -94,82 +100,87 @@ export function AlbumLightbox({ items, index, onGo, onClose }: AlbumLightboxProp
         }
       }}
     >
-      <div className="flex shrink-0 items-center gap-2 px-2 py-2 sm:px-3">
-        <span className="shrink-0 rounded bg-white/10 px-2 py-0.5 text-sm tabular-nums" aria-live="polite">
-          {index + 1} / {count}
-        </span>
-        <span className="min-w-0 flex-1 truncate text-sm text-muted" title={item.filename}>
-          {item.filename}
-        </span>
-        <div className="flex shrink-0 items-center gap-1">
-          <CopyButton text={shareUrl(item.url)} variant="secondary" className="max-sm:px-2" />
-          <LinkButton href={downloadUrl(item.cdn_url)} download={item.filename} aria-label="Download" title="Download" className="px-2">
-            <Download aria-hidden className="size-4" />
-          </LinkButton>
-          <LinkButton href={item.cdn_url} target="_blank" rel="noopener noreferrer" aria-label="Raw" title="Raw" className="px-2" variant="ghost">
-            <ExternalLink aria-hidden className="size-4" />
-          </LinkButton>
-          <button
-            ref={closeRef}
-            type="button"
-            onClick={onClose}
-            aria-label="Close"
-            className="ml-1 rounded-full p-2 text-muted hover:bg-white/10 hover:text-text"
-          >
-            <X aria-hidden className="size-5" />
-          </button>
+      <DownloadGuard file={item}>
+        <div className="flex shrink-0 items-center gap-2 px-2 py-2 sm:px-3">
+          <span className="shrink-0 rounded bg-white/10 px-2 py-0.5 text-sm tabular-nums" aria-live="polite">
+            {index + 1} / {count}
+          </span>
+          <span className="min-w-0 flex-1 truncate text-sm text-muted" title={item.filename}>
+            {item.filename}
+          </span>
+          <div className="flex shrink-0 items-center gap-1">
+            <CopyButton text={shareUrl(item.url)} variant="secondary" className="max-sm:px-2" />
+            <LinkButton href={downloadUrl(item.cdn_url)} download={item.filename} aria-label="Download" title="Download" className="px-2">
+              <Download aria-hidden className="size-4" />
+            </LinkButton>
+            <LinkButton href={item.cdn_url} target="_blank" rel="noopener noreferrer" aria-label="Raw" title="Raw" className="px-2" variant="ghost">
+              <ExternalLink aria-hidden className="size-4" />
+            </LinkButton>
+            {reportTarget && <ReportButton target={reportTarget} variant="ghost" compact />}
+            <button
+              ref={closeRef}
+              type="button"
+              onClick={onClose}
+              aria-label="Close"
+              className="ml-1 rounded-full p-2 text-muted hover:bg-white/10 hover:text-text"
+            >
+              <X aria-hidden className="size-5" />
+            </button>
+          </div>
         </div>
-      </div>
 
-      <div className="relative flex min-h-0 flex-1 items-center justify-center px-2">
-        <div key={index} className="flex max-h-full max-w-full items-center justify-center">
-          <Suspense fallback={<RendererFallback file={item} />}>
-            {createElement(getRenderer(item.kind), { file: item, context: 'lightbox' })}
-          </Suspense>
+        <div className="relative flex min-h-0 flex-1 items-center justify-center px-2">
+          <div key={index} className="flex max-h-full max-w-full items-center justify-center">
+            <Suspense fallback={<RendererFallback file={item} />}>
+              {createElement(getRenderer(item.kind), { file: item, context: 'lightbox' })}
+            </Suspense>
+          </div>
+          {index > 0 && (
+            <button
+              type="button"
+              onClick={() => onGo(stepIndex(index, count, -1))}
+              aria-label="Previous"
+              className="absolute top-1/2 left-2 -translate-y-1/2 rounded-full bg-black/60 p-2 text-white hover:bg-black/80 max-sm:hidden"
+            >
+              <ChevronLeft aria-hidden className="size-6" />
+            </button>
+          )}
+          {index < count - 1 && (
+            <button
+              type="button"
+              onClick={() => onGo(stepIndex(index, count, 1))}
+              aria-label="Next"
+              className="absolute top-1/2 right-2 -translate-y-1/2 rounded-full bg-black/60 p-2 text-white hover:bg-black/80 max-sm:hidden"
+            >
+              <ChevronRight aria-hidden className="size-6" />
+            </button>
+          )}
         </div>
-        {index > 0 && (
+
+        <div className="flex min-h-12 shrink-0 items-center justify-center gap-3 px-4 py-2 text-center text-sm">
           <button
             type="button"
             onClick={() => onGo(stepIndex(index, count, -1))}
+            disabled={index === 0}
             aria-label="Previous"
-            className="absolute top-1/2 left-2 -translate-y-1/2 rounded-full bg-black/60 p-2 text-white hover:bg-black/80 max-sm:hidden"
+            className="rounded-full p-1.5 text-muted disabled:opacity-30 sm:hidden"
           >
-            <ChevronLeft aria-hidden className="size-6" />
+            <ChevronLeft aria-hidden className="size-5" />
           </button>
-        )}
-        {index < count - 1 && (
+          <p className="line-clamp-2 min-w-0 flex-1 break-words text-muted sm:flex-none">
+            <LinkedText text={item.caption} />
+          </p>
           <button
             type="button"
             onClick={() => onGo(stepIndex(index, count, 1))}
+            disabled={index === count - 1}
             aria-label="Next"
-            className="absolute top-1/2 right-2 -translate-y-1/2 rounded-full bg-black/60 p-2 text-white hover:bg-black/80 max-sm:hidden"
+            className="rounded-full p-1.5 text-muted disabled:opacity-30 sm:hidden"
           >
-            <ChevronRight aria-hidden className="size-6" />
+            <ChevronRight aria-hidden className="size-5" />
           </button>
-        )}
-      </div>
-
-      <div className="flex min-h-12 shrink-0 items-center justify-center gap-3 px-4 py-2 text-center text-sm">
-        <button
-          type="button"
-          onClick={() => onGo(stepIndex(index, count, -1))}
-          disabled={index === 0}
-          aria-label="Previous"
-          className="rounded-full p-1.5 text-muted disabled:opacity-30 sm:hidden"
-        >
-          <ChevronLeft aria-hidden className="size-5" />
-        </button>
-        <p className="line-clamp-2 min-w-0 flex-1 break-words text-muted sm:flex-none">{item.caption}</p>
-        <button
-          type="button"
-          onClick={() => onGo(stepIndex(index, count, 1))}
-          disabled={index === count - 1}
-          aria-label="Next"
-          className="rounded-full p-1.5 text-muted disabled:opacity-30 sm:hidden"
-        >
-          <ChevronRight aria-hidden className="size-5" />
-        </button>
-      </div>
+        </div>
+      </DownloadGuard>
     </div>,
     document.body,
   );

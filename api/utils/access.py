@@ -6,7 +6,7 @@ import time
 from db import queries
 from db.models import epoch
 from utils import access_token, errors, view_hash
-from utils.helpers import client_ip, get_user
+from utils.helpers import client_ip
 
 # X-Filesgg-Access carries an unlock/owner token to /view; the middleware moves it
 # to request.ctx.access_token and removes the header, so it is never logged.
@@ -22,14 +22,10 @@ def now():
 
 
 async def optional_user(conn, request):
-    """The signed-in caller, or None (a bad token is treated as signed out)."""
-    authorization = request.headers.get('authorization')
-    if not authorization:
-        return None
-    try:
-        return await get_user(conn, authorization)
-    except Exception:
-        return None
+    """The signed-in caller (the session cookie), or None. A dead cookie is treated as signed out."""
+    from utils.auth import auth_of
+    current = auth_of(request)
+    return current.user if current.kind == 'session' else None
 
 
 def is_owner(fobj, user=None, fingerprint=None):

@@ -61,3 +61,52 @@ async def verify(password_hash, password):
     if not password_hash or not isinstance(password, str):
         return False
     return await asyncio.get_running_loop().run_in_executor(None, verify_sync, password_hash, password)
+
+
+# --- account passwords (contract milestone-6 §2.6) ---------------------------------------------------------------
+# The same argon2id hasher (argon2-cffi's defaults, RFC 9106's second profile). At least 8 characters and no
+# maximum: the endpoints that take a password cap the request at 64 KiB (§4.8), which is the only bound.
+
+ACCOUNT_MIN_LENGTH = 8
+_dummy_hash = None
+
+
+def account_password_reason(password, username=None, email=None):
+    """None when the password is acceptable, else `too_short`, `matches_username` or `matches_email`."""
+    if not isinstance(password, str) or len(password) < ACCOUNT_MIN_LENGTH:
+        return 'too_short'
+    lowered = password.casefold()
+    if username and lowered == username.casefold():
+        return 'matches_username'
+    if email and lowered == email.casefold():
+        return 'matches_email'
+    return None
+
+
+def _dummy():
+    global _dummy_hash
+    if _dummy_hash is None:
+        _dummy_hash = hash_sync(secrets.token_urlsafe(32))
+    return _dummy_hash
+
+
+def verify_account_sync(password_hash, password):
+    """Wrong, missing or malformed hashes are all "wrong password". Without a hash (an unknown email, or an
+    account with no password) it still verifies against a fixed dummy hash, so the timing doesn't tell."""
+    if not isinstance(password, str):
+        password = ''
+    if not password_hash:
+        verify_sync(_dummy(), password)
+        return False
+    return verify_sync(password_hash, password)
+
+
+async def verify_account(password_hash, password):
+    return await asyncio.get_running_loop().run_in_executor(None, verify_account_sync, password_hash, password)
+
+
+def needs_rehash(password_hash):
+    try:
+        return _hasher.check_needs_rehash(password_hash)
+    except Exception:
+        return False

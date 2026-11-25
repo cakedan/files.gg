@@ -2,9 +2,12 @@ import { Eye, EyeOff, Loader2, Lock, RefreshCw, TimerOff } from 'lucide-react';
 import { useEffect, useId, useRef, useState, type FormEvent } from 'react';
 
 import { Button, LinkButton } from '../../components/Button';
-import { useTurnstile } from '../../components/useTurnstile';
-import { api, type AccessKind, type UnlockResponse } from '../../lib/api';
+import type { AccessKind, UnlockResponse } from '../../lib/api';
 import { useNow } from '../../lib/useNow';
+import { ChallengeFallback } from '../host/ChallengeFallback';
+import { mainUrl } from '../host/context';
+import { useHumanCheck } from '../host/useHumanCheck';
+import { viewerApi } from './hostApi';
 import { classifyUnlockError, unlockErrorMessage, type UnlockError } from './unlockErrors';
 
 interface LockScreenProps {
@@ -15,6 +18,12 @@ interface LockScreenProps {
   /** From a `#pw=` link: unlock automatically once Turnstile passes. */
   initialPassword?: string | undefined;
   onUnlocked: (response: UnlockResponse) => void;
+  /**
+   * Milestone 4: the API says it's pending or removed; milestone 6 §8.8: or missing
+   * (`404`, for example the owner's account is pending deletion). The page shows that
+   * state instead. `password` is the one tried, so a pending unlock can be tried again.
+   */
+  onUnavailable?: ((error: UnlockError, password: string) => void) | undefined;
 }
 
 export function PasswordExpiredCard({ kind }: { kind: AccessKind }) {
@@ -25,7 +34,7 @@ export function PasswordExpiredCard({ kind }: { kind: AccessKind }) {
       <p className="text-sm text-muted">
         The password for this {kind} no longer works. Ask whoever shared it for a new link.
       </p>
-      <LinkButton href="/">Go to files.gg</LinkButton>
+      <LinkButton href={mainUrl('/')}>Go to files.gg</LinkButton>
     </section>
   );
 }
@@ -34,7 +43,7 @@ export function PasswordExpiredCard({ kind }: { kind: AccessKind }) {
  * Contract §4/§5 lock screen: password (with a show toggle), managed Turnstile
  * (action `unlock`, required on every attempt) and Unlock.
  */
-export function LockScreen({ kind, vanity, name, initialPassword, onUnlocked }: LockScreenProps) {
+export function LockScreen({ kind, vanity, name, initialPassword, onUnlocked, onUnavailable }: LockScreenProps) {
   const [password, setPassword] = useState('');
   const [reveal, setReveal] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -45,7 +54,13 @@ export function LockScreen({ kind, vanity, name, initialPassword, onUnlocked }: 
   const autoTried = useRef(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const id = useId();
-  const { mount: turnstileMount, status: turnstileStatus, take: takeTurnstile, retry: retryTurnstile } = useTurnstile('unlock');
+  const {
+    mount: turnstileMount,
+    status: turnstileStatus,
+    take: takeTurnstile,
+    retry: retryTurnstile,
+    framed,
+  } = useHumanCheck('unlock');
   const now = Math.max(useNow(error?.kind === 'rate-limited' ? 1000 : 60_000), errorAt);
   const waiting = error?.kind === 'rate-limited' && (error.retryAt ?? 0) > now;
 
@@ -54,13 +69,15 @@ export function LockScreen({ kind, vanity, name, initialPassword, onUnlocked }: 
     setError(null);
     try {
       const token = await takeTurnstile();
-      const response = await api.unlock(kind, vanity, value, token);
+      const response = await viewerApi.unlock(kind, vanity, value, token);
       onUnlocked(response);
     } catch (failure) {
       const at = Date.now();
       const classified = classifyUnlockError(failure, at);
       if (classified.kind === 'expired') {
         setExpired(true);
+      } else if ((classified.kind === 'pending' || classified.kind === 'removed' || classified.kind === 'missing') && onUnavailable) {
+        onUnavailable(classified, value);
       } else {
         setError({ ...classified, fromLink });
         setErrorAt(at);
@@ -135,13 +152,16 @@ export function LockScreen({ kind, vanity, name, initialPassword, onUnlocked }: 
           </button>
         </div>
 
-        {/* Managed Turnstile: invisible unless Cloudflare needs a click. */}
+        {/* Managed Turnstile: invisible unless Cloudflare needs a click. On a custom domain, the files.gg frame. */}
         <div ref={turnstileMount} className="flex justify-center empty:hidden" data-testid="turnstile" />
 
         {error && (
           <p id={`${id}-error`} role="alert" className={error.kind === 'rate-limited' ? 'text-sm text-warn' : 'text-sm text-danger'}>
             {unlockErrorMessage(error, now)}
           </p>
+        )}
+        {framed && (error?.kind === 'verification' || turnstileStatus === 'error') && (
+          <ChallengeFallback target={{ type: kind, vanity }} />
         )}
         {(error?.kind === 'captcha' || error?.kind === 'verification' || turnstileStatus === 'error') && (
           <Button

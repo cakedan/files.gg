@@ -3,27 +3,21 @@ import { FetchRouter } from 'cf-worker-router';
 import {
   createApiRouter,
   createCdnRouter,
+  createCustomRouter,
   createProxyRouter,
   createStableRouter,
 } from './domains/index.js';
 
 import { applyCdnSecurityHeaders } from './domains/cdn.js';
-import { getStringBinding } from './utils/env.js';
-import { DEFAULT_HOSTS, getHosts, originFor } from './utils/hosts.js';
-import { CDN_EXPOSE_HEADERS, corsHeaders, isCredentialedRoute, parseAllowedOrigins } from './utils/security.js';
+import { filterSetCookies, sessionCookieName } from './utils/cookies.js';
+import { isOwnHost } from './utils/domains.js';
+import { DEFAULT_HOSTS, getHosts, isMainHost, originFor } from './utils/hosts.js';
+import { CDN_EXPOSE_HEADERS, corsHeaders } from './utils/security.js';
 
 
-// Origins allowed to make credentialed API requests: the comma-separated CORS_ALLOWED_ORIGINS var
-// (see cf-worker/README.md). Defaults to the MAIN_HOST origin (https://files.gg). Parsed once per
-// distinct value.
-let allowedOriginsCache = { key: null, origins: null };
-function getAllowedOrigins(env, mainOrigin) {
-  const raw = getStringBinding(env, 'CORS_ALLOWED_ORIGINS') || null;
-  const key = `${raw}\n${mainOrigin}`;
-  if (key !== allowedOriginsCache.key) {
-    allowedOriginsCache = { key, origins: parseAllowedOrigins(raw || undefined, [mainOrigin]) };
-  }
-  return allowedOriginsCache.origins;
+// files.gg/api and files.gg/api/*: the only responses that may set a cookie (the session cookie).
+function isMainApi(hostname, pathname, hosts) {
+  return isMainHost(hostname, hosts) && (pathname === '/api' || pathname.startsWith('/api/'));
 }
 
 
@@ -36,35 +30,29 @@ function createRouter(hosts) {
     const { hostname, pathname } = event.url;
     const origin = event.originalRequest.headers.get('origin');
     const isCdn = (hostname === hosts.cdn);
-    if (!origin && !isCdn) {
-      return response;
-    }
 
     // Copy: responses from fetch() have immutable headers.
     response = new Response(response.body, response);
 
-    // CDN bytes always carry CORS `*` (pdf.js and canvas on files.gg fetch them, and the browser
-    // cache must not keep a copy without it). Elsewhere, only cross-origin requests get CORS headers.
-    const mainOrigin = originFor(hosts.main, event.url);
-    const headers = corsHeaders({
-      allowedOrigins: getAllowedOrigins(event.environment, mainOrigin),
-      credentialed: isCredentialedRoute(hostname, pathname, hosts),
-      origin,
-    });
-
-    // Drop whatever CORS the origin sent (the API adds `*` with credentials), then set ours.
+    // Cookies (milestone-6.md §12 item 1): only the API's Set-Cookie for the session cookie, and
+    // only on files.gg/api/*. Every other response (api.files.gg included) sets none.
+    filterSetCookies(response.headers, isMainApi(hostname, pathname, hosts) ? sessionCookieName(event.environment) : null);
+    // Never credentialed CORS (§12 item 2), whatever the API sent.
     response.headers.delete('access-control-allow-credentials');
-    for (const name in headers) {
-      if (name === 'Vary') {
-        response.headers.append('vary', headers[name]);
-      } else {
+
+    // CDN bytes always carry CORS `*` (pdf.js and canvas on files.gg fetch them, and the browser
+    // cache must not keep a copy without it). Elsewhere, only cross-origin requests get CORS
+    // headers, and always `*`.
+    if (origin || isCdn) {
+      const headers = corsHeaders();
+      for (const name in headers) {
         response.headers.set(name, headers[name]);
       }
     }
 
     // Every cdn.files.gg response, including 404s, 405s and 500s, is sandboxed.
     if (isCdn) {
-      applyCdnSecurityHeaders(response, { mainOrigin });
+      applyCdnSecurityHeaders(response, { mainOrigin: originFor(hosts.main, event.url) });
       response.headers.set('Access-Control-Expose-Headers', CDN_EXPOSE_HEADERS);
     }
     return response;
@@ -77,22 +65,27 @@ function createRouter(hosts) {
   return router;
 }
 
+// { own, custom } routers per set of hostnames: `own` for our four hosts, `custom` for every other
+// hostname (customers' domains, milestone-6.md §10.8).
 const routers = new Map();
-function routerFor(hosts) {
+function routersFor(hosts) {
   const key = [hosts.main, hosts.cdn, hosts.api, hosts.proxy].join('\n');
-  let router = routers.get(key);
-  if (!router) {
-    router = createRouter(hosts);
-    routers.set(key, router);
+  let entry = routers.get(key);
+  if (!entry) {
+    entry = { own: createRouter(hosts), custom: createCustomRouter(hosts) };
+    routers.set(key, entry);
   }
-  return router;
+  return entry;
 }
 
-export const router = routerFor(DEFAULT_HOSTS);
+export const router = routersFor(DEFAULT_HOSTS).own;
 
 
 export default {
   fetch(request, env, ctx) {
-    return routerFor(getHosts(env)).onFetch(request, env, ctx);
+    const hosts = getHosts(env);
+    const { own, custom } = routersFor(hosts);
+    const hostname = new URL(request.url).hostname;
+    return (isOwnHost(hostname, hosts) ? own : custom).onFetch(request, env, ctx);
   },
 };

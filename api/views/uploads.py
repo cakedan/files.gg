@@ -28,6 +28,9 @@ from utils.params import Arg, Args
 from utils.responses import ApiResponse
 from utils.turnstile import Turnstile
 from utils.wrappers import parse_args, route
+from safety import ip as abuse_ip, uploads as safety_uploads
+from safety.settings import safety_settings
+from utils import standing
 
 import utils.parameters as parameters
 
@@ -35,10 +38,66 @@ uploads = Blueprint('uploads', url_prefix='/uploads')
 
 DEFAULT_CHUNK_SIZE = 10 * 1024 * 1024
 SESSION_HOURS = 24
+# open chunked uploads per user, or per anonymous fingerprint and per IP (each S3 multipart upload
+# holds its parts until it's completed or aborted)
+DEFAULT_MAX_OPEN_UPLOADS = 20
+OPEN_SESSION = "status = 'open' AND expires_at > now()"
 
 
 def chunk_size():
     return int(os.getenv('UPLOAD_CHUNK_SIZE', DEFAULT_CHUNK_SIZE))
+
+
+def max_open_uploads():
+    return int(os.getenv('UPLOAD_MAX_OPEN_SESSIONS', DEFAULT_MAX_OPEN_UPLOADS))
+
+
+async def _count(conn, sql, params):
+    cursor = await conn.execute(sql, params)
+    return (await cursor.fetchone())[0]
+
+
+async def check_open_uploads(conn, owner):
+    """Raise TOO_MANY_UPLOADS when the owner already has max_open_uploads() open sessions: a
+    signed-in user by account, an anonymous caller by fingerprint and by IP (today's and
+    yesterday's hashes, as the rolling cap)."""
+    limit = max_open_uploads()
+    if owner.user is not None:
+        count = await _count(conn, 'SELECT count(*) FROM upload_sessions WHERE owner_user_id = %s AND ' + OPEN_SESSION,
+                             (owner.user.id,))
+    else:
+        count = 0
+        if owner.fingerprint is not None:
+            count = await _count(
+                conn, 'SELECT count(*) FROM upload_sessions WHERE owner_fingerprint = %s AND ' + OPEN_SESSION,
+                (owner.fingerprint,))
+        if owner.ip_hashes:
+            count = max(count, await _count(
+                conn, 'SELECT count(*) FROM upload_sessions WHERE owner_ip_hash = ANY(%s) AND ' + OPEN_SESSION,
+                (list(owner.ip_hashes),)))
+    if count >= limit:
+        raise errors.too_many_uploads(limit)
+
+
+async def abort_session_upload(storage, session):
+    """Abort the session's S3 multipart upload, so its parts don't stay on B2. Idempotent. Once it's
+    gone the upload id is cleared; if the abort fails it stays set and the upload reaper retries."""
+    if not session.b2_upload_id:
+        return True
+    if not await storage.abort_multipart(session.storage_key, session.b2_upload_id):
+        return False
+    async with db.connection() as conn:
+        await conn.execute("UPDATE upload_sessions SET b2_upload_id = NULL WHERE id = %s AND b2_upload_id = %s "
+                           "AND status = 'failed'", (session.id, session.b2_upload_id))
+    return True
+
+
+async def fail_session(storage, session, code):
+    """Fail an open session (which frees its reservation) and abort its multipart upload."""
+    async with db.connection() as conn:
+        await conn.execute("UPDATE upload_sessions SET status = 'failed', error = %s WHERE id = %s AND status = 'open'",
+                           (code, session.id))
+    await abort_session_upload(storage, session)
 
 
 def nonempty_filename(value):
@@ -100,12 +159,20 @@ class CreateUploadArgs(Args):
     turnstile_token: Annotated[Optional[str], Arg()] = None
     # Milestone 3: the file joins this album (one of yours, by vanity) when it's finalized
     album: Annotated[Optional[str], Arg()] = None
+    # Milestone 4 (§4.3): adult content; signed in only
+    nsfw: Annotated[Optional[bool], Arg(type=uploading.boolean)] = False
 
 
 @route(uploads, '', ['POST'])
 @parse_args(CreateUploadArgs)
 async def create_upload(request, args):
     caller = await caller_of(request)
+    settings = safety_settings()
+    abuse_hash, sealed_ip = abuse_ip.for_request(client_ip(request), settings)
+    async with db.connection() as conn:
+        await standing.check_uploader(conn, caller.user, caller.fingerprint, abuse_hash)
+    if args.nsfw and caller.user is None:
+        raise errors.nsfw_requires_account()
     owner = uploading.Owner(caller.user, caller.fingerprint, client_ip(request), request.app.ctx.view_hash_secret)
     limits = owner.limits
     if args.size > limits.max_file_size_chunked:
@@ -118,6 +185,7 @@ async def create_upload(request, args):
         name, extension, mimetype = await uploading.resolve_name(
             conn, args.filename, None, uploading.mimetype_of(args.mimetype or 'application/octet-stream'))
         await owner.check(conn, args.size)
+        await check_open_uploads(conn, owner)
         album_id = await uploading.resolve_album(conn, caller.user, args.album)
 
     if caller.user is None and not await Turnstile.verify(args.turnstile_token, 'upload', client_ip(request)):
@@ -137,6 +205,7 @@ async def create_upload(request, args):
             async with conn.transaction():
                 # reserves the declared size (quota reservation) once inserted
                 await owner.check(conn, args.size, lock=True)
+                await check_open_uploads(conn, owner)
                 session = await queries.create_session(
                     conn,
                     id=upload_id,
@@ -155,6 +224,9 @@ async def create_upload(request, args):
                     b2_upload_id=b2_upload_id,
                     expires_at=uploading.utcnow() + timedelta(hours=SESSION_HOURS),
                     album_id=album_id,
+                    nsfw_marked=bool(args.nsfw),
+                    owner_abuse_ip_hash=abuse_hash,
+                    owner_ip_sealed=sealed_ip,
                     **access_columns,
                 )
     except BaseException:
@@ -207,16 +279,34 @@ async def put_chunk(request, upload_id, index):
     data = await read_chunk(request, expected)
     if len(data) != expected:
         raise errors.chunk_size_mismatch(expected)
-    if index == 0 and filetypes.sniff_executable(data):
-        # fail the session now rather than after the whole upload; finalize checks again
-        async with db.connection() as conn:
-            await conn.execute("UPDATE upload_sessions SET status = 'failed', error = 'FILE_TYPE_NOT_ALLOWED' "
-                               "WHERE id = %s AND status = 'open'", (session.id,))
+    storage = request.app.ctx.storage
+    if index == 0 and (filetypes.sniff_executable(data) or await safety_uploads.sniff_blocked_async(data)):
+        # fail the session now rather than after the whole upload (finalize checks again), and
+        # drop the parts already sent
+        await fail_session(storage, session, 'FILE_TYPE_NOT_ALLOWED')
         raise errors.file_type_not_allowed()
 
-    etag = await request.app.ctx.storage.upload_part(session.storage_key, session.b2_upload_id, index + 1, data)
+    try:
+        etag = await storage.upload_part(session.storage_key, session.b2_upload_id, index + 1, data)
+    except Exception as error:
+        if storage_module.missing_upload(error):
+            # aborted meanwhile: the session failed, or was deleted or reaped
+            raise errors.unknown_upload()
+        raise
     async with db.connection() as conn:
-        await queries.record_part(conn, session.id, index, etag, len(data))
+        async with conn.transaction():
+            # the row lock orders this against fail_session, DELETE and the reaper
+            cursor = await conn.execute('SELECT status FROM upload_sessions WHERE id = %s FOR SHARE', (session.id,))
+            row = await cursor.fetchone()
+            status = row[0] if row is not None else None
+            if status == 'open':
+                await queries.record_part(conn, session.id, index, etag, len(data))
+    if status in (None, 'failed'):
+        # it failed or went away while this part was in flight, so its abort may have run before
+        # the part landed: abort again (S3 asks for this)
+        await storage.abort_multipart(session.storage_key, session.b2_upload_id)
+    if status != 'open':
+        raise errors.unknown_upload()
     return ApiResponse(status=204)
 
 
@@ -230,10 +320,12 @@ async def get_upload(request, upload_id):
         session = await owned_session(conn, caller, upload_id)
         received = await queries.session_part_indexes(conn, session.id)
         fobj = await queries.get_file(conn, session.file_id) if session.file_id else None
+        if fobj is not None:
+            await queries.attach_safety(conn, [fobj])
     body = {'status': session.status, 'received': received, 'size': session.size}
     if session.status == 'complete' and fobj is not None:
         # the uploader owns it: a protected file's URLs are signed for 1 h
-        body['file'] = payloads.public_file(fobj, grant=Grant.owner_file(fobj))
+        body['file'] = payloads.with_safety(payloads.public_file(fobj, grant=Grant.owner_file(fobj)), fobj)
     if session.status == 'failed':
         body['error'] = session.error or 'UPLOAD_FAILED'
     return ApiResponse(body)
@@ -266,14 +358,28 @@ async def complete_upload(request, upload_id):
 
 @route(uploads, '/<upload_id:str>', ['DELETE'])
 async def delete_upload(request, upload_id):
-    """Abort an open upload and free its reservation. A session that is already
-    processing or complete is left to finish (and to the reaper)."""
+    """Abort an open or failed upload: its multipart upload (and, for a failed one, any staging
+    object) is removed from B2 and the row deleted, which frees the reservation. A session that is
+    already processing or complete is left to finish (and to the reaper). If B2 refuses the abort,
+    the session is failed and expired instead, so the upload reaper retries it."""
     caller = await caller_of(request)
+    storage = request.app.ctx.storage
     async with db.connection() as conn:
         async with conn.transaction():
             session = await owned_session(conn, caller, upload_id, for_update=True)
             if session.status in ('open', 'failed'):
-                if session.status == 'open' and session.b2_upload_id:
-                    await request.app.ctx.storage.abort_multipart(session.storage_key, session.b2_upload_id)
-                await queries.delete_session(conn, session.id)
+                gone = True
+                if session.b2_upload_id:
+                    gone = await storage.abort_multipart(session.storage_key, session.b2_upload_id)
+                if gone and session.status == 'failed':
+                    # finalize fails a session after completing its multipart upload
+                    try:
+                        await storage.delete(session.storage_key)
+                    except Exception:
+                        gone = False
+                if gone:
+                    await queries.delete_session(conn, session.id)
+                else:
+                    await conn.execute("UPDATE upload_sessions SET status = 'failed', error = COALESCE(error, "
+                                       "'CANCELLED'), expires_at = now() WHERE id = %s", (session.id,))
     return ApiResponse(status=204)

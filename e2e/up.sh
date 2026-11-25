@@ -1,10 +1,13 @@
 #!/usr/bin/env bash
 # Starts the whole files.gg stack locally (e2e/README.md):
-#   Docker: Postgres 19, MinIO (+ bucket), migrations, the API and `python -m worker`
+#   Docker: Postgres 19, MinIO (+ the files and the Object Lock evidence buckets), migrations, the
+#           API, `python -m worker`, the Milestone 4 scanner and rescanner, and an offline clamd
 #   Host:   a fresh web build and the Cloudflare Worker under `wrangler dev`
 # on http://files.localhost:8787, http://cdn.files.localhost:8787 and http://api.files.localhost:8787.
 #
-# Secrets are random, generated once into e2e/.local/ (git-ignored) and removed by e2e/down.sh.
+# Secrets are random, generated once into e2e/.local/ (git-ignored) and removed by e2e/down.sh,
+# including the evidence key pair (the private key stays in e2e/.local/evidence-private.pem, 0600).
+# Users: `e2e` (staff: admin with child safety), and `e2e-member` and `e2e-reporter` (not staff).
 # Running it again restarts the Worker and rebuilds what changed. Ports: E2E_PORT (8787),
 # E2E_API_PORT (18080), E2E_MINIO_PORT (19000).
 set -euo pipefail
@@ -56,6 +59,28 @@ E2E_USER_PASSWORD=e2e-$(openssl rand -hex 8)
 EOF
   umask 022
 fi
+# Added with Milestone 4: appended to an older .env when missing.
+ensure_var() {
+  grep -q "^$1=" "$LOCAL/.env" || printf '%s=%s\n' "$1" "$2" >> "$LOCAL/.env"
+}
+ensure_var ABUSE_HASH_SECRET "$(openssl rand -hex 32)"
+ensure_var E2E_MEMBER_PASSWORD "e2e-member-$(openssl rand -hex 8)"
+ensure_var E2E_REPORTER_PASSWORD "e2e-reporter-$(openssl rand -hex 8)"
+# The evidence key pair (milestone-4 §3.6): X25519, libsodium's sealed-box key type. The API gets the
+# raw 32-byte public key as base64; the private key stays in e2e/.local (mode 600).
+if [ ! -f "$LOCAL/evidence-private.pem" ] || ! grep -q '^EVIDENCE_PUBLIC_KEY=' "$LOCAL/.env"; then
+  step "Generating the evidence key pair (X25519) in e2e/.local/"
+  public_key="$(node -e '
+    const { generateKeyPairSync } = require("node:crypto");
+    const { writeFileSync } = require("node:fs");
+    const { publicKey, privateKey } = generateKeyPairSync("x25519");
+    writeFileSync(process.argv[1], privateKey.export({ type: "pkcs8", format: "pem" }), { mode: 0o600 });
+    process.stdout.write(Buffer.from(publicKey.export({ format: "jwk" }).x, "base64url").toString("base64"));
+  ' "$LOCAL/evidence-private.pem")"
+  chmod 600 "$LOCAL/evidence-private.pem"
+  (umask 077; { grep -v '^EVIDENCE_PUBLIC_KEY=' "$LOCAL/.env" || true; printf 'EVIDENCE_PUBLIC_KEY=%s\n' "$public_key"; } > "$LOCAL/.env.tmp")
+  mv "$LOCAL/.env.tmp" "$LOCAL/.env"
+fi
 # shellcheck disable=SC1091
 set -a; . "$LOCAL/.env"; set +a
 
@@ -69,13 +94,22 @@ step "Building web for $API_URL"
 (cd "$ROOT/web" && VITE_API_URL="$API_URL" VITE_TURNSTILE_SITE_KEY="$TURNSTILE_TEST_SITE_KEY" \
   npx vite build --outDir "$LOCAL/web-dist" --emptyOutDir --logLevel warn)
 
-# --- Docker: Postgres, MinIO, migrations, API, jobs worker -------------------------------------
-step "Starting Postgres, MinIO, the API and the jobs worker (Docker)"
-"${COMPOSE[@]}" up -d --build --wait --wait-timeout 300 postgres minio api worker
+# --- Docker: Postgres, MinIO, ClamAV, migrations, API, jobs worker, scanner, rescanner ----------
+step "Starting Postgres, MinIO, ClamAV, the API, the jobs worker, the scanner and the rescanner (Docker)"
+"${COMPOSE[@]}" up -d --build --wait --wait-timeout 600 postgres minio clamav api worker scanner rescanner
 
-step "Creating the e2e user (dev tool)"
-"${COMPOSE[@]}" exec -T -e FILESGG_DEV_TOOLS=1 api \
-  python -m tools.create_user --username e2e --password "$E2E_USER_PASSWORD" > "$LOCAL/e2e-user.json"
+step "Creating the e2e users (dev tool) and making e2e staff"
+json_field() { node -p "JSON.parse(require('fs').readFileSync(process.argv[1], 'utf8'))[process.argv[2]]" "$1" "$2"; }
+create_user() {
+  (umask 077; "${COMPOSE[@]}" exec -T -e FILESGG_DEV_TOOLS=1 api \
+    python -m tools.create_user --username "$1" --password "$2" > "$LOCAL/$3")
+}
+create_user e2e "$E2E_USER_PASSWORD" e2e-user.json
+create_user e2e-member "$E2E_MEMBER_PASSWORD" e2e-member.json
+create_user e2e-reporter "$E2E_REPORTER_PASSWORD" e2e-reporter.json
+# milestone-4 §9.1: staff are granted on the server only, with the CLI (logged as `grant_staff`)
+"${COMPOSE[@]}" exec -T api python -m tools.staff grant "$(json_field "$LOCAL/e2e-user.json" id)" \
+  --role admin --child-safety --by e2e/up.sh >/dev/null
 
 # --- the Worker under wrangler dev --------------------------------------------------------
 step "Starting the Worker (wrangler dev on 127.0.0.1:$E2E_PORT)"
@@ -124,10 +158,12 @@ files.gg is running locally.
   API:         $API_URL/health
 
   e2e user:    username e2e, email e2e@files.localhost, password $E2E_USER_PASSWORD
+               staff (admin, child safety): $MAIN_URL/app/admin
   Sign in:     open $MAIN_URL/app, then in the browser console run
-               localStorage.setItem('filesgg.token', '$(node -p "JSON.parse(require('fs').readFileSync(process.argv[1], 'utf8')).token" "$LOCAL/e2e-user.json")'); location.reload()
+               localStorage.setItem('filesgg.token', '$(json_field "$LOCAL/e2e-user.json" token)'); location.reload()
+  Not staff:   e2e-member and e2e-reporter (passwords in e2e/.local/.env, tokens in e2e/.local/e2e-*.json)
 
   Test:        node e2e/run.mjs
-  Logs:        e2e/.local/wrangler.log, and docker compose -p filesgg-e2e logs -f api worker
+  Logs:        e2e/.local/wrangler.log, and docker compose -p filesgg-e2e logs -f api worker scanner
   Stop:        e2e/down.sh   (stops everything and deletes the local data)
 EOF

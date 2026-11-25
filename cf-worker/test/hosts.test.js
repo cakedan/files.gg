@@ -2,7 +2,7 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 
 import { DEFAULT_HOSTS, getHosts, hostPattern, isMainHost, originFor, publicOrigins } from '../worker/utils/hosts.js';
-import { CDN_CONTENT_SECURITY_POLICY, cdnContentSecurityPolicy, isCredentialedRoute, parseAllowedOrigins } from '../worker/utils/security.js';
+import { CDN_CONTENT_SECURITY_POLICY, cdnContentSecurityPolicy } from '../worker/utils/security.js';
 import { VIEWER_CSP, fileMetaTags, viewerCsp } from '../worker/utils/viewer.js';
 import { apiOrigin } from '../worker/utils/env.js';
 
@@ -52,28 +52,22 @@ describe('configurable hosts', () => {
     assert.equal(originFor('files.gg', null), 'https://files.gg');
   });
 
-  it('keeps the default CSPs, CORS and credentialed routes byte-identical', () => {
+  it('keeps the default CSPs byte-identical', () => {
     assert.equal(viewerCsp(), VIEWER_CSP);
     assert.equal(viewerCsp(publicOrigins(DEFAULT_HOSTS, new URL('https://files.gg/'))), VIEWER_CSP);
     assert.match(VIEWER_CSP, /connect-src 'self' https:\/\/cdn\.files\.gg https:\/\/api\.files\.gg;/);
     assert.equal(cdnContentSecurityPolicy(), CDN_CONTENT_SECURITY_POLICY);
     assert.match(CDN_CONTENT_SECURITY_POLICY, /frame-ancestors https:\/\/files\.gg$/);
-    assert.deepEqual(parseAllowedOrigins(undefined), ['https://files.gg']);
   });
 
-  it('uses the configured hosts for the CSPs, CORS, og:image and credentialed routes', () => {
+  it('uses the configured hosts for the CSPs and og:image', () => {
     const hosts = getHosts(LOCAL);
     const origins = publicOrigins(hosts, new URL('http://files.localhost:8787/abc'));
     const csp = viewerCsp(origins);
     assert.match(csp, /connect-src 'self' http:\/\/cdn\.files\.localhost:8787 http:\/\/api\.files\.localhost:8787;/);
     assert.match(csp, /img-src 'self' http:\/\/cdn\.files\.localhost:8787 blob: data:/);
     assert.match(cdnContentSecurityPolicy(origins.main), /frame-ancestors http:\/\/files\.localhost:8787$/);
-    assert.deepEqual(parseAllowedOrigins('', [origins.main]), ['http://files.localhost:8787']);
     assert.match(fileMetaTags({ kind: 'file', filename: 'a.zip', size: 1, mimetype: 'application/zip' }, { mainOrigin: origins.main }),
       /content="http:\/\/files\.localhost:8787\/og-image\.png"/);
-    assert.equal(isCredentialedRoute('api.files.localhost', '/files', hosts), true);
-    assert.equal(isCredentialedRoute('files.localhost', '/api/files', hosts), true);
-    assert.equal(isCredentialedRoute('api.files.gg', '/files', hosts), false);
-    assert.equal(isCredentialedRoute('cdn.files.localhost', '/api/x', hosts), false);
   });
 });

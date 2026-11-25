@@ -3,6 +3,7 @@ import { useId } from 'react';
 import {
   accessChoices,
   ANONYMOUS_EXPIRY_NOTE,
+  canMarkNsfw,
   expiryChoices,
   passwordExpiryChoices,
   unlockTtlChoices,
@@ -77,6 +78,18 @@ export function UploadOptions({ state, onChange, context, errors }: UploadOption
           passwordExpiryChoices={passwordExpiryChoices(context, fileLife)}
           generateHint="Each file gets its own generated password, shown once."
         />
+      )}
+
+      {canMarkNsfw(context) ? (
+        <label className="flex items-start gap-2 text-sm">
+          <input type="checkbox" checked={state.nsfw} onChange={(event) => onChange({ nsfw: event.target.checked })} className="mt-0.5 size-4 accent-gg" />
+          <span className="flex flex-col">
+            Adult content (NSFW)
+            <span className="text-xs text-muted">Visitors see a warning before it opens. Adult content must always be marked.</span>
+          </span>
+        </label>
+      ) : (
+        context.anonymous && <p className="text-xs text-muted">Sign in to upload sensitive media.</p>
       )}
     </section>
   );

@@ -3,7 +3,9 @@
 #   POSTGRES_PASSWORD, SECRET_KEY, RPC_KEY, ORIGIN_SHARED_SECRET, VIEW_HASH_SECRET,
 #   DB_BACKUP_RESTIC_PASSWORD, S3_BACKUP_ACCESS_KEY_ID, S3_BACKUP_SECRET_ACCESS_KEY,
 #   POSTMARK_SERVER_TOKEN, CDN_SIGNING_SECRET, TURNSTILE_SECRET,
-#   S3_ENDPOINT, S3_REGION, S3_BUCKET_FILES, S3_ACCESS_KEY_ID, S3_SECRET_ACCESS_KEY
+#   S3_ENDPOINT, S3_REGION, S3_BUCKET_FILES, S3_ACCESS_KEY_ID, S3_SECRET_ACCESS_KEY,
+#   (Milestone 4) CSAM_MATCHER, PHOTODNA_SUBSCRIPTION_KEY (scanner and rescanner only), ABUSE_HASH_SECRET, EVIDENCE_PUBLIC_KEY,
+#   S3_BUCKET_EVIDENCE, S3_EVIDENCE_ACCESS_KEY_ID, S3_EVIDENCE_SECRET_ACCESS_KEY (WEB_RISK_API_KEY is optional)
 #
 # Order on `docker compose up`: postgres becomes healthy, migrate runs once and must succeed,
 # then api and worker start. Scale either independently, e.g. `docker compose up --scale worker=2`;
@@ -48,6 +50,34 @@ x-api-environment: &api-environment
   S3_BUCKET_FILES: ${S3_BUCKET_FILES:?S3_BUCKET_FILES must be set (the private files bucket)}
   S3_ACCESS_KEY_ID: ${S3_ACCESS_KEY_ID:?S3_ACCESS_KEY_ID must be set (B2 key with writeFiles and deleteFiles)}
   S3_SECRET_ACCESS_KEY: ${S3_SECRET_ACCESS_KEY:?S3_SECRET_ACCESS_KEY must be set}
+  # Milestone 4 (docs/redesign/contracts/milestone-4.md §13). The API validates the matcher choice at boot
+  # (`standin` refuses to run without FILESGG_DEV_TOOLS=1, so production can't run without a real matcher).
+  CSAM_MATCHER: ${CSAM_MATCHER:?CSAM_MATCHER must be set (photodna; standin is for tests and local development)}
+  # The stable keyed IP hash for bans, rate limits and distinct reporters (milestone-4 §1). Rotating it makes every
+  # existing ban and IP hash useless.
+  ABUSE_HASH_SECRET: ${ABUSE_HASH_SECRET:?ABUSE_HASH_SECRET must be set (openssl rand -hex 32)}
+  # libsodium public key (base64) the raw uploader IP is sealed to; the private key stays offline (milestone-4 §3.6)
+  EVIDENCE_PUBLIC_KEY: ${EVIDENCE_PUBLIC_KEY:?EVIDENCE_PUBLIC_KEY must be set (the evidence key pair's public key, base64)}
+  NSFW_THRESHOLD: ${NSFW_THRESHOLD:-0.85}
+
+# Only the scanner and rescanner get the matcher, ClamAV, Web Risk and evidence settings (milestone-4 §13).
+x-scanner-environment: &scanner-environment
+  <<: *api-environment
+  # only the matcher's callers hold the key (the API never does); they refuse to start without it with
+  # CSAM_MATCHER=photodna (api/safety/settings.py check_scanner)
+  PHOTODNA_SUBSCRIPTION_KEY: ${PHOTODNA_SUBSCRIPTION_KEY:-}
+  PHOTODNA_MATCH_URL: ${PHOTODNA_MATCH_URL:-https://api.microsoftmoderator.com/photodna/v1.0/Match}
+  PHOTODNA_TIMEOUT: ${PHOTODNA_TIMEOUT:-10}
+  PHOTODNA_MAX_RPS: ${PHOTODNA_MAX_RPS:-5}
+  CLAMAV_HOST: clamav
+  CLAMAV_PORT: "3310"
+  WEB_RISK_API_KEY: ${WEB_RISK_API_KEY:-}
+  # The evidence bucket on B2, with Object Lock (compliance mode), and a key that can write and copy into it (and
+  # read the files bucket, the copy's source) but not read or delete evidence (milestone-4 §3.6, §15).
+  S3_BUCKET_EVIDENCE: ${S3_BUCKET_EVIDENCE:?S3_BUCKET_EVIDENCE must be set (the Object Lock evidence bucket)}
+  S3_EVIDENCE_ACCESS_KEY_ID: ${S3_EVIDENCE_ACCESS_KEY_ID:?S3_EVIDENCE_ACCESS_KEY_ID must be set}
+  S3_EVIDENCE_SECRET_ACCESS_KEY: ${S3_EVIDENCE_SECRET_ACCESS_KEY:?S3_EVIDENCE_SECRET_ACCESS_KEY must be set}
+  EVIDENCE_RETENTION_DAYS: ${EVIDENCE_RETENTION_DAYS:-365}
 
 x-api-service: &api-service
   build:
@@ -55,6 +85,14 @@ x-api-service: &api-service
     target: runtime
   image: filesgg-api:latest
   environment: *api-environment
+  # come back after a crash or a reboot (migrate overrides this with "no")
+  restart: unless-stopped
+  # the processes run as uid 10001 and need no Linux capabilities; the media and scan children inherit this
+  cap_drop: [ALL]
+  security_opt: ["no-new-privileges:true"]
+  logging:
+    driver: json-file
+    options: { max-size: "20m", max-file: "5" }
 
 services:
   postgres:
@@ -158,7 +196,7 @@ services:
       timeout: 5s
       retries: 3
 
-  # Background jobs (uploads finalising, media processing, scans) and the scheduler. Its own image
+  # Background jobs (uploads finalising, media processing) and the scheduler; scans run in `scanner` below. Its own image
   # target (api/Dockerfile `worker`) adds ffmpeg and poppler-utils; the API image has neither.
   # `default` carries finalize_upload and delete_blob, `media` probe / derive / album_collage
   # (milestone-3 §2); a dedicated media worker can be split out later with WORKER_QUEUES=media.
@@ -178,14 +216,70 @@ services:
       migrate:
         condition: service_completed_successfully
 
+  # Milestone 4 (§2.2): a new hash's `scan` never waits behind a slow derive or a rescan backlog, so the scan and
+  # rescan queues get their own services from the worker image (Python 3.14, the scanning tools, the NSFW model).
+  scanner:
+    <<: *api-service
+    build:
+      context: ./api/
+      target: worker
+    image: filesgg-worker:latest
+    environment:
+      <<: *scanner-environment
+      WORKER_QUEUES: scan
+    command: ["python", "-m", "worker"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+      clamav:
+        condition: service_healthy
+
+  rescanner:
+    <<: *api-service
+    build:
+      context: ./api/
+      target: worker
+    image: filesgg-worker:latest
+    environment:
+      <<: *scanner-environment
+      WORKER_QUEUES: rescan
+    command: ["python", "-m", "worker"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+      clamav:
+        condition: service_healthy
+
+  # ClamAV (milestone-4 §5.2): official signatures only, through the image's own freshclam; YARA rules from
+  # clamav/rules/ are linked into the database directory at start and loaded by clamd itself. Never published:
+  # only the scanner and rescanner reach it. The `-debian` tags are multi-arch (the plain ones are amd64 only).
+  clamav:
+    image: clamav/clamav:1.5.5-debian@sha256:85f35b3eee903dbd96c5ca250c5aa13d230d97987c0f876f7d46f001f9414239   # digest as of 2026-11-23
+    restart: unless-stopped
+    entrypoint: ["/bin/sh", "-c", "for rule in /var/lib/clamav-rules/*.yar /var/lib/clamav-rules/*.yara; do [ -e \"$$rule\" ] && ln -sf \"$$rule\" /var/lib/clamav/; done; exec /init"]
+    environment:
+      CLAMAV_NO_MILTERD: "true"
+    volumes:
+      - ./.data/clamav:/var/lib/clamav
+      - ./clamav/clamd.conf:/etc/clamav/clamd.conf:ro
+      - ./clamav/rules:/var/lib/clamav-rules:ro
+    expose: ["3310"]
+    healthcheck: { test: ["CMD", "clamdcheck.sh"], interval: 60s, timeout: 10s, retries: 3, start_period: 6m }
+    mem_limit: 4g
+
   nginx:
     # 2026.11.24, nginx mainline 1.31 (latest), pinned by digest
     image: nginx:1.31@sha256:6a3df739b6312289e87d70947d900669c1b3087474ece5814b9c01bbf2e6dde3
     depends_on:
       - api
+    restart: unless-stopped
     volumes:
-      - ./nginx/nginx.conf:/etc/nginx/nginx.conf
-      - ./nginx/certificates:/certificates
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/certificates:/certificates:ro
     ports:
       - 80:80
       - 443:443

@@ -10,10 +10,12 @@ import { ViewerApp } from './ViewerApp';
 
 async function boot() {
   if (import.meta.env.DEV) {
-    const { applyFixture, fixtureForPath, isFixtureName } = await import('./fixtures');
-    const name = new URLSearchParams(location.search).get('fixture');
+    const { applyCustomHost, applyFixture, CUSTOM_HOST_FIXTURES, fixtureForPath, isFixtureName } = await import('./fixtures');
+    const params = new URLSearchParams(location.search);
+    const name = params.get('fixture');
     const fixture = isFixtureName(name) ? name : fixtureForPath(location.pathname);
     if (fixture) await applyFixture(fixture);
+    if (params.get('host') === 'custom' || (fixture && CUSTOM_HOST_FIXTURES.includes(fixture))) applyCustomHost();
   }
 
   const root = document.getElementById('root');

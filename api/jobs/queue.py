@@ -14,6 +14,7 @@ import json
 import logging
 import os
 import socket
+import threading
 import traceback
 import uuid
 
@@ -29,6 +30,9 @@ DEFAULT_QUEUE = 'default'
 # Scheduler marker rows live here; no worker may claim from it.
 SCHEDULER_QUEUE = 'scheduler'
 DEFAULT_LOCK_TIMEOUT = int(os.getenv('JOBS_LOCK_TIMEOUT', '600'))
+# while a handler runs, its lock is renewed this often, so a job that takes longer than the lock
+# timeout (a worst-case scan) isn't claimed again by another worker; a dead worker stops renewing
+HEARTBEAT_INTERVAL = float(os.getenv('JOBS_HEARTBEAT_INTERVAL', str(max(1, DEFAULT_LOCK_TIMEOUT // 4))))
 BACKOFF_BASE = 10        # seconds before the first retry
 BACKOFF_MAX = 60 * 60    # never wait more than an hour between retries
 
@@ -213,8 +217,45 @@ def fail(job, worker_id, error, conn=None, backoff_func=backoff):
         return 'retry'
 
 
-def run_job(job, worker_id, conn=None, backoff_func=backoff):
-    """Run a claimed job's handler and record the outcome.
+class Heartbeat:
+    """Renews a claimed job's lock (`locked_at`) every `interval` seconds from a thread until
+    stopped. Only the worker holding the lock can renew it. It shares the worker's connection
+    (psycopg connections are thread-safe), which nothing else uses while the handler runs."""
+
+    def __init__(self, job, worker_id, conn, interval=None):
+        self.job = job
+        self.worker_id = worker_id
+        self.conn = conn
+        self.interval = HEARTBEAT_INTERVAL if interval is None else interval
+        self.beats = 0
+        self._stop = threading.Event()
+        self._thread = threading.Thread(target=self._run, name='job-heartbeat-{}'.format(job.id), daemon=True)
+
+    def __enter__(self):
+        self._thread.start()
+        return self
+
+    def __exit__(self, *exc):
+        self._stop.set()
+        self._thread.join()
+        return False
+
+    def _run(self):
+        while not self._stop.wait(self.interval):
+            try:
+                renewed = self.conn.execute(
+                    'UPDATE jobs SET locked_at = now() WHERE id = %s AND locked_by = %s AND done_at IS NULL '
+                    'AND failed_at IS NULL', (self.job.id, self.worker_id)).rowcount
+            except Exception as error:
+                log.warning('heartbeat for %r failed: %s', self.job, error)
+                continue
+            if not renewed:
+                return
+            self.beats += 1
+
+
+def run_job(job, worker_id, conn=None, backoff_func=backoff, heartbeat=None):
+    """Run a claimed job's handler and record the outcome, renewing its lock while it runs.
     Returns 'done', 'retry' or 'failed'."""
     with _connection(conn) as conn:
         if job.attempts > job.max_attempts:
@@ -226,7 +267,8 @@ def run_job(job, worker_id, conn=None, backoff_func=backoff):
             return fail(job, worker_id, 'no handler registered for job kind {!r}'.format(job.kind),
                         conn, backoff_func)
         try:
-            handler(job.payload, job)
+            with Heartbeat(job, worker_id, conn, heartbeat):
+                handler(job.payload, job)
         except Exception as error:
             log.warning('%r failed: %s', job, error)
             detail = '{}: {}\n{}'.format(type(error).__name__, error, traceback.format_exc())

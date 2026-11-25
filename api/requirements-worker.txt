@@ -1,0 +1,27 @@
+# The worker image target (api/Dockerfile `worker`, Python 3.14): everything the API has, plus the sandboxed
+# scan child's dependencies (contract milestone-4 §4.1, §5.3, §5.4, §13). Every dependency is pinned, including
+# transitive ones. Each has cp314 wheels for x86_64 and aarch64 (or is pure Python).
+# The worker runs on Python 3.14, not 3.15, only because onnxruntime publishes no cp315 wheels yet (1.32.0,
+# 2026-11-13, has cp311 to cp314 and no sdist). Move it to 3.15 when a cp315 wheel ships.
+-r requirements.txt
+# the NSFW classifier (media/nsfw.py), on CPU
+onnxruntime==1.32.0
+numpy==2.5.5
+# Office checks: olevba, oleid, msodde
+oletools==0.60.2
+# archive listing through libarchive (Debian's libarchive13, from libarchive-tools in the image)
+libarchive-c==5.3
+# pdqhash 0.2.8 has no Linux wheels: it's built from its sdist in the Dockerfile's pdqhash-build stage
+# (requirements-pdqhash-build.txt) and installed from that wheel.
+
+# Transitive dependencies:
+colorclass==2.2.2
+cryptography==50.0.2
+easygui==0.98.3
+flatbuffers==25.12.19
+msoffcrypto-tool==6.1.0
+olefile==0.47
+packaging==26.4
+pcodedmp==1.2.6
+protobuf==7.36.2
+pyparsing==3.3.3

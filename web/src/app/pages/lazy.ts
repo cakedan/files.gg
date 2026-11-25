@@ -11,5 +11,7 @@ export const AlbumEditorPage = lazy(() => import('./AlbumEditorPage'));
 export const IntegrationsPage = lazy(() => import('./IntegrationsPage'));
 export const SettingsPage = lazy(() => import('./SettingsPage'));
 export const ReportsPage = lazy(() => import('./ReportsPage'));
+export const ReportPage = lazy(() => import('./ReportPage'));
 export const NoticesPage = lazy(() => import('./NoticesPage'));
+export const NoticePage = lazy(() => import('./NoticePage'));
 export const NotFoundPage = lazy(() => import('./NotFoundPage'));

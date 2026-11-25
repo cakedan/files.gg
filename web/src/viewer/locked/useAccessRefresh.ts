@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState } from 'react';
 
 import { clearAccess, REFRESH_RETRY_MS, refreshDelay, refreshExtended, saveAccess } from '../../lib/access';
-import { api, ApiError, type AccessGrant, type AccessKind } from '../../lib/api';
+import { ApiError, type AccessGrant, type AccessKind } from '../../lib/api';
 import { useSignedValue } from '../../lib/signedUrls';
 import { contentFrom, type Content } from './content';
+import { viewerApi } from './hostApi';
 
 /** setTimeout overflows past ~24.8 days; long waits re-check once a day instead. */
 const MAX_TIMER_MS = 24 * 60 * 60 * 1000;
@@ -20,6 +21,8 @@ interface Options {
   /** Both refresh (owner passes cap at u + 12 h). Only unlock tokens are stored. */
   scope: 'unlock' | 'owner';
   onExpired: () => void;
+  /** `404` on refresh: it's gone, or its owner's account is pending deletion (milestone-6 §8.8). */
+  onMissing?: (() => void) | undefined;
 }
 
 interface Unlocked {
@@ -33,19 +36,22 @@ interface Unlocked {
  *   server's cap (`u + unlock_ttl`, password expiry) stops extending it;
  * - stores each new token for the vanity;
  * - `UNLOCK_EXPIRED`, or reaching the expiry, calls `onExpired` (back to the lock screen);
+ * - `404` calls `onMissing`: the content went offline (milestone-6 §8.8);
  * - returns the content to render. Each refresh brings the payload again with freshly
  *   signed URLs; the page keeps the URLs it has until they're about to expire, then
  *   moves to the newest payload, so a refresh never reloads media.
  */
-export function useAccessRefresh(initial: Unlocked, { kind, vanity, scope, onExpired }: Options): Content {
+export function useAccessRefresh(initial: Unlocked, { kind, vanity, scope, onExpired, onMissing }: Options): Content {
   const [fresh, setFresh] = useState(initial);
   const [capped, setCapped] = useState(false);
   const [tick, setTick] = useState(0);
   /** After a failed (network) refresh: when to try again. */
   const [retryAt, setRetryAt] = useState<number | null>(null);
   const expiredRef = useRef(onExpired);
+  const missingRef = useRef(onMissing);
   useEffect(() => {
     expiredRef.current = onExpired;
+    missingRef.current = onMissing;
   });
 
   // Refresh before expiry.
@@ -56,7 +62,7 @@ export function useAccessRefresh(initial: Unlocked, { kind, vanity, scope, onExp
     const id = schedule(
       retryAt ?? Date.now() + refreshDelay(grant.expires_at, Date.now()),
       () => {
-        api
+        viewerApi
           .refreshUnlock(kind, vanity, grant.token)
           .then((response) => {
             if (cancelled) return;
@@ -71,6 +77,9 @@ export function useAccessRefresh(initial: Unlocked, { kind, vanity, scope, onExp
             if (error instanceof ApiError && error.status === 401) {
               if (scope === 'unlock') clearAccess(kind, vanity);
               expiredRef.current();
+            } else if (error instanceof ApiError && error.status === 404) {
+              if (scope === 'unlock') clearAccess(kind, vanity);
+              (missingRef.current ?? expiredRef.current)();
             } else {
               setRetryAt(Date.now() + REFRESH_RETRY_MS);
             }

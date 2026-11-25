@@ -2,6 +2,7 @@ import { useLayoutEffect, useMemo, useRef, useState } from 'react';
 
 import type { AlbumItem } from '../types';
 import { AlbumTile } from './AlbumTile';
+import { LinkedText } from './LinkedText';
 import { itemAspect, justifyRows, targetRowHeight } from './layout';
 
 const GAP = 8;
@@ -47,7 +48,11 @@ export function AlbumGrid({ items, onOpen }: { items: AlbumItem[]; onOpen: (inde
                   height={tile.height}
                   onOpen={onOpen}
                 />
-                {item.caption && <p className="line-clamp-2 text-xs break-words text-muted">{item.caption}</p>}
+                {item.caption && (
+                  <p className="line-clamp-2 text-xs break-words text-muted">
+                    <LinkedText text={item.caption} />
+                  </p>
+                )}
               </li>
             );
           })}

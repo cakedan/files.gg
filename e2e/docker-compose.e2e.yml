@@ -1,10 +1,13 @@
-# Local full stack for the end-to-end test (e2e/README.md): Postgres 19, MinIO standing in for B2,
-# the migrations, the API and `python -m worker`. The Cloudflare Worker runs on the host under
-# `wrangler dev` (started by e2e/up.sh) and reaches the API and MinIO on the loopback ports below.
+# Local full stack for the end-to-end test (e2e/README.md): Postgres 19, MinIO standing in for B2
+# (the files bucket and the Object Lock evidence bucket), the migrations, the API, `python -m worker`,
+# the Milestone 4 `scanner` and `rescanner`, and an offline clamd. The Cloudflare Worker runs on the
+# host under `wrangler dev` (started by e2e/up.sh) and reaches the API and MinIO on the loopback ports
+# below.
 #
 # Don't run this file by hand: e2e/up.sh generates the secrets in e2e/.local/.env and passes it
-# with --env-file. Data lives in Docker named volumes only (no bind mounts: this repo may sit in a
-# synced folder); e2e/down.sh removes them.
+# with --env-file. Data lives in Docker named volumes only (this repo may sit in a synced folder);
+# e2e/down.sh removes them. The one bind mount is ClamAV's test configuration and signature database
+# from api/tests/fixtures/clamav, read-only.
 name: filesgg-e2e
 
 x-api-environment: &api-environment
@@ -28,6 +31,27 @@ x-api-environment: &api-environment
   CDN_URL: http://cdn.files.localhost:${E2E_PORT:-8787}
   ALLOWED_ORIGINS: http://files.localhost:${E2E_PORT:-8787}
   LOG_LEVEL: INFO
+  # Milestone 4 (docs/redesign/contracts/milestone-4.md §13). The stand-in CSAM matcher (benign test
+  # hashes from api/tests/fixtures/standin) only runs with FILESGG_DEV_TOOLS=1; the API refuses to
+  # boot without a matcher, ABUSE_HASH_SECRET and EVIDENCE_PUBLIC_KEY.
+  CSAM_MATCHER: standin
+  FILESGG_DEV_TOOLS: "1"
+  ABUSE_HASH_SECRET: ${ABUSE_HASH_SECRET:?run e2e/up.sh}
+  # X25519 (libsodium) public key the uploader IP is sealed to; up.sh keeps the private half in
+  # e2e/.local/evidence-private.pem
+  EVIDENCE_PUBLIC_KEY: ${EVIDENCE_PUBLIC_KEY:?run e2e/up.sh}
+
+# Only the scanner and rescanner get ClamAV and the evidence bucket (milestone-4 §13). Web Risk is
+# unset, so it's `skipped` (it fails open, §2.6).
+x-scanner-environment: &scanner-environment
+  <<: *api-environment
+  CLAMAV_HOST: clamav
+  CLAMAV_PORT: "3310"
+  # The evidence bucket (Object Lock, created by the `bucket` one-off). MinIO has one key locally; in
+  # production the evidence key can write and copy into it but not read or delete.
+  S3_BUCKET_EVIDENCE: filesgg-evidence
+  S3_EVIDENCE_ACCESS_KEY_ID: filesgg-e2e
+  S3_EVIDENCE_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD:?run e2e/up.sh}
 
 x-api-service: &api-service
   build:
@@ -65,12 +89,16 @@ services:
       # the Worker (wrangler dev, on the host) reads the bucket with SigV4 here
       - 127.0.0.1:${E2E_MINIO_PORT:-19000}:9000
 
-  # One-off: creates the files bucket (boto3 is already in the API image), retrying while MinIO starts.
+  # One-off: creates the files bucket and the evidence bucket, the latter with Object Lock (which
+  # can only be turned on at creation; milestone-4 §3.6). boto3 is already in the API image. Retries
+  # while MinIO starts.
   bucket:
     <<: *api-service
     restart: "no"
     depends_on:
       - minio
+    environment:
+      <<: *scanner-environment
     command:
       - python
       - -c
@@ -81,18 +109,24 @@ services:
                           aws_access_key_id=os.environ['S3_ACCESS_KEY_ID'],
                           aws_secret_access_key=os.environ['S3_SECRET_ACCESS_KEY'],
                           config=Config(s3={'addressing_style': 'path'}))
-        bucket = os.environ['S3_BUCKET_FILES']
+        files, evidence = os.environ['S3_BUCKET_FILES'], os.environ['S3_BUCKET_EVIDENCE']
         for attempt in range(60):
             try:
-                if bucket not in [b['Name'] for b in s3.list_buckets().get('Buckets', [])]:
-                    s3.create_bucket(Bucket=bucket)
-                print('bucket ready:', bucket)
+                existing = [b['Name'] for b in s3.list_buckets().get('Buckets', [])]
                 break
             except Exception as error:
                 print('waiting for minio:', type(error).__name__)
                 time.sleep(1)
         else:
             raise SystemExit('minio never came up')
+        if files not in existing:
+            s3.create_bucket(Bucket=files)
+        if evidence not in existing:
+            s3.create_bucket(Bucket=evidence, ObjectLockEnabledForBucket=True)
+        lock = s3.get_object_lock_configuration(Bucket=evidence)['ObjectLockConfiguration']
+        if lock.get('ObjectLockEnabled') != 'Enabled':
+            raise SystemExit('the evidence bucket {} has no Object Lock; run e2e/down.sh'.format(evidence))
+        print('buckets ready:', files, 'and', evidence, '(Object Lock enabled)')
 
   # One-off: applies the migrations, then exits.
   migrate:
@@ -121,8 +155,9 @@ services:
       retries: 60
 
   # Background jobs (finalising chunked uploads; probe, derive and album collages on the `media`
-  # queue) and the scheduled tasks (the expiry and album reapers). The `worker` target is the API
-  # image plus ffmpeg and poppler (api/Dockerfile).
+  # queue) and the scheduled tasks (the expiry and album reapers, and Milestone 4's sweeper, rescan
+  # scheduler and report closer). The `worker` target is the API image plus ffmpeg, poppler and the
+  # scanning tools, on Python 3.14 (api/Dockerfile).
   worker:
     <<: *api-service
     build:
@@ -139,6 +174,65 @@ services:
         condition: service_completed_successfully
       bucket:
         condition: service_completed_successfully
+
+  # Milestone 4 (§2.2): new uploads stay `pending` until `scan` runs here: blocked hashes, the
+  # stand-in CSAM matcher, PDQ, the NSFW model, ClamAV, and the archive, Office and PDF checks.
+  scanner:
+    <<: *api-service
+    build:
+      context: ../api
+      target: worker
+    image: filesgg-worker:e2e
+    command: ["python", "-m", "worker"]
+    environment:
+      <<: *scanner-environment
+      WORKER_POLL_INTERVAL: "0.5"
+      WORKER_QUEUES: scan
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      bucket:
+        condition: service_completed_successfully
+      clamav:
+        condition: service_healthy
+
+  # Rescans (§2.7): a malware report's immediate ClamAV rescan, and the scheduled ones.
+  rescanner:
+    <<: *api-service
+    build:
+      context: ../api
+      target: worker
+    image: filesgg-worker:e2e
+    command: ["python", "-m", "worker"]
+    environment:
+      <<: *scanner-environment
+      WORKER_POLL_INTERVAL: "0.5"
+      WORKER_QUEUES: rescan
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      bucket:
+        condition: service_completed_successfully
+      clamav:
+        condition: service_healthy
+
+  # ClamAV (§5.2): the same image as docker-compose.yml and docker-compose.test.yml, but offline like
+  # the test compose: no freshclam and no official databases, only the test-only signature database
+  # (EICAR by hash, and a test PUA string), mounted read-only. Never published.
+  clamav:
+    image: clamav/clamav:1.5.5-debian@sha256:85f35b3eee903dbd96c5ca250c5aa13d230d97987c0f876f7d46f001f9414239
+    command: ["clamd", "--foreground", "--config-file=/etc/clamav/clamd-test.conf"]
+    environment:
+      CLAMAV_NO_FRESHCLAMD: "true"
+      CLAMAV_NO_MILTERD: "true"
+    volumes:
+      - ../api/tests/fixtures/clamav/clamd.conf:/etc/clamav/clamd-test.conf:ro
+      - ../api/tests/fixtures/clamav/db:/var/lib/clamav-test:ro
+    healthcheck:
+      test: ["CMD", "clamdscan", "--config-file=/etc/clamav/clamd-test.conf", "--ping", "1"]
+      interval: 2s
+      timeout: 5s
+      retries: 60
 
 volumes:
   postgres-data:

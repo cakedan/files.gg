@@ -7,11 +7,12 @@
  * - Errors: non-2xx responses throw `ApiError` with the `{ code, message, status, ... }`
  *   body, where `code` is a string such as `FILE_TOO_LARGE`.
  *
- * Response shapes follow docs/redesign/contracts/milestone-2.md and milestone-3.md
- * (milestone-3 §0, §3–§5 win): snake_case payloads, times in epoch seconds, and URLs
- * that are ready to use. Fields marked "planned" don't exist on the API yet.
+ * Response shapes follow docs/redesign/contracts/milestone-2.md, milestone-3.md and
+ * milestone-4.md (later milestones win): snake_case payloads, times in epoch seconds,
+ * and URLs that are ready to use. Fields marked "planned" don't exist on the API yet.
  */
 
+import type { AlbumPart, ReportReason } from './reportTypes';
 import { getItem, setItem } from './storage';
 
 export const DEFAULT_API_URL = 'https://api.files.gg';
@@ -223,6 +224,10 @@ export interface Me {
   verified: boolean;
   /** planned: set when a username clashed in the migration and must be re-picked. */
   needs_username?: boolean;
+  /** Milestone 4 (§8.3): present for staff, null otherwise. */
+  staff?: StaffInfo | null;
+  /** Milestone 4 (§8.3): active upload restrictions and suspensions. */
+  restrictions?: Restriction[];
 }
 
 /** `sort_by` (milestone-3 contract §6). `-created` is the default. */
@@ -334,8 +339,13 @@ export interface FilePayload {
   assets?: Partial<Record<PreviewKind, MediaAsset>>;
   thumbnail?: Thumbnail | null;
   hover_url?: string | null;
+  /** Milestone 4 (§4.4): computed from the uploader's mark, the classifier and overrides. */
   nsfw?: boolean;
   views?: number;
+  /** Milestone 4 (§6.1): scan warnings shown to visitors (`encrypted_archive`, …). */
+  warnings?: string[];
+  /** Milestone 4 (§6.1): up to 20 URLs Web Risk flagged. */
+  link_warnings?: string[];
 }
 
 /**
@@ -350,6 +360,8 @@ export interface OwnerFile extends FilePayload {
   password_expires_at: number | null;
   show_name_when_locked: boolean;
   albums: AlbumRef[];
+  /** Milestone 4 (§6.2). A payload without it is treated as `ok`. */
+  safety?: OwnerSafety;
 }
 
 export interface AlbumRef {
@@ -386,6 +398,10 @@ export interface OwnerAlbumSummary {
   /** Epoch seconds. */
   created_at: number;
   updated_at: number;
+  /** Milestone 4: the album's mark or any shown item's (§4.4). */
+  nsfw?: boolean;
+  /** Milestone 4 (§6.2). */
+  safety?: AlbumSafety;
 }
 
 export interface OwnerAlbumItem extends OwnerFile {
@@ -410,6 +426,9 @@ export interface OwnerAlbum extends Omit<OwnerAlbumSummary, 'count'> {
   show_name_when_locked: boolean;
   cover_file_id: string | null;
   items: OwnerAlbumItem[];
+  /** Milestone 4 (§6.2): the explicit mark (`albums.nsfw`), by the owner or staff. */
+  nsfw_marked?: boolean;
+  link_warnings?: string[];
 }
 
 export interface MyAlbumsParams {
@@ -439,9 +458,13 @@ export interface AccessParams {
 export interface PatchFileBody extends AccessParams {
   /** Renames the name only; the extension stays. */
   filename?: string;
+  /** Milestone 4 (§4.5): mark or unmark as sensitive. */
+  nsfw?: boolean;
 }
 
 export interface PatchAlbumBody extends AccessParams {
+  /** Milestone 4 (§4.5): the album's own mark. */
+  nsfw?: boolean;
   title?: string;
   description?: string;
   layout?: AlbumLayout;
@@ -474,6 +497,8 @@ export interface MyLimitsResponse {
   album_max_files?: number;
   /** Milestone 3: 1000, or null anonymous. */
   albums_max?: number | null;
+  /** Milestone 4 (§13): true signed in and not restricted, false anonymous. */
+  nsfw_allowed?: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -524,10 +549,14 @@ export interface UploadParams {
   turnstile_token?: string;
   /** Milestone 3: append to one of your albums (by vanity) once stored. */
   album?: string;
+  /** Milestone 4 (§4.3): adult content. Signed in only. */
+  nsfw?: boolean;
 }
 
 /** `POST /files` response, and `file` in a completed upload session: the file payload plus a generated password. */
 export interface UploadedFile extends FilePayload {
+  /** Milestone 4 (§6.2): upload responses carry the owner `safety` too. */
+  safety?: OwnerSafety;
   /** Only with `generate_password`, shown once. */
   password?: string;
   /** `https://files.gg/<vanity>#pw=<password>`, only with `generate_password`. */
@@ -552,7 +581,188 @@ export interface UploadStatus {
   error?: string;
 }
 
+// ---------------------------------------------------------------------------
+// Milestone 4: trust & safety (milestone-4 contract §6–§8). The admin calls (§9)
+// live in src/app/admin/adminApi.ts, so they ship in the admin chunk only.
+// ---------------------------------------------------------------------------
+
+/** The owner's effective file state (§2.4, §6.2). `flagged` is public; owners only see its `warnings`. */
+export type SafetyState = 'ok' | 'pending' | 'flagged' | 'hidden' | 'removed' | 'blocked';
+export type NsfwSource = 'uploader' | 'auto' | 'moderator' | 'reports';
+export type NsfwReview = 'none' | 'open' | 'done';
+
+/** `safety` on owner files and upload responses (§6.2). */
+export interface OwnerSafety {
+  state: SafetyState;
+  /**
+   * The rule (§8.1) for `hidden` and `removed` (`review` when held or auto-hidden), the
+   * scan reason code (§2.3) for `flagged` and `blocked`. CSAM only ever shows `review`
+   * or `FILE_BLOCKED`.
+   */
+  reason: string | null;
+  /** The notice explaining it, when there is one. */
+  notice_id: string | null;
+  nsfw_source: NsfwSource | null;
+  /** True when the uploader can't unmark (§4.5). */
+  nsfw_locked: boolean;
+  nsfw_review: NsfwReview;
+}
+
+export interface AlbumSafety {
+  state: 'ok' | 'hidden' | 'removed';
+  reason: string | null;
+  notice_id: string | null;
+}
+
+/** `reason` in `410 UPLOAD_REJECTED` (§2.5, §11.2). */
+export const UPLOAD_REJECTION_REASONS = [
+  'NSFW_REQUIRES_ACCOUNT',
+  'ENCRYPTED_ARCHIVE_REQUIRES_ACCOUNT',
+  'ENCRYPTED_PDF_REQUIRES_ACCOUNT',
+  'MALWARE_DETECTED',
+  'FILE_TYPE_NOT_ALLOWED',
+  'FILE_BLOCKED',
+] as const;
+export type UploadRejectionReason = (typeof UPLOAD_REJECTION_REASONS)[number];
+
+export interface StaffInfo {
+  role: 'moderator' | 'admin';
+  child_safety: boolean;
+}
+
+/** §8.3 / §8.4. `until` is epoch seconds, or null until lifted. */
+export interface Restriction {
+  kind: 'uploads' | 'suspended';
+  until: number | null;
+  notice_id?: string | null;
+}
+
+/** `GET /users/@me/badges` (§8.3). */
+export interface Badges {
+  reports_unread: number;
+  notices_unacknowledged: number;
+  restrictions: Restriction[];
+  /** Staff only; `p0` counts child-safety P0s only for child-safety staff. */
+  staff: { open: number; p0: number; mine: number } | null;
+}
+
+// ---- Reports (§7) ----
+
+export { REPORT_REASONS, type AlbumPart, type DmcaNotice, type ReportReason } from './reportTypes';
+
+export const REPORT_STATUSES = ['open', 'resolved', 'dismissed'] as const;
+export type ReportStatus = (typeof REPORT_STATUSES)[number];
+export type ReportKind = 'file' | 'album' | 'user' | 'bug';
+
+/** The reporter's view of the target: never the uploader, the filename or its state (§7.5). */
+export interface ReportTarget {
+  type: ReportKind;
+  vanity?: string | null;
+  /** User reports. */
+  id?: string | null;
+  url: string | null;
+  part: AlbumPart | null;
+}
+
+/** A report as its (signed-in) reporter sees it (§7.5). */
+export interface Report {
+  id: string;
+  kind: ReportKind;
+  target: ReportTarget;
+  reason: ReportReason;
+  status: ReportStatus;
+  /** 30 days after `resolved_at`: read only. */
+  closed: boolean;
+  /** `csam` reports: staff never post details into the thread. */
+  escalated: boolean;
+  can_reopen: boolean;
+  unread: number;
+  created_at: number;
+  updated_at: number;
+  resolved_at: number | null;
+  last_message_at: number | null;
+}
+
+export interface ReportMessage {
+  id: string;
+  /** Staff always show as "files.gg staff" (§7.6). */
+  author: 'you' | 'staff';
+  body: string;
+  created_at: number;
+}
+
+export interface MyReportsParams {
+  status?: ReportStatus | undefined;
+  /** Matches the target vanity or URL. */
+  query?: string | undefined;
+  offset?: number | undefined;
+  /** 1–100, default 25. */
+  limit?: number | undefined;
+}
+
+export interface MyReportsResponse {
+  count: number;
+  items: Report[];
+}
+
+// ---- Notices and appeals (§8) ----
+
+export type AppealState = 'none' | 'open' | 'granted' | 'denied';
+
+export interface Notice {
+  id: string;
+  /** The moderation action (`hide`, `remove`, `scan_block`, `suspend_user`, …). */
+  action: string;
+  rule: string;
+  /** Null for rules that are never shown (CSAM). */
+  rule_text: string | null;
+  message: string | null;
+  target: { kind: 'file' | 'album' | 'account'; id: string; vanity?: string | null; name?: string | null };
+  created_at: number;
+  acknowledged_at: number | null;
+  appeal: {
+    state: AppealState;
+    can_appeal: boolean;
+    appealed_at: number | null;
+    decided_at: number | null;
+    /** Staff's reply to a decided appeal. */
+    message: string | null;
+  };
+}
+
+export interface NoticesParams {
+  unacknowledged?: boolean | undefined;
+  offset?: number | undefined;
+  limit?: number | undefined;
+}
+
+export interface NoticesResponse {
+  count: number;
+  unacknowledged: number;
+  items: Notice[];
+}
+
+/** 17 U.S.C. § 512(g)(3): required to appeal a `copyright` notice (§8.2). */
+export interface CounterNotice {
+  name: string;
+  address: string;
+  phone: string;
+  email: string;
+  /** What was removed and where it was. */
+  material: string;
+  mistake_statement: true;
+  jurisdiction_consent: true;
+  service_consent: true;
+  signature: string;
+}
+
+export interface AppealBody {
+  message: string;
+  counter_notice?: CounterNotice;
+}
+
 const fileUrl = (id: string) => `/users/@me/files/${encodeURIComponent(id)}`;
+const reportUrl = (id: string) => `/users/@me/reports/${encodeURIComponent(id)}`;
 const albumUrl = (id: string) => `/users/@me/albums/${encodeURIComponent(id)}`;
 
 export const api = {
@@ -622,4 +832,36 @@ export const api = {
   completeUpload: (id: string) =>
     request<{ status: UploadSessionStatus }>(`/uploads/${encodeURIComponent(id)}/complete`, { method: 'POST' }),
   abortUpload: (id: string) => request<void>(`/uploads/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+
+  // Milestone 4: owner safety and NSFW (§6.2, §4.5)
+  /** `410 UPLOAD_REJECTED { reason }` for 24 h after a rejection (§2.5). */
+  myFile: (id: string, signal?: AbortSignal) => request<OwnerFile>(fileUrl(id), { signal }),
+  setFileNsfw: (id: string, nsfw: boolean) => request<OwnerFile>(fileUrl(id), { method: 'PATCH', body: { nsfw } }),
+  /** At most 100 ids; ids you don't own, or can't unmark, are skipped. */
+  setFilesNsfw: (fileIds: string[], nsfw: boolean) =>
+    request<{ items: OwnerFile[]; skipped: string[] }>('/users/@me/files/nsfw', { method: 'POST', body: { file_ids: fileIds, nsfw } }),
+  /** `202`; once per file (`409 APPEAL_NOT_ALLOWED` after). */
+  requestNsfwReview: (id: string, message?: string) =>
+    request<void>(`${fileUrl(id)}/nsfw-review`, { method: 'POST', body: message ? { message } : {} }),
+  badges: (signal?: AbortSignal) => request<Badges>('/users/@me/badges', { signal }),
+
+  // Reports (§7); sending one is `sendReport` in reports.ts (the viewer's report chunk).
+  myReports: (params: MyReportsParams = {}, signal?: AbortSignal) =>
+    request<MyReportsResponse>('/users/@me/reports', { query: { limit: 25, ...params }, signal }),
+  myReport: (id: string, signal?: AbortSignal) => request<Report>(reportUrl(id), { signal }),
+  /** Oldest first. Marks the report read. */
+  reportMessages: (id: string, signal?: AbortSignal) =>
+    request<{ items: ReportMessage[] }>(`${reportUrl(id)}/messages`, { signal }),
+  sendReportMessage: (id: string, body: string) =>
+    request<ReportMessage>(`${reportUrl(id)}/messages`, { method: 'POST', body: { body } }),
+  /** Only from `dismissed`, once, within 14 days (`409 REOPEN_NOT_ALLOWED`). */
+  reopenReport: (id: string) => request<Report>(reportUrl(id), { method: 'PATCH', body: { status: 'open' } }),
+
+  // Notices and appeals (§8)
+  notices: (params: NoticesParams = {}, signal?: AbortSignal) =>
+    request<NoticesResponse>('/users/@me/warnings', { query: { ...params }, signal }),
+  acknowledgeNotices: (ids: string[]) =>
+    request<{ acknowledged: string[] }>('/users/@me/warnings/acknowledge', { method: 'POST', body: { ids } }),
+  appealNotice: (id: string, body: AppealBody) =>
+    request<Notice>(`/users/@me/warnings/${encodeURIComponent(id)}/appeal`, { method: 'POST', body }),
 };

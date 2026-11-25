@@ -1,7 +1,7 @@
 import json
 
 from sanic.response import HTTPResponse
-from werkzeug.http import HTTP_STATUS_CODES
+from http import HTTPStatus
 
 JSON = 'application/json'
 
@@ -42,6 +42,13 @@ STATUS_MESSAGES = {
 }
 
 
+def _phrase(status):
+    try:
+        return HTTPStatus(status).phrase
+    except ValueError:
+        return 'Error'
+
+
 class ApiError(Exception):
     """Raised anywhere in a request; rendered as `{**details, "code", "message", "status"}`.
     Every code is an UPPER_SNAKE string (contract milestone-3 §0)."""
@@ -57,7 +64,7 @@ class ApiError(Exception):
         if message is not None:
             self.message = message
         elif self.message is None:
-            self.message = STATUS_MESSAGES.get(self.status) or HTTP_STATUS_CODES.get(self.status, 'Error')
+            self.message = STATUS_MESSAGES.get(self.status) or _phrase(self.status)
 
         if kwargs.get('code') is not None:
             self.code = kwargs.get('code')

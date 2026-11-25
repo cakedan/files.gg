@@ -1,5 +1,6 @@
 import type { RouteObject } from 'react-router';
 
+import { AdminGate } from './AdminGate';
 import { DashboardLayout } from './DashboardLayout';
 import {
   AlbumEditorPage,
@@ -8,8 +9,10 @@ import {
   FilesPage,
   IntegrationsPage,
   NotFoundPage,
+  NoticePage,
   NoticesPage,
   OverviewPage,
+  ReportPage,
   ReportsPage,
   SettingsPage,
   UploadPage,
@@ -32,7 +35,11 @@ export const routes: RouteObject[] = [
       { path: 'integrations', element: <IntegrationsPage /> },
       { path: 'settings', element: <SettingsPage /> },
       { path: 'reports', element: <ReportsPage /> },
+      { path: 'reports/:id', element: <ReportPage /> },
       { path: 'notices', element: <NoticesPage /> },
+      { path: 'notices/:id', element: <NoticePage /> },
+      // Staff only; a lazy chunk with its own routes (milestone-4 §11.3).
+      { path: 'admin/*', element: <AdminGate /> },
       { path: '*', element: <NotFoundPage /> },
     ],
   },

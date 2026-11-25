@@ -136,3 +136,57 @@ describe('AlbumTile assets', () => {
     expect(screen.getByText('new.mp4')).toBeInTheDocument();
   });
 });
+
+describe('warned items put album downloads behind the confirmation (security review W2)', () => {
+  const warned = () => album({ items: [item(1), item(2, { warnings: ['unwanted_software'] })] });
+
+  it('asks before Download all, and only checks and downloads after confirming', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(null, { status: 200 }));
+    vi.stubGlobal('fetch', fetchMock);
+    const download = vi.spyOn(browser, 'download').mockImplementation(() => undefined);
+    render(<AlbumPage album={warned()} />);
+    fireEvent.click(screen.getByRole('link', { name: /download all/i }));
+    const dialog = screen.getByRole('alertdialog', { name: 'Download this file?' });
+    expect(fetchMock).not.toHaveBeenCalled();
+    fireEvent.click(within(dialog).getByRole('button', { name: /download anyway/i }));
+    await flush();
+    expect(fetchMock).toHaveBeenCalledWith(ZIP, expect.objectContaining({ method: 'HEAD' }));
+    expect(download).toHaveBeenCalledWith(ZIP);
+  });
+
+  it('asks on a middle click and a modified click too', () => {
+    vi.stubGlobal('fetch', vi.fn());
+    render(<AlbumPage album={warned()} />);
+    const link = screen.getByRole('link', { name: /download all/i });
+    fireEvent(link, new MouseEvent('auxclick', { bubbles: true, cancelable: true, button: 1 }));
+    expect(screen.getByRole('alertdialog', { name: 'Download this file?' })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+    fireEvent.click(link, { ctrlKey: true });
+    expect(screen.getByRole('alertdialog', { name: 'Download this file?' })).toBeInTheDocument();
+  });
+
+  it('an album with no warned items downloads without asking', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(null, { status: 200 })));
+    const download = vi.spyOn(browser, 'download').mockImplementation(() => undefined);
+    render(<AlbumPage album={album()} />);
+    fireEvent.click(screen.getByRole('link', { name: /download all/i }));
+    await flush();
+    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
+    expect(download).toHaveBeenCalledWith(ZIP);
+  });
+
+  it('in the "too large" panel, only the warned item asks', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(null, { status: 413 })));
+    render(<AlbumPage album={{ ...warned(), total_size: 10 }} />);
+    // the album-level confirmation comes first, then the 413 panel
+    fireEvent.click(screen.getByRole('link', { name: /download all/i }));
+    fireEvent.click(within(screen.getByRole('alertdialog')).getByRole('button', { name: /download anyway/i }));
+    const panel = await screen.findByRole('status');
+    const plain = within(panel).getByRole('link', { name: 'Download photo-1.png' });
+    const plainClick = new MouseEvent('click', { bubbles: true, cancelable: true });
+    plain.dispatchEvent(plainClick);
+    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
+    fireEvent.click(within(panel).getByRole('link', { name: 'Download photo-2.png' }));
+    expect(screen.getByRole('alertdialog', { name: 'Download this file?' })).toBeInTheDocument();
+  });
+});

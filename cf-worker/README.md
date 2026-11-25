@@ -6,6 +6,7 @@ The contracts it implements:
 - `web/README.md`, "Worker contract": the viewer shell;
 - `docs/redesign/contracts/milestone-3.md` §0 and §3-5: signed CDN URLs, the CDN paths (files, previews, album collages and ZIPs), the internal lookups, snake_case payloads and embeds. These override `milestone-2.md` (its `?t=` tokens and GCS fallback are gone);
 - `docs/redesign/contracts/milestone-2.md`: storage and the locked states;
+- `docs/redesign/contracts/milestone-4.md` §10 (with §2.3, §2.4, §4.6, §6.3, §14.1): the scanning and moderation states, NSFW, the report routes, the staff grant and `security.txt`;
 - `docs/redesign/PLAN.md`, "Hardening cdn.files.gg".
 
 There is no backward compatibility (milestone-3.md §0): the old Mithril frontend, the CDN's raw GCS route, the GCS fallback and `?t=` tokens are gone.
@@ -14,8 +15,8 @@ There is no backward compatibility (milestone-3.md §0): the old Mithril fronten
 
 | Route | Code | What it does |
 |---|---|---|
-| `files.gg/*` | `worker/domains/stable.js`, `worker/shell.js` | The viewer and dashboard from `web/dist`, the viewer shell with inlined boot data, bot/embed redirects and the `/api/*` passthrough. |
-| `cdn.files.gg/*` | `worker/domains/cdn.js`, `worker/storage.js`, `worker/utils/media.js`, `worker/utils/signing.js`, `worker/utils/zip.js` | Files, previews, album collages and "Download all" ZIPs from B2, after the signed-URL check, under the hardening rules below. |
+| `files.gg/*` | `worker/domains/stable.js`, `worker/shell.js` | The viewer and dashboard from `web/dist`, the viewer shell with inlined boot data, report pages, `security.txt`, bot/embed redirects and the `/api/*` passthrough. |
+| `cdn.files.gg/*` | `worker/domains/cdn.js`, `worker/storage.js`, `worker/utils/media.js`, `worker/utils/safety.js`, `worker/utils/signing.js`, `worker/utils/zip.js` | Files, previews, album collages and "Download all" ZIPs from B2, after the staff-grant, signed-URL and safety checks, under the hardening rules below; and `security.txt`. |
 | `api.files.gg/*` | `worker/domains/api.js` | Passthrough to the API origin, with the origin secret and credentialed CORS. |
 | `proxy.files.gg/*` | `worker/domains/proxy.js` | `/download/<url>` and `/unfurl/<url>`. Only callers that hold `PROXY_SECRET` can use it. |
 
@@ -28,50 +29,66 @@ There is no backward compatibility (milestone-3.md §0): the old Mithril fronten
 3. **`/assets/*`** comes from `web/dist`, cached as immutable for a year. `.mjs` and `.js` are served as `text/javascript`, and `.wasm` as `application/wasm`. A path missing from `web/dist` is a 404.
 4. **`/app` and `/app/*`** serve `app.html` with `Cache-Control: no-cache`.
 5. **`/`** is the `home` page, and **`/convert`** is the `convert` page.
-6. **`/a/<vanity>` and `/a/<vanity>/<n>`** are albums.
-7. **`/<vanity>` and `/<vanity>.<anything>`** are files, multi-segment vanities included. The old frontend's paths (`/auth`, `/dashboard`, `/details`, `/legal`, `/options`) are ordinary vanity lookups now.
+6. **Report pages** (milestone-4.md §10.1), always 200 with `Cache-Control: no-cache`, the default meta tags, and no lookup (they never say whether the target exists):
+   - `/report` → `#report-data` `{ "type": "any" }`;
+   - `/a/<vanity>/report` (and `/a/<vanity>/<n>/report`) → `{ "type": "album", "vanity" }`;
+   - `/<vanity>[.<ext>]/report` → `{ "type": "file", "vanity" }`, the vanity being everything before `/report` minus any extension.
+7. **`/.well-known/security.txt`** from `web/dist`, as `text/plain; charset=utf-8`, cached for a day.
+8. **`/a/<vanity>` and `/a/<vanity>/<n>`** are albums.
+9. **`/<vanity>` and `/<vanity>.<anything>`** are files, multi-segment vanities included. The old frontend's paths (`/auth`, `/dashboard`, `/details`, `/legal`, `/options`) are ordinary vanity lookups now. `report` is a reserved segment (the API's `blacklisted_ids`, case-insensitive), so a vanity containing it (`/report.png`, `/x/report/y`) is `missing` without a lookup.
 
 ### The viewer shell
 
 The Worker fetches `viewer.html` from the `ASSETS` binding and rewrites it with `HTMLRewriter`:
 - it sets `data-page` and `data-state` on `#root`;
-- it inserts `<script id="file-data">` or `<script id="album-data">` after `#root`, escaping `<`, `>`, `&`, U+2028 and U+2029 as `\uXXXX`;
+- it inserts `<script id="file-data">`, `<script id="album-data">` or `<script id="report-data">` after `#root`, escaping `<`, `>`, `&`, U+2028 and U+2029 as `\uXXXX`;
 - it replaces everything between the `filesgg:meta` markers with the file's own meta tags, using `property=` for `og:*`.
 
 The rules live in `worker/utils/viewer.js`:
 
 | Case | `data-page` / `data-state` | Boot JSON | HTTP |
 |---|---|---|---|
-| `link` file | `file` / `file` | the file payload | 200 |
-| `password` file | `file` / `locked` | `{vanity, protected, filename?, password_expired?}` | 200 |
-| `private`, unknown, deleted or expired file | `file` / `missing` | `null` | 404 |
+| `link` file (`ok`) | `file` / `file` | the file payload (NSFW ones with `nsfw: true`) | 200 |
+| `password` file (`ok`) | `file` / `locked` | `{vanity, protected, filename?, password_expired?}` | 200 |
+| `private`, unknown, deleted or expired file; a `blocked` file in any visibility | `file` / `missing` | `null` | 404 |
+| `pending` file (or a lookup without `safety`), not private | `file` / `pending` | `{vanity, pending: true}` | 200 (`private, no-store`) |
+| `hidden` or `removed` file, not private | `file` / `removed` | `{vanity, removed: "review" \| "terms" \| "copyright" \| "malware"}` | **410** |
 | API down, timed out or 5xx | `file` / `unavailable` | none | 503 (`private, no-store`) |
-| `link` album with shown items | `album` / `album` | the album, with only its `link` items (milestone-3.md §4) and no expired ones | 200 |
+| `link` album with shown items | `album` / `album` | the album, with only its `link` items (milestone-3.md §4) and no expired ones; `nsfw: true` and no `collage` when it's marked or a shown item is NSFW | 200 |
 | `password` album | `album` / `locked` | `{vanity, protected, title?}` | 200 |
+| `hidden` or `removed` album, not private | `album` / `removed` | `{vanity, removed}` | **410** |
+| Album with nothing shown and `pending_count > 0` (or no `safety`), not private | `album` / `pending` | `{vanity, pending: true}` | 200 (`private, no-store`) |
 | Album that's private, missing or empty | `album` / `missing` | none | 404 |
+| Report page | `report` / (none) | `#report-data` | 200 |
 
-- **Meta tags:** locked pages get generic ones ("Password-protected file · files.gg"), with no name, image or video. Home, convert, missing and unavailable pages keep `viewer.html`'s defaults. Otherwise (milestone 3), with URLs exactly as the API wrote them in `cdn_url`, `assets`, `thumbnail`, `cover` and `collage` (payloads are snake_case, times in epoch seconds):
+- **Decision order** (milestone-4.md §10.1, first match wins): unavailable; missing or expired; `blocked` (looks missing); private; `pending`; `hidden` or `removed`; password (locked); otherwise the file. Albums: unavailable; missing or expired; private; hidden or removed; pending; password; link. A `hidden` password file is therefore `removed`, not `locked`. The `pending` and `removed` shells carry only the vanity and the state, never the name.
+- **States** come from the lookup's `safety` (`worker/utils/safety.js`). A lookup without `safety`, or with a state the Worker doesn't know, is `pending` (fail closed). Unknown public reasons become `review` (hidden) or `terms` (removed).
+- **`serve_inline: false`** (or missing): the boot payload gets `kind: "file"` and loses `assets`, `thumbnail` and `hover_url`, since the CDN won't serve them.
+
+- **Meta tags:** locked pages get generic ones ("Password-protected file · files.gg"), with no name, image or video; so do `pending` ("Checking this file · files.gg", or "this album") and `removed` ("This file was removed · files.gg", "This album was removed · files.gg"). Report pages keep `viewer.html`'s defaults. Home, convert, missing and unavailable pages keep `viewer.html`'s defaults. Otherwise (milestone 3), with URLs exactly as the API wrote them in `cdn_url`, `assets`, `thumbnail`, `cover` and `collage` (payloads are snake_case, times in epoch seconds):
   - image: the file itself (`cdn_url`), or `assets.display` for a non-browser image (HEIC, TIFF…);
   - video: `og:image` = the poster with its dimensions, plus `og:video` with the video's (only when `media.playable` isn't `false`);
   - audio: `og:audio`, and `og:image` = the cover, else the waveform;
   - PDF: the first-page `thumb-2x`, else `thumb`; anything else: its `thumbnail`, else `/og-image.png`;
   - album: `og:title` "*Title* · N files" (an untitled audio album uses its album tag), `og:image` = the collage, or the cover for an all-audio album (or when there is no collage);
   - `nsfw: true` (a file, an album, or any shown item of it): no image, video or audio, and "Sensitive content".
-- **Headers:** every shell is served as `text/html; charset=utf-8` with `Cache-Control: no-cache`, the viewer CSP (web/README.md §6, plus Turnstile and `api.files.gg`) and `nosniff`.
+- **Headers:** every shell is served as `text/html; charset=utf-8` with `Cache-Control: no-cache` (`private, no-store` for `pending` and `unavailable`), the viewer CSP (web/README.md §6, plus Turnstile and `api.files.gg`) and `nosniff`.
 - **TODO (Milestone 3):** `app.html` is served without a CSP. It needs its own, like the viewer's.
-- **Bot redirects:** ShareX, Telegram, requests without `Accept-Language` or `Accept`, and `Accept: <type>/*` are redirected to the file's `cdn_url`, but only for `link` files. Password and private files get the locked or missing shell.
+- **Bot redirects:** ShareX, Telegram, requests without `Accept-Language` or `Accept`, and `Accept: <type>/*` are redirected to the file's `cdn_url`, but only for `ok` `link` files that aren't NSFW. NSFW files never redirect, for any user agent (milestone-4.md §4.6): the page's text card is all an embed gets. Password and private files get the locked or missing shell.
 
-### Internal lookups (milestone-3.md §5)
+### Internal lookups (milestone-3.md §5, milestone-4.md §6.3)
 
-The Worker asks the API for `GET /internal/files/<vanity>` and `GET /internal/albums/<vanity>`, sending `X-Filesgg-Origin-Secret`. Every page and every CDN path names a vanity; there are no lookups by id.
-- **`/internal/files/<vanity>`:** `file` (the payload, unsigned), `access`, `owner_user_id`, `albums` (`[{ id, vanity, access_version }]`, the albums the file is shown in), `storage` (`{ key, size }`), `previews` (`{ "<kind>": { key, content_type, size } }`) and `previews_version`.
-- **`/internal/albums/<vanity>`:** `album` (unsigned), `access`, `items_access`, `items_storage` (`{ "<file id>": { key, size, filename } }`) and `collage` (`{ key, version }` or `null`).
-- **Caching:** results are cached for 30 s with the Cache API, keyed by kind and vanity. Unknown ones are cached too, as negative entries. 5xx responses and timeouts (8 s) aren't cached.
+The Worker asks the API for `GET /internal/files/<vanity>` and `GET /internal/albums/<vanity>`, sending `X-Filesgg-Origin-Secret` and `X-Filesgg-Internal-Lookup: 1` (the API needs both; the lookup header is stripped from every forwarded request, and both passthroughs answer 404 for `/internal` paths). Every page and every CDN path names a vanity; there are no lookups by id.
+- **`/internal/files/<vanity>`:** `file` (the payload, unsigned), `access`, `owner_user_id`, `albums` (`[{ id, vanity, access_version }]`, the albums the file is shown in), `storage` (`{ key, size }`), `previews` (`{ "<kind>": { key, content_type, size } }`), `previews_version`, `safety` (`{ state: "ok" | "pending" | "hidden" | "removed" | "blocked", reason }`, `reason` being the public one for hidden and removed) and `serve_inline`. Hash-matched CSAM answers 404, exactly like an unknown vanity.
+- **`/internal/albums/<vanity>`:** `album` (unsigned), `access`, `items_access`, `items_storage` (`{ "<file id>": { key, size, filename } }`), `collage` (`{ key, version }` or `null`), `safety` (`{ state: "ok" | "hidden" | "removed", reason }`) and `pending_count`. Only `ok` items are listed; an album with nothing to show but `pending_count > 0` is returned with `album.items: []`.
+- **Caching:** results are cached for 5 s with the Cache API, keyed by kind and vanity (cache key version `v4`). Unknown ones are cached too, as negative entries. 5xx responses and timeouts (8 s) aren't cached.
 - **Without `ORIGIN_SHARED_SECRET`:** every page is `unavailable`, never `missing`, so a misconfiguration doesn't look like deleted files.
 
 ### cdn.files.gg (milestone-3.md §3)
 
-These four shapes are the only URLs it serves. Anything else is a 404 without a lookup (other methods: 405), and `OPTIONS` on one of them is a 204 preflight without a lookup.
+These four shapes, plus `/.well-known/security.txt` (from `web/dist`, as `text/plain; charset=utf-8`, with the CDN security headers), are the only URLs it serves. Anything else is a 404 without a lookup (other methods: 405), and `OPTIONS` on one of them is a 204 preflight without a lookup.
+
+Per request (milestone-4.md §10.2): **parse → lookup (404 / 503) → staff grant → access check (signature) → safety state → serve**.
 
 | Path | What |
 |---|---|
@@ -102,6 +119,34 @@ signature = base64url_nopad( HMAC-SHA256( CDN_SIGNING_SECRET,
 - Changing a password or access bumps `access_version`, which breaks every URL signed before it.
 - `?t=` tokens aren't read at all.
 
+#### Safety states (milestone-4.md §10.2)
+
+After the access check, so a protected file's state never leaks to someone without access:
+
+| Lookup `safety.state` | `/files/…` and `/previews/…` |
+|---|---|
+| `ok` | served |
+| `pending` (or no `safety`) | `404`, `private, no-store` |
+| `hidden`, `removed` | `410`, `private, no-store` |
+| `blocked` | `404`, `private, no-store` |
+
+- **`serve_inline: false`** (or missing) forces `Content-Disposition: attachment` on the file, staff URLs included, and every preview is a 404.
+- **Albums:** a `hidden` or `removed` album answers `410` (`private, no-store`) for its collage and ZIP, after its own access check; one without `safety` answers 404. Nothing shown while items are pending is a 404 with `private, no-store`. The ZIP contains only the items in the lookup, which are only `ok` ones; an item carrying any other state is skipped as well.
+- **NSFW** changes nothing on the CDN.
+- Nothing is read from the edge cache or B2 for a refused state.
+
+#### The staff grant (milestone-4.md §10.3)
+
+```
+https://cdn.files.gg/files/abc123.png?staff=<staff user id>&expires=<expires>&sig=<signature>
+grant = "staff:" + <staff user id> + ":" + <file id from the lookup>
+```
+
+- Same formula and secret, signed for one path, for `/files/…` and `/previews/…` only. Valid when the signature matches, `expires > now` and **`expires <= now + 600`**.
+- A valid staff URL skips the access and safety checks (private, pending, hidden, removed and non-CSAM blocked content). Hash-matched CSAM is never in a lookup, so there is nothing to serve. `serve_inline: false` still forces `attachment`.
+- Always `private, no-store`, and never written to the edge cache.
+- An invalid one is treated like any other bad signature: the request falls through to the normal access check (401 for password files, 404 for private ones; ignored on `link` files, which then answer for their state).
+
 #### Bytes
 
 - **Edge cache:** whole-object `GET`s are served from the edge cache, keyed by the storage key; previews and collages add their version (`previews_version`, `collage.version`) because a re-derive rewrites the same key.
@@ -114,7 +159,7 @@ signature = base64url_nopad( HMAC-SHA256( CDN_SIGNING_SECRET,
 
 #### "Download all" (`/albums/download/<vanity>.zip`)
 
-The shown items in album order (`items_storage` gives each one's key, size and filename; a paginated payload adds the rest of `items_storage`, with the same visibility rule). An album with nothing to show is a 404. `worker/utils/zip.js` streams it:
+The shown items in album order (`items_storage` gives each one's key, size and filename; a paginated payload adds the rest of `items_storage`, with the same visibility rule). Only `ok` items are listed by the API, so pending, hidden, removed and blocked items are never in a ZIP; NSFW items are. An album with nothing to show is a 404; a hidden or removed album a 410. `worker/utils/zip.js` streams it:
 - store mode, bit 3 data descriptors with the CRC-32 computed while streaming (slice-by-8, about 1.5 GB/s, so a 2 GiB album costs about 1.5 s of CPU), bit 11 UTF-8 names, no ZIP64;
 - names cleaned like CDN filenames, with `/` and `\` replaced by `_`, and duplicates (case-insensitive) numbered `name (2).ext`;
 - items are read one at a time, only as the client reads, with a plain `GET` (no client `Range`), from the edge cache when there but never written to it;
@@ -160,8 +205,8 @@ Bindings come from `env`. Set secrets with `npx wrangler secret put <NAME>`, and
 
 | Name | Kind | Required | Purpose |
 |---|---|---|---|
-| `ORIGIN_SHARED_SECRET` | secret | **yes** | Must equal the API's. Sent as `X-Filesgg-Origin-Secret` on internal lookups. On API passthrough requests it is sent with `X-Filesgg-Client-Ip` (from `CF-Connecting-IP`), and client-sent copies of both headers are removed. Unset: pages are `unavailable` and the CDN returns 503. |
-| `CDN_SIGNING_SECRET` | secret | **yes**, for protected files and albums | Must equal the API's `CDN_SIGNING_SECRET`. Verifies signed CDN URLs (`expires` and `sig`); the Worker never signs. Unset: every signed URL is rejected (401 or 404), and `link` files are unaffected. Rotating it invalidates every signed URL in circulation. |
+| `ORIGIN_SHARED_SECRET` | secret | **yes** | Must equal the API's. Sent as `X-Filesgg-Origin-Secret` on internal lookups. On API passthrough requests it is sent with `X-Filesgg-Client-Ip` (from `CF-Connecting-IP`), and client-sent copies of these headers (and of `X-Filesgg-Internal-Lookup`) are removed. Unset: pages are `unavailable` and the CDN returns 503. |
+| `CDN_SIGNING_SECRET` | secret | **yes**, for protected files and albums | Must equal the API's `CDN_SIGNING_SECRET`. Verifies signed CDN URLs (`expires` and `sig`), staff URLs (`staff=`) included; the Worker never signs. Unset: every signed URL is rejected (401 or 404), and `link` files are unaffected. Rotating it invalidates every signed URL in circulation. |
 | `S3_READ_ACCESS_KEY_ID` | secret | yes, for B2 | A B2 application key id with **`readFiles` only**, scoped to the files bucket. Never the API's write key. |
 | `S3_READ_SECRET_ACCESS_KEY` | secret | yes, for B2 | Its secret. |
 | `S3_ENDPOINT` | var | yes, for B2 | B2's S3 endpoint, for example `https://s3.us-west-004.backblazeb2.com` (path-style requests). |
@@ -179,18 +224,19 @@ To rotate `ORIGIN_SHARED_SECRET` or `CDN_SIGNING_SECRET`, set the new value on t
 ## Tests
 
 - **Unit tests** (`test/*.test.js`) cover the pure modules in `worker/utils/`:
+  - trust and safety (`test/safety.test.js`): the lookup states, the file and album shells per state (milestone-4.md §14.3), NSFW redirects and og tags, `serve_inline`, the report routes and reserved segment, and the staff grant's §14.1 vectors, its 600 s cap and expiry;
   - signed URLs (`test/signing.test.js`): the contract's §3 test vectors (and the stale-version one that must be rejected), checked against the Worker and against an independent Node `crypto` signer, plus single-path validity, grants, `album=` rules, expiry and the 31-day cap, and malformed `expires` and `sig`;
   - CDN path parsing (`test/media.test.js`): multi-segment vanities, a vanity named like a kind, wrong extensions, unknown kinds, extra segments; the preview types and the ZIP plan;
   - the ZIP writer (`test/zip.test.js`): CRC-32 against zlib across chunk boundaries, and archives opened by JSZip with CRC checks on and by Info-ZIP `unzip -t` (skipped when the system has none);
   - the shell decisions, escaping, meta tags (milestone 3 embeds included), CSP and routing order;
   - filename sanitizing, dispositions, CDN headers, CORS, the origin-secret headers, the proxy check and bot routing.
 - **Integration tests** (`test/integration/*.test.js`) run the real Worker with Wrangler's `createTestHarness` (workerd). They run against two local mocks:
-  - the API: internal lookups by vanity that check the secret, with snake_case payloads whose URLs are unsigned (files with previews, albums with `items_storage` and collages), and an echo for the passthrough;
+  - the API: internal lookups by vanity that check the secret, with snake_case payloads whose URLs are unsigned (files with previews, albums with `items_storage` and collages), milestone-4.md §6.3's `safety`, `serve_inline` and `pending_count` (with a fixture in every state, and hash-matched CSAM answering 404), and an echo for the passthrough;
   - **B2/S3:** it recomputes every request's SigV4 signature and rejects bad ones. It holds file blobs, previews and collages.
 
-  Tests sign URLs the way the API does, with `test/support/signing.js` (Node `crypto`). `test/integration/cdn.test.js` covers files and signed URLs, and `test/integration/media.test.js` previews, collages and ZIPs, which it unzips and checks.
+  Tests sign URLs the way the API does, with `test/support/signing.js` (Node `crypto`). `test/integration/cdn.test.js` covers files and signed URLs, `test/integration/media.test.js` previews, collages and ZIPs, which it unzips and checks, and `test/integration/safety.test.js` every milestone 4 state on pages, files, previews, collages and ZIPs, NSFW, `serve_inline`, the staff grant, the report routes and `security.txt`.
 
-  Static assets come from `test/fixtures/web-dist`, which holds a real build's `viewer.html` and `app.html` plus placeholders. To test against a real build, run `WEB_DIST=../web/dist npm run test:integration`.
+  Static assets come from `test/fixtures/web-dist`, which holds a real build's `viewer.html` and `app.html` plus placeholders and a `.well-known/security.txt`. To test against a real build, run `WEB_DIST=../web/dist npm run test:integration`.
 
 ## cdn.files.gg serving rules
 
@@ -208,4 +254,4 @@ The rules live in `worker/utils/security.js`. The spec is `docs/redesign/PLAN.md
   - the sandbox CSP, `nosniff`, COOP, `Referrer-Policy: no-referrer` and CORP `cross-origin`;
   - `Access-Control-Allow-Origin: *`, without credentials, plus the exposed range headers that pdf.js needs.
 - Storage 403s become 404s.
-- `cdn.files.gg` never serves `web/dist`, and serves nothing outside the four URL shapes above.
+- `cdn.files.gg` never serves `web/dist` (except `/.well-known/security.txt`), and serves nothing outside the four URL shapes above.

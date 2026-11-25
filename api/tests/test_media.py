@@ -47,10 +47,10 @@ def test_png_gets_thumbs_and_media(client, media_db):
     _, headers = new_user(media_db)
     created = send(client, headers, png(800, 600), 'big.png', 'image/png')
     hash_id = int(hash_of(media_db, created))
-    # queued for the new hash, on the media queue, with 3 attempts
-    jobs_rows = media_db.fetchall("SELECT kind, queue, max_attempts FROM jobs WHERE kind = 'probe' "
+    # milestone-4 §2.1: a new hash queues its `scan` (on the scan queue, 10 attempts); `probe` follows a pass
+    jobs_rows = media_db.fetchall("SELECT kind, queue, max_attempts FROM jobs WHERE kind IN ('scan', 'probe') "
                                   "AND payload->>'hash_id' = %s", (str(hash_id),))
-    assert jobs_rows == [('probe', 'media', 3)]
+    assert jobs_rows == [('scan', 'scan', 10)]
     before = lookup(client, created)['file']
     assert before['processing'] is True and before['assets'] == {} and 'thumbnail' not in before
     assert before['nsfw'] is False
@@ -261,7 +261,8 @@ def test_probe_is_queued_once_per_hash(client, media_db):
     process(media_db, first)
     second = send(client, headers, content, 'b.png', 'image/png')  # de-duplicated: nothing more queued
     assert hash_of(media_db, second) == hash_id
-    assert media_db.fetchone("SELECT count(*) FROM jobs WHERE kind = 'probe' AND payload->>'hash_id' = %s",
+    # milestone-4: the new hash queued one `scan` (probe runs once it passes; here process() ran it)
+    assert media_db.fetchone("SELECT count(*) FROM jobs WHERE kind = 'scan' AND payload->>'hash_id' = %s",
                              (hash_id,))[0] == 1
     assert media_db.fetchone("SELECT count(*) FROM jobs WHERE kind = 'derive' AND payload->>'hash_id' = %s",
                              (hash_id,))[0] == 1
@@ -282,7 +283,8 @@ def test_chunked_upload_queues_probe(client, media_db, monkeypatch):
     client.post('/uploads/{}/complete'.format(session['upload_id']), headers=headers)
     file_id = finalize(int(session['upload_id']))
     hash_id = media_db.fetchone('SELECT hash_id FROM files WHERE id = %s', (file_id,))[0]
-    assert media_db.fetchone("SELECT count(*) FROM jobs WHERE kind = 'probe' AND queue = 'media' "
+    # milestone-4 §2.1: finalize queues `scan` where it queued `probe`
+    assert media_db.fetchone("SELECT count(*) FROM jobs WHERE kind = 'scan' AND queue = 'scan' "
                              "AND payload->>'hash_id' = %s", (str(hash_id),))[0] == 1
 
 
@@ -292,6 +294,9 @@ def test_the_worker_runs_media_jobs_from_the_media_queue(client, media_db):
     _, headers = new_user(media_db)
     created = send(client, headers, png(500, 500), 'w.png', 'image/png')
     hash_id = hash_of(media_db, created)
+    # what a passed scan queues (milestone-4 §2.1)
+    from jobs.media import queue_probe
+    queue_probe(media_db.conn, int(hash_id))
     # only this hash's jobs, so other tests' queued jobs stay put
     media_db.execute("UPDATE jobs SET run_at = now() + interval '1 hour' WHERE queue = 'media' "
                      "AND done_at IS NULL AND payload->>'hash_id' IS DISTINCT FROM %s", (hash_id,))

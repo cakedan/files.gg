@@ -248,9 +248,12 @@ An album with no items to show is `missing`.
 GET /internal/files/<vanity>
 GET /internal/albums/<vanity>
 X-Filesgg-Origin-Secret: <ORIGIN_SHARED_SECRET>
+X-Filesgg-Internal-Lookup: 1
 ```
 
 The lookups by id are removed. Every CDN path names a vanity.
+
+**Both headers are required** (security fix, 2026-11-25). The Worker sends the secret on every client request it forwards (for the client IP), so the secret alone must never authenticate a lookup. Only the Worker's own lookups set `X-Filesgg-Internal-Lookup`; it strips that header from every forwarded request, and both passthroughs (`api.files.gg/*`, `files.gg/api/*`) answer `404 NOT_FOUND` for any path that normalises to `/internal`. A vanity with an empty, `.` or `..` segment is never looked up (it would redirect the lookup URL and the cache key).
 
 **`/internal/files/<vanity>`** returns:
 - `file`: the payload, unsigned;
@@ -264,11 +267,11 @@ The lookups by id are removed. Every CDN path names a vanity.
 **`/internal/albums/<vanity>`** returns:
 - `album`: unsigned;
 - `access`;
-- `items_access`;
+- `items_access`: `{ "<file id>": { visibility, access_version, safety, expires_at } }`. The Worker zips an item only with an entry whose `safety.state` is ok (or flagged) and which hasn't expired (fail closed);
 - `items_storage`: `{ "<file id>": { key, size, filename } }`, every shown item;
 - `collage`: `{ key, version }` or `null`.
 
-For a password album the Worker renders the `locked` shell; for a private one, `missing`. The 30 s lookup cache stays for now; its revocation delay is still an open item in PLAN.md.
+For a password album the Worker renders the `locked` shell; for a private one, `missing`. The lookup cache is **5 s** (decided 2026-11-25), so revocation, expiry, deletes and album changes reach the CDN within about 5 s.
 
 ---
 

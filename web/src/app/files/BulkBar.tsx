@@ -1,4 +1,4 @@
-import { Clock, Images, Infinity as InfinityIcon, Lock, Trash2, X } from 'lucide-react';
+import { Clock, Eye, EyeOff, Images, Infinity as InfinityIcon, Lock, Trash2, X } from 'lucide-react';
 
 import { Button } from '../../components/Button';
 import type { OwnerFile } from '../../lib/api';
@@ -38,6 +38,23 @@ export function BulkBar({ files, handlers, onClear }: { files: OwnerFile[]; hand
             <Images aria-hidden className="size-4" />
             Add to album…
           </Button>
+          {handlers.setSensitive && (
+            <>
+              <Button variant="ghost" onClick={() => handlers.setSensitive!(files, true)}>
+                <EyeOff aria-hidden className="size-4" />
+                Mark as sensitive
+              </Button>
+              <Button
+                variant="ghost"
+                onClick={() => handlers.setSensitive!(files, false)}
+                disabled={files.every((file) => !file.nsfw || file.safety?.nsfw_locked)}
+                title={files.some((file) => file.nsfw && file.safety?.nsfw_locked) ? 'Files marked by files.gg stay marked. Ask for a review instead.' : undefined}
+              >
+                <Eye aria-hidden className="size-4" />
+                Unmark
+              </Button>
+            </>
+          )}
           <Button variant="danger" onClick={() => handlers.remove(files)}>
             <Trash2 aria-hidden className="size-4" />
             Delete

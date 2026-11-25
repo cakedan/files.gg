@@ -7,14 +7,20 @@
 //
 // Plain fetch() against http://files.localhost, cdn.files.localhost and api.files.localhost (all
 // loopback, no /etc/hosts edits). One step uses `docker compose exec postgres psql` to move a file's
-// expiry into the past. The Worker caches internal lookups for 30 s (contract §2), so the steps that
+// expiry into the past. The Worker caches internal lookups for 5 s (contract §2), so the steps that
 // change an existing file's access poll until the change reaches the CDN.
+//
+// Milestone 4: every new upload stays `pending` until the scanner has checked it, so each step that
+// expects a public page or CDN bytes first waits for its scan (waitScanned), and the scan times are
+// printed at the end. Steps 14-19 cover gating, malware, archives, reports and moderation,
+// security.txt and the admin API's 404 for non-staff (docs/redesign/contracts/milestone-4.md).
 import { execFileSync } from 'node:child_process';
 import { createHash, randomBytes } from 'node:crypto';
 import { lookup } from 'node:dns/promises';
 import { existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { crc32 } from 'node:zlib';
 
 const E2E_DIR = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(E2E_DIR, '..');
@@ -23,7 +29,7 @@ const PORT = process.env.E2E_PORT || '8787';
 const MAIN = `http://files.localhost:${PORT}`;
 const CDN = `http://cdn.files.localhost:${PORT}`;
 const API = `http://api.files.localhost:${PORT}`;
-const LOOKUP_TTL_MS = 30_000;
+const LOOKUP_TTL_MS = 5_000;
 
 // Cloudflare's documented testing token, which the always-pass testing secret accepts (web/src/lib/config.ts).
 const TURNSTILE_TOKEN = /TURNSTILE_TEST_TOKEN = '([^']+)'/.exec(readFileSync(join(ROOT, 'web/src/lib/config.ts'), 'utf8'))[1];
@@ -148,6 +154,27 @@ async function uploadFile(headers, { bytes, filename, type = 'application/octet-
   return await api('/files', { method: 'POST', headers, body: form });
 }
 
+// Milestone 4 §2: a new upload is `pending` until the scanner is done with it. Polls the owner's
+// GET /users/@me/files/<id> until `safety.state` leaves `pending` (or the upload is rejected after
+// the scan: 410 UPLOAD_REJECTED), and records how long that took.
+const scanTimes = [];
+async function waitScanned(file, headers, label = file.filename) {
+  const done = await poll(`${label} to be scanned`, async () => {
+    const response = await api(`/users/@me/files/${file.id}`, { headers });
+    if (response.status === 410) {
+      return { done: true, state: response.data, rejected: response.data };
+    }
+    if (response.status !== 200) {
+      throw new Error(`GET /users/@me/files/${file.id} gave ${response.status}: ${response.text.slice(0, 300)}`);
+    }
+    return { done: response.data.safety.state !== 'pending', state: response.data.safety, item: response.data };
+  }, { timeoutMs: 180_000, intervalMs: 200 });
+  const outcome = done.rejected ? `rejected (${done.rejected.reason})` : done.item.safety.state;
+  scanTimes.push({ label, ms: done.waited, outcome });
+  note(`${label}: scanned in ${(done.waited / 1000).toFixed(1)}s (${outcome})`);
+  return done.rejected ? { rejected: done.rejected } : done.item;
+}
+
 const vanityPath = (file) => '/' + file.vanity;
 // A CDN URL without its query: no signature (and no ?v=), as a stranger would have it.
 const plain = (url) => url.split('?')[0];
@@ -217,6 +244,8 @@ await step('1. anonymous single upload (Turnstile testing token): CDN bytes and 
   check(Number.isInteger(file.expires_at) && file.expires_at > Date.now() / 1000, 'anonymous uploads expire (21 days by default)', file.expires_at);
   check(file.url.startsWith(`${MAIN}/${file.vanity}`), 'url uses PUBLIC_URL', file.url);
   check(file.cdn_url.startsWith(`${CDN}/files/${file.vanity}`) && !file.cdn_url.includes('?'), 'cdn_url uses CDN_URL and a link file is unsigned', file.cdn_url);
+  equal(file.safety && file.safety.state, 'pending', 'the upload response has the owner safety (pending until scanned)');
+  equal((await waitScanned(file, headers, 'step 1 anonymous upload')).safety.state, 'ok', 'scanned: ok');
 
   const blob = await request(file.cdn_url);
   equal(blob.status, 200, 'GET the CDN URL');
@@ -273,6 +302,7 @@ await step('2. signed-in chunked upload, ~30 MB, chunks in parallel and out of o
   note(`processed in ${(done.waited / 1000).toFixed(1)}s`);
   const file = files.chunked = done.state.file;
   equal(file.size, size, 'file size');
+  equal((await waitScanned(file, OWNER, 'step 2 chunked 30 MB')).safety.state, 'ok', 'scanned: ok');
 
   const blob = await request(file.cdn_url);
   equal(blob.status, 200, 'GET the CDN URL');
@@ -286,7 +316,9 @@ await step('2. signed-in chunked upload, ~30 MB, chunks in parallel and out of o
 
 await step('3. an HTML filename can\'t break out of the shell', async () => {
   const hostile = '</script><script>alert(1)</script>.png';
-  const bytes = randomBytes(1024);
+  // A real PNG: since Milestone 4 a ".png" the scanner can't decode is served as an attachment only
+  // (§2.3), and step 7 needs this to be an image.
+  const bytes = ffmpeg(['-f', 'lavfi', '-i', 'testsrc2=size=320x240', '-frames:v', '1', '-f', 'image2pipe', '-c:v', 'png']);
   const created = await uploadFile(OWNER, { bytes, filename: hostile, type: 'image/png' });
   equal(created.status, 200, 'POST /files');
   const file = files.hostile = created.data;
@@ -296,6 +328,7 @@ await step('3. an HTML filename can\'t break out of the shell', async () => {
   // first looks the file up, to check the shell's own escaping end to end.
   const stored = psql(`UPDATE files SET filename = '</script><script>alert(1)</script>' WHERE id = ${BigInt(file.id)} RETURNING filename`);
   equal(stored, '</script><script>alert(1)</script>', 'raw name stored (psql)');
+  equal((await waitScanned(file, OWNER, 'step 3 PNG')).safety.state, 'ok', 'scanned: ok');
 
   const baseline = parseShell((await page('/')).text).scripts;
   const shell = await page(vanityPath(file));
@@ -323,11 +356,13 @@ await step('4. password: locked shell, 401 CDN, unlock gives signed URLs, /view,
   const file = files.password = created.data;
   const vanity = file.vanity;
 
-  // PATCH before the Worker ever looks the file up, so its 30 s lookup cache can't serve the old state.
+  // PATCH before the Worker ever looks the file up, so its 5 s lookup cache can't serve the old state.
   const patched = await api(`/users/@me/files/${file.id}`, { method: 'PATCH', headers: OWNER, json: { visibility: 'password', password: 'correct-horse-1' } });
   equal(patched.status, 200, 'PATCH visibility: password');
   equal(patched.data.visibility, 'password', 'visibility');
   const version = patched.data.access_version;
+  // A pending file shows the `pending` shell before `locked` (§10.1), so wait for the scan first.
+  equal((await waitScanned(file, OWNER, 'step 4 password file')).safety.state, 'ok', 'scanned: ok');
 
   const shell = await page('/' + vanity);
   equal(shell.status, 200, 'the locked shell is 200');
@@ -382,7 +417,7 @@ await step('4. password: locked shell, 401 CDN, unlock gives signed URLs, /view,
     return { done: response.status === 401, state: response.status };
   });
   equal(revoked.state, 401, 'CDN with the old signed URL');
-  note(`the CDN refused the old signed URL after ${(revoked.waited / 1000).toFixed(1)}s (Worker lookup cache: 30 s)`);
+  note(`the CDN refused the old signed URL after ${(revoked.waited / 1000).toFixed(1)}s (Worker lookup cache: 5 s)`);
   equal((await unlock('correct-horse-1')).data.code, 'WRONG_PASSWORD', 'the old password no longer unlocks');
   const again = await unlock('another-pass-2');
   equal(again.status, 200, 'the new password unlocks');
@@ -395,6 +430,7 @@ await step('5. private: missing shell, CDN 404, the owner gets signed URLs, owne
   equal(created.status, 200, 'POST /files visibility=private');
   const file = files.private = created.data;
   equal(file.visibility, 'private', 'visibility');
+  equal((await waitScanned(file, OWNER, 'step 5 private file')).safety.state, 'ok', 'scanned: ok');
 
   const shell = await page(vanityPath(file));
   equal(shell.status, 404, 'the shell is 404');
@@ -430,6 +466,7 @@ await step('6. expiry: a file whose expires_at is in the past is missing everywh
   const created = await uploadFile(OWNER, { bytes, filename: 'e2e-expiring.png', type: 'image/png', fields: { expires_in: 3600 } });
   equal(created.status, 200, 'POST /files expires_in=3600');
   const file = files.expiring = created.data;
+  equal((await waitScanned(file, OWNER, 'step 6 expiring file')).safety.state, 'ok', 'scanned: ok');
   equal((await request(file.cdn_url)).status, 200, 'CDN before expiry');
   equal((await page(vanityPath(file))).status, 200, 'shell before expiry');
 
@@ -451,7 +488,7 @@ await step('6. expiry: a file whose expires_at is in the past is missing everywh
   });
   const parsed = parseShell(gone.state.html);
   equal([parsed.page, parsed.state, parsed.data], ['file', 'missing', null], 'the shell is missing');
-  note(`the Worker showed it as missing after ${(gone.waited / 1000).toFixed(1)}s (Worker lookup cache: 30 s)`);
+  note(`the Worker showed it as missing after ${(gone.waited / 1000).toFixed(1)}s (Worker lookup cache: 5 s)`);
 });
 
 await step('7. bots: link files go to the CDN (or get the embed page), password files never do', async () => {
@@ -492,6 +529,7 @@ await step('8. limits: anonymous and signed-in values', async () => {
     anonymous: true,
     album_max_files: 50,
     albums_max: null,
+    nsfw_allowed: false, // milestone-4 §13
   }, 'anonymous limits');
   equal(anonymousStorage.limit, null, 'anonymous storage.limit');
   // Anonymous usage is counted per fingerprint and per IP; step 1 uploaded from this IP.
@@ -511,6 +549,7 @@ await step('8. limits: anonymous and signed-in values', async () => {
     anonymous: false,
     album_max_files: 500,
     albums_max: 1000,
+    nsfw_allowed: true, // milestone-4 §13: signed in and not restricted
   }, 'signed-in limits');
   equal(storage.limit, 10 * 1024 * 1024 * 1024, 'storage.limit (10 GB)');
   check(storage.used >= files.chunked.size, 'storage.used counts the uploads', storage);
@@ -520,18 +559,23 @@ await step('8. limits: anonymous and signed-in values', async () => {
 // --- Milestone 3: media, albums, library -------------------------------------------------------
 
 // Real media, made by ffmpeg inside the jobs worker container (the host may not have ffmpeg).
-function ffmpeg(args) {
+function ffmpeg(args, input) {
   return execFileSync('docker', [
     'compose', '-f', join(E2E_DIR, 'docker-compose.e2e.yml'), '--env-file', join(LOCAL, '.env'),
-    'exec', '-T', 'worker', 'ffmpeg', '-v', 'error', '-nostdin', ...args, 'pipe:1',
-  ], { maxBuffer: 64 * 1024 * 1024 });
+    'exec', '-T', 'worker', 'ffmpeg', '-v', 'error', ...(input ? [] : ['-nostdin']), ...args, 'pipe:1',
+  ], { maxBuffer: 64 * 1024 * 1024, input });
 }
+// A PNG of random pixels: new content (a new hash, so a new scan) on every run.
+const noisePng = (width, height) => ffmpeg(['-f', 'rawvideo', '-pix_fmt', 'rgb24', '-s', `${width}x${height}`, '-i', 'pipe:0',
+  '-frames:v', '1', '-f', 'image2pipe', '-c:v', 'png'], randomBytes(width * height * 3));
 const PREVIEW_URL = /^http:\/\/cdn\.files\.localhost:\d+\/previews\/(thumb|thumb-2x|display|poster|cover|waveform|peaks|hover)\/[a-z0-9/]+\.(webp|mp4|json)\?v=\d+$/;
 const ownerFile = async (id) => {
   const list = await api('/users/@me/files?limit=100', { headers: OWNER });
   return list.data.items.find((item) => item.id === id);
 };
 async function waitProcessed(file) {
+  // probe and derive run only after the scan (§2.1)
+  await waitScanned(file, OWNER, `${file.filename} (step ${current.name.split('.')[0]})`);
   const done = await poll(`${file.filename} to be processed`, async () => {
     const item = await ownerFile(file.id);
     return { done: item && item.processing === false, state: item && { processing: item.processing, assets: Object.keys(item.assets || {}) }, item };
@@ -641,14 +685,14 @@ await step('11. albums: create, page, collage, ZIP, link albums hide protected i
     const owner = await api(`/users/@me/albums/${album.id}`, { headers: OWNER });
     return { done: Boolean(owner.data.collage), state: owner.data.collage, album: owner.data };
   }, { timeoutMs: 60_000 });
-  // The album page above was looked up before the collage existed; the Worker caches lookups 30 s.
+  // The album page above was looked up before the collage existed; the Worker caches lookups 5 s.
   const collageServed = await poll('the Worker to serve the new collage', async () => {
     const response = await request(withCollage.album.collage.url);
     return { done: response.status === 200, state: [response.status, response.headers.get('content-type')], response };
   });
   const collage = collageServed.response;
   equal([collage.status, collage.headers.get('content-type')], [200, 'image/webp'], 'collage.webp');
-  note(`the collage was served ${(collageServed.waited / 1000).toFixed(1)}s after it existed (Worker lookup cache: 30 s)`);
+  note(`the collage was served ${(collageServed.waited / 1000).toFixed(1)}s after it existed (Worker lookup cache: 5 s)`);
   check(withCollage.album.collage.url.includes(`/albums/collage/${album.vanity}.webp?v=`), 'collage at /albums/collage/<vanity>.webp', withCollage.album.collage.url);
   check(withCollage.album.download_url.endsWith(`/albums/download/${album.vanity}.zip`), 'ZIP at /albums/download/<vanity>.zip', withCollage.album.download_url);
 
@@ -681,7 +725,7 @@ await step('11. albums: create, page, collage, ZIP, link albums hide protected i
   equal(unlocked.data.album.items.length, 2, 'a protected album shows every item');
   const item = unlocked.data.album.items.find((entry) => entry.id === media.locked.id);
   check(isSigned(item.cdn_url) && item.cdn_url.includes(`album=${second.data.vanity}`), 'album items are signed through the album', item.cdn_url);
-  // The Worker may still hold the file's lookup from step 10 (30 s), from before it joined this album.
+  // The Worker may still hold the file's lookup from step 10 (5 s), from before it joined this album.
   const throughAlbum = await poll('the album-signed URL to open the password file', async () => {
     const response = await request(item.cdn_url, { method: 'HEAD' });
     return { done: response.status === 200, state: response.status };
@@ -741,8 +785,398 @@ await step('13. executables are refused: by name, disguised as an image, and in 
   equal(ok.status, 200, 'a text file that merely starts with "MZ" is fine');
 });
 
+
+// --- Milestone 4: trust & safety -------------------------------------------------------------------
+
+// The other two users up.sh made (not staff): e2e-member owns the reported file, e2e-reporter reports it.
+const MEMBER = JSON.parse(readFileSync(join(LOCAL, 'e2e-member.json'), 'utf8'));
+const REPORTER = JSON.parse(readFileSync(join(LOCAL, 'e2e-reporter.json'), 'utf8'));
+const AS_MEMBER = { Authorization: MEMBER.token };
+const AS_REPORTER = { Authorization: REPORTER.token };
+
+// The standard antivirus test file (eicar.org), assembled here at runtime so no file in the repo
+// carries it. The e2e clamd (api/tests/fixtures/clamav/db) detects it by its exact hash, as a block.
+const EICAR = Buffer.from('X5O!P%@AP[4\\PZX54(P^)7CC)7}$' + 'EICAR-STANDARD-ANTIVIRUS-TEST-FILE!$H+H*', 'ascii');
+// The test-only PUA signature's bytes, read from that database (an ndb body is hex): a flag, not a block.
+const PUA_STRING = Buffer.from(readFileSync(join(ROOT, 'api/tests/fixtures/clamav/db/filesgg-test.ndb'), 'utf8')
+  .split('\n').find((line) => line.startsWith('PUA.')).trim().split(':')[3], 'hex');
+// A minimal Windows PE header, as api/tests/test_filetypes.py builds it: "MZ", the PE offset at 0x3C,
+// then "PE\0\0" and the i386 machine type there.
+function peBytes(size = 4096) {
+  const bytes = Buffer.alloc(size, 0xcc);
+  bytes.write('MZ', 0, 'latin1');
+  bytes.fill(0x90, 2, 0x3c);
+  bytes.writeUInt32LE(0x80, 0x3c);
+  bytes.fill(0, 0x40, 0x80);
+  bytes.write('PE\0\0', 0x80, 'latin1');
+  bytes.writeUInt16LE(0x014c, 0x84);
+  return bytes;
+}
+// A zip (stored, no compression) of [name, bytes] entries.
+function zipOf(entries) {
+  const locals = [];
+  const centrals = [];
+  let offset = 0;
+  for (const [name, data] of entries) {
+    const nameBytes = Buffer.from(name, 'utf8');
+    const crc = crc32(data);
+    const local = Buffer.alloc(30);
+    local.writeUInt32LE(0x04034b50, 0);
+    local.writeUInt16LE(20, 4);         // version needed
+    local.writeUInt16LE(0x0800, 6);     // UTF-8 names
+    local.writeUInt16LE(0x21, 12);      // 1980-01-01
+    local.writeUInt32LE(crc, 14);
+    local.writeUInt32LE(data.length, 18);
+    local.writeUInt32LE(data.length, 22);
+    local.writeUInt16LE(nameBytes.length, 26);
+    const central = Buffer.alloc(46);
+    central.writeUInt32LE(0x02014b50, 0);
+    central.writeUInt16LE(20, 4);
+    central.writeUInt16LE(20, 6);
+    central.writeUInt16LE(0x0800, 8);
+    central.writeUInt16LE(0x21, 14);
+    central.writeUInt32LE(crc, 16);
+    central.writeUInt32LE(data.length, 20);
+    central.writeUInt32LE(data.length, 24);
+    central.writeUInt16LE(nameBytes.length, 28);
+    central.writeUInt32LE(offset, 42);
+    locals.push(local, nameBytes, data);
+    centrals.push(central, nameBytes);
+    offset += local.length + nameBytes.length + data.length;
+  }
+  const directory = Buffer.concat(centrals);
+  const end = Buffer.alloc(22);
+  end.writeUInt32LE(0x06054b50, 0);
+  end.writeUInt16LE(entries.length, 8);
+  end.writeUInt16LE(entries.length, 10);
+  end.writeUInt32LE(directory.length, 12);
+  end.writeUInt32LE(offset, 16);
+  return Buffer.concat([...locals, directory, end]);
+}
+const nonce = () => Buffer.from(`e2e nonce ${randomBytes(16).toString('hex')}\n`);
+const anonymousHeaders = async () => ({ 'X-Fingerprint': await fingerprint() });
+const anonymousUpload = (headers, file) => uploadFile(headers, { ...file, fields: { ...(file.fields || {}), turnstile_token: TURNSTILE_TOKEN } });
+
+// Nothing about the file anywhere: the shell is `missing` (404), the CDN 404 and the public API 404
+// UNKNOWN_FILE. A blocked file's CDN 404 is `private, no-store` (§10.2); a deleted file (an anonymous
+// upload rejected after its scan, §2.5) is simply unknown, so its 404 is the CDN's usual one.
+// The Worker may still hold a `pending` lookup from before the scan (5 s): until then the page may
+// be the pending shell, but never the file, and the CDN never serves the bytes.
+async function checkNotServed(file, what, { deleted = false } = {}) {
+  const settled = await poll(`${what}: the Worker to show it missing`, async () => {
+    const shell = await page(vanityPath(file));
+    const state = parseShell(shell.text).state;
+    check(state === 'missing' || state === 'pending', `${what}: the page is never served meanwhile`, state);
+    check((await request(plain(file.cdn_url), { method: 'HEAD' })).status === 404, `${what}: the CDN never serves it meanwhile`);
+    return { done: shell.status === 404, state: [shell.status, state], shell };
+  });
+  const shell = settled.shell;
+  equal(shell.status, 404, `${what}: the page is 404`);
+  const parsed = parseShell(shell.text);
+  equal([parsed.page, parsed.state, parsed.data], ['file', 'missing', null], `${what}: the missing shell`);
+  const blob = await request(plain(file.cdn_url));
+  if (deleted) {
+    equal(blob.status, 404, `${what}: the CDN is 404`);
+  } else {
+    equal([blob.status, blob.headers.get('cache-control')], [404, 'private, no-store'], `${what}: the CDN is 404, private, no-store`);
+  }
+  const publicApi = await api(`/files/${file.vanity}`);
+  equal([publicApi.status, publicApi.data && publicApi.data.code], [404, 'UNKNOWN_FILE'], `${what}: GET /files/<vanity>`);
+}
+
+// The owner's notice (§8.2) for a file, from GET /users/@me/warnings.
+async function noticeFor(headers, noticeId) {
+  const list = await api('/users/@me/warnings?limit=100', { headers });
+  equal(list.status, 200, 'GET /users/@me/warnings');
+  return list.data.items.find((item) => item.id === noticeId);
+}
+
+await step('14. gating: pending shell and CDN 404 until the scan passes, then served', async () => {
+  const bytes = noisePng(1280, 720);
+  const created = await uploadFile(OWNER, { bytes, filename: 'e2e-gated.png', type: 'image/png' });
+  const uploadedAt = Date.now();
+  equal(created.status, 200, 'POST /files');
+  const file = created.data;
+  equal(file.safety && file.safety.state, 'pending', 'the upload response says pending');
+
+  // Straight after the upload, before the scanner is done (images take about a second).
+  const shell = await page(vanityPath(file));
+  const blob = await request(file.cdn_url);
+  const publicApi = await api(`/files/${file.vanity}`);
+  note(`pending checks made ${Date.now() - uploadedAt} ms after the upload response`);
+  equal(shell.status, 200, 'the pending shell is 200');
+  equal(shell.headers.get('cache-control'), 'private, no-store', 'the pending shell is private, no-store');
+  const parsed = parseShell(shell.text);
+  equal([parsed.page, parsed.state], ['file', 'pending'], 'data-page / data-state');
+  equal(parsed.data, { vanity: file.vanity, pending: true }, '#file-data');
+  check(parsed.meta.includes('<meta property="og:title" content="Checking this file · files.gg">'), 'og:title "Checking this file"', parsed.meta);
+  check(!/og:image|og:video|twitter:image/.test(parsed.meta) && !shell.text.includes('e2e-gated'), 'no media and no filename in the pending page', parsed.meta);
+  equal([blob.status, blob.headers.get('cache-control')], [404, 'private, no-store'], 'the CDN is 404, private, no-store');
+  equal([publicApi.status, publicApi.data.code, publicApi.data.retry_after], [409, 'FILE_PENDING', 5], 'GET /files/<vanity>: 409 FILE_PENDING');
+  const bot = await page(vanityPath(file), TELEGRAMBOT);
+  equal([bot.status, bot.headers.get('location')], [200, null], 'TelegramBot isn\'t redirected to the CDN while pending');
+
+  const scanned = await waitScanned(file, OWNER, 'step 14 gated 1280x720 PNG');
+  equal(scanned.safety.state, 'ok', 'the scan passed');
+  // The Worker may hold the pending lookup for up to 5 s.
+  const served = await poll('the Worker to serve the scanned file', async () => {
+    const response = await request(file.cdn_url);
+    return { done: response.status === 200, state: response.status, response };
+  });
+  note(`the CDN served it ${(served.waited / 1000).toFixed(1)}s after the scan finished (Worker lookup cache: 5 s)`);
+  equal(sha256(served.response.buffer), sha256(bytes), 'CDN bytes (sha256)');
+  equal(served.response.headers.get('cache-control'), 'public, max-age=3600', 'public CDN cache-control');
+  const after = await page(vanityPath(file));
+  equal(after.status, 200, 'the page is 200');
+  const afterShell = parseShell(after.text);
+  equal([afterShell.state, afterShell.data.id, afterShell.data.nsfw], ['file', file.id, false], 'the file shell, not NSFW');
+  check(after.headers.get('cache-control') !== 'private, no-store', 'the file page is no longer no-store', after.headers.get('cache-control'));
+  equal((await api(`/files/${file.vanity}`)).status, 200, 'GET /files/<vanity>');
+});
+
+await step('15. malware: EICAR is blocked or rejected and never served; the test PUA signature only flags', async () => {
+  check(EICAR.length === 68 && createHash('md5').update(EICAR).digest('hex') === '44d88612fea8a8f36de82e1278abb02f', 'the EICAR string is the standard one');
+
+  // Anonymous: rejected after the scan (§2.5). The e2e clamd knows EICAR by its exact hash, so it goes
+  // into a zip with a fresh second entry: a new hash every run, still found (clamd scans archives).
+  const headers = await anonymousHeaders();
+  const anonymousZip = zipOf([['eicar.com.txt', EICAR], ['nonce.txt', nonce()]]);
+  const anon = await anonymousUpload(headers, { bytes: anonymousZip, filename: 'e2e-eicar.zip', type: 'application/zip' });
+  equal([anon.status, anon.data.safety && anon.data.safety.state], [200, 'pending'], 'anonymous upload: accepted, pending');
+  equal((await request(plain(anon.data.cdn_url))).status, 404, 'the CDN doesn\'t serve it while pending');
+  const rejected = await waitScanned(anon.data, headers, 'step 15 EICAR zip (anonymous)');
+  const { code, status, reason } = rejected.rejected || {};
+  equal([status, code, reason], [410, 'UPLOAD_REJECTED', 'MALWARE_DETECTED'], 'the owner gets 410 UPLOAD_REJECTED { reason: MALWARE_DETECTED }');
+  await checkNotServed(anon.data, 'anonymous EICAR', { deleted: true });
+
+  // Signed in: the file stays, blocked, with a notice (§2.5, §8.1).
+  const signedZip = zipOf([['eicar.com.txt', EICAR], ['nonce.txt', nonce()]]);
+  const mine = await uploadFile(OWNER, { bytes: signedZip, filename: 'e2e-eicar-signed-in.zip', type: 'application/zip' });
+  equal([mine.status, mine.data.safety && mine.data.safety.state], [200, 'pending'], 'signed-in upload: accepted, pending');
+  const blocked = await waitScanned(mine.data, OWNER, 'step 15 EICAR zip (signed in)');
+  equal([blocked.safety.state, blocked.safety.reason], ['blocked', 'malware'], 'the owner sees it blocked (malware)');
+  check(blocked.safety.notice_id, 'with a notice', blocked.safety);
+  const notice = await noticeFor(OWNER, blocked.safety.notice_id);
+  check(notice, 'the notice is in GET /users/@me/warnings', blocked.safety.notice_id);
+  equal([notice.action, notice.rule, notice.target.kind, notice.target.id, notice.appeal.can_appeal],
+    ['scan_block', 'malware', 'file', mine.data.id, true], 'the notice: scan_block, malware, appealable');
+  await checkNotServed(mine.data, 'signed-in EICAR');
+  const again = await uploadFile(OWNER, { bytes: signedZip, filename: 'again.zip', type: 'application/zip' });
+  equal([again.status, again.data.code], [400, 'MALWARE_DETECTED'], 'the same bytes again: refused at upload (known malware)');
+
+  // The bare EICAR file. The first run scans and blocks it; on later runs its hash is known, so the
+  // upload itself is refused. Either way it's never served.
+  const plainEicar = await uploadFile(OWNER, { bytes: EICAR, filename: 'eicar.txt', type: 'text/plain' });
+  if (plainEicar.status === 200) {
+    const state = await waitScanned(plainEicar.data, OWNER, 'step 15 bare EICAR (signed in)');
+    equal([state.safety.state, state.safety.reason], ['blocked', 'malware'], 'bare EICAR: blocked (malware)');
+    await checkNotServed(plainEicar.data, 'bare EICAR');
+    note('bare EICAR: new to this stack, so it was scanned and blocked');
+  } else {
+    equal([plainEicar.status, plainEicar.data.code], [400, 'MALWARE_DETECTED'], 'bare EICAR: refused at upload (known hash)');
+    note('bare EICAR: already known to this stack, so it was refused at upload with 400 MALWARE_DETECTED');
+  }
+
+  // The test-only PUA signature: flagged (public, with a warning), not blocked (§5.2).
+  const puaBytes = Buffer.concat([PUA_STRING, Buffer.from(' '), nonce()]);
+  const pua = await uploadFile(OWNER, { bytes: puaBytes, filename: 'e2e-pua.txt', type: 'text/plain' });
+  equal(pua.status, 200, 'PUA upload');
+  const flagged = await waitScanned(pua.data, OWNER, 'step 15 test PUA text');
+  equal([flagged.safety.state, flagged.safety.reason], ['flagged', 'unwanted_software'], 'the owner sees it flagged (unwanted_software)');
+  equal(flagged.warnings, ['unwanted_software'], 'with the unwanted_software warning');
+  const shell = await page(vanityPath(pua.data));
+  equal(shell.status, 200, 'the page is served');
+  const parsed = parseShell(shell.text);
+  equal([parsed.state, parsed.data.warnings], ['file', ['unwanted_software']], 'the file shell carries the warning');
+  const blob = await request(pua.data.cdn_url);
+  equal([blob.status, sha256(blob.buffer)], [200, sha256(puaBytes)], 'the CDN serves it');
+  equal((await api(`/files/${pua.data.vanity}`)).data.warnings, ['unwanted_software'], 'GET /files/<vanity> has the warning');
+});
+
+await step('16. archives: a zip holding a Windows program is blocked (signed in) or rejected (anonymous)', async () => {
+  const pe = peBytes();
+  for (const [label, entries] of [
+    ['setup.exe inside', [['setup.exe', pe], ['readme.txt', nonce()]]],
+    ['a program named readme.txt', [['docs/readme.txt', Buffer.concat([pe, nonce()])]]],
+  ]) {
+    const created = await uploadFile(OWNER, { bytes: zipOf(entries), filename: 'e2e-tools.zip', type: 'application/zip' });
+    equal([created.status, created.data.safety && created.data.safety.state], [200, 'pending'], `${label}: accepted (the zip itself is allowed), pending`);
+    const blocked = await waitScanned(created.data, OWNER, `step 16 zip, ${label}`);
+    equal([blocked.safety.state, blocked.safety.reason], ['blocked', 'blocked_type'], `${label}: blocked (blocked_type)`);
+    check(blocked.safety.notice_id, `${label}: with a notice`, blocked.safety);
+    await checkNotServed(created.data, label);
+  }
+
+  const headers = await anonymousHeaders();
+  const anon = await anonymousUpload(headers, { bytes: zipOf([['game/bin/tool.EXE', pe], ['n.txt', nonce()]]), filename: 'e2e-game.zip', type: 'application/zip' });
+  equal(anon.status, 200, 'anonymous upload of a zip with game/bin/tool.EXE: accepted');
+  const rejected = await waitScanned(anon.data, headers, 'step 16 zip with tool.EXE (anonymous)');
+  const { code, status, reason } = rejected.rejected || {};
+  equal([status, code, reason], [410, 'UPLOAD_REJECTED', 'FILE_TYPE_NOT_ALLOWED'], 'the owner gets 410 UPLOAD_REJECTED { reason: FILE_TYPE_NOT_ALLOWED }');
+  await checkNotServed(anon.data, 'anonymous zip', { deleted: true });
+});
+
+await step('17. reports: anonymous and signed-in reports, a case, claim, hide, notice, appeal, report status', async () => {
+  // e2e-member's public file, reported by an anonymous visitor and by e2e-reporter.
+  const bytes = noisePng(320, 240);
+  const created = await uploadFile(AS_MEMBER, { bytes, filename: 'e2e-reported.png', type: 'image/png' });
+  equal(created.status, 200, 'e2e-member uploads a file');
+  const file = created.data;
+  equal((await waitScanned(file, AS_MEMBER, 'step 17 reported PNG')).safety.state, 'ok', 'scanned: ok');
+  const before = await page(vanityPath(file));
+  equal([before.status, parseShell(before.text).state], [200, 'file'], 'the page before the reports');
+  equal((await request(file.cdn_url)).status, 200, 'the CDN before the reports');
+
+  const target = { type: 'file', vanity: file.vanity };
+  const fp = await anonymousHeaders();
+  const noCaptcha = await api('/reports/anonymous', { method: 'POST', headers: fp, json: { target, reason: 'spam' } });
+  equal([noCaptcha.status, noCaptcha.data.code], [403, 'CAPTCHA_INVALID'], 'an anonymous report without Turnstile');
+  const anonymous = await api('/reports/anonymous', { method: 'POST', headers: fp, json: { target, reason: 'spam', details: 'e2e: anonymous report', turnstile_token: TURNSTILE_TOKEN } });
+  equal([anonymous.status, anonymous.data.status, anonymous.data.report], [201, 'open', undefined], 'anonymous report: 201 { id, status: open }, no thread');
+  check(/^\d+$/.test(anonymous.data.id), 'with an id', anonymous.data);
+
+  const own = await api('/reports', { method: 'POST', headers: AS_MEMBER, json: { target, reason: 'spam' } });
+  equal([own.status, own.data.code], [400, 'CANNOT_REPORT_YOURSELF'], 'the owner can\'t report their own file');
+  const signedIn = await api('/reports', { method: 'POST', headers: AS_REPORTER, json: { target: { type: 'url', url: file.url }, reason: 'spam', details: 'e2e: signed-in report' } });
+  equal(signedIn.status, 201, 'e2e-reporter reports it (a files.localhost URL target)');
+  const report = signedIn.data.report;
+  equal([report.kind, report.reason, report.status, report.target.vanity, report.target.url], ['file', 'spam', 'open', file.vanity, `${MAIN}/${file.vanity}`], 'the reporter\'s report (§7.5: no filename, no state)');
+  // Two `spam` reports are under the threshold of 3 (§7.3): nothing happens automatically.
+  equal(parseShell((await page(vanityPath(file))).text).state, 'file', 'still served after two spam reports');
+
+  // Staff: the case in the queue, claim it, hide the file.
+  const queue = await api('/admin/cases?status=open&kind=file&reason=spam&limit=100', { headers: OWNER });
+  equal(queue.status, 200, 'GET /admin/cases as staff');
+  const summary = queue.data.items.find((item) => item.target && item.target.id === file.id);
+  check(summary, 'the file\'s case is in the queue', queue.data.items.map((item) => item.target));
+  equal([summary.kind, summary.priority, summary.status, summary.reasons, summary.report_count, summary.assignee],
+    ['file', 3, 'open', { spam: 2 }, 2, null], 'case summary: file, P3, open, 2 spam reports, unassigned');
+  note(`distinct_reporters = ${summary.distinct_reporters} (both reports come from the same local IP hash, §7.4)`);
+  const claimed = await api(`/admin/cases/${summary.id}/claim`, { method: 'POST', headers: OWNER });
+  equal([claimed.status, claimed.data.assignee && claimed.data.assignee.id], [200, E2E_USER.id], 'claim: assigned to e2e');
+  check(claimed.data.reports.length === 2 && claimed.data.reports.every((r) => r.reason === 'spam'), 'the case lists both reports', claimed.data.reports);
+  const hidden = await api('/admin/actions', { method: 'POST', headers: OWNER, json: {
+    action: 'hide', target: { type: 'file', id: file.id }, rule: 'spam', case_id: summary.id,
+    note: 'e2e: staff-only note', message: 'e2e: hidden after reports',
+  } });
+  equal(hidden.status, 200, 'POST /admin/actions hide');
+  equal(hidden.data.notice_ids.length, 1, 'one notice for the owner');
+  const hiddenAt = Date.now();
+
+  // The Worker's lookup cache (5 s) is the only delay.
+  const gone = await poll('the page and the CDN to show the file removed', async () => {
+    const shell = await page(vanityPath(file));
+    const blob = await request(file.cdn_url, { method: 'HEAD' });
+    return { done: shell.status === 410 && blob.status === 410, state: { shell: shell.status, cdn: blob.status }, shell, blob };
+  }, { intervalMs: 250 });
+  const waited = Date.now() - hiddenAt;
+  note(`the page and the CDN answered 410 ${(waited / 1000).toFixed(1)}s after the hide (Worker lookup cache: 5 s)`);
+  check(waited <= LOOKUP_TTL_MS + 3000, 'within the 5 s lookup cache (plus 3 s slack)', waited);
+  const removed = parseShell(gone.shell.text);
+  equal([removed.page, removed.state, removed.data], ['file', 'removed', { vanity: file.vanity, removed: 'review' }], 'the removed shell (reason review)');
+  equal(gone.shell.headers.get('cache-control'), 'no-cache', 'the removed shell is no-cache');
+  check(removed.meta.includes('<meta property="og:title" content="This file was removed · files.gg">') && !gone.shell.text.includes('e2e-reported'), 'og:title "This file was removed", no filename', removed.meta);
+  equal(gone.blob.headers.get('cache-control'), 'private, no-store', 'the CDN 410 is private, no-store');
+  const publicApi = await api(`/files/${file.vanity}`);
+  equal([publicApi.status, publicApi.data.code, publicApi.data.reason], [410, 'FILE_REMOVED', 'review'], 'GET /files/<vanity>: 410 FILE_REMOVED (review)');
+
+  // The owner: the file's safety, the notice and the badges.
+  const ownerFile = await api(`/users/@me/files/${file.id}`, { headers: AS_MEMBER });
+  equal([ownerFile.data.safety.state, ownerFile.data.safety.reason, ownerFile.data.safety.notice_id], ['hidden', 'spam', hidden.data.notice_ids[0]], 'the owner file: hidden (spam), with the notice');
+  const notice = await noticeFor(AS_MEMBER, hidden.data.notice_ids[0]);
+  check(notice, 'the notice is in GET /users/@me/warnings', hidden.data.notice_ids[0]);
+  equal([notice.action, notice.rule, notice.rule_text, notice.message, notice.target.vanity, notice.acknowledged_at, notice.appeal.state, notice.appeal.can_appeal],
+    ['hide', 'spam', 'Spam', 'e2e: hidden after reports', file.vanity, null, 'none', true], 'the notice');
+  const badges = await api('/users/@me/badges', { headers: AS_MEMBER });
+  equal(badges.status, 200, 'GET /users/@me/badges');
+  check(badges.data.notices_unacknowledged >= 1 && badges.data.staff === null, 'badges: an unacknowledged notice, not staff', badges.data);
+
+  // The owner appeals, once.
+  const appeal = await api(`/users/@me/warnings/${notice.id}/appeal`, { method: 'POST', headers: AS_MEMBER, json: { message: 'e2e: this is not spam' } });
+  equal([appeal.status, appeal.data.appeal.state, appeal.data.appeal.can_appeal], [200, 'open', false], 'appeal: open');
+  const second = await api(`/users/@me/warnings/${notice.id}/appeal`, { method: 'POST', headers: AS_MEMBER, json: { message: 'again' } });
+  equal([second.status, second.data.code], [409, 'APPEAL_NOT_ALLOWED'], 'a second appeal');
+  const acknowledged = await api('/users/@me/warnings/acknowledge', { method: 'POST', headers: AS_MEMBER, json: { ids: [notice.id] } });
+  equal(acknowledged.data.acknowledged, [notice.id], 'acknowledge the notice');
+
+  // The signed-in reporter follows the report: open until the case is closed, then resolved, with
+  // a message from "files.gg staff".
+  equal((await api(`/users/@me/reports/${report.id}`, { headers: AS_REPORTER })).data.status, 'open', 'the reporter sees it open');
+  const closed = await api(`/admin/cases/${summary.id}/close`, { method: 'POST', headers: OWNER, json: { outcome: 'actioned', reason: 'e2e: hidden for spam' } });
+  equal([closed.status, closed.data.status, closed.data.outcome], [200, 'closed', 'actioned'], 'close the case (actioned)');
+  const resolved = await api(`/users/@me/reports/${report.id}`, { headers: AS_REPORTER });
+  equal([resolved.data.status, resolved.data.closed], ['resolved', false], 'the reporter sees it resolved');
+  check(resolved.data.unread >= 1, 'with something unread', resolved.data);
+  const listed = await api('/users/@me/reports?status=resolved', { headers: AS_REPORTER });
+  check(listed.data.items.some((item) => item.id === report.id), 'in My reports (resolved)', listed.data);
+  const thread = await api(`/users/@me/reports/${report.id}/messages`, { headers: AS_REPORTER });
+  check(thread.data.items.some((item) => item.author === 'staff'), 'a message from staff in the thread', thread.data.items);
+  equal((await api(`/users/@me/reports/${report.id}`, { headers: AS_REPORTER })).data.unread, 0, 'reading the thread marks it read');
+  const badgesReporter = await api('/users/@me/badges', { headers: AS_REPORTER });
+  equal(badgesReporter.data.reports_unread, 0, 'the reporter\'s badges: nothing unread');
+
+  // The appeal is a case for staff; e2e is the only staff member, so it may decide its own action (§9.4).
+  const appeals = await api('/admin/cases?status=open&kind=appeal&needs_second_review=true&limit=100', { headers: OWNER });
+  const appealCase = appeals.data.items.find((item) => item.target && item.target.id === notice.id);
+  check(appealCase, 'the appeal case is in the queue', appeals.data.items.map((item) => item.target));
+  equal([appealCase.priority, appealCase.needs_second_review], [2, true], 'appeal case: P2, needs second review');
+  const granted = await api(`/admin/cases/${appealCase.id}/appeal`, { method: 'POST', headers: OWNER, json: { decision: 'grant', message: 'e2e: appeal granted' } });
+  equal([granted.status, granted.data.status, granted.data.outcome], [200, 'closed', 'actioned'], 'grant the appeal');
+  const afterAppeal = await noticeFor(AS_MEMBER, notice.id);
+  equal([afterAppeal.appeal.state, afterAppeal.appeal.message], ['granted', 'e2e: appeal granted'], 'the owner sees the appeal granted');
+  const back = await poll('the file to be served again', async () => {
+    const shell = await page(vanityPath(file));
+    return { done: shell.status === 200, state: shell.status, shell };
+  });
+  equal(parseShell(back.shell.text).state, 'file', 'granting the appeal unhid the file');
+  equal((await request(file.cdn_url)).status, 200, 'and the CDN serves it again');
+});
+
+await step('18. security.txt on files.localhost and cdn.files.localhost', async () => {
+  const expected = readFileSync(join(ROOT, 'web/public/.well-known/security.txt'), 'utf8');
+  for (const base of [MAIN, CDN]) {
+    const response = await request(`${base}/.well-known/security.txt`);
+    equal([response.status, response.headers.get('content-type')], [200, 'text/plain; charset=utf-8'], `${base}/.well-known/security.txt`);
+    equal(response.text, expected, `${base}: web/public/.well-known/security.txt`);
+    check(/^Contact: mailto:security@files\.gg$/m.test(response.text) && /^Expires: /m.test(response.text), 'Contact and Expires', response.text);
+  }
+  const cdn = await request(`${CDN}/.well-known/security.txt`);
+  equal(cdn.headers.get('x-content-type-options'), 'nosniff', 'the CDN copy has the CDN security headers (nosniff)');
+  equal((await request(`${API}/.well-known/security.txt`)).status, 404, 'not on api.files.localhost');
+});
+
+await step('19. admin: staff get the queue; non-staff and signed-out callers get the unknown-route 404', async () => {
+  const meStaff = await api('/users/@me', { headers: OWNER });
+  equal(meStaff.data.staff, { role: 'admin', child_safety: true }, 'GET /users/@me: e2e is staff (granted by up.sh)');
+  equal((await api('/users/@me', { headers: AS_MEMBER })).data.staff, null, 'e2e-member isn\'t');
+  equal((await api('/admin/cases', { headers: OWNER })).status, 200, 'staff: GET /admin/cases');
+  const summary = await api('/admin/summary', { headers: OWNER });
+  equal(summary.status, 200, 'staff: GET /admin/summary');
+  equal(summary.data.scans_stalled, 0, 'no stalled scans');
+  const staffBadges = await api('/users/@me/badges', { headers: OWNER });
+  check(staffBadges.data.staff && typeof staffBadges.data.staff.open === 'number', 'staff badges', staffBadges.data);
+
+  const unknown = await api('/admin/no-such-route', { headers: AS_MEMBER });
+  equal(unknown.status, 404, 'an unknown route is 404');
+  for (const [who, headers] of [['e2e-member', AS_MEMBER], ['e2e-reporter', AS_REPORTER], ['signed out', {}]]) {
+    for (const path of ['/admin/cases', '/admin/summary', `/admin/files/${files.anon.id}`]) {
+      const response = await api(path, { headers });
+      equal([response.status, response.text], [404, unknown.text], `${who}: GET ${path} is the unknown-route 404`);
+    }
+  }
+  const action = await api('/admin/actions', { method: 'POST', headers: AS_MEMBER, json: { action: 'hide', target: { type: 'file', id: files.anon.id }, rule: 'spam' } });
+  equal(action.status, 404, 'e2e-member: POST /admin/actions is 404');
+  equal(parseShell((await page(vanityPath(files.anon))).text).state, 'file', 'and changed nothing');
+});
+
 const failed = results.filter((result) => !result.ok);
 const checks = results.reduce((sum, result) => sum + result.checks, 0);
+if (scanTimes.length) {
+  const sorted = scanTimes.map((entry) => entry.ms).sort((a, b) => a - b);
+  const seconds = (ms) => (ms / 1000).toFixed(1) + 's';
+  console.log(`\nScan times (upload, or upload completion, to safety.state leaving pending), ${scanTimes.length} files: ` +
+    `min ${seconds(sorted[0])}, median ${seconds(sorted[Math.floor(sorted.length / 2)])}, max ${seconds(sorted[sorted.length - 1])}`);
+}
 console.log(`\n${results.length - failed.length}/${results.length} steps passed, ${checks} checks` +
   (failed.length ? `; failed: ${failed.map((result) => result.name.split('.')[0]).join(', ')}` : ''));
 process.exit(failed.length ? 1 : 0);

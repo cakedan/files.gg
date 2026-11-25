@@ -9,6 +9,8 @@ export interface MenuItem {
   danger?: boolean;
   disabled?: boolean;
   hidden?: boolean;
+  /** Shown under the label, and as its tooltip: why a disabled item can't be used. */
+  hint?: string;
 }
 
 interface MenuProps {
@@ -135,12 +137,13 @@ export function Menu({ label, items, className = '' }: MenuProps) {
             style={style}
             className="z-[55] flex min-w-48 flex-col rounded-lg border border-line bg-surface-2 p-1 shadow-card"
           >
-            {visible.map(({ label: itemLabel, icon: Icon, onSelect, danger, disabled }) => (
+            {visible.map(({ label: itemLabel, icon: Icon, onSelect, danger, disabled, hint }) => (
               <button
                 key={itemLabel}
                 type="button"
                 role="menuitem"
                 disabled={disabled}
+                title={hint}
                 tabIndex={-1}
                 onClick={() => {
                   // Focus goes back to the trigger first, so a dialog opened here returns it there.
@@ -152,7 +155,14 @@ export function Menu({ label, items, className = '' }: MenuProps) {
                 }`}
               >
                 {Icon && <Icon aria-hidden className="size-4 shrink-0" />}
-                {itemLabel}
+                {hint ? (
+                  <span className="flex flex-col">
+                    {itemLabel}
+                    <span className="text-xs text-muted">{hint}</span>
+                  </span>
+                ) : (
+                  itemLabel
+                )}
               </button>
             ))}
           </div>,

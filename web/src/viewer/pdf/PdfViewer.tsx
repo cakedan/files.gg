@@ -17,6 +17,8 @@ import {
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 
 import { ExternalLinkDialog } from '../../components/ExternalLinkDialog';
+import { FlaggedLinkDialog } from '../links/FlaggedLinkDialog';
+import { isFlaggedLink, WEB_RISK_WARNING } from '../links/webRisk';
 import type { FileData } from '../types';
 import { downloadUrl } from '../urls';
 import { PdfPage, type PdfServices } from './PdfPage';
@@ -129,6 +131,11 @@ export function PdfViewer({ file, doc, firstPageSize, globalKeys, syncHash }: Pd
   const [sidebar, setSidebar] = useState<boolean | null>(null);
   const [outline, setOutline] = useState<OutlineNode[]>([]);
   const [externalUrl, setExternalUrl] = useState<string | null>(null);
+  // Milestone 4 §11.1: links Web Risk flagged can't be opened from here, only copied.
+  const flaggedRef = useRef(file.link_warnings);
+  useEffect(() => {
+    flaggedRef.current = file.link_warnings;
+  }, [file.link_warnings]);
   const [fullscreen, setFullscreen] = useState(false);
   const [fakeFullscreen, setFakeFullscreen] = useState(false);
   const [pinch, setPinch] = useState(1);
@@ -277,11 +284,24 @@ export function PdfViewer({ file, doc, firstPageSize, globalKeys, syncHash }: Pd
       rotation: 0,
       isInPresentationMode: false,
       addLinkAttributes(link: HTMLAnchorElement, url: string) {
-        link.href = url;
-        link.title = url;
-        link.rel = 'noopener noreferrer nofollow';
-        link.target = '_blank';
+        if (isFlaggedLink(url, flaggedRef.current)) {
+          // No real href, so a middle click or "open in new tab" can't open it either.
+          link.href = '#';
+          link.title = `${WEB_RISK_WARNING} ${url}`;
+          link.dataset.flagged = '';
+        } else {
+          link.href = url;
+          link.title = url;
+          link.rel = 'noopener noreferrer nofollow';
+          link.target = '_blank';
+        }
         link.addEventListener('click', (event) => {
+          event.preventDefault();
+          setExternalUrl(url);
+        });
+        // A middle click would open the link without the notice (security review W2).
+        link.addEventListener('auxclick', (event) => {
+          if (event.button !== 1) return;
           event.preventDefault();
           setExternalUrl(url);
         });
@@ -792,7 +812,12 @@ export function PdfViewer({ file, doc, firstPageSize, globalKeys, syncHash }: Pd
         </div>
       </div>
 
-      {externalUrl && <ExternalLinkDialog url={externalUrl} onClose={() => setExternalUrl(null)} />}
+      {externalUrl &&
+        (isFlaggedLink(externalUrl, file.link_warnings) ? (
+          <FlaggedLinkDialog url={externalUrl} onClose={() => setExternalUrl(null)} />
+        ) : (
+          <ExternalLinkDialog url={externalUrl} onClose={() => setExternalUrl(null)} />
+        ))}
     </div>
   );
 }

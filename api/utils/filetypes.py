@@ -85,3 +85,16 @@ def blocked_name(filename=None, extension=None):
 
 def blocked_mimetype(mimetype):
     return (mimetype or '').split(';', 1)[0].strip().lower() in BLOCKED_MIMETYPES
+
+
+# libmagic guesses "DOS executable (COM)" from a handful of opcode-like first bytes, which about 1% of
+# random binary data (encrypted or compressed blobs) has. A real DOS or Windows program starts with MZ
+# (and sniff_executable catches PE files properly), so that guess alone isn't trusted (milestone-4 §5.1).
+_COM_GUESS = 'application/x-dosexec'
+
+
+def trusted_sniff(mimetype, head):
+    """libmagic's type, minus its COM-program guesses on bytes that don't start with MZ."""
+    if mimetype == _COM_GUESS and not bytes(head[:2]) == b'MZ':
+        return 'application/octet-stream'
+    return mimetype

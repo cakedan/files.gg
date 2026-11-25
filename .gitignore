@@ -56,6 +56,8 @@ typings/
 
 # dotenv environment variables file
 .env
+.env.*
+!.env.example
 
 
 # Production database dumps: personal data, never commit (see docs/redesign/PLAN.md)

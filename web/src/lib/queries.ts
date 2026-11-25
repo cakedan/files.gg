@@ -4,8 +4,15 @@ import { useCallback } from 'react';
 import {
   api,
   ensureFingerprint,
+  hasToken,
   type AccessParams,
+  type AppealBody,
   type CreateAlbumBody,
+  type MyReportsParams,
+  type Notice,
+  type NoticesParams,
+  type Report,
+  type ReportMessage,
   type MyAlbumsParams,
   type MyFilesParams,
   type MyFilesResponse,
@@ -27,6 +34,15 @@ export const queryKeys = {
   album: (id: string) => ['users', '@me', 'albums', 'detail', id] as const,
   /** Owner passes ("Open as owner") live outside the files prefix, so list refetches keep them. */
   filePass: (id: string) => ['owner-pass', 'file', id] as const,
+  /** One owner file (`GET /users/@me/files/<id>`), polled while its scan is pending. */
+  myFile: (id: string) => ['users', '@me', 'file', id] as const,
+  badges: ['users', '@me', 'badges'] as const,
+  myReportsAll: ['users', '@me', 'reports'] as const,
+  myReports: (params: MyReportsParams) => ['users', '@me', 'reports', 'list', params] as const,
+  myReport: (id: string) => ['users', '@me', 'reports', 'detail', id] as const,
+  reportMessages: (id: string) => ['users', '@me', 'reports', 'messages', id] as const,
+  noticesAll: ['users', '@me', 'warnings'] as const,
+  notices: (params: NoticesParams) => ['users', '@me', 'warnings', params] as const,
 };
 
 export function useMe(enabled = true) {
@@ -75,8 +91,17 @@ export function useMyAlbums(params: MyAlbumsParams = {}, enabled = true) {
   });
 }
 
+/** While an item's scan is pending (milestone-4 §11.2), the album is refetched every 5 s. */
+export const ALBUM_PENDING_POLL_MS = 5_000;
+
 export function useAlbum(id: string) {
-  return useQuery({ queryKey: queryKeys.album(id), queryFn: ({ signal }) => api.album(id, signal), ...ownerUrlQueryOptions });
+  return useQuery({
+    queryKey: queryKeys.album(id),
+    queryFn: ({ signal }) => api.album(id, signal),
+    ...ownerUrlQueryOptions,
+    refetchInterval: (query) =>
+      query.state.data?.items.some((item) => item.safety?.state === 'pending') ? ALBUM_PENDING_POLL_MS : OWNER_URL_REFRESH_MS,
+  });
 }
 
 /**
@@ -346,6 +371,7 @@ export function useUpdateAlbum(id: string) {
     ...(body.description !== undefined ? { description: body.description } : {}),
     ...(body.layout !== undefined ? { layout: body.layout } : {}),
     ...(body.cover_file_id !== undefined ? { cover_file_id: body.cover_file_id } : {}),
+    ...(body.nsfw !== undefined ? { nsfw_marked: body.nsfw, nsfw: body.nsfw || album.items.some((item) => item.shown && item.nsfw) } : {}),
   }));
 }
 
@@ -390,5 +416,188 @@ export function useCreateAlbum() {
     mutationFn: (body: CreateAlbumBody) => withFingerprint(() => api.createAlbum(body)),
     onSuccess: (album) => client.setQueryData(queryKeys.album(album.id), album),
     onSettled: () => void client.invalidateQueries({ queryKey: queryKeys.myAlbumsAll }),
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Milestone 4: badges, My reports, notices and NSFW (milestone-4 §6–§8, §11.2)
+// ---------------------------------------------------------------------------
+
+/** Badges are fetched on load, every 60 s while the page is visible, and on focus (§11.2). */
+export const BADGES_REFRESH_MS = 60_000;
+
+export function useBadges(enabled = hasToken()) {
+  return useQuery({
+    queryKey: queryKeys.badges,
+    queryFn: ({ signal }) => api.badges(signal),
+    enabled,
+    staleTime: 5_000,
+    refetchInterval: BADGES_REFRESH_MS,
+    refetchIntervalInBackground: false,
+    refetchOnWindowFocus: true,
+  });
+}
+
+export function useMyReports(params: MyReportsParams, enabled = true) {
+  return useQuery({
+    queryKey: queryKeys.myReports(params),
+    queryFn: ({ signal }) => api.myReports(params, signal),
+    placeholderData: keepPreviousData,
+    enabled,
+  });
+}
+
+export function useMyReport(id: string) {
+  return useQuery({ queryKey: queryKeys.myReport(id), queryFn: ({ signal }) => api.myReport(id, signal) });
+}
+
+/** The thread changed since it was last read: a new count or a new last message. */
+const threadChanged = (before: { items: ReportMessage[] } | undefined, after: { items: ReportMessage[] }) =>
+  !before || before.items.length !== after.items.length || before.items.at(-1)?.id !== after.items.at(-1)?.id;
+
+/**
+ * Reading the thread marks the report read, so the unread counts refresh after it:
+ * only when there was something new to read, since the badges poll on their own.
+ */
+export function useReportMessages(id: string, enabled = true) {
+  const client = useQueryClient();
+  return useQuery({
+    queryKey: queryKeys.reportMessages(id),
+    queryFn: async ({ signal }) => {
+      const result = await api.reportMessages(id, signal);
+      const before = client.getQueryData<{ items: ReportMessage[] }>(queryKeys.reportMessages(id));
+      if (threadChanged(before, result)) void client.invalidateQueries({ queryKey: queryKeys.badges });
+      markReportRead(client, id);
+      return result;
+    },
+    enabled,
+    refetchInterval: 60_000,
+    refetchIntervalInBackground: false,
+  });
+}
+
+/** Zeroes a report's `unread` in every cached list and its detail. */
+function markReportRead(client: QueryClient, id: string) {
+  const read = (report: Report) => (report.id === id && report.unread ? { ...report, unread: 0 } : report);
+  client.setQueryData<Report>(queryKeys.myReport(id), (report) => (report ? read(report) : report));
+  for (const [key, data] of client.getQueriesData<{ count: number; items: Report[] }>({ queryKey: [...queryKeys.myReportsAll, 'list'] })) {
+    if (data?.items) client.setQueryData(key, { ...data, items: data.items.map(read) });
+  }
+}
+
+export function useSendReportMessage(id: string) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (body: string) => api.sendReportMessage(id, body),
+    onSuccess: (message) =>
+      client.setQueryData<{ items: (typeof message)[] }>(queryKeys.reportMessages(id), (data) => ({ items: [...(data?.items ?? []), message] })),
+    onSettled: () => {
+      void client.invalidateQueries({ queryKey: queryKeys.myReport(id) });
+      void client.invalidateQueries({ queryKey: [...queryKeys.myReportsAll, 'list'], refetchType: 'none' });
+    },
+  });
+}
+
+export function useReopenReport(id: string) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: () => api.reopenReport(id),
+    onSuccess: (report) => client.setQueryData(queryKeys.myReport(id), report),
+    onSettled: () => {
+      void client.invalidateQueries({ queryKey: [...queryKeys.myReportsAll, 'list'] });
+      void client.invalidateQueries({ queryKey: queryKeys.reportMessages(id) });
+    },
+  });
+}
+
+export function useNotices(params: NoticesParams = {}, enabled = true) {
+  return useQuery({
+    queryKey: queryKeys.notices(params),
+    queryFn: ({ signal }) => api.notices(params, signal),
+    placeholderData: keepPreviousData,
+    enabled,
+  });
+}
+
+function patchCachedNotices(client: QueryClient, update: (notice: Notice) => Notice) {
+  for (const [key, data] of client.getQueriesData<{ items: Notice[]; unacknowledged: number }>({ queryKey: queryKeys.noticesAll })) {
+    if (!data?.items) continue;
+    const items = data.items.map(update);
+    const newlyAcknowledged = items.filter((notice, i) => notice.acknowledged_at !== null && data.items[i]!.acknowledged_at === null).length;
+    client.setQueryData(key, { ...data, items, unacknowledged: Math.max(0, data.unacknowledged - newlyAcknowledged) });
+  }
+}
+
+export function useAcknowledgeNotices() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (ids: string[]) => api.acknowledgeNotices(ids),
+    onSuccess: ({ acknowledged }) => {
+      const done = new Set(acknowledged);
+      const at = Math.floor(Date.now() / 1000);
+      patchCachedNotices(client, (notice) => (done.has(notice.id) && notice.acknowledged_at === null ? { ...notice, acknowledged_at: at } : notice));
+    },
+    onSettled: () => {
+      void client.invalidateQueries({ queryKey: queryKeys.badges });
+      void client.invalidateQueries({ queryKey: queryKeys.noticesAll });
+    },
+  });
+}
+
+export function useAppealNotice() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, body }: { id: string; body: AppealBody }) => api.appealNotice(id, body),
+    onSuccess: (updated) => patchCachedNotices(client, (notice) => (notice.id === updated.id ? updated : notice)),
+    onSettled: () => {
+      void client.invalidateQueries({ queryKey: queryKeys.noticesAll });
+      void client.invalidateQueries({ queryKey: queryKeys.badges });
+    },
+  });
+}
+
+/** Mark or unmark as sensitive: one file (`PATCH`) or several (`POST …/files/nsfw`), optimistic. */
+export function useSetNsfw() {
+  const client = useQueryClient();
+  const settle = useSettle();
+  return useMutation({
+    mutationFn: async ({ ids, nsfw }: { ids: string[]; nsfw: boolean }): Promise<{ items: OwnerFile[]; skipped: string[] }> => {
+      if (ids.length === 1) return { items: [await api.setFileNsfw(ids[0]!, nsfw)], skipped: [] };
+      const items: OwnerFile[] = [];
+      const skipped: string[] = [];
+      for (let i = 0; i < ids.length; i += 100) {
+        const result = await api.setFilesNsfw(ids.slice(i, i + 100), nsfw);
+        items.push(...result.items);
+        skipped.push(...result.skipped);
+      }
+      return { items, skipped };
+    },
+    onMutate: async ({ ids, nsfw }) => {
+      const set = new Set(ids);
+      return {
+        snapshot: await updateCachedFiles(client, (file) => {
+          if (!set.has(file.id)) return file;
+          if (nsfw) return { ...file, nsfw: true };
+          // Only the uploader's own mark can be taken back (§4.5); the server answers the rest.
+          return file.safety?.nsfw_locked || file.safety?.nsfw_source !== 'uploader' ? file : { ...file, nsfw: false };
+        }),
+      };
+    },
+    onSuccess: ({ items }) => replaceCachedFiles(client, items),
+    onError: (_error, _vars, context) => restore(client, context?.snapshot),
+    onSettled: () => {
+      settle();
+      void client.invalidateQueries({ queryKey: queryKeys.myAlbumsAll, refetchType: 'none' });
+    },
+  });
+}
+
+export function useRequestNsfwReview() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, message }: { id: string; message?: string }) => api.requestNsfwReview(id, message),
+    onSuccess: (_data, { id }) =>
+      void updateCachedFiles(client, (file) => (file.id === id && file.safety ? { ...file, safety: { ...file.safety, nsfw_review: 'open' } } : file)),
+    onSettled: () => void client.invalidateQueries({ queryKey: queryKeys.myFilesAll }),
   });
 }

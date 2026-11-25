@@ -9,7 +9,7 @@
 
 export const TURNSTILE_SCRIPT = 'https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit';
 
-export type TurnstileAction = 'unlock' | 'upload' | 'login' | 'register' | 'forgot';
+export type TurnstileAction = 'unlock' | 'upload' | 'login' | 'register' | 'forgot' | 'report';
 
 export interface TurnstileRenderOptions {
   sitekey: string;
@@ -38,22 +38,29 @@ declare global {
 
 let loading: Promise<TurnstileApi> | null = null;
 
-/** Injects Cloudflare's script once; later calls share the same promise. */
+/**
+ * Injects Cloudflare's script once; later calls share the same promise. A failed load
+ * (network error, or a script that didn't define `window.turnstile`) is forgotten, so
+ * the next call (Retry) injects it again.
+ */
 export function loadTurnstile(doc: Document = document): Promise<TurnstileApi> {
   if (window.turnstile) return Promise.resolve(window.turnstile);
-  loading ??= new Promise<TurnstileApi>((resolve, reject) => {
+  if (loading) return loading;
+  const attempt = new Promise<TurnstileApi>((resolve, reject) => {
     const script = doc.createElement('script');
     script.src = TURNSTILE_SCRIPT;
     script.async = true;
-    script.onload = () => (window.turnstile ? resolve(window.turnstile) : reject(new Error('turnstile-missing')));
-    script.onerror = () => {
-      loading = null;
+    const fail = (message: string) => {
+      if (loading === attempt) loading = null;
       script.remove();
-      reject(new Error('turnstile-load-failed'));
+      reject(new Error(message));
     };
+    script.onload = () => (window.turnstile ? resolve(window.turnstile) : fail('turnstile-missing'));
+    script.onerror = () => fail('turnstile-load-failed');
     doc.head.append(script);
   });
-  return loading;
+  loading = attempt;
+  return attempt;
 }
 
 /** Test hook: forget a previous (possibly failed) load. */

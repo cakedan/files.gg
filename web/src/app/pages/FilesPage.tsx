@@ -9,7 +9,7 @@ import { errorMessage } from '../../lib/errors';
 import { formatBytes } from '../../lib/format';
 import { EMPTY_SELECTION, pruneSelection, toggleAllOnPage, toggleSelection, type Selection } from '../../lib/files/selection';
 import { filesSearchParams, pageCount, parseFilesState, patchFilesState, toApiParams, type FilesUrlState } from '../../lib/files/urlState';
-import { useDeleteFiles, useMyFiles, useMyLimits, useRenameFile, useSetExpiry } from '../../lib/queries';
+import { useDeleteFiles, useMyFiles, useMyLimits, useRenameFile, useSetExpiry, useSetNsfw } from '../../lib/queries';
 import { RELATIVE_REFRESH_MS } from '../../lib/time';
 import { useNow } from '../../lib/useNow';
 import { AccessDialog } from '../access/AccessDialog';
@@ -17,6 +17,7 @@ import { ConfirmDialog } from '../components/ConfirmDialog';
 import { useToast } from '../components/toastContext';
 import { useIsNarrow } from '../components/useMediaQuery';
 import { AddToAlbumDialog } from '../files/AddToAlbumDialog';
+import { AskReviewDialog } from '../files/AskReviewDialog';
 import { BulkBar } from '../files/BulkBar';
 import { ExpiryDialog } from '../files/ExpiryDialog';
 import { pluralize } from '../files/fileLabels';
@@ -25,6 +26,7 @@ import { FilesToolbar } from '../files/FilesToolbar';
 import { FileCardList, FilesGrid, FilesTable } from '../files/FilesViews';
 import { Pagination } from '../files/Pagination';
 import { useFileActions } from '../files/useFileActions';
+import { usePendingPoll } from '../files/usePendingPoll';
 
 const FileDrawer = lazy(() => import('../files/FileDrawer'));
 
@@ -33,6 +35,7 @@ type DialogState =
   | { type: 'expiry'; files: OwnerFile[] }
   | { type: 'access'; files: OwnerFile[] }
   | { type: 'album'; files: OwnerFile[] }
+  | { type: 'review'; files: OwnerFile[] }
   | null;
 
 /** PLAN.md Phase 3 "Files" and milestone-3 contract §8. */
@@ -79,6 +82,8 @@ export default function FilesPage() {
   const remove = useDeleteFiles();
   const rename = useRenameFile();
   const expiry = useSetExpiry();
+  const sensitive = useSetNsfw();
+  usePendingPoll(items);
 
   const handlers: FileHandlers = useMemo(
     () => ({
@@ -103,8 +108,24 @@ export default function FilesPage() {
       changeAccess: (list) => setDialog({ type: 'access', files: list }),
       addToAlbum: (list) => setDialog({ type: 'album', files: list }),
       remove: (list) => setDialog({ type: 'delete', files: list }),
+      // Milestone 4 §4.5: only signed-in owners can mark (anonymous files can't hold adult content).
+      setSensitive: anonymous
+        ? undefined
+        : (list, nsfw) =>
+            sensitive.mutate(
+              { ids: list.map((file) => file.id), nsfw },
+              {
+                onSuccess: ({ items: changed, skipped }) => {
+                  const done = nsfw ? `Marked ${pluralize(changed.length, 'file')} as sensitive.` : `Unmarked ${pluralize(changed.length, 'file')}.`;
+                  const kept = skipped.length > 0 ? ` ${pluralize(skipped.length, 'file')} marked by files.gg ${skipped.length === 1 ? 'stays' : 'stay'} marked.` : '';
+                  notify(done + kept);
+                },
+                onError: (error) => notify(errorMessage(error), 'error'),
+              },
+            ),
+      askReview: anonymous ? undefined : (file) => setDialog({ type: 'review', files: [file] }),
     }),
-    [actions, anonymous, expiry, notify],
+    [actions, anonymous, expiry, notify, sensitive],
   );
 
   const confirmDelete = (list: OwnerFile[]) => {
@@ -240,6 +261,16 @@ export default function FilesPage() {
           target={dialog.files.length === 1 ? { kind: 'file', file: dialog.files[0]! } : { kind: 'files', files: dialog.files }}
           anonymous={anonymous}
           onClose={() => setDialog(null)}
+        />
+      )}
+      {dialog?.type === 'review' && (
+        <AskReviewDialog
+          file={dialog.files[0]!}
+          onClose={() => setDialog(null)}
+          onDone={() => {
+            setDialog(null);
+            notify('Review requested. A moderator will check it.');
+          }}
         />
       )}
       {dialog?.type === 'album' && (

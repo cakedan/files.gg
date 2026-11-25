@@ -1,5 +1,5 @@
-import { Clock, Download, ExternalLink, KeyRound, Link2, Lock, Trash2 } from 'lucide-react';
-import { createElement, Suspense, useMemo } from 'react';
+import { AlertTriangle, Clock, Download, Eye, EyeOff, ExternalLink, KeyRound, Link2, Lock, MessageSquareWarning, Trash2 } from 'lucide-react';
+import { createElement, Suspense, useId, useMemo, useState } from 'react';
 import { Link } from 'react-router';
 
 import { Button, LinkButton } from '../../components/Button';
@@ -13,8 +13,11 @@ import { RendererFallback } from '../../viewer/components/RendererFallback';
 import { getRenderer } from '../../viewer/renderers';
 import { downloadUrl } from '../../viewer/urls';
 import { Drawer } from '../components/Drawer';
+import { canShowMedia, stateExplanation, WARNING_TEXT } from '../safety/labels';
+import { SafetyBadge } from '../safety/SafetyBadge';
+import { useShowSensitive } from '../safety/sensitive';
 import { AccessBadge } from './AccessBadge';
-import type { FileHandlers } from './fileMenu';
+import { canAskReview, NSFW_LOCKED_HINT, type FileHandlers } from './fileMenu';
 import { formatDuration, pluralize, typeLabel } from './fileLabels';
 
 interface FileDrawerProps {
@@ -28,6 +31,40 @@ function Meta({ label, children }: { label: string; children: React.ReactNode })
     <div className="flex flex-col gap-0.5">
       <dt className="text-xs text-muted">{label}</dt>
       <dd className="text-sm">{children}</dd>
+    </div>
+  );
+}
+
+const NSFW_SOURCES: Record<string, string> = {
+  uploader: 'You marked this file as sensitive.',
+  auto: 'files.gg’s classifier marked this file as sensitive.',
+  moderator: 'A moderator marked this file as sensitive.',
+  reports: 'This file was marked as sensitive after reports.',
+};
+
+/** §4.6: the drawer opens NSFW files behind an interstitial. Nothing mounts before Show. */
+function SensitiveGate({ onShow }: { onShow: () => void }) {
+  const id = useId();
+  const [, setAlways] = useShowSensitive();
+  const [always, setAlwaysChecked] = useState(false);
+  return (
+    <div className="flex flex-col items-center gap-3 p-6 text-center">
+      <EyeOff aria-hidden className="size-8 text-warn" />
+      <p className="text-sm font-medium">This file may contain sensitive content</p>
+      <label htmlFor={`${id}-always`} className="flex items-center gap-2 text-xs text-muted">
+        <input id={`${id}-always`} type="checkbox" checked={always} onChange={(event) => setAlwaysChecked(event.target.checked)} className="accent-gg" />
+        Always show sensitive media
+      </label>
+      <Button
+        variant="primary"
+        onClick={() => {
+          if (always) setAlways(true);
+          onShow();
+        }}
+      >
+        <Eye aria-hidden className="size-4" />
+        Show
+      </Button>
     </div>
   );
 }
@@ -46,18 +83,47 @@ export default function FileDrawer({ file, handlers, onClose }: FileDrawerProps)
   const dims = formatDimensions(file.width ?? file.media?.width, file.height ?? file.media?.height);
   const duration = file.duration ?? file.media?.duration;
   const now = useNow(RELATIVE_REFRESH_MS);
+  const [showSensitive] = useShowSensitive();
+  const [revealed, setRevealed] = useState(false);
+  const servable = canShowMedia(file);
+  const gated = Boolean(file.nsfw) && !showSensitive && !revealed;
+  const explanation = stateExplanation(file);
+  const warnings = [...new Set((file.warnings ?? []).map((code) => WARNING_TEXT[code]).filter(Boolean))];
+  const nsfwSource = file.safety?.nsfw_source;
 
   return (
     <Drawer title={file.filename} onClose={onClose}>
       <div className="flex flex-col gap-5 p-4">
         <div className="flex min-h-48 items-center justify-center overflow-hidden rounded-lg border border-line bg-well">
-          {data ? (
+          {!servable ? (
+            <p className="p-6 text-center text-sm text-muted">{file.safety?.state === 'pending' ? 'This file can’t be viewed until the check finishes.' : 'This file can’t be viewed.'}</p>
+          ) : gated ? (
+            <SensitiveGate onShow={() => setRevealed(true)} />
+          ) : data ? (
             <Suspense fallback={<RendererFallback file={data} />}>{createElement(getRenderer(data.kind), { file: data, context: 'list' })}</Suspense>
           ) : (
             <p className="p-6 text-center text-sm text-muted">This file can't be previewed.</p>
           )}
         </div>
-        {file.processing && <p className="text-xs text-muted">Previews are still being made for this file.</p>}
+        {servable && file.processing && <p className="text-xs text-muted">Previews are still being made for this file.</p>}
+
+        {explanation && (
+          <div className="flex flex-wrap items-center gap-2 rounded-md border border-line bg-bg px-3 py-2 text-sm">
+            <SafetyBadge safety={file.safety} />
+            <span className="min-w-0 flex-1 text-muted">{explanation}</span>
+            {file.safety?.notice_id && (
+              <Link to={`/notices/${file.safety.notice_id}`} onClick={onClose} className="font-medium text-gg hover:underline">
+                See the notice
+              </Link>
+            )}
+          </div>
+        )}
+        {warnings.map((text) => (
+          <p key={text} className="flex items-start gap-2 rounded-md border border-warn/40 bg-warn/10 px-3 py-2 text-sm">
+            <AlertTriangle aria-hidden className="mt-0.5 size-4 shrink-0 text-warn" />
+            {text} Visitors see this warning too.
+          </p>
+        ))}
 
         <div className="flex flex-wrap gap-2">
           <Button variant="primary" onClick={() => handlers.copyLink(file)}>
@@ -75,7 +141,7 @@ export default function FileDrawer({ file, handlers, onClose }: FileDrawerProps)
               Open
             </Button>
           )}
-          {data && (
+          {data && servable && (
             <LinkButton href={downloadUrl(data.cdn_url)} download={file.filename}>
               <Download aria-hidden className="size-4" />
               Download
@@ -94,6 +160,33 @@ export default function FileDrawer({ file, handlers, onClose }: FileDrawerProps)
             Delete
           </Button>
         </div>
+
+        {handlers.setSensitive && (
+          <section aria-label="Sensitive content" className="flex flex-col gap-2 rounded-md border border-line px-3 py-3">
+            <p className="text-sm text-muted">{file.nsfw ? (NSFW_SOURCES[nsfwSource ?? ''] ?? 'This file is marked as sensitive.') : 'This file isn’t marked as sensitive.'}</p>
+            <div className="flex flex-wrap gap-2">
+              {file.nsfw ? (
+                <Button onClick={() => handlers.setSensitive!([file], false)} disabled={Boolean(file.safety?.nsfw_locked)} title={file.safety?.nsfw_locked ? NSFW_LOCKED_HINT : undefined}>
+                  <Eye aria-hidden className="size-4" />
+                  Unmark as sensitive
+                </Button>
+              ) : (
+                <Button onClick={() => handlers.setSensitive!([file], true)}>
+                  <EyeOff aria-hidden className="size-4" />
+                  Mark as sensitive
+                </Button>
+              )}
+              {handlers.askReview && canAskReview(file) && (
+                <Button onClick={() => handlers.askReview!(file)}>
+                  <MessageSquareWarning aria-hidden className="size-4" />
+                  Ask for review…
+                </Button>
+              )}
+            </div>
+            {file.nsfw && file.safety?.nsfw_locked && <p className="text-xs text-muted">{NSFW_LOCKED_HINT}</p>}
+            {file.safety?.nsfw_review === 'open' && <p className="text-xs text-muted">You asked for a review. A moderator will check it.</p>}
+          </section>
+        )}
 
         <dl className="grid grid-cols-2 gap-4 sm:grid-cols-3">
           <Meta label="Type">

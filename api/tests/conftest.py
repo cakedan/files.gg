@@ -80,7 +80,31 @@ os.environ.update({
 })
 os.environ.pop('DEBUG', None)
 # the public URLs keep their production defaults
-for _name in ('PUBLIC_URL', 'CDN_URL', 'TURNSTILE_HOSTNAMES', 'FILESGG_DEV_TOOLS'):
+for _name in ('PUBLIC_URL', 'CDN_URL', 'TURNSTILE_HOSTNAMES'):
+    os.environ.pop(_name, None)
+
+# --- Milestone 4: the stand-in matcher (tests only: it needs FILESGG_DEV_TOOLS=1), the §14.2 abuse
+# hash secret, a throwaway evidence key pair (the private half stays in the test process to check
+# sealed IPs), the evidence bucket on MinIO, and clamd from docker-compose.test.yml ---------------------
+import base64  # noqa: E402
+
+from nacl.public import PrivateKey  # noqa: E402
+
+EVIDENCE_PRIVATE_KEY = PrivateKey.generate()
+ABUSE_HASH_SECRET = 'test-abuse-hash-secret'
+EVIDENCE_BUCKET = 'filesgg-test-evidence'
+os.environ.update({
+    'CSAM_MATCHER': 'standin',
+    'FILESGG_DEV_TOOLS': '1',
+    'ABUSE_HASH_SECRET': ABUSE_HASH_SECRET,
+    'EVIDENCE_PUBLIC_KEY': base64.b64encode(bytes(EVIDENCE_PRIVATE_KEY.public_key)).decode('ascii'),
+    'S3_BUCKET_EVIDENCE': EVIDENCE_BUCKET,
+    'S3_EVIDENCE_ACCESS_KEY_ID': os.environ['S3_ACCESS_KEY_ID'],
+    'S3_EVIDENCE_SECRET_ACCESS_KEY': os.environ['S3_SECRET_ACCESS_KEY'],
+})
+os.environ.setdefault('CLAMAV_HOST', 'localhost')
+for _name in ('STANDIN_MODE', 'STANDIN_MATCH_FILE', 'WEB_RISK_API_KEY', 'WEB_RISK_STANDIN_FILE', 'NSFW_THRESHOLD',
+              'REPORT_THRESHOLDS'):
     os.environ.pop(_name, None)
 
 import migrate  # noqa: E402
@@ -159,6 +183,43 @@ def _create_bucket():
 
 _create_bucket()
 BUCKET = os.environ['S3_BUCKET_FILES']
+
+
+def _create_evidence_bucket():
+    """The evidence bucket, with Object Lock (milestone-4 §3.6)."""
+    client = s3_client()
+    try:
+        client.head_bucket(Bucket=EVIDENCE_BUCKET)
+    except Exception:
+        client.create_bucket(Bucket=EVIDENCE_BUCKET, ObjectLockEnabledForBucket=True)
+
+
+_create_evidence_bucket()
+
+
+# --- scan gating (milestone-4 §2.1) ---------------------------------------------------------------------
+# Every new hash starts `pending` until its scan passes. The Milestone 2 and 3 tests are about what
+# happens to published files, so for them the app database's `scan_state` default is `passed` (as if
+# every scan had passed at once); tests marked `scan_gating` (the Milestone 4 suites) get the real
+# default. The schema itself always says `pending` (tests/test_migrations.py checks it).
+
+_scan_default = {'value': 'pending'}
+
+
+def set_scan_default(value):
+    if _scan_default['value'] != value:
+        admin = psycopg.connect(database_url(APP_DATABASE), autocommit=True)
+        try:
+            admin.execute("ALTER TABLE file_hashes ALTER COLUMN scan_state SET DEFAULT '{}'".format(value))
+        finally:
+            admin.close()
+        _scan_default['value'] = value
+
+
+@pytest.fixture(autouse=True)
+def scan_default(request):
+    set_scan_default('pending' if request.node.get_closest_marker('scan_gating') else 'passed')
+    yield
 
 
 def s3_object(key):

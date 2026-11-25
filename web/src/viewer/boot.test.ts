@@ -17,6 +17,10 @@ const file = {
 };
 
 describe('parseBoot', () => {
+  it('reads a custom domain\'s landing card (milestone-6 §10.8)', () => {
+    expect(parseBoot({ page: 'domain-home', state: 'missing' })).toEqual({ page: 'domain-home' });
+  });
+
   it('shows the home card for data-page="home", even with other data present', () => {
     expect(parseBoot({ page: 'home', state: 'unavailable', fileJson: JSON.stringify(file) })).toEqual({ page: 'home' });
   });
@@ -131,7 +135,7 @@ describe('readBootInput', () => {
   it('returns nulls for an empty shell', () => {
     const doc = document.implementation.createHTMLDocument('t');
     doc.body.innerHTML = '<div id="root"></div>';
-    expect(readBootInput(doc)).toEqual({ page: null, state: null, fileJson: null, albumJson: null });
+    expect(readBootInput(doc)).toEqual({ page: null, state: null, fileJson: null, albumJson: null, reportJson: null });
   });
 });
 
@@ -353,5 +357,108 @@ describe('milestone 3 payload fields', () => {
     expect(bare?.visibility).toBeUndefined();
     expect(bare?.collage).toBeUndefined();
     expect(bare?.download_url).toBeUndefined();
+  });
+});
+
+describe('milestone 4 boot states (milestone-4 §10.1, §11.1)', () => {
+  const json = (value: unknown) => JSON.stringify(value);
+
+  it('parses pending files and albums', () => {
+    expect(parseBoot({ page: 'file', state: 'pending', fileJson: json({ vanity: 'abc', pending: true }) })).toEqual({
+      page: 'pending',
+      target: { kind: 'file', vanity: 'abc' },
+    });
+    expect(parseBoot({ page: 'album', state: 'pending', albumJson: json({ vanity: 'Ab3', pending: true }) })).toEqual({
+      page: 'pending',
+      target: { kind: 'album', vanity: 'Ab3' },
+    });
+  });
+
+  it('parses removed files and albums, with each public reason', () => {
+    for (const reason of ['review', 'terms', 'copyright', 'malware']) {
+      expect(parseBoot({ page: 'file', state: 'removed', fileJson: json({ vanity: 'abc', removed: reason }) })).toEqual({
+        page: 'removed',
+        target: { kind: 'file', vanity: 'abc' },
+        reason,
+      });
+    }
+    expect(parseBoot({ page: 'album', state: 'removed', albumJson: json({ vanity: 'Ab3', removed: 'terms' }) })).toMatchObject({
+      page: 'removed',
+      target: { kind: 'album', vanity: 'Ab3' },
+    });
+  });
+
+  it('keeps anything malformed missing', () => {
+    const cases = [
+      { page: 'file', state: 'pending', fileJson: json({ vanity: 'abc' }) },
+      { page: 'file', state: 'pending', fileJson: json({ pending: true }) },
+      { page: 'file', state: 'pending', fileJson: 'not json' },
+      { page: 'file', state: 'removed', fileJson: json({ vanity: 'abc', removed: 'because' }) },
+      { page: 'file', state: 'removed', fileJson: json({ vanity: 'abc' }) },
+      { page: 'album', state: 'removed', albumJson: null },
+      { page: 'report', reportJson: json({ type: 'file' }) },
+      { page: 'report', reportJson: json({ type: 'user', vanity: 'x' }) },
+      { page: 'report', reportJson: null },
+    ];
+    for (const input of cases) expect(parseBoot(input)).toEqual({ page: 'missing' });
+  });
+
+  it('CSAM-blocked files arrive as plain missing and parse exactly like an unknown vanity', () => {
+    expect(parseBoot({ page: 'file', state: 'missing', fileJson: 'null' })).toEqual(parseBoot({ page: 'file', state: 'missing' }));
+  });
+
+  it('parses the report page targets', () => {
+    expect(parseBoot({ page: 'report', reportJson: json({ type: 'any' }) })).toEqual({ page: 'report', target: { type: 'any' } });
+    expect(parseBoot({ page: 'report', reportJson: json({ type: 'file', vanity: 'abcd/xyz' }) })).toEqual({
+      page: 'report',
+      target: { type: 'file', vanity: 'abcd/xyz' },
+    });
+    expect(parseBoot({ page: 'report', reportJson: json({ type: 'album', vanity: 'Ab3' }) })).toEqual({
+      page: 'report',
+      target: { type: 'album', vanity: 'Ab3' },
+    });
+  });
+
+  it('reads #report-data from the document', () => {
+    const doc = document.implementation.createHTMLDocument('t');
+    doc.body.innerHTML = '<div id="root" data-page="report"></div><script id="report-data" type="application/json">{"type":"any"}</script>';
+    expect(parseBoot(readBootInput(doc))).toEqual({ page: 'report', target: { type: 'any' } });
+  });
+
+  it('parses nsfw, known warnings and http(s) link warnings', () => {
+    const parsed = parseFileData({
+      ...file,
+      nsfw: true,
+      warnings: ['encrypted_archive', 'mystery', 'unwanted_software', 'encrypted_archive'],
+      link_warnings: ['https://a.example/x', 'javascript:alert(1)', 42, 'http://b.example/'],
+    });
+    expect(parsed?.nsfw).toBe(true);
+    expect(parsed?.warnings).toEqual(['unwanted_software', 'encrypted_archive']);
+    expect(parsed?.link_warnings).toEqual(['https://a.example/x', 'http://b.example/']);
+    const plain = parseFileData(file);
+    expect(plain?.nsfw).toBeUndefined();
+    expect(plain?.warnings).toBeUndefined();
+    expect(plain?.link_warnings).toBeUndefined();
+  });
+
+  it('caps link warnings at 20', () => {
+    const urls = Array.from({ length: 25 }, (_, i) => `https://x.example/${i}`);
+    expect(parseFileData({ ...file, link_warnings: urls })?.link_warnings).toHaveLength(20);
+  });
+
+  it('serve_inline: false makes any file a download card with no previews', () => {
+    const parsed = parseFileData({
+      ...file,
+      serve_inline: false,
+      thumbnail: { url: 'https://cdn.files.gg/previews/thumb/abc.webp', type: 'thumb' },
+      assets: { thumb: { url: 'https://cdn.files.gg/previews/thumb/abc.webp' } },
+      hover_url: 'https://cdn.files.gg/previews/hover/abc.mp4',
+    });
+    expect(parsed).toMatchObject({ kind: 'file', thumbnail: undefined, assets: undefined, hover_url: undefined });
+  });
+
+  it('parses album link warnings', () => {
+    const album = parseAlbumData({ vanity: 'v', items: [{ ...file, position: 0 }], link_warnings: ['https://bad.example/'] });
+    expect(album?.link_warnings).toEqual(['https://bad.example/']);
   });
 });

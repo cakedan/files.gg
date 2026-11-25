@@ -2,6 +2,7 @@
 
     python -m media.process probe  <input> <outdir> <hints json>
     python -m media.process derive <input> <outdir> <hints json>
+    python -m media.process scan   <input> <outdir> <hints json>   (milestone-4, media/scanning.py)
 
 Started by jobs/media.py through media/sandbox.py (rlimits, wall-clock timeout, no
 secrets in the environment). It reads only the local temp file it is given, writes
@@ -620,6 +621,11 @@ def main(argv=None):
             result = probe(path, hints)
         elif op == 'derive':
             result = derive(path, outdir, hints)
+        elif op == 'scan':
+            # contract milestone-4 §2.2: every failure here is a retry, never "unusable"
+            from media import scanning
+            print(json.dumps(scanning.scan(path, outdir, hints, deadline=_deadline)))
+            return 0
         else:
             raise SystemExit('unknown operation {!r}'.format(op))
     except Unusable as error:

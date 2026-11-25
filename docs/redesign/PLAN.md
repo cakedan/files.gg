@@ -60,13 +60,30 @@ The exact formats are in [`contracts/milestone-3.md`](contracts/milestone-3.md).
 | **e2e** | Media made by the worker container's own ffmpeg, previews, path-bound signatures (a signature can't be reused on another path or file), album grants, the ZIP checked with `unzip`, and the library. | 13 steps and 221 checks green. Browser: video page, album pages (public and password via `#pw=`), and the dashboard with signed thumbnails. |
 
 **Found in the Milestone 3 checks (to do):**
-- **The Worker's 30 s lookup cache now shows up in four places:** revocation, expiry, a file joining a protected album, and a new collage. Each one waits up to 30 s. The decision from Milestone 2 is still open, and more pressing now: a short TTL (~5 s), or a purge the API triggers on writes.
+- ~~**The Worker's 30 s lookup cache.**~~ **Decided 2026-11-25: 5 s.** Revocation, expiry, deletes and album changes reach the CDN within about 5 s. In exchange, the API sees roughly one lookup per viewed file, per Cloudflare location, per 5 s.
 - **One unexplained 503** on the first successful unlock after a fresh stack start. It came through the local Worker proxy, with nothing in the API log, and 90 repeats didn't reproduce it. Watch for it in staging.
 - **Bulk change-access can't clear a password expiry** ("Never"). Changing one file at a time can.
 - **Overview's "expiring in 7 days"** scans the first 100 temporary files, because the library has no `sort_by=expires`.
 - **`app.css` duplicates a few `viewer.css` media classes**, so the two have to be kept in step.
 - **An upload that de-duplicates onto a hash at the instant `delete_blob` removes it** fails with a foreign-key error. This needs a row lock shared by finalize and `delete_blob`.
 - **`e2e/down.sh` used to fail silently** when `.env` lacked a newly required variable. Fixed: it now tears down by project name and checks that the volumes are gone.
+
+**Milestone 4 follow-ups:**
+- The viewer shows all three Web Risk "learn more" links. The API now sends `link_warning_types` (threat types per URL), so it can show just the matched type's link, as Google's warning rules prefer.
+- `lib/reports.ts` and `lib/api.ts` both define the report reasons and DMCA types; unify them.
+- The DMCA good-faith and perjury statements in the report and appeal forms need legal review.
+- A Terms page at `/legal/terms` is linked from removed-file pages and doesn't exist yet.
+- Scanner efficiency (found by the security review):
+  - each blob is read from B2 about 4 times across scan, probe and derive;
+  - the ONNX model is loaded and re-hashed in every scan child.
+  
+  Share one local copy per job chain and keep a warm model process. These are performance, not correctness.
+- Security review (2026-11-25) leftovers:
+  - ~~**W1:** server-cut Web Risk links rendering live.~~ Fixed: the client reduces links the server's way, and a link is flagged on a match or prefix match, with a host boundary.
+  - ~~**W2:** download-confirmation gaps.~~ Fixed: middle-clicks, per-item album links and "Download all" with any warned item ask first, and PDF middle-clicks get the "leaving files.gg" notice.
+  - ~~The admin UI has no "retry" for `scan_failing` holds.~~ Fixed: a `retry_scan` action (audited; the usual permission, child-safety and own-content checks) resets the failure count, resolves the `scan_failing` flag and queues a fresh scan; the file detail carries `scan_stuck`, and the admin UI offers "Retry the scan" only then.
+  - ~~Bans aren't checked for staff targeting themselves.~~ Fixed: staff can't create or lift a ban on their own device or network (this request's fingerprint and IP, and those on their own uploads and reports), nor one taken from their own upload or report. A staff member sharing a network with an abuser (office, CGNAT) needs a colleague to ban or lift it.
+  - ~~The case list still shows cases about a staff member's own content.~~ Fixed: the case list, the summary counts and the staff badges leave them out (opening or acting on them was already refused).
 
 **Decided 2026-11-25:**
 1. **No backward compatibility, and a fresh start.** No data from the old databases or storage is migrated. Nothing is kept for old clients:
@@ -85,6 +102,7 @@ The exact formats are in [`contracts/milestone-3.md`](contracts/milestone-3.md).
    - `cdn.files.gg/albums/download/<vanity>.zip`.
    
    The kind comes before the vanity, so a vanity named `thumb`, or one with slashes, can't be misread. No ids in URLs.
+4. **Milestone 4 scanning** (`contracts/milestone-4.md` §4.1, §5.2, §5.6): the NSFW model is Marqo's ViT-Tiny 384 (`nsfw-image-detection-384`, Apache-2.0); ClamAV uses its official signatures only; abuse.ch (MalwareBazaar lookups, URLhaus signatures) is noted for the future; and the worker image stays on Python 3.14 until `onnxruntime` ships cp315 wheels.
 
 **Schema squashed (2026-11-25):**
 - `api/migrations/` is now `0001_schema.sql` (the whole schema, written cleanly) and `0002_mimetypes.sql` (228 curated types, 456 extensions, with no executables or malware-style types).
@@ -725,7 +743,7 @@ Decided 2026-11-24: the API will run on several servers. Everything in this plan
     - **Hostnames count from the moment they're created, even while pending.** So pending ones are deleted after 72 h without DNS, and removed domains are deleted from Cloudflare immediately.
     - **Confirm while building:** the exact Worker setup for SaaS traffic (a Worker route on the fallback origin, or a `*/*` route on the SaaS zone). It's checked against Cloudflare's docs when this is built.
   - **Subdomains only** (`i.example.com`, `cdn.example.com`). A bare root domain (`example.com`) needs Cloudflare's apex proxying, a separate configuration whose availability and cost aren't confirmed. Revisit if customers ask.
-  - **Premium only**, through `get_limits()` → `custom_domains` (free: 0, premium: 1 to start).
+  - **Premium only**, through `get_limits()` → `custom_domains` (free: 0, premium: 5; decided 2026-11-25).
     - Plans don't exist yet. Until they do, staff grant it per user with `User.storage_limit_override`'s sibling, `User.custom_domains_override`, from the admin pages.
     - Once paid plans ship, they set the limit, and the plan system replaces the manual grant with no change elsewhere.
   - **What a custom domain serves** mirrors files.gg plus its CDN:
@@ -964,7 +982,7 @@ Decided 2026-11-24: the API will run on several servers. Everything in this plan
   - **Upload time:**
     - The type blocklist works on the actual bytes (above).
     - ClamAV runs with the **unofficial signature feeds** for wider coverage, plus **YARA** rules for common droppers.
-    - A **hash reputation** lookup against abuse.ch MalwareBazaar, which is free.
+    - ~~A **hash reputation** lookup against abuse.ch MalwareBazaar.~~ Not in Milestone 4 (decided 2026-11-25: ClamAV official signatures only); kept as a future option in `contracts/milestone-4.md` §5.6.
     - Avoid VirusTotal's free API: its terms forbid commercial use.
   - **Document checks:**
     - **Office:** oletools (`olevba`, `oleid`) blocks macros and DDE or external-template links.
@@ -1497,7 +1515,7 @@ Items 2–4 were decided 2026-11-24. These follow-ups are still open:
 Open, from "Trust & safety" (Phase 1):
 
 6. ~~Adult content policy?~~ **Allowed, always marked NSFW, signed-in uploaders only** (decided 2026-11-24). The age-verification question is part of the legal review (item 8).
-7. **CSAM hash-matching vendor for scanning before files are public.** Cloudflare's tool is on regardless.
+7. ~~**CSAM hash-matching vendor?**~~ **PhotoDNA** (decided 2026-11-25): free, needs an application, covers images. Built behind a vendor-neutral interface. Cloudflare's tool is on regardless.
    - PhotoDNA: free, needs an application.
    - Thorn Safer: paid, covers video and unseen material, includes reporting.
 8. **Legal review before launch:**
@@ -1541,7 +1559,7 @@ Open, from "Trust & safety" (Phase 1):
 16. ~~Signed-in max file size?~~ **1 GB chunked, 100 MB single-request** (decided 2026-11-24).
 17. ~~Who handles reports, and how fast?~~ **Everything stays on the website (no Discord channel); no public time promises** (decided 2026-11-24; see "Report system").
 18. ~~Custom domains?~~ **Yes, as a premium feature, using Cloudflare for SaaS, subdomains only** (decided 2026-11-24; see "Custom domains"). Still open:
-    - how many domains premium includes (the plan says 1 to start);
+    - ~~how many domains premium includes?~~ **5** (decided 2026-11-25);
     - whether root domains are worth Cloudflare's apex proxying later.
 19. ~~Email provider?~~ **Postmark**: see item 14.
 5. ~~Logo direction?~~ **F2 "Folded tile f."** (decided 2026-11-24).

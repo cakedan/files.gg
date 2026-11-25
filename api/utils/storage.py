@@ -13,6 +13,7 @@ Every blob is on B2.
 """
 
 import asyncio
+import logging
 import os
 
 from dataclasses import dataclass
@@ -23,6 +24,8 @@ MULTIPART_THRESHOLD = 8 * MB
 PART_SIZE = 8 * MB  # B2's minimum part is 5 MB
 CONTENT_TYPE = 'application/octet-stream'
 
+log = logging.getLogger(__name__)
+
 
 def blob_key(hash_id):
     return 'files/{}'.format(hash_id)
@@ -30,6 +33,28 @@ def blob_key(hash_id):
 
 def staging_key(upload_id):
     return 'staging/{}'.format(upload_id)
+
+
+def missing_upload(error):
+    """True when S3 says the multipart upload no longer exists (`NoSuchUpload`: already aborted or
+    completed), so an abort has nothing left to do."""
+    response = getattr(error, 'response', None) or {}
+    code = str((response.get('Error') or {}).get('Code') or '')
+    status = (response.get('ResponseMetadata') or {}).get('HTTPStatusCode')
+    return code in ('NoSuchUpload', '404') or status == 404
+
+
+def abort_multipart_sync(client, bucket, key, upload_id):
+    """Abort a multipart upload with a boto3 client (the worker). Idempotent: True when it's gone
+    (aborted now, or already aborted or completed), False when the abort failed and must be retried."""
+    try:
+        client.abort_multipart_upload(Bucket=bucket, Key=key, UploadId=upload_id)
+    except Exception as error:
+        if missing_upload(error):
+            return True
+        log.warning('abort of multipart upload %s for %s failed: %s', upload_id, key, error)
+        return False
+    return True
 
 
 @dataclass(frozen=True)
@@ -138,10 +163,16 @@ class S3Storage:
             MultipartUpload={'Parts': [{'PartNumber': n, 'ETag': etag} for n, etag in sorted(parts)]})
 
     async def abort_multipart(self, key, upload_id):
+        """Idempotent (see abort_multipart_sync): True when the upload is gone, False when the abort
+        failed and must be retried (the upload reaper does)."""
         try:
             await self.client.abort_multipart_upload(Bucket=self.bucket, Key=key, UploadId=upload_id)
-        except Exception:
-            pass
+        except Exception as error:
+            if missing_upload(error):
+                return True
+            log.warning('abort of multipart upload %s for %s failed: %s', upload_id, key, error)
+            return False
+        return True
 
     async def delete(self, key):
         await self.client.delete_object(Bucket=self.bucket, Key=key)

@@ -6,6 +6,7 @@
 //
 //   grant = "file:"  + <file id>  + ":" + <file access_version>
 //         | "album:" + <album id> + ":" + <album access_version>
+//         | "staff:" + <staff user id> + ":" + <file id>      (milestone-4.md §10.3, ≤ 10 minutes)
 //
 // `path` is the request's pathname exactly as it arrived (percent-encoded, no host, no query).
 // `?download=true` and `?v=` aren't signed. Pure: Web Crypto only, so it runs in workerd and in
@@ -16,6 +17,8 @@ const encoder = new TextEncoder();
 export const SIGNATURE_VERSION = 'filesgg-cdn-1';
 // A sanity cap on how far in the future `expires` may be (contract §3, rule 3).
 export const MAX_SIGNED_URL_SECONDS = 31 * 24 * 60 * 60;
+// Staff URLs live at most 10 minutes (milestone-4.md §10.3); the API's STAFF_URL_TTL is capped here.
+export const MAX_STAFF_URL_SECONDS = 600;
 
 const BASE64URL = /^[A-Za-z0-9_-]+$/;
 // A HMAC-SHA256 is 32 bytes: 43 base64url characters without padding.
@@ -79,6 +82,16 @@ export const fileGrant = (fileId, accessVersion) => grant('file', fileId, access
 // `album:<id>:<access_version>`, or null when either is missing or malformed (fail closed).
 export const albumGrant = (albumId, accessVersion) => grant('album', albumId, accessVersion);
 
+// `staff:<staff user id>:<file id>` (milestone-4.md §10.3), or null when either is missing or
+// malformed (fail closed).
+export function staffGrant(staffId, fileId) {
+  const file = (typeof(fileId) === 'number' && Number.isSafeInteger(fileId)) ? String(fileId) : fileId;
+  if (typeof(staffId) !== 'string' || !ID.test(staffId) || typeof(file) !== 'string' || !ID.test(file)) {
+    return null;
+  }
+  return `staff:${staffId}:${file}`;
+}
+
 // The grant a request for one of a file's URLs (the file or a preview) has to be signed with,
 // from the file lookup (contract §5): the file grant, or with `album=<vanity>` the grant of that
 // album, which must be in the lookup's `albums` list ([{ id, vanity, access_version }], the
@@ -98,9 +111,12 @@ export function grantForFileRequest(data, query) {
 
 
 // True when `query` carries `expires` and `sig` that are valid for `path` and `grant` right now:
-// the signature matches (constant time), `expires > now` and `expires <= now + 31 days`.
-// `now` is epoch seconds. A missing secret or grant always fails (fail closed).
-export async function verifySignedUrl({ secret, path, query, grant, now = Math.floor(Date.now() / 1000) }) {
+// the signature matches (constant time), `expires > now` and `expires <= now + maxSeconds`
+// (31 days by default). `now` is epoch seconds. A missing secret or grant always fails (fail
+// closed).
+export async function verifySignedUrl({
+  secret, path, query, grant, now = Math.floor(Date.now() / 1000), maxSeconds = MAX_SIGNED_URL_SECONDS,
+}) {
   if (typeof(secret) !== 'string' || !secret || typeof(grant) !== 'string' || !grant || typeof(path) !== 'string') {
     return false;
   }
@@ -120,5 +136,19 @@ export async function verifySignedUrl({ secret, path, query, grant, now = Math.f
   const matches = constantTimeEqual(encoder.encode(sig), encoder.encode(expected));
 
   const expires = Number(expiresText);
-  return matches && expires > now && expires <= now + MAX_SIGNED_URL_SECONDS;
+  return matches && expires > now && expires <= now + maxSeconds;
+}
+
+// A staff URL (milestone-4.md §10.3): `?staff=<staff user id>&expires&sig`, signed for this path
+// with `staff:<staff id>:<file id>`, where the file id comes from the lookup, and valid for at most
+// 10 minutes. False without `staff=`, or when anything is missing or wrong.
+export async function verifyStaffUrl({ secret, path, query, fileId, now = Math.floor(Date.now() / 1000) }) {
+  if (!query.has('staff')) {
+    return false;
+  }
+  const grant = staffGrant(query.get('staff'), fileId);
+  if (!grant) {
+    return false;
+  }
+  return await verifySignedUrl({ secret, path, query, grant, now, maxSeconds: MAX_STAFF_URL_SECONDS });
 }

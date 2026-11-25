@@ -1,13 +1,18 @@
 """Random vanities (the `files.gg/<vanity>` path) and the reserved names."""
 
-import random
 import re
+import secrets
 import string
 
 MIN_VANITY_LENGTH = 3
 MAX_VANITY_LENGTH = 128
 MIN_RANDOM_LENGTH = 3
 MAX_RANDOM_LENGTH = 16
+# every `/`-separated part of a vanity pattern is at least this long: `0/0/0/0` would always
+# generate '///', and every later upload with that pattern would never find a free vanity
+MIN_PART_LENGTH = 1
+# how many random vanities an upload or album tries before giving up with VANITY_EXHAUSTED
+MAX_VANITY_ATTEMPTS = 10
 VANITY_CHOICES_ASCII = string.ascii_lowercase + string.digits
 VANITY_PART = r'^(?:\(?((\d+)|\d+\-?\d+)\)?)$'
 
@@ -41,17 +46,18 @@ def is_reserved(vanity):
 
 
 def generate_id(length):
-    fid = ''.join(random.choice(VANITY_CHOICES_ASCII) for _ in range(length))
-    if fid in blacklisted_ids:
-        return generate_id(length)
-    return fid
+    # vanities of `link` files and albums are capabilities: always the OS CSPRNG
+    while True:
+        fid = ''.join(secrets.choice(VANITY_CHOICES_ASCII) for _ in range(length))
+        if fid not in blacklisted_ids:
+            return fid
 
 
 def generate_vanity(vanity=''):
     vparts = []
     for part in vanity.split('/'):
         minv, maxv = parse_vanity_part(part)
-        vparts.append(generate_id(random.randint(minv, maxv)))
+        vparts.append(generate_id(minv + secrets.randbelow(maxv - minv + 1)))
     return '/'.join(vparts)
 
 
@@ -74,9 +80,13 @@ def parse_vanity_part(part):
 
 
 def vanity_length_ok(vanity):
+    """The pattern makes 3 to 128 character vanities, and no part can be shorter than
+    MIN_PART_LENGTH."""
     min_vanity = max_vanity = vanity.count('/')
     for part in vanity.split('/'):
         minv, maxv = parse_vanity_part(part)
+        if minv < MIN_PART_LENGTH:
+            return False
         min_vanity += minv
         max_vanity += maxv
     return MIN_VANITY_LENGTH <= min_vanity and max_vanity <= MAX_VANITY_LENGTH

@@ -68,9 +68,10 @@ The Worker never sees storage keys or hashes in public responses. To serve a fil
 GET https://api.files.gg/internal/files/<vanity>
 GET https://api.files.gg/internal/albums/<vanity>
 X-Filesgg-Origin-Secret: <ORIGIN_SHARED_SECRET>
+X-Filesgg-Internal-Lookup: 1
 ```
 
-- **Without the right secret:** `404`, identical to an unknown vanity.
+- **Without the right secret, or without the lookup header:** `404`, identical to an unknown vanity (milestone-3 §5: the secret alone is on every forwarded request).
 - **Unknown, deleted or expired:** `404 {"code":"UNKNOWN_FILE"}`.
 - **Found:**
 

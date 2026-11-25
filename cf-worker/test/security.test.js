@@ -7,10 +7,8 @@ import {
   cdnSecurityHeaders,
   contentDisposition,
   corsHeaders,
-  isCredentialedRoute,
   isInlineAllowed,
   isValidProxyToken,
-  parseAllowedOrigins,
   sanitizeFilename,
 } from '../worker/utils/security.js';
 
@@ -190,73 +188,28 @@ describe('cdnSecurityHeaders', () => {
 });
 
 
-describe('corsHeaders', () => {
-  const allowedOrigins = ['https://files.gg'];
-  const allowHeaders = 'Authorization, Content-Type, X-Fingerprint, X-Filesgg-Access';
-
-  it('reflects an allowlisted origin on a credentialed route', () => {
-    const headers = corsHeaders({ origin: 'https://files.gg', allowedOrigins, credentialed: true });
-    assert.equal(headers['Access-Control-Allow-Origin'], 'https://files.gg');
-    assert.equal(headers['Access-Control-Allow-Credentials'], 'true');
-    assert.equal(headers['Vary'], 'Origin');
-    assert.equal(headers['Access-Control-Allow-Headers'], allowHeaders);
-  });
-
-  it('gives a foreign origin on a credentialed route `*` without credentials', () => {
-    const headers = corsHeaders({ origin: 'https://evil.example', allowedOrigins, credentialed: true });
-    assert.equal(headers['Access-Control-Allow-Origin'], '*');
-    assert.ok(!('Access-Control-Allow-Credentials' in headers));
-    assert.equal(headers['Vary'], 'Origin');
-    assert.equal(headers['Access-Control-Allow-Headers'], allowHeaders);
-  });
-
-  it('never credentials a lookalike or null origin', () => {
-    for (const origin of ['https://files.gg.evil.example', 'http://files.gg', 'https://cdn.files.gg', 'null', '']) {
-      const headers = corsHeaders({ origin, allowedOrigins, credentialed: true });
-      assert.equal(headers['Access-Control-Allow-Origin'], '*', origin);
-      assert.ok(!('Access-Control-Allow-Credentials' in headers), origin);
-    }
-  });
-
-  it('gives an allowlisted origin on a non-credentialed route `*` without credentials', () => {
-    const headers = corsHeaders({ origin: 'https://files.gg', allowedOrigins, credentialed: false });
-    assert.deepEqual(headers, {
-      'Access-Control-Allow-Headers': allowHeaders,
+describe('corsHeaders (milestone-6.md §12 item 2: never credentialed)', () => {
+  it('is always `*` without credentials or Vary', () => {
+    assert.deepEqual(corsHeaders(), {
+      'Access-Control-Allow-Headers': 'Authorization, Content-Type, X-Fingerprint, X-Filesgg-Access',
       'Access-Control-Allow-Methods': 'DELETE, GET, HEAD, OPTIONS, PATCH, POST, PUT',
       'Access-Control-Allow-Origin': '*',
     });
   });
 
-  it('gives a foreign origin on a non-credentialed route `*`', () => {
-    const headers = corsHeaders({ origin: 'https://evil.example', allowedOrigins });
-    assert.equal(headers['Access-Control-Allow-Origin'], '*');
-    assert.ok(!('Access-Control-Allow-Credentials' in headers));
-    assert.ok(!('Vary' in headers));
+  it('ignores whatever it is given (no allowlist exists any more)', () => {
+    for (const origin of ['https://files.gg', 'https://evil.example', 'null', '']) {
+      const headers = corsHeaders({ origin, allowedOrigins: [origin], credentialed: true });
+      assert.equal(headers['Access-Control-Allow-Origin'], '*', origin);
+      assert.ok(!('Access-Control-Allow-Credentials' in headers), origin);
+      assert.ok(!('Vary' in headers), origin);
+    }
   });
 
-  it('defaults the allowlist to https://files.gg', () => {
-    const headers = corsHeaders({ origin: 'https://files.gg', credentialed: true });
-    assert.equal(headers['Access-Control-Allow-Credentials'], 'true');
-  });
-
-  it('parses the allowlist from config', () => {
-    assert.deepEqual(parseAllowedOrigins(undefined), ['https://files.gg']);
-    assert.deepEqual(parseAllowedOrigins(''), ['https://files.gg']);
-    assert.deepEqual(parseAllowedOrigins('*'), ['https://files.gg']);
-    assert.deepEqual(
-      parseAllowedOrigins(' https://files.gg/ , https://Beta.files.gg,null '),
-      ['https://files.gg', 'https://beta.files.gg'],
-    );
-  });
-
-  it('treats the API passthrough as credentialed and everything else as not', () => {
-    assert.equal(isCredentialedRoute('api.files.gg', '/files/abc'), true);
-    assert.equal(isCredentialedRoute('files.gg', '/api/files/abc'), true);
-    assert.equal(isCredentialedRoute('www.files.gg', '/api'), true);
-    assert.equal(isCredentialedRoute('files.gg', '/apixyz'), false);
-    assert.equal(isCredentialedRoute('files.gg', '/abcd/xyz.png'), false);
-    assert.equal(isCredentialedRoute('cdn.files.gg', '/api/files/abc'), false);
-    assert.equal(isCredentialedRoute('proxy.files.gg', '/download/x'), false);
+  it('returns a fresh object each call', () => {
+    const a = corsHeaders();
+    a['Access-Control-Allow-Origin'] = 'https://evil.example';
+    assert.equal(corsHeaders()['Access-Control-Allow-Origin'], '*');
   });
 });
 

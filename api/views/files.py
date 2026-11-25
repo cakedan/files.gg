@@ -14,10 +14,14 @@ from utils.generators import Snowflake
 from utils.params import Arg, Args
 from utils.responses import ApiResponse
 from utils.turnstile import Turnstile
-from utils.vanity import MAX_VANITY_LENGTH, MIN_VANITY_LENGTH, generate_vanity, vanity_length_ok
+from utils.vanity import (
+    MAX_VANITY_ATTEMPTS, MAX_VANITY_LENGTH, MIN_VANITY_LENGTH, generate_vanity, vanity_length_ok,
+)
 from utils.wrappers import parse_args, route
 
-import jobs.media as media_jobs
+from safety import ip as abuse_ip, scan as safety_scan, uploads as safety_uploads
+from safety.settings import safety_settings
+from utils import standing
 
 import utils.helpers as helpers
 import utils.parameters as parameters
@@ -48,6 +52,8 @@ class CreateFileArgs(Args):
     turnstile_token: Annotated[Optional[str], Arg(location='values')] = None
     # Milestone 3: append the file to one of your albums (by its vanity)
     album: Annotated[Optional[str], Arg(location='values')] = None
+    # Milestone 4 (§4.3): the uploader marks it as adult content; signed in only
+    nsfw: Annotated[Optional[bool], Arg(location='values', type=uploading.boolean)] = False
 
 
 async def create_file(request):
@@ -62,6 +68,12 @@ async def create_file(request):
         async with db.connection() as conn:
             user = await helpers.get_user(conn, authorization)
     limit = limits_module.get_limits(user).max_file_size_single
+    # milestone-4 §2.5 step 5: bans and restrictions, before reading the body
+    raw_fingerprint = request.headers.get('x-fingerprint')
+    async with db.connection() as conn:
+        await standing.check_uploader(
+            conn, user, parameters.fingerprint(raw_fingerprint) if raw_fingerprint else None,
+            abuse_ip.abuse_ip_hash(helpers.client_ip(request), safety_settings().abuse_hash_secret))
 
     # Content-Length first, before reading anything
     try:
@@ -118,6 +130,8 @@ async def _create_file(request, args, user, upload, declared):
     expires_in = limits_module.resolve_expiry(limits, args.expires_in)
     if args.visibility == 'private' and user is None:
         raise uploading.private_requires_account()
+    if args.nsfw and user is None:
+        raise errors.nsfw_requires_account()
 
     async with db.connection() as conn:
         name, extension, mimetype = await uploading.resolve_name(conn, filename, fextension, mimetype)
@@ -141,26 +155,61 @@ async def _create_file(request, args, user, upload, declared):
     try:
         if spooled.size > limits.max_file_size_single:
             raise limits_module.file_too_large(limits.max_file_size_single)
-        # the name and type passed resolve_name; the bytes themselves must not be a program
+        # the name and type passed resolve_name; the bytes themselves must not be a program, nor
+        # sniff as a blocked type (milestone-4 §5.1)
         spooled.hasher.check_content()
+        if await safety_uploads.sniff_blocked_async(spooled.hasher.head):
+            raise errors.file_type_not_allowed()
+        await refuse_known_content(request, spooled.hasher, owner, args.nsfw, name, extension, mimetype)
         fobj = await store_upload(request, owner, spooled, name, extension, mimetype, expires_in, access_columns,
-                                  args.vanity, album_id=album_id)
+                                  args.vanity, album_id=album_id, nsfw_marked=bool(args.nsfw))
     finally:
         if spooled is not upload:
             spooled.discard()
-    # the uploader owns it: a protected file's URLs are signed for 1 h
-    body = payloads.public_file(fobj, grant=Grant.owner_file(fobj))
+    # the uploader owns it: a protected file's URLs are signed for 1 h; milestone-4 §6.2 adds `safety`
+    body = payloads.with_safety(payloads.public_file(fobj, grant=Grant.owner_file(fobj)), fobj)
     return ApiResponse(payloads.with_password(body, fobj, generated))
 
 
+async def refuse_known_content(request, hasher, owner, nsfw, name, extension, mimetype):
+    """Milestone-4 §2.5 steps 1-4: blocked hashes (a `csam` entry also runs §3.6's uploader
+    steps), blocked hashes' scan results, and anonymous uploads of NSFW or encrypted content."""
+    blake2b, md5, sha1 = hasher.digests()
+    async with db.connection() as conn:
+        code, csam = await safety_uploads.known_content_async(conn, blake2b, md5, sha1, owner.user is None,
+                                                                nsfw=bool(nsfw))
+    if code is None:
+        return
+    if csam:
+        await csam_reupload(request, owner, blake2b, md5, sha1, hasher.size, name, extension, mimetype)
+    raise errors.upload_rejection(code)
+
+
+async def csam_reupload(request, owner, blake2b, md5, sha1, size, name, extension, mimetype):
+    from safety import csam
+    from safety.run import in_thread
+    settings = safety_settings()
+    ip_hash = abuse_ip.abuse_ip_hash(helpers.client_ip(request), settings.abuse_hash_secret)
+    async with db.connection() as conn:
+        cursor = await conn.execute('SELECT id FROM blocked_hashes WHERE blake2b = %s AND md5 = %s AND sha1 = %s',
+                                    (blake2b, md5, sha1))
+        row = await cursor.fetchone()
+    attempt = {'filename': name + ('.' + extension if extension else ''), 'mimetype': mimetype, 'size': size,
+               'signed_in': owner.user is not None, 'at': access.now()}
+    await in_thread(csam.reupload, row[0] if row else None, owner.user.id if owner.user else None,
+                    owner.fingerprint, ip_hash, attempt)
+
+
 async def store_upload(request, owner, spooled, name, extension, mimetype, expires_in, access_columns, vanity='',
-                       album_id=None):
+                       album_id=None, nsfw_marked=False):
     """Blob to B2 (unless de-duplicated), then FileHash and File in one
     transaction under the owner's quota lock. A new hash gets its `probe` job, and
     with `album_id` the file joins that album."""
     storage = request.app.ctx.storage
     hblake2b, hmd5, hsha1 = spooled.hasher.digests()
     size = spooled.size
+    # milestone-4 §1: the stable abuse IP hash, and the raw IP sealed to the offline evidence key
+    abuse_hash, sealed_ip = abuse_ip.for_request(helpers.client_ip(request), safety_settings())
 
     async with db.connection() as conn:
         existing = await queries.get_file_hash(conn, hblake2b, hmd5, hsha1)
@@ -181,20 +230,28 @@ async def store_upload(request, owner, spooled, name, extension, mimetype, expir
                     if not created:
                         orphan = uploaded_key  # the same content was stored meanwhile
                     else:
-                        await media_jobs.queue_probe_async(conn, fhash.id)
+                        # milestone-4 §2.1: every new hash is scanned before anything else reads it
+                        await safety_scan.queue_scan_async(conn, fhash.id)
                 else:
                     fhash = existing
                 expires_at = uploading.utcnow() + timedelta(seconds=expires_in) if expires_in else None
                 fobj = None
-                while fobj is None:
+                for _ in range(MAX_VANITY_ATTEMPTS):
                     fvanity = generate_vanity(vanity)
                     if await queries.vanity_exists(conn, fvanity):
                         continue
                     fobj = await queries.create_file(
                         conn, id=Snowflake.generate(), vanity=fvanity, mimetype_id=mimetype, extension=extension,
                         filename=name, fhash=fhash, user=owner.user, fingerprint=owner.fingerprint, size=size,
-                        expires_at=expires_at, uploader_ip_hash=owner.ip_hash, **access_columns,
+                        expires_at=expires_at, uploader_ip_hash=owner.ip_hash, nsfw_marked=nsfw_marked,
+                        uploader_abuse_ip_hash=abuse_hash, uploader_ip_sealed=sealed_ip, **access_columns,
                     )
+                    if fobj is not None:
+                        break
+                if fobj is None:
+                    # a small or fixed pattern (`1/1`, `3`) can run out: fail instead of spinning
+                    # inside the transaction with the quota lock held
+                    raise errors.vanity_exhausted()
                 if album_id is not None:
                     await uploading.append_to_album(conn, album_id, fobj.id, owner.limits.album_max_files)
     except BaseException:
@@ -242,6 +299,18 @@ async def _visible_file(conn, request, vanity):
     return fobj, claims is not None, grant
 
 
+def check_state(fobj):
+    """Milestone-4 §2.4 for the public API, after access: blocked is unknown, pending is
+    409 FILE_PENDING, hidden and removed are 410 FILE_REMOVED { reason }."""
+    state = payloads.file_state(fobj)
+    if state == 'blocked':
+        raise errors.unknown_file()
+    if state == 'pending':
+        raise errors.file_pending()
+    if state in ('hidden', 'removed'):
+        raise errors.file_removed(payloads.lookup_safety(fobj)['reason'])
+
+
 def file_payload(fobj, grant, album_item=False):
     return payloads.public_file(fobj, grant=grant, album_item=album_item)
 
@@ -256,6 +325,7 @@ async def fetch_file(request, args):
         fobj, full, grant = await _visible_file(conn, request, vanity)
         if fobj is None:
             raise errors.unknown_file()
+        check_state(fobj)
         if not full:
             # a password file, locked: no content, no view counted
             return ApiResponse(payloads.locked_file(fobj, access.password_has_expired(fobj)))
@@ -289,6 +359,7 @@ async def unlock_file(request, args, vanity):
     """Turnstile, then the rate limit, then password expiry, then the password."""
     async with db.connection() as conn:
         fobj = await _protected_file(conn, vanity)
+    check_state(fobj)
     if not await Turnstile.verify(args.turnstile_token, 'unlock', helpers.client_ip(request)):
         raise errors.captcha_invalid()
     async with db.connection() as conn:
@@ -321,6 +392,7 @@ async def refresh_unlock(request, args, vanity):
         # a private file is only confirmed to an owner pass
         if fobj.visibility == 'private' and (claims is None or claims['s'] != 'owner'):
             raise errors.unknown_file()
+        check_state(fobj)
         await access.rate_limit(conn, request, fobj, 'access', access.ACCESS_REQUESTS_PER_MINUTE)
     if claims is None:
         raise errors.unlock_expired()
@@ -350,6 +422,7 @@ async def view_file(request, vanity):
         claims, album = await access.file_or_album_claims(conn, request, fobj, request.ctx.access_token)
         if fobj.visibility == 'private' and claims is None:
             raise errors.unknown_file()
+        check_state(fobj)
         await access.rate_limit(conn, request, fobj, 'access', access.ACCESS_REQUESTS_PER_MINUTE)
     if claims is None:
         raise errors.unlock_expired()

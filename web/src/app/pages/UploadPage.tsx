@@ -1,12 +1,14 @@
 import { useQuery } from '@tanstack/react-query';
-import { FileUp, ShieldCheck, Upload } from 'lucide-react';
+import { Ban, FileUp, ShieldCheck, Upload } from 'lucide-react';
+import { Link } from 'react-router';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { Button } from '../../components/Button';
 import { useTurnstile } from '../../components/useTurnstile';
 import { api, ensureFingerprint, hasToken } from '../../lib/api';
 import { formatBytes } from '../../lib/format';
-import { queryKeys, useMe } from '../../lib/queries';
+import { queryKeys, useBadges, useMe } from '../../lib/queries';
+import { epochMs } from '../../lib/time';
 import { checkLimits } from '../../lib/upload/limits';
 import { defaultPickerState, resolvePickers, type PickerContext, type PickerState } from '../../lib/upload/options';
 import { fileKey, forgetUpload, listResumable, type ResumableUpload } from '../../lib/upload/resumeStore';
@@ -34,6 +36,14 @@ export default function UploadPage() {
     enabled: !signedInToken || me.isFetched,
   });
 
+  // Milestone 4 §8.4, §11.2: a restricted account can't upload at all.
+  const badges = useBadges(signedInToken);
+  const restriction = useMemo(
+    () => (badges.data?.restrictions ?? me.data?.restrictions ?? []).find((each) => each.kind === 'uploads' || each.kind === 'suspended') ?? null,
+    [badges.data, me.data],
+  );
+  const restricted = restriction !== null;
+
   const context: PickerContext = useMemo(() => ({ anonymous, limits: limits.data ?? null }), [anonymous, limits.data]);
   const [pickers, setPickers] = useState<PickerState>(() => defaultPickerState({ anonymous: true }));
   const [touched, setTouched] = useState(false);
@@ -60,6 +70,10 @@ export default function UploadPage() {
   const addFiles = useCallback(
     (files: File[]) => {
       if (files.length === 0) return;
+      if (restricted) {
+        setNotice('Uploads are restricted on your account.');
+        return;
+      }
       if (invalid) {
         setNotice('Fix the upload options first.');
         return;
@@ -78,7 +92,7 @@ export default function UploadPage() {
       const keys = new Set(files.map(fileKey));
       setResumable((list) => list.filter((entry) => !keys.has(entry.key)));
     },
-    [add, invalid, items, limits.data, params, track],
+    [add, invalid, items, limits.data, params, restricted, track],
   );
 
   // Drop anywhere on the page, and paste.
@@ -142,6 +156,25 @@ export default function UploadPage() {
         </p>
       </header>
 
+      {restriction && (
+        <div role="alert" className="flex items-start gap-3 rounded-lg border border-danger/50 bg-danger/10 px-4 py-3 text-sm">
+          <Ban aria-hidden className="mt-0.5 size-5 shrink-0 text-danger" />
+          <div className="flex flex-col gap-1">
+            <p className="font-semibold">
+              {restriction.until !== null ? `Uploads are restricted until ${new Date(epochMs(restriction.until)).toLocaleDateString('en', { dateStyle: 'long' })}` : 'Uploads are restricted on your account'}
+            </p>
+            <p className="text-muted">
+              Your files, albums and links still work.{' '}
+              {restriction.notice_id && (
+                <Link to={`/notices/${restriction.notice_id}`} className="font-medium text-gg hover:underline">
+                  See why
+                </Link>
+              )}
+            </p>
+          </div>
+        </div>
+      )}
+
       <UploadOptions
         state={pickers}
         onChange={(patch) => {
@@ -153,19 +186,20 @@ export default function UploadPage() {
       />
 
       <div
+        aria-disabled={restricted || undefined}
         className={`flex flex-col items-center gap-3 rounded-lg border-2 border-dashed px-4 py-10 text-center transition-colors ${
-          dragging ? 'border-gg bg-gg/5' : 'border-line'
-        }`}
+          dragging && !restricted ? 'border-gg bg-gg/5' : 'border-line'
+        } ${restricted ? 'opacity-50' : ''}`}
       >
         <FileUp aria-hidden className="size-10 text-gg" strokeWidth={1.5} />
         <p className="text-sm">
           Drop files anywhere on this page, paste them, or{' '}
-          <button type="button" className="font-medium text-gg hover:underline" onClick={() => inputRef.current?.click()}>
+          <button type="button" className="font-medium text-gg hover:underline disabled:pointer-events-none" disabled={restricted} onClick={() => inputRef.current?.click()}>
             choose files
           </button>
           .
         </p>
-        <Button variant="primary" onClick={() => inputRef.current?.click()} disabled={invalid}>
+        <Button variant="primary" onClick={() => inputRef.current?.click()} disabled={invalid || restricted}>
           <Upload aria-hidden className="size-4" />
           Choose files
         </Button>
@@ -173,6 +207,7 @@ export default function UploadPage() {
           ref={inputRef}
           type="file"
           multiple
+          disabled={restricted}
           className="sr-only"
           aria-label="Choose files to upload"
           onChange={(event) => {

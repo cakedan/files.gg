@@ -156,6 +156,26 @@ describe('useAccessRefresh', () => {
     expect(result.current.kind === 'file' && result.current.file.filename).toBe('renamed.png');
   });
 
+  it('a 404 on refresh (the owner\'s account went pending deletion) calls onMissing and drops the token', async () => {
+    localStorage.setItem(accessStorageKey('file', 'abc'), JSON.stringify({ token: 'first', expires_at: s(NOW) + 3600 }));
+    const fetch = vi.fn(async () => json({ code: 'UNKNOWN_FILE', message: 'x', status: 404 }, 404));
+    vi.stubGlobal('fetch', fetch);
+    const onExpired = vi.fn();
+    const onMissing = vi.fn();
+    renderHook(() => useAccessRefresh(unlocked('first', s(NOW) + 3600), { kind: 'file', vanity: 'abc', scope: 'unlock', onExpired, onMissing }));
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(55 * 60_000 + 1);
+    });
+    expect(onMissing).toHaveBeenCalledTimes(1);
+    expect(onExpired).not.toHaveBeenCalled();
+    expect(localStorage.getItem(accessStorageKey('file', 'abc'))).toBeNull();
+    // No retry loop against a file that's gone.
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(60_000);
+    });
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
+
   it('an owner pass hitting UNLOCK_EXPIRED expires (the page then shows missing or the lock screen)', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => json({ code: 'UNLOCK_EXPIRED', message: 'x', status: 401 }, 401)));
     const onExpired = vi.fn();

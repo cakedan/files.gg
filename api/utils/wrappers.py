@@ -2,24 +2,18 @@ from functools import wraps
 
 from sanic_ext import openapi
 
-import db
-import utils.helpers as helpers
 import utils.params as params
 
 JSON = 'application/json'
 
 
-def authenticate(user=True, bot=False):
+def authenticate():
+    """The signed-in user (the session cookie, milestone-6 §3.4) as `user=`; 401 UNAUTHORIZED otherwise."""
     def decorator(func):
         @wraps(func)
         async def wrapper(request, *args, **kwargs):
-            async with db.connection() as conn:
-                kwargs['user'] = await helpers.get_user(
-                    conn,
-                    request.headers.get('authorization'),
-                    allow_user=user,
-                    allow_bot=bot,
-                )
+            from utils.auth import require_session
+            kwargs['user'], _ = require_session(request)
             return await func(request, *args, **kwargs)
         wrapper.__authenticated__ = True
         return wrapper

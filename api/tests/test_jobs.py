@@ -171,7 +171,11 @@ def test_only_the_known_kinds_are_registered_by_default():
     assert 'ping' in jobs.registered_kinds()
     # Milestone 3 adds the media jobs and blob garbage collection
     assert set(jobs.registered_kinds()) <= {'ping', 'boom', 'finalize_upload', 'probe', 'derive', 'album_collage',
-                                            'delete_blob'}
+                                            'delete_blob',
+                                            # Milestone 4: scanning (safety/scan.py)
+                                            'scan', 'rescan', 'pdq_sweep', 'album_text_scan', 'delete_objects',
+                                            # §3.6, queued with every CSAM match (safety/csam.py)
+                                            'csam_handle'}
 
 
 def test_queues_are_isolated(migrated_db):
@@ -221,3 +225,71 @@ def test_worker_queue_option():
     assert jobs.parse_queues(worker.parse_args(['--queues', 'convert, default']).queues) == ['convert', 'default']
     with pytest.raises(ValueError):
         jobs.parse_queues('default,scheduler')
+
+
+# --- the lock heartbeat, the purge and the per-target indexes ---------------------------------------------
+
+def test_a_running_job_renews_its_lock(migrated_db, handlers):
+    import time
+    seen = {}
+
+    def slow(payload, job):
+        seen['before'] = migrated_db.fetchone('SELECT locked_at FROM jobs WHERE id = %s', (job.id,))[0]
+        time.sleep(0.5)
+        seen['after'] = migrated_db.fetchone('SELECT locked_at FROM jobs WHERE id = %s', (job.id,))[0]
+    handlers('slow', slow)
+    job_id = jobs.enqueue('slow', conn=migrated_db.conn)
+    job = jobs.claim('w1', conn=migrated_db.conn)
+    assert jobs.run_job(job, 'w1', conn=migrated_db.conn, heartbeat=0.05) == 'done'
+    assert seen['after'] > seen['before']
+    # so another worker can't claim it while it runs, even with a lock timeout shorter than the job
+    row = job_row(migrated_db, job_id)
+    assert row['done_at'] is not None and row['locked_by'] is None
+
+
+def test_the_heartbeat_stops_when_the_lock_is_lost(migrated_db):
+    import time
+    job_id = jobs.enqueue('anything', conn=migrated_db.conn)
+    job = jobs.claim('w1', conn=migrated_db.conn)
+    beat = queue.Heartbeat(job, 'w1', migrated_db.conn, interval=0.02)
+    with beat:
+        time.sleep(0.15)
+        assert beat.beats >= 1
+        # another worker took it over (its lock had expired): w1 stops renewing
+        migrated_db.execute("UPDATE jobs SET locked_by = 'w2' WHERE id = %s", (job_id,))
+        time.sleep(0.15)
+        stopped = beat.beats
+        time.sleep(0.1)
+        assert beat.beats == stopped
+    assert job_row(migrated_db, job_id)['locked_by'] == 'w2'
+
+
+def test_old_done_jobs_are_purged(migrated_db):
+    from jobs import tasks
+    conn = migrated_db.conn
+    old = jobs.enqueue('ping', conn=conn)
+    recent = jobs.enqueue('ping', conn=conn)
+    waiting = jobs.enqueue('ping', conn=conn)
+    failed = jobs.enqueue('ping', conn=conn)
+    migrated_db.execute("UPDATE jobs SET done_at = now() - interval '8 days' WHERE id = %s", (old,))
+    migrated_db.execute("UPDATE jobs SET done_at = now() - interval '6 days' WHERE id = %s", (recent,))
+    migrated_db.execute("UPDATE jobs SET failed_at = now() - interval '30 days' WHERE id = %s", (failed,))
+    migrated_db.execute("INSERT INTO jobs (kind, queue, done_at) VALUES ('scheduled:x', 'scheduler', "
+                        "now() - interval '30 days')")
+    assert tasks.purge_done_jobs(conn) == 1
+    left = {r[0] for r in migrated_db.fetchall('SELECT id FROM jobs')}
+    assert old not in left and {recent, waiting, failed} <= left
+    assert migrated_db.fetchone("SELECT count(*) FROM jobs WHERE queue = 'scheduler'")[0] == 1
+
+
+def test_per_target_job_lookups_use_an_index(migrated_db):
+    names = {r[0] for r in migrated_db.fetchall("SELECT indexname FROM pg_indexes WHERE tablename = 'jobs'")}
+    assert {'jobs_runnable_hash', 'jobs_runnable_album', 'jobs_runnable_blocked_hash', 'jobs_done'} <= names
+    migrated_db.execute('SET enable_seqscan = off')
+    try:
+        plan = '\n'.join(r[0] for r in migrated_db.fetchall(
+            "EXPLAIN SELECT 1 FROM jobs WHERE kind = 'scan' AND payload->>'hash_id' = '1' AND done_at IS NULL "
+            'AND failed_at IS NULL'))
+    finally:
+        migrated_db.execute('SET enable_seqscan = on')
+    assert 'jobs_runnable_hash' in plan

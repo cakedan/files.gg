@@ -4,6 +4,7 @@ import { useEffect, useId, useState } from 'react';
 import { FILE_TYPE_FILTERS, type FileSort, type FileTypeFilter, type Visibility } from '../../lib/api';
 import type { FilesUrlState } from '../../lib/files/urlState';
 import { fieldClass } from '../access/fieldUtils';
+import { Chip } from '../components/Chip';
 import { useDebounced } from '../components/useDebounced';
 
 const SORTS: Array<{ value: FileSort; label: string }> = [
@@ -29,21 +30,6 @@ export const SEARCH_DEBOUNCE_MS = 300;
 interface FilesToolbarProps {
   state: FilesUrlState;
   onChange: (patch: Partial<FilesUrlState>) => void;
-}
-
-function Chip({ pressed, onClick, children }: { pressed: boolean; onClick: () => void; children: React.ReactNode }) {
-  return (
-    <button
-      type="button"
-      aria-pressed={pressed}
-      onClick={onClick}
-      className={`h-8 rounded-full border px-3 text-sm whitespace-nowrap transition-colors ${
-        pressed ? 'border-gg/60 bg-gg/10 text-gg' : 'border-line text-muted hover:bg-surface-2 hover:text-text'
-      }`}
-    >
-      {children}
-    </button>
-  );
 }
 
 /** Debounced search, sort, type chips, access filter, "Temporary", and the table/grid toggle. */

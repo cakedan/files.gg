@@ -3,8 +3,10 @@ import type { ReactNode } from 'react';
 
 import { Lockup, Mark } from '../../components/Brand';
 import { Button, LinkButton } from '../../components/Button';
+import { hostContext, mainUrl } from '../host/context';
+import { ReportButton } from './ReportButton';
 
-function StateCard({ children }: { children: ReactNode }) {
+export function StateCard({ children }: { children: ReactNode }) {
   return (
     <section className="viewer-card w-[min(28rem,100vw-1.5rem)] items-center gap-4 px-6 py-8 text-center">
       {children}
@@ -29,6 +31,22 @@ export function HomeCard() {
   );
 }
 
+/**
+ * A custom domain's `/` (milestone-6 §10.8, §13.4): "Files hosted with files.gg" and
+ * Report (the domain itself, §10.12). No sign-in, upload or dashboard links.
+ */
+export function DomainHomeCard() {
+  const { host } = hostContext();
+  return (
+    <StateCard>
+      <Mark className="size-14 opacity-90" />
+      <h1 className="text-lg font-semibold">Files hosted with files.gg</h1>
+      <p className="max-w-full font-mono text-sm break-all text-muted">{host}</p>
+      <ReportButton target={{ type: 'domain', hostname: host }} variant="secondary" />
+    </StateCard>
+  );
+}
+
 export function MissingCard() {
   return (
     <StateCard>
@@ -38,7 +56,7 @@ export function MissingCard() {
       </div>
       <h1 className="text-lg font-semibold">This file doesn't exist or has expired.</h1>
       <p className="text-sm text-muted">Check the link, or ask whoever shared it to upload it again.</p>
-      <LinkButton href="/">Go to files.gg</LinkButton>
+      <LinkButton href={mainUrl('/')}>Go to files.gg</LinkButton>
     </StateCard>
   );
 }
@@ -64,7 +82,7 @@ export function ConvertCard() {
       <Wand2 aria-hidden className="size-10 text-gg" />
       <h1 className="text-lg font-semibold">Convert</h1>
       <p className="text-sm text-muted">Converting files between formats is coming in a later milestone.</p>
-      <LinkButton href="/">Go to files.gg</LinkButton>
+      <LinkButton href={mainUrl('/')}>Go to files.gg</LinkButton>
     </StateCard>
   );
 }

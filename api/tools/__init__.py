@@ -1,4 +1,5 @@
-"""Development-only command-line tools. Each refuses to run unless FILESGG_DEV_TOOLS=1."""
+"""Command-line tools. The development-only ones (create_user) refuse to run unless
+FILESGG_DEV_TOOLS=1; tools.staff (milestone-4 §9.1) is for production servers."""
 
 import os
 import sys

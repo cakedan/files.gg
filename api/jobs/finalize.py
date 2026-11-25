@@ -4,7 +4,7 @@
    md5 and sha1 (hashes are always computed here, never trusted from a client).
 2. If the hash matches an existing FileHash, point the new File at that blob.
 3. Otherwise server-side copy the object to `files/<hash_id>` and insert the
-   FileHash, only after the copy succeeded.
+   FileHash, only after the copy succeeded, and queue its `scan` (milestone-4 §2.1).
 4. Delete the staging object, create the File, and mark the session complete.
 
 Idempotent: a session that is no longer `processing` is left alone. Problems
@@ -21,11 +21,12 @@ import db
 import jobs.media as media_jobs
 from db.models import UploadSession, columns, from_row
 from jobs.queue import register
+from safety import scan as safety_scan, uploads as safety_uploads
 from utils import filetypes
 from utils import storage as storage_module
 from utils.generators import Snowflake
 from utils.uploading import Hasher
-from utils.vanity import generate_vanity
+from utils.vanity import MAX_VANITY_ATTEMPTS, generate_vanity
 
 log = logging.getLogger(__name__)
 
@@ -86,10 +87,24 @@ def finalize(upload_id, conn=None, client=None):
             hasher = _hash_staging(client, name, session.storage_key)
             if hasher.size != session.size:
                 raise UploadProblem('SIZE_MISMATCH')
-            if filetypes.sniff_executable(hasher.head):
+            if filetypes.sniff_executable(hasher.head) or safety_uploads.sniff_blocked(hasher.head):
                 raise UploadProblem('FILE_TYPE_NOT_ALLOWED')
+            # milestone-4 §2.5 steps 1-4: known content fails the session with the code
+            blake2b, md5, sha1 = hasher.digests()
+            code, csam = safety_uploads.known_content(conn, blake2b, md5, sha1, session.owner_user_id is None,
+                                                      nsfw=session.nsfw_marked)
+            if code is not None:
+                if csam:
+                    with conn.transaction():
+                        _csam_reupload(conn, session, blake2b, md5, sha1, hasher.size)
+                raise UploadProblem(code)
         except UploadProblem as problem:
             _fail(conn, upload_id, problem.code)
+            # a refused upload stores nothing: its (completed) staging object goes now
+            try:
+                client.delete_object(Bucket=name, Key=session.storage_key)
+            except Exception:
+                log.warning('could not delete staging object %s; the upload reaper will retry', session.storage_key)
             return None
 
         blake2b, md5, sha1 = hasher.digests()
@@ -121,24 +136,34 @@ def finalize(upload_id, conn=None, client=None):
             if session is None or session.status != 'processing':
                 return None
             file_id = Snowflake.generate()
-            while True:
+            for _ in range(MAX_VANITY_ATTEMPTS):
                 vanity = generate_vanity()
                 created = conn.execute(
                     'INSERT INTO files (id, vanity, mimetype_id, extension, filename, hash_id, user_id, fingerprint, '
                     'view_count, size, expires_at, visibility, password_hash, unlock_ttl, password_expires_at, '
-                    'uploader_ip_hash) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, 0, %s, %s, %s, %s, %s, %s, %s) '
+                    'uploader_ip_hash, nsfw_marked, uploader_abuse_ip_hash, uploader_ip_sealed, upload_key_id) '
+                    'VALUES (%s, %s, %s, %s, %s, %s, %s, %s, 0, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s) '
                     'ON CONFLICT (vanity) DO NOTHING RETURNING id',
                     (file_id, vanity, session.mimetype_id, session.extension, session.name, hash_id,
                      session.owner_user_id, session.owner_fingerprint, session.size, expires_at, session.visibility,
                      session.password_hash, session.unlock_ttl, session.password_expires_at,
-                     session.owner_ip_hash)).fetchone()
+                     session.owner_ip_hash, session.nsfw_marked, session.owner_abuse_ip_hash,
+                     session.owner_ip_sealed, session.upload_key_id)).fetchone()
                 if created is not None:
                     break
+            else:
+                # the default pattern (3-16 characters) can't realistically run out: let the
+                # job queue retry, and fail the session (FINALIZE_FAILED) after the last attempt
+                raise RuntimeError('no free vanity after {} attempts'.format(MAX_VANITY_ATTEMPTS))
             conn.execute("UPDATE upload_sessions SET status = 'complete', file_id = %s WHERE id = %s",
                          (file_id, upload_id))
-            # Milestone 3: media processing for new content only, and `album=` on POST /uploads
-            if new_hash:
-                media_jobs.queue_probe(conn, hash_id)
+            # every new hash is scanned first (milestone-4 §2.1); `album=` on POST /uploads (Milestone 3).
+            # The hash row was inserted before this transaction, so a retry after a crash in between
+            # finds it as "existing": any hash still pending gets its (deduplicated) scan here.
+            pending = conn.execute("SELECT scan_state = 'pending' AND scan_stuck_at IS NULL FROM file_hashes "
+                                   'WHERE id = %s', (hash_id,)).fetchone()
+            if new_hash or (pending and pending[0]):
+                safety_scan.queue_scan(conn, hash_id)
             if session.album_id is not None:
                 append_to_album(conn, session.album_id, file_id, session.owner_user_id)
         try:
@@ -161,6 +186,16 @@ def append_to_album(conn, album_id, file_id, owner_user_id):
     if appended:
         conn.execute('UPDATE albums SET updated_at = now(), empty_since = NULL WHERE id = %s', (album_id,))
         media_jobs.queue_collage(conn, album_id)
+
+
+def _csam_reupload(conn, session, blake2b, md5, sha1, size):
+    from safety import csam
+    entry = conn.execute('SELECT id FROM blocked_hashes WHERE blake2b = %s AND md5 = %s AND sha1 = %s',
+                         (blake2b, md5, sha1)).fetchone()
+    attempt = {'filename': session.filename, 'mimetype': session.mimetype_id, 'size': size,
+               'signed_in': session.owner_user_id is not None, 'upload_id': str(session.id)}
+    csam.reupload(conn, entry[0] if entry else None, session.owner_user_id, session.owner_fingerprint,
+                  session.owner_abuse_ip_hash, attempt)
 
 
 class _borrowed:

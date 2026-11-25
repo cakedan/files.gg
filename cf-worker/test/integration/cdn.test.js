@@ -113,6 +113,21 @@ describe('link files from B2', () => {
 });
 
 
+describe('lookup cache keys can not be redirected (dot segments)', () => {
+  it('an album vanity with ../ never caches a "missing" entry under another file', async () => {
+    for (const path of ['/a/..%2F..%2Fv5%2Ffiles%2Fimg1', '/a/..%2F..%2Fv4%2Ffiles%2Fimg1', '/a/.%2E%2F..%2Ffiles%2Fimg1']) {
+      const before = upstream.requests.length;
+      const page = await worker.request('https://files.gg' + path);
+      assert.equal(page.status, 404, path);
+      // nothing was looked up for such a vanity
+      assert.deepEqual(upstream.requests.slice(before).filter((r) => r.path.startsWith('/internal/')), [], path);
+    }
+    const response = await cdn('/files/img1.png');
+    assert.equal(response.status, 200);
+  });
+});
+
+
 describe('the B2 mock really checks signatures', () => {
   it('rejects unsigned, forged and write requests', async () => {
     const url = `${s3.origin}/${S3_BUCKET}/${FILES.img1.storage.key}`;
@@ -369,7 +384,7 @@ describe('edge cache and lookups', () => {
     assert.equal((await cdn('/files/pw1.png')).status, 401);
   });
 
-  it('caches lookups for 30 s, negative ones too', async () => {
+  it('caches lookups for 5 s, negative ones too', async () => {
     const count = (vanity) => upstream.requests.filter((r) => r.path === `/internal/files/${vanity}`).length;
     await cdn('/files/cached1.png');
     assert.equal(count('cached1'), 1);

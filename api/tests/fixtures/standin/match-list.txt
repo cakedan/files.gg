@@ -1,0 +1,5 @@
+# The stand-in matcher's list (contract milestone-4 §3.3), made by make_fixtures.py from
+# generated images only. match.png matches by blake2b; match-small.jpg (match.png at 50%)
+# matches through PDQ (match.png's PDQ, quality 100).
+blake2b:f3ac51b6d5b3b8b695652d859eb8d9cfd9e517f531369655edee0e1ab42c96f41dd0f5ca5c2f27d802a431b895e2d683cd8a7dfea1f0e27499bb8664c471475a
+pdq:cb30799c399ec732266c5f0ac6c3b528a0f1cad71c0c82d7c7931a5f4b1ee0f5

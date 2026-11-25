@@ -7,11 +7,15 @@ import media
 import migrate
 from utils import filetypes
 
-VERSIONS = [('0001', 'schema'), ('0002', 'mimetypes')]
+VERSIONS = [('0001', 'schema'), ('0002', 'mimetypes'), ('0003', 'trust_safety'), ('0004', 'scan_hardening')]
 TABLES = {
     'schema_migrations', 'mimetype_types', 'mimetypes', 'mimetype_extensions', 'users', 'file_hashes',
     'file_hash_assets', 'files', 'file_view_days', 'file_view_seen', 'albums', 'album_files', 'upload_sessions',
     'upload_parts', 'unlock_attempts', 'jobs', 'snowflake_nodes',
+    # Milestone 4 (contract §1)
+    'file_hash_pdq', 'staff', 'moderation_actions', 'blocked_hashes', 'blocked_hash_pdq', 'user_warnings',
+    'user_restrictions', 'bans', 'moderation_cases', 'reports', 'report_messages', 'report_reads', 'content_flags',
+    'safety_rate_limits', 'evidence_holds',
 }
 # PLAN.md "Accepted file types", the v1 blocklist: none of these may be accepted
 # one list for the code and the tests: utils/filetypes.py
@@ -208,6 +212,50 @@ def test_foreign_keys(migrated_db):
         ('upload_parts', 'session_id'): ('upload_sessions', 'cascade'),
         ('unlock_attempts', 'file_id'): ('files', 'cascade'),
         ('unlock_attempts', 'album_id'): ('albums', 'cascade'),
+        # Milestone 4: targets of the audit trail, cases, reports and flags are SET NULL so the trail
+        # survives deletions (PLAN.md schema fix 3); a user's own notices and restrictions go with them
+        ('bans', 'action_id'): ('moderation_actions', 'set null'),
+        ('blocked_hash_pdq', 'blocked_hash_id'): ('blocked_hashes', 'cascade'),
+        ('blocked_hashes', 'action_id'): ('moderation_actions', 'set null'),
+        ('content_flags', 'album_id'): ('albums', 'set null'),
+        ('content_flags', 'case_id'): ('moderation_cases', 'set null'),
+        ('content_flags', 'file_id'): ('files', 'set null'),
+        ('content_flags', 'hash_id'): ('file_hashes', 'set null'),
+        ('evidence_holds', 'case_id'): ('moderation_cases', 'set null'),
+        ('evidence_holds', 'hash_id'): ('file_hashes', 'set null'),
+        ('file_hash_pdq', 'hash_id'): ('file_hashes', 'cascade'),
+        ('moderation_actions', 'actor_user_id'): ('users', 'set null'),
+        ('moderation_actions', 'album_id'): ('albums', 'set null'),
+        ('moderation_actions', 'case_id'): ('moderation_cases', 'set null'),
+        ('moderation_actions', 'file_id'): ('files', 'set null'),
+        ('moderation_actions', 'hash_id'): ('file_hashes', 'set null'),
+        ('moderation_actions', 'report_id'): ('reports', 'set null'),
+        ('moderation_actions', 'reverses_action_id'): ('moderation_actions', 'set null'),
+        ('moderation_actions', 'user_id'): ('users', 'set null'),
+        ('moderation_actions', 'warning_id'): ('user_warnings', 'set null'),
+        ('moderation_cases', 'album_id'): ('albums', 'set null'),
+        ('moderation_cases', 'assignee_id'): ('users', 'set null'),
+        ('moderation_cases', 'file_id'): ('files', 'set null'),
+        ('moderation_cases', 'hash_id'): ('file_hashes', 'set null'),
+        ('moderation_cases', 'user_id'): ('users', 'set null'),
+        ('moderation_cases', 'warning_id'): ('user_warnings', 'set null'),
+        ('report_messages', 'author_user_id'): ('users', 'set null'),
+        ('report_messages', 'report_id'): ('reports', 'cascade'),
+        ('report_reads', 'report_id'): ('reports', 'cascade'),
+        ('report_reads', 'user_id'): ('users', 'cascade'),
+        ('reports', 'album_id'): ('albums', 'set null'),
+        ('reports', 'case_id'): ('moderation_cases', 'set null'),
+        ('reports', 'file_id'): ('files', 'set null'),
+        ('reports', 'reporter_user_id'): ('users', 'set null'),
+        ('reports', 'user_id'): ('users', 'set null'),
+        ('staff', 'granted_by'): ('users', 'set null'),
+        ('staff', 'user_id'): ('users', 'cascade'),
+        ('user_restrictions', 'action_id'): ('moderation_actions', 'set null'),
+        ('user_restrictions', 'lifted_by_action_id'): ('moderation_actions', 'set null'),
+        ('user_restrictions', 'user_id'): ('users', 'cascade'),
+        ('user_restrictions', 'warning_id'): ('user_warnings', 'set null'),
+        ('user_warnings', 'action_id'): ('moderation_actions', 'set null'),
+        ('user_warnings', 'user_id'): ('users', 'cascade'),
     }
 
 

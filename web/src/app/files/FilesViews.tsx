@@ -5,6 +5,7 @@ import { formatBytes } from '../../lib/format';
 import { pageSelectionState, type Selection } from '../../lib/files/selection';
 import { epochMs, formatFullDate, formatRelative } from '../../lib/time';
 import { Menu } from '../components/Menu';
+import { SafetyBadge } from '../safety/SafetyBadge';
 import { AccessBadge } from './AccessBadge';
 import { fileMenuItems, type FileHandlers } from './fileMenu';
 import { FileThumb } from './FileThumb';
@@ -119,6 +120,7 @@ function TableRow({ file, props }: { file: OwnerFile; props: FilesViewProps }) {
         <div className="flex min-w-0 items-center gap-3">
           <FileThumb file={file} active={active} />
           <NameCell file={file} props={props} />
+          <SafetyBadge safety={file.safety} />
         </div>
       </td>
       <td className="px-3 py-2 text-sm whitespace-nowrap text-muted">{typeLabel(file)}</td>
@@ -203,7 +205,8 @@ function CardRow({ file, props }: { file: OwnerFile; props: FilesViewProps }) {
       <FileThumb file={file} active={active} className="size-12" />
       <div className="flex min-w-0 flex-1 flex-col gap-0.5">
         <NameCell file={file} props={props} />
-        <span className="flex flex-wrap items-center gap-x-2 text-xs text-muted">
+        <span className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted">
+          <SafetyBadge safety={file.safety} />
           <span>{formatBytes(file.size)}</span>
           <span>{formatRelative(epochMs(file.uploaded_at), props.now)}</span>
           {file.expires_at !== null && <Expires file={file} now={props.now} />}
@@ -251,7 +254,8 @@ function GridTile({ file, props }: { file: OwnerFile; props: FilesViewProps }) {
       <div className="flex items-start gap-1 p-2">
         <div className="flex min-w-0 flex-1 flex-col gap-0.5">
           <NameCell file={file} props={props} />
-          <span className="flex flex-wrap items-center gap-x-2 text-xs text-muted">
+          <span className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted">
+            <SafetyBadge safety={file.safety} />
             {formatBytes(file.size)}
             <AccessBadge visibility={file.visibility} compact />
             {file.expires_at !== null && <Expires file={file} now={props.now} />}

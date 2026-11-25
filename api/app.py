@@ -22,8 +22,9 @@ REQUIRED_SECRETS = (
     'CDN_SIGNING_SECRET', 'TURNSTILE_SECRET',
     'S3_ENDPOINT', 'S3_BUCKET_FILES', 'S3_ACCESS_KEY_ID', 'S3_SECRET_ACCESS_KEY',
 )
-DEFAULT_ALLOWED_ORIGINS = 'https://files.gg'
-CORS_ALLOW_HEADERS = 'Authorization, Content-Type, X-Fingerprint'
+# public, credential-less CORS only (milestone-6 §12): no origin gets credentials, and the CSRF header
+# (X-Filesgg-Csrf) is never allowed cross-origin
+CORS_ALLOW_HEADERS = 'Authorization, Content-Type, X-Fingerprint, X-Filesgg-Access'
 CORS_ALLOW_METHODS = 'DELETE, GET, HEAD, OPTIONS, PATCH, POST, PUT, TRACE'
 JSON = 'application/json'
 VERSION = '0.0.1'
@@ -38,10 +39,6 @@ def require_secrets(environ=os.environ):
         )
 
 
-def parse_origins(value):
-    return frozenset(x.strip().rstrip('/') for x in (value or '').split(',') if x.strip())
-
-
 def truthy(value):
     return (value or '').strip().lower() in ('1', 'true', 'yes', 'on')
 
@@ -52,6 +49,13 @@ def create_app(name='filesgg', database_url=None, storage=None):
     # PUBLIC_URL and CDN_URL (default https://files.gg, https://cdn.files.gg) must be origins
     from utils import urls
     urls.validate()
+    # milestone-4 §13: CSAM_MATCHER (standin only with FILESGG_DEV_TOOLS=1), ABUSE_HASH_SECRET and
+    # EVIDENCE_PUBLIC_KEY are required
+    from safety.settings import check_api
+    check_api()
+    # milestone-6 §15: SESSION_COOKIE_INSECURE only with FILESGG_DEV_TOOLS, Discord's id and secret together
+    from utils import account_settings as account_config
+    account_config.check_api()
 
     from sanic import Sanic
     from sanic.exceptions import SanicException
@@ -59,7 +63,7 @@ def create_app(name='filesgg', database_url=None, storage=None):
     from sanic_ext import Extend
 
     import db
-    from utils import cdn_signing, client_ip, http, tokens
+    from utils import auth as auth_module, cdn_signing, client_ip, http, tokens
     from utils.generators import EPOCH, Snowflake
     from utils.email import Email
     from utils.access import ACCESS_HEADER
@@ -78,6 +82,10 @@ def create_app(name='filesgg', database_url=None, storage=None):
     from views.me import me
     from views.mimetypes import mimetypes
     from views.users import users
+    from views.reports import reports, my_safety
+    from views.admin import admin
+    from views.account import account
+    from views.integrations import integrations
 
     debug = truthy(os.getenv('DEBUG'))
     app = Sanic(name, strict_slashes=True)
@@ -88,8 +96,9 @@ def create_app(name='filesgg', database_url=None, storage=None):
         'REAL_IP_HEADER': None,
         'FORWARDED_SECRET': None,
         'PROXIES_COUNT': int(os.getenv('PROXIES_COUNT', '1')),
-        # the largest body is a single-request upload (100 MB) plus multipart framing
-        'REQUEST_MAX_SIZE': int(os.getenv('REQUEST_MAX_SIZE', str(101 * 1024 * 1024))),
+        # the outer cap (milestone-6 §9.5): a premium single-request upload (500 MB) plus multipart framing.
+        # The per-endpoint limits (§4.8) sit inside it, and PROXY_BODY_LIMIT_BYTES caps single uploads.
+        'REQUEST_MAX_SIZE': int(os.getenv('REQUEST_MAX_SIZE', str(501 * 1024 * 1024))),
         # sanic-ext: our own CORS, OPTIONS and HEAD handling (Flask-compatible)
         'CORS': False,
         'HTTP_AUTO_OPTIONS': False,
@@ -115,13 +124,13 @@ def create_app(name='filesgg', database_url=None, storage=None):
     from sanic_ext.extensions.openapi.extension import OpenAPIExtension
     OpenAPIExtension.label = lambda self: '/openapi.json'
     Extend(app)
+    # the website's session is an HttpOnly cookie; tools send upload keys as `Authorization: Key fgg_…`
     app.ext.openapi.add_security_scheme('token', 'apiKey', location='header', name='Authorization')
 
     app.ctx.version = VERSION
     app.ctx.rpc_key = os.environ['RPC_KEY']
     # keys the daily IP hashes for unique views; the same on every API server
     app.ctx.view_hash_secret = os.environ['VIEW_HASH_SECRET']
-    app.ctx.allowed_origins = parse_origins(os.getenv('ALLOWED_ORIGINS', DEFAULT_ALLOWED_ORIGINS))
     app.ctx.storage = storage
     # shared with the Cloudflare Worker (its ORIGIN_SHARED_SECRET binding)
     app.ctx.origin_secret = os.getenv('ORIGIN_SHARED_SECRET') or None
@@ -145,7 +154,8 @@ def create_app(name='filesgg', database_url=None, storage=None):
     cdn_signing.configure(os.environ['CDN_SIGNING_SECRET'])
     Snowflake.set_epoch(EPOCH)
 
-    for blueprint in (auth, files, health, me, mimetypes, users, uploads, internal, albums):
+    for blueprint in (auth, files, health, me, mimetypes, users, uploads, internal, albums, reports, my_safety, admin,
+                      account, integrations):
         app.blueprint(blueprint)
 
     # --- per-worker resources ------------------------------------------------
@@ -181,6 +191,8 @@ def create_app(name='filesgg', database_url=None, storage=None):
     @app.on_request(priority=100)
     async def resolve_client(request):
         request.ctx.from_worker = client_ip.from_trusted_worker(request.headers, app.ctx.origin_secret)
+        # only the Worker's own lookups, never a client request it forwarded (views/internal.py)
+        request.ctx.internal_lookup = client_ip.internal_lookup(request.headers, app.ctx.origin_secret)
         request.ctx.client_ip = client_ip.resolve(
             request.headers, request.ip, app.ctx.origin_secret, app.ctx.proxies_count)
         client_ip.scrub(request.headers)
@@ -188,6 +200,27 @@ def create_app(name='filesgg', database_url=None, storage=None):
         request.ctx.access_token = request.headers.get(ACCESS_HEADER)
         while ACCESS_HEADER in request.headers:
             del request.headers[ACCESS_HEADER]
+
+    @app.on_request(priority=90)
+    async def request_size(request):
+        """Milestone-6 §4.8: 64 KiB for the auth and password endpoints, 1 MiB for every other JSON or form
+        endpoint (413 REQUEST_TOO_LARGE { limit }), before anything is parsed or hashed. The upload routes
+        stream and check their own limits."""
+        from utils import request_limits
+        return request_limits.check(request)
+
+    @app.on_request(priority=80)
+    async def authenticate(request):
+        """Milestone-6 §3.4, §3.6, §7.4: the session cookie (only via files.gg/api), upload keys (only on the
+        upload endpoints) and CSRF. Leaves `request.ctx.auth`."""
+        await auth_module.resolve(request)
+
+    @app.on_request(priority=50)
+    async def account_standing(request):
+        """Milestone-4 §8.4 as amended by milestone-6 §11.1 (suspended accounts) and §8.8 (an account with a
+        pending deletion is locked): 403 ACCOUNT_SUSPENDED / ACCOUNT_PENDING_DELETION outside the allowlists."""
+        from utils import standing
+        return await standing.check_request(request)
 
     @app.on_request
     async def preflight(request):
@@ -200,7 +233,14 @@ def create_app(name='filesgg', database_url=None, storage=None):
     @app.on_response
     async def finish(request, response):
         apply_cors(app, request, response)
-        response.headers['cache-control'] = 'no-cache, no-store'
+        if 'cache-control' not in response.headers:
+            response.headers['cache-control'] = 'no-cache, no-store'
+        # the session cookie (milestone-6 §3.2): set by a sign-in, cleared by logout or a dead cookie
+        set_cookie = getattr(request.ctx, 'set_cookie', None)
+        if set_cookie is not None:
+            response.headers.add('set-cookie', auth_module.set_cookie_header(*set_cookie))
+        elif getattr(request.ctx, 'clear_cookie', False):
+            response.headers.add('set-cookie', auth_module.clear_cookie_header())
 
     @app.exception(Exception)
     async def on_error(request, error):
@@ -225,9 +265,5 @@ def apply_cors(app, request, response):
     headers['access-control-allow-methods'] = CORS_ALLOW_METHODS
     headers['access-control-max-age'] = '300'
     headers['vary'] = 'Origin'
-    if origin.rstrip('/') in app.ctx.allowed_origins:
-        headers['access-control-allow-origin'] = origin
-        headers['access-control-allow-credentials'] = 'true'
-    else:
-        # public, credential-less access only
-        headers['access-control-allow-origin'] = '*'
+    # public, credential-less access only: the website calls files.gg/api same-origin
+    headers['access-control-allow-origin'] = '*'

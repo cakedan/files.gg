@@ -4,6 +4,7 @@ import { useId, useState, type ReactNode } from 'react';
 import type { OwnerAlbum, OwnerAlbumItem } from '../../lib/api';
 import { formatBytes } from '../../lib/format';
 import { AccessBadge } from '../files/AccessBadge';
+import { SafetyBadge } from '../safety/SafetyBadge';
 import { FileThumb } from '../files/FileThumb';
 import { hiddenNote } from './hiddenNote';
 
@@ -48,6 +49,7 @@ export function AlbumItemCard({ item, album, index, handle, readOnly, onCaption,
             <span className="flex items-center gap-2 text-xs text-muted">
               {formatBytes(item.size)}
               <AccessBadge visibility={item.visibility} compact />
+              <SafetyBadge safety={item.safety} compact />
             </span>
           </div>
           {!readOnly && (

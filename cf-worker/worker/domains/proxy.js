@@ -85,7 +85,15 @@ export async function requestProxy(event, url) {
   event.request.headers.delete('cf-connecting-ip');
   event.request.headers.delete('true-client-ip');
   event.request.headers.delete('x-real-ip');
-  // Never forward the shared secret to the third-party URL.
+  // Never forward the shared secret, or any cookie (milestone-6.md §12), to the third-party URL.
   event.request.headers.delete('x-proxy-token');
-  return await fetch(url, event.request);
+  event.request.headers.delete('cookie');
+  const upstream = await fetch(url, event.request);
+  // A third party's response is served on a files.gg subdomain: it may not set cookies (a
+  // `Domain=files.gg` cookie would reach the site and the API) or run as a page.
+  const response = new Response(upstream.body, upstream);
+  response.headers.delete('set-cookie');
+  response.headers.set('Content-Security-Policy', 'sandbox');
+  response.headers.set('X-Content-Type-Options', 'nosniff');
+  return response;
 };

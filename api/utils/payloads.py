@@ -9,6 +9,7 @@ refuses them.
 """
 
 from db.models import epoch
+from safety import states, webrisk
 from media import BROWSER_IMAGES, base_kind, is_other_image, preview_extension  # noqa: F401  (re-exported)
 from utils.cdn_signing import path_segment
 from utils.generators import Snowflake
@@ -74,6 +75,9 @@ def processing(fobj):
 
 
 def viewer_kind(fobj, assets):
+    if fobj.hash is not None and not fobj.hash.serve_inline:
+        # milestone-4 §2.3: our decoders couldn't read it, so it's never shown inline
+        return 'file'
     kind = kind_of(fobj.mimetype_id)
     # HEIC, TIFF, PSD, ...: shown through their `display` preview (contract §4)
     if kind == 'file' and is_other_image(fobj.mimetype_id) and 'display' in assets:
@@ -118,8 +122,12 @@ def public_file(fobj, grant=None, owner=False, album_item=False):
         'framecount': None,
         'processing': processing(fobj),
         'assets': assets,
-        'nsfw': False,
+        'nsfw': nsfw_of(fobj)[0],
+        # milestone-4 §6.1: visitor warnings and the links Web Risk flagged; never why it's flagged
+        'warnings': list(scan_doc(fobj).get('warnings') or []),
     }
+    # only matches within Google's expireTime may be shown (§5.7): plain URLs, plus their threat types
+    data['link_warnings'], data['link_warning_types'] = webrisk.payload_fields(scan_doc(fobj).get('link_warnings'))
     for key in TOP_LEVEL_MEDIA:
         if media.get(key) is not None:
             data[key] = media[key]
@@ -128,6 +136,53 @@ def public_file(fobj, grant=None, owner=False, album_item=False):
         data['thumbnail'] = thumbnail
     if 'hover' in assets:
         data['hover_url'] = assets['hover']['url']
+    return data
+
+
+def scan_doc(fobj):
+    return (fobj.hash.scan if fobj.hash is not None else None) or {}
+
+
+def nsfw_of(fobj):
+    """(nsfw, nsfw_source) per milestone-4 §4.4."""
+    nsfw_auto = fobj.hash.nsfw_auto if fobj.hash is not None else False
+    return states.file_nsfw(fobj.nsfw_override, fobj.nsfw_override_source, fobj.nsfw_marked, nsfw_auto)
+
+
+def file_state(fobj):
+    scan_state = fobj.hash.scan_state if fobj.hash is not None else 'pending'
+    return states.owner_state(scan_state, fobj.moderation_state)
+
+
+def lookup_safety(fobj):
+    """The internal lookup's `safety` (milestone-4 §6.3): the reduced state, and the public
+    reason for hidden and removed."""
+    state = file_state(fobj)
+    state = 'ok' if state == 'flagged' else state
+    return {'state': state, 'reason': states.public_reason(state, fobj.moderation_rule)}
+
+
+def safety_dict(fobj):
+    """The owner's `safety` (milestone-4 §6.2)."""
+    h = fobj.hash
+    state = file_state(fobj)
+    extra = fobj.safety_extra or {}
+    _, source = nsfw_of(fobj)
+    reason = states.owner_reason(state, h.scan_reason if h else None, fobj.moderation_rule, fobj.moderation_auto,
+                                 h.scan_state if h else None)
+    csam = h is not None and h.scan_reason in states.CSAM_REASONS or fobj.moderation_rule == 'csam'
+    return {
+        'state': state,
+        'reason': reason,
+        'notice_id': None if csam else extra.get('notice_id'),
+        'nsfw_source': source,
+        'nsfw_locked': states.nsfw_locked(fobj.nsfw_override, h.nsfw_auto if h else False),
+        'nsfw_review': extra.get('nsfw_review') or 'none',
+    }
+
+
+def with_safety(data, fobj):
+    data['safety'] = safety_dict(fobj)
     return data
 
 
@@ -144,6 +199,7 @@ def owner_dict(fobj, grant=None):
     plus the access settings, `media.snippet`, and the albums the file is in."""
     from utils.cdn_signing import Grant
     data = public_file(fobj, grant=grant or Grant.owner_file(fobj), owner=True)
+    with_safety(data, fobj)
     data.update({
         'access_version': fobj.access_version,
         'unlock_ttl': fobj.unlock_ttl,

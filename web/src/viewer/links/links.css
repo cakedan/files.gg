@@ -1,0 +1,4 @@
+/* Utilities for the lazy link-warning chunks only, generated against the shared theme. */
+@reference '../../styles/tokens.css';
+@import 'tailwindcss/utilities.css' layer(utilities) source(none);
+@source './';

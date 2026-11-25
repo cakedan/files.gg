@@ -45,16 +45,31 @@ class AlbumArgs(Args):
 
 
 async def album_body(conn, album, after=None, grant=None):
-    """The public payload (URLs signed with `grant`), or None when the album shows nothing."""
+    """The public payload (URLs signed with `grant`), or None when the album shows nothing.
+    With nothing shown yet but items still being checked (milestone-4 §6.4): the payload with
+    `items: []` and `pending_count`."""
     items, cursor = await album_queries.shown_items(conn, album, after=after)
     count, size = await album_queries.shown_totals(conn, album.id)
     if count == 0:
-        return None
+        pending = await album_queries.pending_count(conn, album.id)
+        if not pending:
+            return None
+        body = album_rules.album_payload(album, [], 0, 0, None, cover_items=[], grant=grant)
+        body['pending_count'] = pending
+        return body
     cover_items = [f for f, _, _ in items]
     if album.cover_file_id is not None and album.cover_file_id not in {f.id for f in cover_items}:
         first, _ = await album_queries.shown_items(conn, album, limit=None)
         cover_items = [f for f, _, _ in first]
-    return album_rules.album_payload(album, items, count, size, cursor, cover_items=cover_items, grant=grant)
+    nsfw = await album_queries.any_shown_nsfw(conn, album.id)
+    return album_rules.album_payload(album, items, count, size, cursor, cover_items=cover_items, grant=grant,
+                                     nsfw=nsfw)
+
+
+def check_removed(album):
+    """410 ALBUM_REMOVED { reason } for a hidden or removed album (milestone-4 §6.4)."""
+    if album.moderation_state != 'visible':
+        raise errors.album_removed(album_rules.album_safety(album)['reason'])
 
 
 def _is_owner(album, user, fingerprint):
@@ -84,9 +99,10 @@ async def fetch_album(request, args, vanity):
                 full, grant = True, Grant.owner_album(album)
             elif claims is not None:
                 full, grant = True, Grant.for_album(album, claims['e'])
+        if album.visibility == 'private' and not full:
+            raise errors.unknown_album()
+        check_removed(album)
         body = await album_body(conn, album, args.cursor, grant) if full or album.visibility == 'password' else None
-    if album.visibility == 'private' and not full:
-        raise errors.unknown_album()
     if body is None:
         raise errors.unknown_album()
     if not full:
@@ -109,7 +125,10 @@ async def unlock_album(request, args, vanity):
     """Turnstile, then the rate limit, then password expiry, then the password."""
     async with db.connection() as conn:
         album = await album_queries.get_album_by_vanity(conn, vanity)
-        if album is None or album.visibility == 'private' or await album_body(conn, album) is None:
+        if album is None or album.visibility == 'private':
+            raise errors.unknown_album()
+        check_removed(album)
+        if await album_body(conn, album) is None:
             raise errors.unknown_album()
     if not await Turnstile.verify(args.turnstile_token, 'unlock', client_ip(request)):
         raise errors.captcha_invalid()
@@ -141,6 +160,7 @@ async def refresh_album_unlock(request, args, vanity):
         claims = _album_claims(request, album, args.token)
         if album.visibility == 'private' and (claims is None or claims['s'] != 'owner'):
             raise errors.unknown_album()
+        check_removed(album)
         await access.rate_limit(conn, request, album, 'access', access.ACCESS_REQUESTS_PER_MINUTE, kind='album')
     if claims is None:
         raise errors.unlock_expired()
@@ -171,6 +191,7 @@ async def view_album(request, vanity):
         claims = _album_claims(request, album, request.ctx.access_token)
         if album.visibility == 'private' and claims is None:
             raise errors.unknown_album()
+        check_removed(album)
         await access.rate_limit(conn, request, album, 'access', access.ACCESS_REQUESTS_PER_MINUTE, kind='album')
         if claims is None:
             raise errors.unlock_expired()

@@ -63,6 +63,7 @@ function safeJoin(root: string, relative: string): string | null {
 /**
  * Mirrors the production routing in dev and preview:
  *   /app, /app/*            -> app.html     (the dashboard SPA)
+ *   /challenge              -> challenge.html (the Turnstile frame for custom domains)
  *   /, /convert             -> viewer.html  (home card, convert placeholder)
  *   /a/<vanity>[/<n>]       -> viewer.html  (album page)
  */
@@ -72,6 +73,9 @@ export function routeEntries(): Plugin {
     const [pathname = '/', search = ''] = url.split(/(?=\?)/, 2);
     if (pathname === '/app' || (pathname.startsWith('/app/') && !pathname.includes('.'))) {
       req.url = `/app.html${search}`;
+    } else if (pathname === '/challenge') {
+      // Before the bare-vanity rule, which would match it. `challenge` is a reserved vanity.
+      req.url = `/challenge.html${search}`;
     } else if (
       pathname === '/' ||
       pathname === '/convert' ||

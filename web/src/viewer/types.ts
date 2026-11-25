@@ -90,7 +90,17 @@ export interface FileData {
   uploaded_at: number;
   /** Epoch seconds, or null when the file never expires. */
   expires_at: number | null;
+  /** Milestone 4 §4.4: sensitive (NSFW). The viewer shows an interstitial first. */
+  nsfw?: boolean | undefined;
+  /** Milestone 4 §6.1 / §2.8: scanner warnings shown to visitors. Unknown codes drop out. */
+  warnings?: FileWarning[] | undefined;
+  /** Milestone 4 §5.7: up to 20 URLs Web Risk flagged. They're never opened from files.gg. */
+  link_warnings?: string[] | undefined;
 }
+
+/** Milestone 4 §2.8 `warnings`, in the order the banner lists them. */
+export const FILE_WARNINGS = ['unwanted_software', 'encrypted_archive', 'encrypted_pdf', 'archive_partially_scanned', 'too_large_to_scan'] as const;
+export type FileWarning = (typeof FILE_WARNINGS)[number];
 
 export const ALBUM_LAYOUTS = ['auto', 'grid', 'list', 'tracklist'] as const;
 export type AlbumLayout = (typeof ALBUM_LAYOUTS)[number];
@@ -133,6 +143,8 @@ export interface AlbumData {
   next_cursor: string | null;
   /** Visible, unexpired items sorted by position. Never empty. */
   items: AlbumItem[];
+  /** Milestone 4 §5.7: Web Risk hits in the title, description and captions. */
+  link_warnings?: string[] | undefined;
 }
 
 /**
@@ -148,8 +160,31 @@ export interface LockedTarget {
   passwordExpired: boolean;
 }
 
+/** Milestone 4 §2.4: the public reason on a removed (or hidden) page. */
+export const REMOVED_REASONS = ['review', 'terms', 'copyright', 'malware'] as const;
+export type RemovedReason = (typeof REMOVED_REASONS)[number];
+
+/** A `pending` or `removed` shell (milestone-4 §10.1): the worker sends only the vanity. */
+export interface StateTarget {
+  kind: 'file' | 'album';
+  vanity: string;
+}
+
+/** `#report-data` (milestone-4 §10.1): what the report page is for. */
+export type ReportPageTarget =
+  | { type: 'any' }
+  | { type: 'file'; vanity: string }
+  | { type: 'album'; vanity: string }
+  /** Milestone 6 §10.12: a custom domain, from its landing card. Never from `#report-data`. */
+  | { type: 'domain'; hostname: string };
+
 export type BootState =
   | { page: 'home' }
+  /** Milestone 6 §10.8: a custom domain's `/` (`data-page="domain-home"`). */
+  | { page: 'domain-home' }
+  | { page: 'pending'; target: StateTarget }
+  | { page: 'removed'; target: StateTarget; reason: RemovedReason }
+  | { page: 'report'; target: ReportPageTarget }
   | { page: 'locked'; target: LockedTarget }
   | { page: 'convert' }
   | { page: 'unavailable' }

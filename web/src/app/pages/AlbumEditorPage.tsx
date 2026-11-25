@@ -1,4 +1,4 @@
-import { ArrowLeft, ExternalLink, ImagePlus, KeyRound, Link2, Lock, Plus, Trash2 } from 'lucide-react';
+import { ArrowLeft, EyeOff, ExternalLink, ImagePlus, KeyRound, Link2, Lock, Plus, Trash2 } from 'lucide-react';
 import { useEffect, useId, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router';
 
@@ -96,6 +96,8 @@ function Editor({ album }: { album: OwnerAlbum }) {
 
   const totalSize = album.items.reduce((sum, item) => sum + item.size, 0);
   const hidden = album.items.filter((item) => !item.shown).length;
+  const checking = album.items.filter((item) => item.safety?.state === 'pending').length;
+  const moderated = album.safety && album.safety.state !== 'ok' ? album.safety : null;
   const cover = album.items.find((item) => item.id === album.cover_file_id);
 
   const openAlbum = async () => {
@@ -126,6 +128,13 @@ function Editor({ album }: { album: OwnerAlbum }) {
             {pluralize(album.items.length, 'file')} · {formatBytes(totalSize)}
           </span>
           {hidden > 0 && <span className="text-warn">{pluralize(hidden, 'file')} hidden on the album page</span>}
+          {checking > 0 && <span>{pluralize(checking, 'file')} still being checked</span>}
+          {album.nsfw && (
+            <span className="inline-flex items-center gap-1">
+              <EyeOff aria-hidden className="size-3.5" />
+              Sensitive
+            </span>
+          )}
           <AccessBadge visibility={album.visibility} />
           <span aria-live="polite" className={status === 'error' ? 'text-danger' : ''}>
             {ORDER_LABELS[status]}
@@ -157,6 +166,20 @@ function Editor({ album }: { album: OwnerAlbum }) {
           )}
         </div>
         {readOnly && <p className="text-sm text-muted">Sign in to edit albums.</p>}
+        {moderated && (
+          <p role="status" className="flex flex-wrap items-center gap-2 rounded-md border border-warn/40 bg-warn/10 px-3 py-2 text-sm">
+            <span className="min-w-0 flex-1">
+              {moderated.state === 'hidden'
+                ? 'This album is hidden by the files.gg team. Visitors see that it’s unavailable.'
+                : 'This album was removed by the files.gg team. Visitors see that it was removed.'}
+            </span>
+            {moderated.notice_id && (
+              <Link to={`/notices/${moderated.notice_id}`} className="font-medium text-gg hover:underline">
+                See the notice
+              </Link>
+            )}
+          </p>
+        )}
       </header>
 
       <section aria-label="Album settings" className="grid gap-4 rounded-lg border border-line bg-surface p-4 md:grid-cols-[1fr_auto]">
@@ -181,6 +204,12 @@ function Editor({ album }: { album: OwnerAlbum }) {
             </select>
             <p className="text-xs text-muted">Automatic shows a grid, or a tracklist when every file is audio.</p>
           </div>
+          <SensitiveSwitch
+            marked={Boolean(album.nsfw_marked)}
+            fromItems={Boolean(album.nsfw) && !album.nsfw_marked}
+            disabled={readOnly}
+            onChange={(nsfw) => save({ nsfw }, nsfw ? 'Album marked as sensitive.' : 'Album unmarked.')}
+          />
         </div>
         <div className="flex w-full max-w-56 flex-col gap-1.5 md:w-56">
           <span className="text-sm font-medium">Cover</span>
@@ -267,6 +296,36 @@ function Editor({ album }: { album: OwnerAlbum }) {
         </ConfirmDialog>
       )}
     </section>
+  );
+}
+
+/** "Mark album as sensitive" (milestone-4 §4.5, §11.2): the album's own mark. */
+function SensitiveSwitch({ marked, fromItems, disabled, onChange }: { marked: boolean; fromItems: boolean; disabled: boolean; onChange: (nsfw: boolean) => void }) {
+  const id = useId();
+  return (
+    <div className="flex flex-col gap-1.5">
+      <div className="flex items-center gap-3">
+        <button
+          id={id}
+          type="button"
+          role="switch"
+          aria-checked={marked}
+          disabled={disabled}
+          onClick={() => onChange(!marked)}
+          className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full border transition-colors disabled:opacity-50 ${marked ? 'border-gg bg-gg' : 'border-line bg-surface-2'}`}
+        >
+          <span className={`inline-block size-4 rounded-full bg-white shadow transition-transform ${marked ? 'translate-x-6' : 'translate-x-1'}`} />
+        </button>
+        <label htmlFor={id} className="text-sm font-medium">
+          Mark album as sensitive
+        </label>
+      </div>
+      <p className="text-xs text-muted">
+        {fromItems
+          ? 'Some files in it are marked as sensitive, so visitors see a warning first either way.'
+          : 'Visitors see a warning before the album opens. Only signed-in users can mark albums.'}
+      </p>
+    </div>
   );
 }
 

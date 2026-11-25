@@ -1,0 +1,9 @@
+# Build requirements for pdqhash 0.2.8 (contract milestone-4 §3.4), used only in the Dockerfile's pdqhash-build
+# stage: pdqhash publishes no Linux wheels for any Python (its newest release, 0.2.8 of 2025-05-28, has macOS and
+# Windows wheels for cp310 to cp313), so the worker image builds it from the sdist with g++. Cython and NumPy
+# publish cp314 manylinux wheels; setuptools and wheel are pure Python.
+pdqhash==0.2.8
+cython==3.3.2
+numpy==2.5.5
+setuptools==84.2.1
+wheel==0.48.0

@@ -128,6 +128,9 @@ export default function AlbumsPage() {
                     <span>{pluralize(album.count, 'file')}</span>
                     <span>Updated {formatRelative(album.updated_at * 1000, now)}</span>
                     <AccessBadge visibility={album.visibility} />
+                    {album.safety && album.safety.state !== 'ok' && (
+                      <span className="rounded bg-warn/15 px-1.5 py-0.5 font-medium text-warn">{album.safety.state === 'hidden' ? 'Hidden' : 'Removed'}</span>
+                    )}
                   </span>
                 </span>
               </Link>

@@ -18,8 +18,12 @@ from utils.generators import Snowflake
 from utils.owner import Caller, caller_of
 from utils.params import Arg, Args
 from utils.responses import ApiResponse
-from utils.vanity import generate_id
+from utils.vanity import MAX_VANITY_ATTEMPTS, generate_id
 from utils.wrappers import authenticate, parse_args, route
+from db.models import epoch
+from safety import ip as abuse_ip, scan as safety_scan
+from safety.settings import safety_settings
+from utils import standing
 
 import utils.helpers as helpers
 import utils.parameters as parameters
@@ -42,7 +46,10 @@ def only_me(func):
 
 @authenticate()
 async def fetch_me(request, user):
-    return ApiResponse(user.to_dict(me=True))
+    """The user object (milestone-6 §2.1), with Milestone 4's `staff` and `restrictions`."""
+    from utils import accounts
+    async with db.connection() as conn:
+        return ApiResponse(await accounts.user_object(conn, user))
 
 
 # --- Milestone 2 -------------------------------------------------------------------------
@@ -50,26 +57,41 @@ async def fetch_me(request, user):
 @route(me, '/limits', ['GET'])
 @only_me
 async def fetch_me_limits(request):
-    """Signed in: the user's limits and storage use. Anonymous (X-Fingerprint):
-    the anonymous limits, with `storage.limit` null (their files expire)."""
+    """Signed in: the user's limits and storage use. Anonymous (X-Fingerprint): the anonymous limits, with
+    `storage.limit` null (their files expire). Milestone 6 (§9.2) adds premium, the configured single-request
+    limit, and the custom domain and upload key counts."""
+    from utils.auth import auth_of
+    current = auth_of(request)
+    if current.dead:
+        raise errors.unauthorized()
+    user = current.user if current.kind == 'session' else None
     async with db.connection() as conn:
-        user = None
-        if request.headers.get('authorization') is not None:
-            user = await helpers.get_user(conn, request.headers.get('authorization'))
         fingerprint = parameters.fingerprint(request.headers.get('x-fingerprint')) \
             if request.headers.get('x-fingerprint') else None
         if user is None and fingerprint is None:
             raise errors.unauthorized()
         owner = uploading.Owner(user, fingerprint, helpers.client_ip(request), request.app.ctx.view_hash_secret)
         used = await owner.usage(conn)
+        domains_used = keys_used = 0
+        if user is not None:
+            cursor = await conn.execute(
+                "SELECT (SELECT count(*) FROM custom_domains WHERE user_id = %s AND deleted_at IS NULL AND "
+                "status <> 'disabled'), (SELECT count(*) FROM upload_keys WHERE user_id = %s AND revoked_at IS NULL "
+                'AND (expires_at IS NULL OR expires_at > now()))', (user.id, user.id))
+            domains_used, keys_used = await cursor.fetchone()
     limits = owner.limits
     body = {
         'storage': {'used': used, 'limit': limits.storage_bytes},
         'max_file_size_single': limits.max_file_size_single,
+        'max_file_size_single_configured': limits.max_file_size_single_configured,
         'max_file_size_chunked': limits.max_file_size_chunked,
         'max_expiry': limits.max_expiry,
         'allow_no_expiry': limits.allow_no_expiry,
         'anonymous': limits.anonymous,
+        'premium': limits.premium,
+        'custom_domains': {'used': domains_used, 'limit': limits.custom_domains},
+        'upload_keys': {'used': keys_used, 'limit': limits.upload_keys_max},
+        'domain_only_allowed': limits.domain_only_allowed,
     }
     if limits.anonymous:
         # extra: the rolling 24 h cap that applies instead of a storage limit
@@ -77,6 +99,13 @@ async def fetch_me_limits(request):
     # Milestone 3: album limits
     body['album_max_files'] = limits.album_max_files
     body['albums_max'] = limits.albums_max
+    # Milestone 4 (§13): adult content needs an account in good standing
+    restricted = False
+    if user is not None:
+        from utils import standing
+        async with db.connection() as conn:
+            restricted = bool(await standing.restrictions(conn, user.id))
+    body['nsfw_allowed'] = user is not None and not restricted
     return ApiResponse(body)
 
 
@@ -128,6 +157,8 @@ class PatchFileArgs(Args):
     expires_in: Annotated[Optional[int], Arg(type=uploading.positive_int)] = None
     # Milestone 3: renames the name only; the extension stays
     filename: Annotated[Optional[str], Arg(type=new_filename)] = None
+    # Milestone 4 (§4.5): the uploader's own NSFW mark
+    nsfw: Annotated[Optional[bool], Arg(type=uploading.boolean)] = None
 
 
 def _owned_file_id(file_id):
@@ -200,6 +231,9 @@ async def patch_file(request, args, file_id):
             if name != fobj.filename:
                 changes['filename'] = name
 
+        if args.nsfw is not None:
+            changes.update(nsfw_change(caller, fobj, args.nsfw))
+
         if changes:
             async with conn.transaction():
                 await queries.update_file(conn, fobj.id, **changes)
@@ -213,6 +247,107 @@ async def patch_file(request, args, file_id):
     if password.generated:
         payloads.with_password(body, fobj, password.plain)
     return ApiResponse(body)
+
+
+def nsfw_change(caller, fobj, nsfw):
+    """Milestone-4 §4.5: signed-in uploaders mark and unmark their own files; unmarking only when
+    the source is `uploader` and nothing else would keep it marked (NSFW_LOCKED)."""
+    from safety import states
+    if caller.anonymous:
+        raise errors.nsfw_requires_account()
+    if nsfw:
+        return {'nsfw_marked': True} if not fobj.nsfw_marked else {}
+    nsfw_now, _ = payloads.nsfw_of(fobj)
+    if nsfw_now and states.nsfw_locked(fobj.nsfw_override, fobj.hash.nsfw_auto if fobj.hash else False):
+        raise errors.nsfw_locked()
+    return {'nsfw_marked': False} if fobj.nsfw_marked else {}
+
+
+@route(me, '/files/<file_id:str>', ['GET'])
+@only_me
+async def fetch_my_file(request, file_id):
+    """The owner file (milestone-4 §6.2). A file deleted with an upload-rejection code answers
+    410 UPLOAD_REJECTED { reason } for 24 hours, then 404 UNKNOWN_FILE."""
+    from safety.states import UPLOAD_REJECTIONS
+    async with db.connection() as conn:
+        caller = await caller_of(conn, request)
+        file_id = _owned_file_id(file_id)
+        files = await _owner_files(conn, caller, [file_id])
+        if files:
+            return ApiResponse(payloads.owner_dict(files[0]))
+        owner_sql, owner_params = caller.file_filter()
+        cursor = await conn.execute(
+            "SELECT f.deleted_reason FROM files f WHERE f.id = %s AND {} AND f.deleted_reason = ANY(%s) "
+            "AND f.deleted_at > now() - interval '24 hours'".format(owner_sql),
+            [file_id] + owner_params + [list(UPLOAD_REJECTIONS)])
+        row = await cursor.fetchone()
+    if row is not None:
+        raise errors.upload_rejected(row[0])
+    raise errors.unknown_file()
+
+
+class BulkNsfwArgs(Args):
+    file_ids: Annotated[list, Arg(type=id_list(100))]
+    nsfw: Annotated[bool, Arg(type=uploading.boolean)]
+
+
+@route(me, '/files/nsfw', ['POST'])
+@only_me
+@parse_args(BulkNsfwArgs)
+async def bulk_nsfw(request, args):
+    """Up to 100 ids; ids you don't own, or can't unmark, are skipped (milestone-4 §6.2)."""
+    async with db.connection() as conn:
+        caller = await caller_of(conn, request)
+        if caller.anonymous:
+            raise errors.nsfw_requires_account()
+        files = await _owner_files(conn, caller, args.file_ids)
+        done, skipped = [], [fid for fid in args.file_ids if fid not in {f.id for f in files}]
+        async with conn.transaction():
+            for fobj in files:
+                try:
+                    changes = nsfw_change(caller, fobj, args.nsfw)
+                except Exception:
+                    skipped.append(fobj.id)
+                    continue
+                if changes:
+                    await queries.update_file(conn, fobj.id, **changes)
+                done.append(fobj.id)
+        files = await _owner_files(conn, caller, done)
+    return ApiResponse({'items': [payloads.owner_dict(f) for f in files], 'skipped': [str(x) for x in skipped]})
+
+
+class NsfwReviewArgs(Args):
+    message: Annotated[Optional[str], Arg(type=str, trim=False)] = None
+
+
+@route(me, '/files/<file_id:str>/nsfw-review', ['POST'])
+@only_me
+@parse_args(NsfwReviewArgs)
+async def nsfw_review(request, args, file_id):
+    """An auto-marked file's uploader asks for review: a P3 case (content_flags.source = owner),
+    once per file (409 APPEAL_NOT_ALLOWED after)."""
+    from safety import core
+    from safety.reports import clean_text
+    from safety.run import in_thread
+    async with db.connection() as conn:
+        caller = await caller_of(conn, request)
+        if caller.anonymous:
+            raise errors.nsfw_requires_account()
+        fobj = await _owner_file(conn, caller, file_id)
+    _, source = payloads.nsfw_of(fobj)
+    if source != 'auto':
+        raise errors.appeal_not_allowed()
+    message = clean_text(args.message, field='message')
+
+    def ask(sync_conn):
+        if sync_conn.execute("SELECT 1 FROM content_flags WHERE file_id = %s AND source = 'owner'",
+                             (fobj.id,)).fetchone():
+            raise errors.appeal_not_allowed()
+        case_id = core.open_case(sync_conn, 'file', 3, fobj.id)
+        core.add_flag(sync_conn, 'owner', 'nsfw_review', case_id=case_id, file_id=fobj.id, hash_id=fobj.hash_id,
+                      details={'message': message} if message else None)
+    await in_thread(ask)
+    return ApiResponse({'status': 'open'}, status=202)
 
 
 # --- the library (contract milestone-3 §6) ---------------------------------------------------------
@@ -457,7 +592,10 @@ class CreateAlbumArgs(Args):
 async def _owner_album_body(conn, album):
     items = await album_queries.owner_items(conn, album.id)
     await album_queries.attach_albums(conn, [f for f, _, _ in items])
-    return album_rules.owner_album(album, items)
+    cursor = await conn.execute("SELECT id FROM user_warnings WHERE target->>'kind' = 'album' AND target->>'id' = %s "
+                                'ORDER BY id DESC LIMIT 1', (str(album.id),))
+    notice = await cursor.fetchone()
+    return album_rules.owner_album(album, items, notice_id=str(notice[0]) if notice else None)
 
 
 async def _check_files(conn, caller, file_ids):
@@ -481,6 +619,9 @@ async def create_album(request, args):
     file_ids = list(args.file_ids or [])
     async with db.connection() as conn:
         caller = await caller_of(conn, request)
+        # milestone-4 §9.3: bans and upload restrictions also stop album creation
+        await standing.check_uploader(conn, caller.user, caller.fingerprint, abuse_ip.abuse_ip_hash(
+            helpers.client_ip(request), safety_settings().abuse_hash_secret))
         limits = caller.limits
         expires_at = None
         if caller.anonymous:
@@ -504,15 +645,21 @@ async def create_album(request, args):
             raise errors.invalid_album_files([args.cover_file_id])
         async with conn.transaction():
             album = None
-            while album is None:
+            for _ in range(MAX_VANITY_ATTEMPTS):
                 vanity = generate_id(album_rules.ALBUM_VANITY_LENGTH)
                 album = await album_queries.create_album(
                     conn, id=Snowflake.generate(), vanity=vanity,
                     owner_user_id=caller.user.id if caller.user else None, owner_fingerprint=caller.fingerprint,
                     title=args.title, description=args.description, layout=args.layout or 'auto',
                     cover_file_id=args.cover_file_id, expires_at=expires_at)
+                if album is not None:
+                    break
+            if album is None:
+                raise errors.vanity_exhausted()
             await album_queries.set_entries(conn, album.id, [(fid, None) for fid in file_ids])
             await media_jobs.queue_collage_async(conn, album.id)
+            if args.title or args.description:
+                await safety_scan.queue_album_text_async(conn, album.id)
         body = await _owner_album_body(conn, album)
     return ApiResponse(body, status=201)
 
@@ -573,6 +720,8 @@ class PatchAlbumArgs(Args):
     password_expires_at: Annotated[Optional[int], Arg(type=epoch_or_null)] = None
     password_expires_in: Annotated[Optional[int], Arg(type=uploading.positive_int)] = None
     show_name_when_locked: Annotated[Optional[bool], Arg(type=uploading.boolean)] = None
+    # Milestone 4 (§4.5): the album's own NSFW mark
+    nsfw: Annotated[Optional[bool], Arg(type=uploading.boolean)] = None
 
 
 @route(me, '/albums/<album_id:str>', ['PATCH'])
@@ -590,6 +739,13 @@ async def patch_my_album(request, args, album_id):
                 changes[field] = getattr(args, field)
         if args.layout is not None:
             changes['layout'] = args.layout
+        if args.nsfw is not None:
+            if args.nsfw and not album.nsfw:
+                changes.update(nsfw=True, nsfw_source='owner')
+            elif not args.nsfw and album.nsfw:
+                if album.nsfw_source == 'moderator':
+                    raise errors.nsfw_locked()
+                changes.update(nsfw=False, nsfw_source=None)
         if 'cover_file_id' in sent:
             if args.cover_file_id is not None and args.cover_file_id not in {
                     fid for fid, _, _ in await album_queries.album_entries(conn, album.id)}:
@@ -597,6 +753,8 @@ async def patch_my_album(request, args, album_id):
             changes['cover_file_id'] = args.cover_file_id
         async with conn.transaction():
             album = await _album_changed(conn, album.id, **changes)
+            if 'title' in changes or 'description' in changes:
+                await safety_scan.queue_album_text_async(conn, album.id)
         body = await _owner_album_body(conn, album)
     if password.generated:
         body['password'] = password.plain
@@ -712,6 +870,7 @@ async def caption_album_file(request, args, album_id, file_id):
         async with conn.transaction():
             if not await album_queries.set_caption(conn, album.id, _item_id(file_id), args.caption):
                 raise errors.unknown_file()
+            await safety_scan.queue_album_text_async(conn, album.id)
             album = await album_queries.update_album(conn, album.id)
         return ApiResponse(await _owner_album_body(conn, album))
 

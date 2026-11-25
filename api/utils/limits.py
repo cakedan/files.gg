@@ -1,8 +1,12 @@
-"""Every upload limit comes from `get_limits()` (PLAN.md "Limits").
+"""Every upload limit comes from `get_limits()` (PLAN.md "Limits", contract milestone-6 §9.2).
 
 Defaults (decided 2026-11-24): 10 GB storage, 1 GB chunked, 100 MB single
 request; anonymous: 25 MB per file, 500 MB per rolling 24 h per fingerprint and
-per IP, and files expire within 21 days. Plans plug in here later.
+per IP, and files expire within 21 days. Premium (milestone-6, staff-granted):
+100 GB storage, 5 GB chunked, 500 MB single request, 5 custom domains.
+A single request is never larger than PROXY_BODY_LIMIT_BYTES - 1 MiB, for everyone
+(Cloudflare's request-body limit, §9.5). `storage_limit_override` wins over both
+the signed-in and premium storage defaults.
 Each default can be overridden by an env var of the same name (tests use that).
 """
 
@@ -37,6 +41,13 @@ def defaults():
         'album_files': _env('LIMIT_ALBUM_FILES', 500),
         'anonymous_album_files': _env('LIMIT_ANONYMOUS_ALBUM_FILES', 50),
         'albums': _env('LIMIT_ALBUMS', 1000),
+        # Milestone 6 (§9.2)
+        'premium_storage': _env('LIMIT_PREMIUM_STORAGE_BYTES', 100 * GB),
+        'premium_chunked': _env('LIMIT_PREMIUM_CHUNKED_BYTES', 5 * GB),
+        'premium_single': _env('LIMIT_PREMIUM_SINGLE_BYTES', 500 * MB),
+        'premium_domains': _env('PREMIUM_CUSTOM_DOMAINS', 5),
+        'upload_keys': _env('UPLOAD_KEYS_MAX', 20),
+        'proxy_body': _env('PROXY_BODY_LIMIT_BYTES', 100000000),
     }
 
 
@@ -53,36 +64,58 @@ class Limits:
     # files per album, and albums per user (None: anonymous albums come from uploads only)
     album_max_files: int = 500
     albums_max: Optional[int] = 1000
+    # Milestone 6 (§9.2)
+    premium: bool = False
+    max_file_size_single_configured: Optional[int] = None
+    custom_domains: int = 0
+    domain_only_allowed: bool = False
+    upload_keys_max: int = 0
 
     @property
     def default_expiry(self):
         return None if self.allow_no_expiry else self.max_expiry
 
 
+def proxy_single_cap(values=None):
+    """The largest single request Cloudflare passes to the Worker, less 1 MiB of multipart framing."""
+    values = values or defaults()
+    return values['proxy_body'] - MB
+
+
 def get_limits(user=None):
     values = defaults()
+    cap = proxy_single_cap(values)
     if user is None:
         return Limits(
             anonymous=True,
             storage_bytes=None,
-            max_file_size_single=values['anonymous_file'],
+            max_file_size_single=min(values['anonymous_file'], cap),
             max_file_size_chunked=values['anonymous_file'],
             max_expiry=ANONYMOUS_MAX_EXPIRY,
             allow_no_expiry=False,
             daily_bytes=values['anonymous_daily'],
             album_max_files=values['anonymous_album_files'],
             albums_max=None,
+            max_file_size_single_configured=values['anonymous_file'],
         )
-    storage = getattr(user, 'storage_limit_override', None) or values['storage']
+    premium = bool(getattr(user, 'premium', False))
+    override = getattr(user, 'storage_limit_override', None)
+    storage = override or (values['premium_storage'] if premium else values['storage'])
+    single = values['premium_single'] if premium else values['single']
     return Limits(
         anonymous=False,
         storage_bytes=storage,
-        max_file_size_single=values['single'],
-        max_file_size_chunked=values['chunked'],
+        max_file_size_single=min(single, cap),
+        max_file_size_chunked=values['premium_chunked'] if premium else values['chunked'],
         max_expiry=None,
         allow_no_expiry=True,
         album_max_files=values['album_files'],
         albums_max=values['albums'],
+        premium=premium,
+        max_file_size_single_configured=single,
+        custom_domains=values['premium_domains'] if premium else 0,
+        domain_only_allowed=premium,
+        upload_keys_max=values['upload_keys'],
     )
 
 

@@ -1,4 +1,4 @@
-import { ApiError, CLIENT_ERROR } from './api';
+import { ApiError, CLIENT_ERROR, type UploadRejectionReason } from './api';
 import { formatBytes } from './format';
 
 /** Every contract §7 code, plus the client's own. */
@@ -19,6 +19,7 @@ export const UPLOAD_ERROR_CODES = [
   'RESERVED_VANITY',
   'FILE_TYPE_NOT_ALLOWED',
   'INVALID_MIMETYPE',
+  'TOO_MANY_UPLOADS',
 ] as const;
 
 /** Milestone 3 codes (milestone-3 contract §6): albums and the album ZIP. */
@@ -43,6 +44,22 @@ const duration = (seconds: number): string => {
   if (seconds >= 60) return `${Math.round(seconds / 60)} minutes`;
   return `${Math.max(1, Math.round(seconds))} seconds`;
 };
+
+const day = (seconds: number): string =>
+  new Intl.DateTimeFormat(undefined, { dateStyle: 'long' }).format(new Date(seconds * 1000));
+
+/** milestone-4 §11.2: why an upload was rejected after scanning (`410 UPLOAD_REJECTED { reason }`). */
+export const UPLOAD_REJECTED_MESSAGES: Record<UploadRejectionReason, string> = {
+  NSFW_REQUIRES_ACCOUNT: 'Sign in to upload sensitive media.',
+  ENCRYPTED_ARCHIVE_REQUIRES_ACCOUNT: 'Sign in to upload encrypted archives.',
+  ENCRYPTED_PDF_REQUIRES_ACCOUNT: 'Sign in to upload password-protected PDFs.',
+  MALWARE_DETECTED: 'This file looks like malware, so it wasn’t uploaded.',
+  FILE_TYPE_NOT_ALLOWED: 'This file contains a type that isn’t allowed on files.gg.',
+  FILE_BLOCKED: 'This file can’t be uploaded.',
+};
+
+export const uploadRejectedMessage = (reason: unknown): string =>
+  UPLOAD_REJECTED_MESSAGES[reason as UploadRejectionReason] ?? UPLOAD_REJECTED_MESSAGES.FILE_BLOCKED;
 
 /** A friendly message for any API (or client) error code, using the error's details. */
 export function errorMessage(error: unknown): string {
@@ -81,6 +98,14 @@ export function errorMessage(error: unknown): string {
       return "This link's password has expired.";
     case 'UNLOCK_EXPIRED':
       return 'Your access has expired. Enter the password again.';
+    case 'VANITY_EXHAUSTED':
+      return 'That link pattern has no free links left. Pick a longer or different pattern.';
+    case 'TOO_MANY_UPLOADS': {
+      const limit = num(body, 'limit');
+      return limit !== null
+        ? `Too many uploads in progress (the limit is ${limit}). Finish or cancel one first.`
+        : 'Too many uploads in progress. Finish or cancel one first.';
+    }
     case 'UNKNOWN_FILE':
       return "This file doesn't exist or has expired.";
     case 'UNKNOWN_UPLOAD':
@@ -123,6 +148,69 @@ export function errorMessage(error: unknown): string {
         ? `This album is over ${formatBytes(limit)}, too large to download as one ZIP. Download the files one by one.`
         : 'This album is too large to download as one ZIP. Download the files one by one.';
     }
+    // Milestone 4 reports (milestone-4 §7, §12).
+    case 'CANNOT_REPORT_YOURSELF':
+      return "You can't report your own file or album.";
+    case 'INVALID_REPORT_TARGET':
+      return "That can't be reported. Check that the link is to a file or album on files.gg.";
+    case 'DETAILS_REQUIRED':
+      return 'Add some details.';
+    case 'MAX_REPORTS': {
+      const wait = num(body, 'retry_after');
+      return wait !== null ? `You've sent a lot of reports. Try again in ${duration(wait)}.` : "You've sent a lot of reports. Try again later.";
+    }
+    // Milestone 4 scanning, moderation and accounts (milestone-4 §2, §8, §9, §12).
+    case 'NSFW_REQUIRES_ACCOUNT':
+    case 'ENCRYPTED_ARCHIVE_REQUIRES_ACCOUNT':
+    case 'MALWARE_DETECTED':
+    case 'FILE_BLOCKED':
+      return uploadRejectedMessage(error.code);
+    case 'UPLOAD_REJECTED':
+      return uploadRejectedMessage((body as Record<string, unknown> | undefined)?.reason);
+    case 'FILE_PENDING':
+      return 'This file is still being checked. Try again in a few seconds.';
+    case 'FILE_REMOVED':
+      return 'This file was removed.';
+    case 'ALBUM_REMOVED':
+      return 'This album was removed.';
+    case 'NSFW_LOCKED':
+      return 'files.gg marked this file as sensitive, so it can’t be unmarked. Ask for a review instead.';
+    case 'DMCA_FIELDS_REQUIRED':
+      return 'Fill in every field of the notice.';
+    case 'MAX_MESSAGES': {
+      const wait = num(body, 'retry_after');
+      return wait !== null ? `You’ve sent a lot of messages. Try again in ${duration(wait)}.` : 'You’ve sent a lot of messages. Try again later.';
+    }
+    case 'UNKNOWN_REPORT':
+      return 'This report doesn’t exist.';
+    case 'REPORT_CLOSED':
+      return 'This report is closed, so you can’t reply any more.';
+    case 'REOPEN_NOT_ALLOWED':
+      return 'This report can’t be reopened.';
+    case 'UNKNOWN_WARNING':
+      return 'This notice doesn’t exist.';
+    case 'APPEAL_NOT_ALLOWED':
+      return 'This can’t be appealed, or was already appealed.';
+    case 'ACCOUNT_SUSPENDED': {
+      const until = num(body, 'until');
+      return until !== null ? `Your account is suspended until ${day(until)}.` : 'Your account has been suspended.';
+    }
+    case 'UPLOADS_RESTRICTED': {
+      const until = num(body, 'until');
+      return until !== null ? `Uploads are restricted on your account until ${day(until)}.` : 'Uploads are restricted on your account.';
+    }
+    case 'BANNED':
+      return 'Uploads from this device or network aren’t allowed.';
+    case 'UNKNOWN_CASE':
+      return 'This case doesn’t exist.';
+    case 'CASE_CLAIMED':
+      return 'Someone else has claimed this case.';
+    case 'SAME_MODERATOR':
+      return 'You took the original action, so another staff member has to decide this appeal.';
+    case 'INVALID_ACTION':
+      return 'That action doesn’t apply here.';
+    case 'FORBIDDEN':
+      return 'You don’t have permission to do that.';
     case CLIENT_ERROR.network:
       return "Couldn't reach files.gg. Check your connection and try again.";
     case CLIENT_ERROR.invalidResponse:

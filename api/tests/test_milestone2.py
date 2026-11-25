@@ -22,7 +22,8 @@ from utils.tokens import FingerprintToken, UserToken
 SECRET = SECRET_KEY
 # the milestone-2 token vectors were computed with this secret; the format is unchanged
 VECTOR_SECRET = 'test-cdn-token-secret'
-ORIGIN = {'X-Filesgg-Origin-Secret': 'test-origin-secret'}
+# the Worker's own lookups carry the secret and the lookup marker (views/internal.py)
+ORIGIN = {'X-Filesgg-Origin-Secret': 'test-origin-secret', 'X-Filesgg-Internal-Lookup': '1'}
 
 
 @pytest.fixture(scope='module')
@@ -195,7 +196,10 @@ def test_signed_in_upload_skips_turnstile_and_never_expires(client, seeded):
 def test_upload_response_is_the_file_payload(client, seeded):
     _, headers = new_user(seeded)
     created = upload(client, headers, name='notes.txt')
-    assert created == client.get('/files/' + created['vanity']).json() | {'views': 0}
+    # milestone-4 §6.2: upload responses also carry the owner's `safety`
+    assert created['safety']['state'] == 'ok'
+    assert {k: v for k, v in created.items() if k != 'safety'} == client.get('/files/' + created['vanity']).json() | {
+        'views': 0}
     assert created['filename'] == 'notes.txt' and created['processing'] is True and created['assets'] == {}
     assert_unsigned(created['cdn_url'])
     # a protected upload's URLs are signed for its owner (1 h)
@@ -328,6 +332,7 @@ def test_limits_endpoint(client, seeded):
         'max_expiry': None,
         'allow_no_expiry': True,
         'anonymous': False,
+        'nsfw_allowed': True,
         # Milestone 3
         'album_max_files': 500,
         'albums_max': 1000,
@@ -607,7 +612,11 @@ def test_internal_lookup(client, seeded):
     owner_id, owner = new_user(seeded)
     created = upload(client, owner, visibility='private')
     vanity = created['vanity']
-    for headers in ({}, {'X-Filesgg-Origin-Secret': 'wrong'}):
+    # the secret alone is what the Worker adds to every client request it forwards: not a lookup
+    for headers in ({}, {'X-Filesgg-Origin-Secret': 'wrong'}, {'X-Filesgg-Origin-Secret': 'wrong', 'X-Filesgg-Internal-Lookup': '1'},
+                    {'X-Filesgg-Origin-Secret': 'test-origin-secret'},
+                    {'X-Filesgg-Origin-Secret': 'test-origin-secret', 'X-Filesgg-Internal-Lookup': 'yes'},
+                    {'X-Filesgg-Internal-Lookup': '1'}):
         response = client.get('/internal/files/' + vanity, headers=headers)
         assert (response.status_code, response.json()['code']) == (404, 'UNKNOWN_FILE')
         # identical to an unknown vanity
@@ -628,7 +637,8 @@ def test_internal_lookup(client, seeded):
     assert body['albums'] == []
     assert body['storage'] == {'key': 'files/' + hash_of(seeded, created), 'size': created['size']}
     assert body['previews'] == {} and body['previews_version'] is None
-    assert set(body) == {'file', 'access', 'owner_user_id', 'albums', 'storage', 'previews', 'previews_version'}
+    assert set(body) == {'file', 'access', 'owner_user_id', 'albums', 'storage', 'previews', 'previews_version',
+                         'safety', 'serve_inline'}
 
     anon = upload(client, anonymous(), turnstile_token=TURNSTILE_TOKEN)
     body = client.get('/internal/files/' + anon['vanity'], headers=ORIGIN).json()
@@ -759,6 +769,162 @@ def test_upload_reaper_aborts_abandoned_sessions(client, seeded, small_chunks):
     from tests.conftest import BUCKET, s3_client
     uploads = s3_client().list_multipart_uploads(Bucket=BUCKET, Prefix='staging/' + session['upload_id'])
     assert not uploads.get('Uploads')
+
+
+def multipart_uploads(upload_id):
+    from tests.conftest import BUCKET, s3_client
+    return s3_client().list_multipart_uploads(Bucket=BUCKET, Prefix='staging/' + upload_id).get('Uploads') or []
+
+
+def session_row(seeded, upload_id):
+    return seeded.fetchone('SELECT status, error, b2_upload_id FROM upload_sessions WHERE id = %s', (int(upload_id),))
+
+
+ELF_HEAD = b'\x7fELF\x02\x01\x01\x00' + b'\x00' * 8
+
+
+def test_a_refused_chunk_0_aborts_the_multipart_upload(client, seeded, small_chunks):
+    """99 chunks then an executable chunk 0 must not leave the parts on B2."""
+    _, headers = new_user(seeded)
+    session = start(client, headers, 2 * small_chunks + 10)
+    upload_id = session['upload_id']
+    assert put(client, headers, upload_id, 1, b'a' * small_chunks).status_code == 204
+    assert put(client, headers, upload_id, 2, b'b' * 10).status_code == 204
+    assert len(multipart_uploads(upload_id)) == 1
+    response = put(client, headers, upload_id, 0, ELF_HEAD + b'\x00' * (small_chunks - len(ELF_HEAD)))
+    assert (response.status_code, response.json()['code']) == (400, 'FILE_TYPE_NOT_ALLOWED')
+    assert multipart_uploads(upload_id) == []
+    # failed (no reservation), and the upload id cleared once aborted
+    assert session_row(seeded, upload_id) == ('failed', 'FILE_TYPE_NOT_ALLOWED', None)
+    assert client.get('/users/@me/limits', headers=headers).json()['storage']['used'] == 0
+    assert put(client, headers, upload_id, 1, b'a' * small_chunks).json()['code'] == 'UNKNOWN_UPLOAD'
+    # and DELETE removes the row
+    assert client.request('DELETE', '/uploads/' + upload_id, headers=headers).status_code == 204
+    assert session_row(seeded, upload_id) is None
+
+
+def test_deleting_a_failed_session_aborts_its_multipart_upload(client, seeded, small_chunks):
+    """A failed session whose abort didn't happen yet (or failed) still has its parts: DELETE aborts."""
+    _, headers = new_user(seeded)
+    session = start(client, headers, small_chunks + 10)
+    upload_id = session['upload_id']
+    assert put(client, headers, upload_id, 0, b'q' * small_chunks).status_code == 204
+    seeded.execute("UPDATE upload_sessions SET status = 'failed', error = 'SIZE_MISMATCH' WHERE id = %s",
+                   (int(upload_id),))
+    assert len(multipart_uploads(upload_id)) == 1
+    assert client.request('DELETE', '/uploads/' + upload_id, headers=headers).status_code == 204
+    assert multipart_uploads(upload_id) == [] and session_row(seeded, upload_id) is None
+    assert s3_keys('staging/' + upload_id) == []
+
+
+def test_a_chunk_in_flight_when_its_session_fails_is_aborted_again(client, seeded, small_chunks, monkeypatch):
+    """A part that lands after the session was failed (and its upload aborted) is aborted again."""
+    _, headers = new_user(seeded)
+    session = start(client, headers, small_chunks + 10)
+    upload_id = session['upload_id']
+    # the session fails between this chunk's checks and its upload_part
+    original = client.app.ctx.storage.upload_part
+
+    async def failing_meanwhile(key, b2_upload_id, number, data):
+        etag = await original(key, b2_upload_id, number, data)
+        seeded.execute("UPDATE upload_sessions SET status = 'failed', error = 'FILE_TYPE_NOT_ALLOWED' WHERE id = %s",
+                       (int(upload_id),))
+        return etag
+    monkeypatch.setattr(client.app.ctx.storage, 'upload_part', failing_meanwhile)
+    response = put(client, headers, upload_id, 1, b'z' * 10)
+    assert (response.status_code, response.json()['code']) == (404, 'UNKNOWN_UPLOAD')
+    assert multipart_uploads(upload_id) == []
+    assert seeded.fetchone('SELECT count(*) FROM upload_parts WHERE session_id = %s', (int(upload_id),))[0] == 0
+
+
+def test_upload_reaper_aborts_failed_sessions(client, seeded, small_chunks):
+    from jobs import tasks
+    _, headers = new_user(seeded)
+    live = start(client, headers, small_chunks + 10)['upload_id']
+    expired = start(client, headers, small_chunks + 10)['upload_id']
+    for upload_id in (live, expired):
+        assert put(client, headers, upload_id, 0, b'r' * small_chunks).status_code == 204
+        seeded.execute("UPDATE upload_sessions SET status = 'failed', error = 'SIZE_MISMATCH' WHERE id = %s",
+                       (int(upload_id),))
+    seeded.execute("UPDATE upload_sessions SET expires_at = now() - interval '1 second' WHERE id = %s",
+                   (int(expired),))
+    tasks.reap_uploads(seeded.conn)
+    # an expired failed session: aborted and deleted
+    assert multipart_uploads(expired) == [] and session_row(seeded, expired) is None
+    # a failed session within its 24 h: aborted at once, the row kept (GET still says why it failed)
+    assert multipart_uploads(live) == []
+    assert session_row(seeded, live) == ('failed', 'SIZE_MISMATCH', None)
+    assert client.get('/uploads/' + live, headers=headers).json()['error'] == 'SIZE_MISMATCH'
+    # idempotent
+    tasks.reap_uploads(seeded.conn)
+    assert session_row(seeded, live) == ('failed', 'SIZE_MISMATCH', None)
+
+
+def test_upload_reaper_keeps_a_session_whose_abort_fails(client, seeded, small_chunks):
+    from jobs import tasks
+    from jobs.finalize import s3
+    _, headers = new_user(seeded)
+    upload_id = start(client, headers, small_chunks + 10)['upload_id']
+    seeded.execute("UPDATE upload_sessions SET expires_at = now() - interval '1 second' WHERE id = %s",
+                   (int(upload_id),))
+
+    class Refusing:
+        def abort_multipart_upload(self, **kwargs):
+            raise RuntimeError('B2 is down')
+
+        def delete_object(self, **kwargs):
+            raise AssertionError('not reached')
+
+    tasks.reap_uploads(seeded.conn, client=Refusing())
+    status, _, b2_upload_id = session_row(seeded, upload_id)
+    assert status == 'failed' and b2_upload_id is not None
+    assert seeded.fetchone('SELECT expires_at > now() FROM upload_sessions WHERE id = %s', (int(upload_id),))[0]
+    # the next run that reaches B2 aborts it
+    seeded.execute("UPDATE upload_sessions SET expires_at = now() - interval '1 second' WHERE id = %s",
+                   (int(upload_id),))
+    tasks.reap_uploads(seeded.conn, client=s3())
+    assert multipart_uploads(upload_id) == [] and session_row(seeded, upload_id) is None
+
+
+def test_open_upload_sessions_are_capped(client, seeded, small_chunks, monkeypatch):
+    monkeypatch.setenv('UPLOAD_MAX_OPEN_SESSIONS', '2')
+    _, headers = new_user(seeded)
+    first = start(client, headers, 100)['upload_id']
+    second = start(client, headers, 100)['upload_id']
+    response = client.post('/uploads', headers=headers, json={'filename': 'c.bin', 'size': 100})
+    assert response.status_code == 429 and response.json() == {
+        'code': 'TOO_MANY_UPLOADS', 'message': 'Too many uploads in progress. Finish or cancel one first',
+        'status': 429, 'limit': 2}
+    # another user is unaffected
+    _, other = new_user(seeded)
+    client.request('DELETE', '/uploads/' + start(client, other, 100)['upload_id'], headers=other)
+    # cancelling one, or one failing or expiring, frees a slot
+    assert client.request('DELETE', '/uploads/' + first, headers=headers).status_code == 204
+    third = start(client, headers, 100)['upload_id']
+    seeded.execute("UPDATE upload_sessions SET status = 'failed' WHERE id = %s", (int(second),))
+    fourth = start(client, headers, 100)['upload_id']
+    seeded.execute("UPDATE upload_sessions SET expires_at = now() - interval '1 second' WHERE id = %s",
+                   (int(third),))
+    fifth = start(client, headers, 100)['upload_id']
+    assert client.post('/uploads', headers=headers, json={'filename': 'c.bin', 'size': 100}).status_code == 429
+    for upload_id in (second, third, fourth, fifth):
+        client.request('DELETE', '/uploads/' + upload_id, headers=headers)
+
+    # anonymous: per fingerprint, and per IP across fingerprints
+    ip = '198.51.100.{}'.format(uuid.uuid4().int % 250)
+    fingerprint = anonymous(ip)
+    opened = [start(client, fingerprint, 100, turnstile_token=TURNSTILE_TOKEN)['upload_id'] for _ in range(2)]
+    response = client.post('/uploads', headers=fingerprint,
+                           json={'filename': 'c.bin', 'size': 100, 'turnstile_token': TURNSTILE_TOKEN})
+    assert (response.status_code, response.json()['code']) == (429, 'TOO_MANY_UPLOADS')
+    response = client.post('/uploads', headers=anonymous(ip),
+                           json={'filename': 'c.bin', 'size': 100, 'turnstile_token': TURNSTILE_TOKEN})
+    assert (response.status_code, response.json()['code']) == (429, 'TOO_MANY_UPLOADS')
+    other = anonymous('203.0.113.{}'.format(uuid.uuid4().int % 250))
+    extra = start(client, other, 100, turnstile_token=TURNSTILE_TOKEN)['upload_id']
+    client.request('DELETE', '/uploads/' + extra, headers=other)
+    for upload_id in opened:
+        client.request('DELETE', '/uploads/' + upload_id, headers=fingerprint)
 
 
 # --- configurable public URLs (PUBLIC_URL, CDN_URL) --------------------------------------------

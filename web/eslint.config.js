@@ -45,9 +45,9 @@ export default defineConfig([
     },
   },
   {
-    // The lazy lock-screen chunk talks to the API (unlock, refresh, view). lib/api is
+    // The lazy lock-screen and report chunks talk to the API (unlock, refresh, view; reports). lib/api is
     // dependency-free; TanStack Query and the router stay out of the viewer.
-    files: ['src/viewer/locked/**/*.{ts,tsx}'],
+    files: ['src/viewer/locked/**/*.{ts,tsx}', 'src/viewer/report/**/*.{ts,tsx}'],
     rules: {
       'no-restricted-imports': [
         'error',

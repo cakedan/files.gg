@@ -6,10 +6,10 @@ It builds two entry points:
 
 | Entry | Served at | What it is |
 |---|---|---|
-| `viewer.html` | `files.gg/`, `files.gg/<vanity>[.<ext>]`, `files.gg/a/<vanity>[/<n>]` and `files.gg/convert` | The file viewer and album page. A small bundle that boots from data the worker inlines into the HTML, with no API call. The PDF viewer, the album page, the video/audio player and the text viewer (with Shiki) are lazy chunks. |
+| `viewer.html` | `files.gg/`, `files.gg/<vanity>[.<ext>]`, `files.gg/a/<vanity>[/<n>]`, `files.gg/convert`, and the report pages `files.gg/report`, `files.gg/<vanity>/report` and `files.gg/a/<vanity>/report` | The file viewer and album page. A small bundle that boots from data the worker inlines into the HTML, with no API call. The PDF viewer, the album page, the video/audio player, the text viewer (with Shiki), the lock screen and the report form are lazy chunks. |
 | `app.html` | `files.gg/app` and `files.gg/app/*` | The dashboard SPA. Every page is its own lazy-loaded chunk. |
 
-The viewer never imports dashboard code, react-router, TanStack Query or the API client. ESLint enforces this (`no-restricted-imports` on `src/viewer/**` and `src/components/**`), and each entry has its own CSS file that only scans its own sources.
+The viewer never imports dashboard code, react-router, TanStack Query or the API client. ESLint enforces this (`no-restricted-imports` on `src/viewer/**` and `src/components/**`), and each entry has its own CSS file that only scans its own sources. Two lazy chunks do talk to the API: the lock screen (`src/viewer/locked/`, through `lib/api`) and the report form (`src/viewer/report/`, through `lib/reports.ts`).
 
 ## Running it
 
@@ -38,10 +38,10 @@ In dev and preview, `/app` and `/app/*` serve `app.html`, and `/`, `/convert` an
 
 ### Mock API (dev only)
 
-`mock-api.ts` is a Vite middleware at `/__mock-api` that implements the Milestone 2 and 3 contracts in memory, so the whole flow works with no backend. It's never part of a build.
+`mock-api.ts` is a Vite middleware at `/__mock-api` that implements the Milestone 2, 3 and 4 contracts in memory, so the whole flow works with no backend. It's never part of a build.
 
 **Endpoints:**
-- `GET /auth/fingerprint`, `GET /users/@me` and `GET /users/@me/limits`. Without `Authorization` you get the anonymous values; with any `Authorization` you're "Mock User".
+- `GET /auth/fingerprint`, `GET /users/@me` and `GET /users/@me/limits`. Without `Authorization` you get the anonymous values; with any `Authorization` you're "Mock User" (staff: an admin with the child-safety capability), except the persona tokens below.
 - `POST /files`, with a multipart parser.
 - The chunked `POST /uploads`, `PUT …/chunks/<i>`, `GET`, `complete` (moves to `complete` after 1.5 s) and `DELETE`.
 - `POST /{files|albums}/<vanity>/unlock`, `…/unlock/refresh` and `GET …/view`.
@@ -51,11 +51,19 @@ In dev and preview, `/app` and `/app/*` serve `app.html`, and `/`, `/convert` an
   - albums: `POST` and `GET /users/@me/albums`, `GET`/`PATCH`/`DELETE …/albums/<id>`, and `PUT`/`POST …/<id>/files`, `DELETE`/`PATCH …/<id>/files/<file id>`;
   - the public `GET /albums/<vanity>` (locked payload for password albums), and album unlock, refresh and view;
   - `album=<vanity>` on uploads.
+- Milestone 4 (milestone-4 §6–§9):
+  - owner safety: `safety`, `nsfw`, `warnings` on owner files and upload responses; `GET /users/@me/files/<id>` (with `410 UPLOAD_REJECTED` for 24 h), `PATCH … { nsfw }`, `POST …/files/nsfw`, `POST …/<id>/nsfw-review`, and `PATCH /users/@me/albums/<id> { nsfw }`; albums hide items that aren't `ok` or `flagged`;
+  - `GET /users/@me/badges`; reports (`POST /reports`, `POST /reports/anonymous`) and My reports (list, detail, thread, reply, reopen); notices (`GET /users/@me/warnings`, acknowledge, appeal with the copyright counter-notice);
+  - restrictions and bans (`403 UPLOADS_RESTRICTED`, `ACCOUNT_SUSPENDED`, `BANNED`), and `FILE_PENDING`, `FILE_REMOVED`, `ALBUM_REMOVED` on unlock and the public album;
+  - every `/admin/*` endpoint: summary, cases (claim, release, messages, close, appeal, CyberTipline, second review), actions, bans, audit, lookup, file, album and user detail with staff-signed URLs (`staff=…&expires=…&sig=…`, §10.3), rescans and the staff list. Non-staff get the 404 of an unknown route.
 
-**Seeded library:** signed in, you start with about 30 files of every kind (images, a HEIC with a `display` preview, a GIF, playable and unplayable videos, tagged audio, PDFs, text with snippets, archives), some password-protected, private, temporary or still `processing`, and three albums (one with a hidden password item, a tracklist, and a password album). Every signed-in token shares this one library; the password for protected seed files and albums is `files.gg`.
+**Seeded library:** signed in, you start with about 30 files of every kind (images, a HEIC with a `display` preview, a GIF, playable and unplayable videos, tagged audio, PDFs, text with snippets, archives), some password-protected, private, temporary or still `processing`, and three albums (one with a hidden password item, a tracklist, and a password album). Every signed-in token except the persona tokens (below) shares this one library; the password for protected seed files and albums is `files.gg`.
 - `assets` point at generated SVG placeholders (data: URLs) or the `web/fixtures/` media. There's no hover clip, since nothing can generate an MP4 here.
 - Text files are served from `/__mock-api/raw/<vanity>`, standing in for the CDN.
-- New uploads join the uploader's library and stay `processing` for `MOCK_DERIVE_MS`, then get placeholder assets.
+- New uploads join the uploader's library, stay `pending` (scanning) for `MOCK_SCAN_MS`, then `processing` for `MOCK_DERIVE_MS`, then get placeholder assets.
+- **Milestone 4 seed:** your own files in every state (an uploader-marked and a classifier-marked NSFW photo, a hidden meme, a removed video, a blocked archive, an encrypted archive with its warning, and a file still being checked that passes after 90 s), notices for them (one appeal already denied), six reports you sent (open with an unread staff reply, dismissed and reopenable, resolved, closed, a bug, an escalated CSAM report), and other people's content so the admin queue has a case of each kind: file, album, account, hash match (child safety, never displayable), bug and an appeal of a removal you made (so deciding it as Mock User gives `SAME_MODERATOR`).
+- **Scan results by filename** (new uploads): `eicar` or `malware` → blocked (malware), `badtype` → blocked type, `blocked` → blocked hash, `held` → held for review, `nsfw` → classified adult, `encrypted` → encrypted archive warning, `pua` → flagged unwanted software. Anonymous uploads that end blocked, NSFW or encrypted are rejected (`410 UPLOAD_REJECTED`).
+- **Persona tokens:** `mock-moderator` (staff, moderator without child safety), `mock-member` (not staff), `mock-restricted` (uploads restricted) and `mock-suspended` (suspended). Each has its own, empty library.
 
 **Behaviour:**
 - Payloads follow milestone-3 §4: snake_case, times in epoch seconds, preview kinds `thumb`, `thumb-2x`, `display`, `poster`, `cover`, `waveform`, `peaks` and `hover`.
@@ -64,9 +72,9 @@ In dev and preview, `/app` and `/app/*` serve `app.html`, and `/`, `/convert` an
 - Turnstile, rate limits (5 a minute), expiry and the size limits follow the contract.
 - Every §7 error code the uploads can hit is reproducible, and so are the album codes (`INVALID_ALBUM_FILES`, `ALBUM_FULL`, `ANONYMOUS_ALBUM_NOT_ALLOWED`, …).
 
-**Knobs (env):** `MOCK_CHUNK_DELAY_MS` (default 400), `MOCK_CHUNK_FAIL_RATE` (default 0, which exercises retries), `MOCK_PROCESSING_MS` and `MOCK_DERIVE_MS` (default 6000).
+**Knobs (env):** `MOCK_CHUNK_DELAY_MS` (default 400), `MOCK_CHUNK_FAIL_RATE` (default 0, which exercises retries), `MOCK_PROCESSING_MS`, `MOCK_SCAN_MS` (default 2500) and `MOCK_DERIVE_MS` (default 6000).
 
-**To be signed in:** run `localStorage['filesgg.token'] = 'mock'` in the console.
+**To be signed in:** run `localStorage['filesgg.token'] = 'mock'` in the console (or a persona token above).
 
 **Owner pass:**
 ```bash
@@ -115,6 +123,25 @@ With no backend, the viewer has nothing to boot from. In `npm run dev`, add `?fi
 | `/viewer.html?fixture=text-lines` | 25,000 short lines: "Too large to preview" once fetched. |
 | `/viewer.html?fixture=album-huge` | An album over 2 GB: Download all offers per-item downloads. |
 
+**Milestone 4** (milestone-4 contract §2.4, §4.6, §5.7, §7, §11.1):
+
+| URL | What it shows |
+|---|---|
+| `/viewer.html?fixture=pending`, `pending-album` | "Checking this file…" (or album). The page reloads itself after 2, 3, 5, 8 and 13 s, then every 15 s, and after 2 minutes shows "Still checking" with Retry. |
+| `/viewer.html?fixture=removed-review`, `removed-terms`, `removed-copyright`, `removed-malware`, `removed-album` | The removed card for each public reason, with a link to the Terms. |
+| `/viewer.html?fixture=blocked` | CSAM-blocked content: exactly the missing card (`missing` + `null`). |
+| `/viewer.html?fixture=nsfw` | The sensitive-content interstitial before an image. "Always show sensitive media" sets `filesgg.showSensitive`; clear it in devtools to see the gate again. |
+| `/viewer.html?fixture=album-nsfw`, `album-nsfw-item` | The album interstitial: a marked album, and an unmarked album with one NSFW item. |
+| `/viewer.html?fixture=warning-encrypted`, `warning-unwanted`, `warning-partial` | Scanner warning banners. The first two ask before Download and Raw. |
+| `/viewer.html?fixture=download-only` | An image with `serve_inline: false`: the download card, no preview. |
+| `/viewer.html?fixture=pdf-link-warning` | The sample PDF with its external link flagged: clicking it shows the Copy-only warning with Google's attribution. |
+| `/viewer.html?fixture=text-link-warning` | A text file with two flagged links, listed in a banner above it. |
+| `/viewer.html?fixture=album-link-warning` | Flagged URLs in an album description and caption: plain text with a warning icon, plus the banner in the header. |
+| `/viewer.html?fixture=report` or `/report` | The public report form, which asks for a link first. `?url=` prefills it. |
+| `/viewer.html?fixture=report-file`, `report-album` | The report page for a file or an album (the album one has the part picker). |
+
+Report buttons open the dialog on every file and album fixture. Sending needs the mock API's `/reports` endpoints (`mock-api.ts`). With `filesgg.token` in localStorage the form sends as signed in; without it, it runs Turnstile with the always-pass testing key.
+
 `album-grid` also has a `thumb`/`thumb-2x` item (`srcset`) and an item that's still processing.
 
 Add `/<n>` to an album path, for example `/a/demo1234/3?fixture=album-grid`, to open item 3 in the lightbox.
@@ -141,7 +168,7 @@ Handle these in this order, before any vanity lookup:
    - `/assets/*`: hashed JS, CSS and source maps, plus `/assets/brand/*.svg`. Cache them as immutable for a year. `assets` is already in the API's `blacklisted_ids`.
      - This includes the pdf.js worker, `/assets/pdf.worker.min-<hash>.mjs`. Serve `.mjs` as `text/javascript`, or module workers refuse to start.
      - It also includes `/assets/pdfjs/<version>/{cmaps,standard_fonts,wasm,iccs}/*`. Serve `.wasm` as `application/wasm`. These paths are versioned, so they can be cached as immutable too.
-   - Root files: `/favicon.ico`, `/favicon.svg`, `/favicon-16.png`, `/favicon-32.png`, `/favicon-48.png`, `/apple-touch-icon.png`, `/icon-192.png`, `/icon-512.png` and `/og-image.png`. Match these **exact paths** first. Otherwise the vanity router reads `files.gg/favicon.ico` as the vanity `favicon`.
+   - Root files: `/favicon.ico`, `/favicon.svg`, `/favicon-16.png`, `/favicon-32.png`, `/favicon-48.png`, `/apple-touch-icon.png`, `/icon-192.png`, `/icon-512.png`, `/og-image.png` and `/.well-known/security.txt` (milestone-4 §10.4; renew its `Expires` yearly). Match these **exact paths** first. Otherwise the vanity router reads `files.gg/favicon.ico` as the vanity `favicon`.
 2. **`/app` and `/app/*`** serve `dist/app.html` with `Cache-Control: no-cache`. The plan (§1.4 item 2) still needs `app` and `api` added to `blacklisted_ids`.
 3. **`/`** serves `dist/viewer.html` with the `home` state, and **`/convert`** serves it with `data-page="convert"`. `convert` needs to be reserved like `app`.
 4. **`/a/<vanity>` and `/a/<vanity>/<n>`** serve `dist/viewer.html` with the album state (below). `a` is reserved (§1.4 item 2). The client reads `<n>` from the path, so the worker returns the same album page for every `<n>`.
@@ -165,12 +192,20 @@ The HTML shell must be served with `Content-Type: text/html; charset=utf-8` and 
 | Password album | `album` | `locked` | `#album-data`: `{ vanity, protected: "password", title? }` | 200 |
 | Album unknown, deleted, expired, private, or with nothing to show | `album` | `missing` | (omit) | 404 |
 | Album API unreachable | `album` | `unavailable` | (omit) | 503 |
+| File `pending` (milestone 4) | `file` | `pending` | `#file-data`: `{ vanity, pending: true }` | 200, `private, no-store` |
+| File hidden or removed | `file` | `removed` | `#file-data`: `{ vanity, removed: "review" \| "terms" \| "copyright" \| "malware" }` | 410 |
+| File blocked (CSAM included) | `file` | `missing` | `#file-data`: `null` | 404 |
+| Album with nothing shown yet but items pending | `album` | `pending` | `#album-data`: `{ vanity, pending: true }` | 200, `private, no-store` |
+| Album hidden or removed | `album` | `removed` | `#album-data`: `{ vanity, removed: "<reason>" }` | 410 |
+| `/report`, `/<vanity>/report`, `/a/<vanity>/report` | `report` | (omit) | `#report-data`: `{ type: "any" }` or `{ type: "file" \| "album", vanity }` | 200 |
+
+The milestone-4 rows follow milestone-4 §10.1, which wins where this table and it differ.
 
 The client checks them in this order:
 
-1. `data-page="home"` shows home, and `data-page="convert"` shows the Convert placeholder.
+1. `data-page="home"` shows home, and `data-page="convert"` shows the Convert placeholder. `data-page="report"` shows the report page when `#report-data` is valid, and missing otherwise.
 2. `data-state="unavailable"` shows unavailable.
-3. `data-state="missing"` shows missing.
+3. `data-state="missing"` shows missing. `data-state="pending"` and `data-state="removed"` show those cards when the script tag holds their shape, and missing otherwise.
 4. `data-state="locked"` shows the lock screen when the script tag holds a valid locked payload, and missing otherwise.
 5. `data-page="album"` shows the album when `#album-data` holds a valid album with at least one unexpired item, and missing otherwise.
 6. A valid file payload shows the file.
@@ -194,7 +229,8 @@ Insert them right after `#root`, with `element.after(html, { html: true })`:
 - `assets` (`thumb`, `thumb-2x`, `display`, `poster`, `cover`, `waveform`, `peaks`, `hover`) and `thumbnail` drive tiles, posters, cover art, the waveform and the HEIC/TIFF/PSD stand-in;
 - `media` (`playable`, `tags`, `pages`, `lines`, `language`) drives the players, the tracklist, the PDF footer and the text viewer;
 - `url` is what Copy link copies (else `origin + pathname`); albums also use it for Report;
-- `download_url` is Download all (no button without it); `collage` is for embeds.
+- `download_url` is Download all (no button without it); `collage` is for embeds;
+- `nsfw` shows the sensitive-content interstitial first (milestone-4 §4.6); `warnings` show banners (`unwanted_software` and `encrypted_archive` also confirm Download and Raw); `link_warnings` (files and albums) are links the viewer never opens; `serve_inline: false`, if it arrives, forces the download card and drops previews.
 
 **URLs are used exactly as they arrive.** The client never builds, signs or changes a CDN URL, apart from appending `download=true`. Public (`link`) files and albums have plain URLs; anything protected arrives signed (`expires=…&sig=…`, plus `album=` on album items).
 
@@ -236,6 +272,9 @@ PDF JavaScript never runs. pdf.js 6 has no `eval` code path; the loader still pa
 src/
   app/          dashboard: routes, DashboardLayout (sidebar / mobile drawer), lazy pages
   viewer/       viewer: boot parsing, fixtures, state cards, file card, renderers/
+    components/ state cards, file view (NSFW gate, warning banners, download confirmation), Report button
+    report/     lazy report chunk: the dialog, the full report page and the form logic (formLogic.ts, tested)
+    links/      Web Risk link warnings: the Copy-only dialog, the banner, Google's attribution
     pdf/        lazy PDF chunk: pdf.js loader, pdfState.ts (pure, tested), viewer, pages, sidebar
     album/      lazy album chunk: layouts, justified grid, lightbox, tracklist, URL sync, Download all
     media/      lazy video/audio player: controls, keyboard, saved volume, peaks seek bar
@@ -288,22 +327,24 @@ It also gets an optional `onOpen`, so albums can open their own lightbox.
 - **Links.**
   - `#page=N&zoom=…` stays in sync through `replaceState`, and editing the hash jumps there.
   - Links in the PDF go through the "You're leaving files.gg" dialog, which shows the full URL.
+  - A link in the file's `link_warnings` gets no real `href`; its dialog shows the Web Risk warning and Google's attribution, with Copy link only.
   - Password-protected PDFs prompt for the password and decrypt in the browser.
 - **Fallback:** a broken PDF shows "Can't preview this PDF" with Download.
 
 ### Album page
 
 `src/viewer/album/` is a lazy chunk:
-- **Header:** title, plain-text description with safe links, count and size, expiry, Copy link, Download all and Report.
+- **Header:** title, plain-text description with safe links, count and size, expiry, Copy link, Download all and Report (the report dialog, with a part picker).
+  - URLs in `link_warnings` are never links: in the description and captions they show as text with a warning icon, which opens the Copy-only dialog, and a banner in the header lists them.
   - **Download all** uses the payload's `download_url` as it is (signed for a protected album), and isn't shown without one. It sends a `HEAD` first (or skips it when the album is known to be over 2 GiB): on `413` it shows "This album is too large to download as one file" with per-item downloads, instead of letting the browser save the JSON error. Any other answer, or a failed check, downloads as usual.
 - **Layouts:**
   - a justified grid (`layout.ts`, `justifyRows`), with video, audio, PDF and file tiles, captions under the items, and hover clips. Tiles use `thumb` with `thumb-2x` in `srcset` when derived, and a type icon while an item is processing;
   - a list, where each item uses its normal renderer at full width;
   - a tracklist: cover, tag artist and album, numbered tracks, and a bottom player bar with prev, next, shuffle and repeat on a plain `<audio>` element.
-- **Lightbox:** a carousel with ←/→, swipe and Esc, plus per-item Download, Raw and Copy link.
+- **Lightbox:** a carousel with ←/→, swipe and Esc, plus per-item Download, Raw, Copy link and Report (which reports that file).
   - Opening an item pushes `/a/<vanity>/<n>`, so Back closes it; moving between items replaces the entry.
   - The URL logic is `useAlbumLightbox`.
-- **NSFW:** one interstitial for the whole album.
+- **NSFW:** one interstitial for the whole album (the shared `components/NsfwGate`), when the album is marked or any item is NSFW. "Always show sensitive media" (`filesgg.showSensitive`) skips it.
 
 ### Video and audio player
 
@@ -326,7 +367,15 @@ It also gets an optional `onOpen`, so albums can open their own lightbox.
 - **Line anchors:** clicking a line number sets `#L5`, shift-click `#L5-L9`, with `replaceState`. Anchors in the URL are highlighted and scrolled to on load and on hash changes. In albums, the selection stays local and the URL is left alone. `#L…` anchors are not touched by the `#pw=` / `#t=` watcher in `main.tsx`.
 - **Toolbar:** language, line count, Wrap toggle and Copy.
 
-Each lazy chunk has its own utility stylesheet (`pdf/pdf.css`, `album/album.css`, `media/media.css`, `text/text.css`, built with `@reference` against the shared tokens), so their classes stay out of the viewer's entry CSS.
+### Trust and safety (milestone 4)
+
+- **Pending:** "Checking this file…", reloading itself on a fixed schedule (`components/pendingReload.ts`), with progress kept in `history.state` so it survives reloads without storage. No API polling.
+- **Removed:** one sentence per public reason, with a link to the Terms (`/legal/terms`). CSAM-blocked content never reaches the client as anything but `missing`.
+- **NSFW:** an interstitial before anything of the file mounts, so no media request is made before Show.
+- **Report:** a link to `/<vanity>/report` (or `/a/<vanity>/report`) that opens the lazy dialog on a plain click. Signed in (`filesgg.token`), it sends `POST /reports`; signed out, `POST /reports/anonymous` with managed Turnstile (action `report`).
+- **Lazy pieces:** the pending and removed cards, the NSFW gate, the warning banners and download confirmation, the link-warning banner and the report form are all chunks of their own, so a plain file page doesn't load them.
+
+Each lazy chunk has its own utility stylesheet (`pdf/pdf.css`, `album/album.css`, `media/media.css`, `text/text.css`, `report/report.css`, `links/links.css`, built with `@reference` against the shared tokens), so their classes stay out of the viewer's entry CSS.
 
 ### Design tokens
 
@@ -350,6 +399,8 @@ The Milestone 2 calls are typed from the contract:
 
 The Milestone 3 owner calls (contract §6) are `myFiles`, `updateFile`, `deleteFile`, `deleteFiles`, `setFilesExpiry`, `setFilesAccess`, `filePass`, `createAlbum`, `myAlbums`, `album`, `updateAlbum`, `deleteAlbum`, `setAlbumFiles`, `addAlbumFiles`, `removeAlbumFile`, `setAlbumCaption` and `albumPass`. `src/lib/errors.ts` maps every error code, the album codes included, to its message.
 
+The Milestone 4 owner calls (milestone-4 §6–§8) are `myFile`, `setFileNsfw`, `setFilesNsfw`, `requestNsfwReview`, `badges`, `createReport`, `createAnonymousReport`, `myReports`, `myReport`, `reportMessages`, `sendReportMessage`, `reopenReport`, `notices`, `acknowledgeNotices` and `appealNotice`, with hooks in `lib/queries.ts` (`useBadges`, `useMyReports`, `useReportMessages`, `useNotices`, `useAcknowledgeNotices`, `useAppealNotice`, `useSetNsfw`, …). The staff calls (§9) are typed in `src/app/admin/adminApi.ts` with their hooks in `adminQueries.ts`, so they ship in the admin chunk only.
+
 Uploads use XHR (`lib/upload/xhr.ts`) for progress, with the same headers and `ApiError` parsing.
 
 ### Upload page (`/app/upload`)
@@ -371,10 +422,13 @@ Uploads use XHR (`lib/upload/xhr.ts`) for progress, with the same headers and `A
 - **Expiry:** signed in, Never (the default), presets or custom; anonymous, 1 h / 1 d / 7 d / 21 d (default 21 d) with the note.
 - **Access:** anyone with the link, a password (typed, or Generate), or Only me (signed in only).
 - **Password timing:** "Stay unlocked for" and "Password works until", both capped by the file's own expiry.
+- **Adult content (NSFW):** a checkbox when `limits.nsfw_allowed` (signed in and not restricted) that sends `nsfw=true`; signed out, the hint "Sign in to upload sensitive media" instead.
+- **Restrictions:** while `GET /users/@me/badges` lists an `uploads` restriction (or a suspension), the page says "Uploads are restricted until <date>" and the dropzone, picker, drop and paste are off.
 
 **Turnstile:** anonymous uploads use it with action `upload`, one fresh token per request.
 
 **Results:**
+- Milestone 4: after the bytes are up, the row shows "Checking…" and polls `GET /users/@me/files/<id>` (every 1 s for 30 s, then every 5 s, up to 10 minutes) until the scan answers. The link appears once the file is `ok` or `flagged`; `410 UPLOAD_REJECTED { reason }` shows its message (§11.2), and a blocked or held signed-in file says so and links its notice. A generated password still shows at once.
 - Copy link, plus "Copy link with password" (`url_with_password`).
 - A generated password is shown once.
 - Every contract §7 code has its own message (`lib/errors.ts`).
@@ -407,6 +461,27 @@ Uploads use XHR (`lib/upload/xhr.ts`) for progress, with the same headers and `A
 
 **Overview** (`/app`): the storage meter (amber at 80%, red at 95%, and an explanation at 100%), counts by type, files expiring within 7 days, and recent uploads.
 - The expiring list reads the first 100 temporary files, since the list has no sort by expiry.
+
+### Dashboard (Milestone 4: trust & safety)
+
+**Badges and banners** (`DashboardLayout.tsx`): `GET /users/@me/badges` is fetched on load, every 60 s while the tab is visible, and on focus. The sidebar shows My reports (`reports_unread`), Notices (`notices_unacknowledged`) and, for staff, Admin (`staff.open`, red while `p0 > 0`). While notices are unacknowledged, every page has the "You have N notices about your files or account" banner. A suspended account sees only Notices, with "Your account has been suspended"; any other page redirects there.
+
+**My reports** (`/app/reports`, `/app/reports/<id>`): status chips (open, resolved, dismissed) and search in the URL, 25 a page, unread counts. The detail has the target link, the status, the thread ("You" and "files.gg staff"; reading it marks the report read), a reply box hidden once closed, and Reopen when `can_reopen`. Escalated (CSAM) reports only say they were escalated.
+
+**Notices** (`/app/notices`, `/app/notices/<id>`): newest first, each with the action, rule text, target link, date and staff message, Acknowledge and "Acknowledge all", and Appeal when `can_appeal`. A `copyright` notice's appeal has the counter-notice fields (§8.2), checked before sending and against the API's `errors`. Then the appeal state and staff's reply show. The Hidden, Removed and Blocked badges link to `/app/notices/<id>`, which finds the notice among the latest 100 (the API has no single-notice read).
+
+**Files and albums:**
+- NSFW tiles (and album covers) are blurred (`filter: blur(16px)`) with an eye-off icon and play no hover clip, unless "Always show sensitive media" (`filesgg.showSensitive`, shared with the viewer) is on. The drawer opens NSFW files behind an interstitial that mounts nothing before Show.
+- `pending`, `hidden`, `removed` and `blocked` files show their state instead of media (the CDN refuses them), with "Checking…", "Hidden", "Removed" or "Blocked" badges linking to the notice; flagged files get no badge, only their warnings in the drawer. Checking files on the page are polled every 5 s for up to 10 minutes.
+- Row, drawer and bulk actions: Mark as sensitive, Unmark (disabled with "Marked by files.gg. Ask for a review instead." when `nsfw_locked`), and "Ask for review…" for classifier marks. Signed in only.
+- The album editor has a "Mark album as sensitive" switch, badges on items, notes on items that aren't shown (still being checked, hidden, removed or blocked), a notice for a hidden or removed album, and polls every 5 s while an item is being checked.
+
+**Admin** (`/app/admin/*`, `src/app/admin/`): a lazy chunk that `AdminGate` loads only when `GET /users/@me` has `staff`; everyone else gets the not-found page and never downloads it. The API enforces access anyway (§9.1).
+- Pages: Overview (summary, past-goal counts, stalled scans, unrecorded CyberTipline reports, and for admins the staff list and rescans), Queue (priority, age, reasons, target, reporters, target state and assignee; filters for status, priority, reason, kind, assignee and second review in the URL; Claim, Release, and Take over for admins), Bugs, a case page, file, album and user pages with the action panel, Lookup, Bans (lift for admins) and the audit log (admins).
+- A case shows the target through the staff grant, its reports (with DMCA notices and threads, a reply box and the canned responses in `canned.ts`), scanner findings and flags, history (with the notices sent), claim and release, the action panel (rule required where §9.3 says, a staff note, the notice text, durations and hold days), closing with a reporter message, appeal decisions (`SAME_MODERATOR` explained), the CyberTipline record and the second-review flag.
+- Permissions follow §9.1 in `permissions.ts`: CSAM confirmation and child-safety media for child-safety staff only, suspensions and permanent bans for admins, nothing to lift for CSAM.
+- Moderator safety: every image, video and poster is `blur(24px) grayscale(1)` until Reveal (per item, reset on leaving the page), videos have no controls or autoplay before Reveal, and hash-matched content shows "Not displayable" without requesting anything.
+- Every admin page shows "N child-safety or P0 cases are open" (linking to the queue filtered to P0), and for admins "Scanning is behind" while `scans_stalled > 0`. `GET /admin/summary` is polled every 30 s; the opt-in "Notify me about new P0 cases" (`filesgg.admin.notify`) fires "New P0 case on files.gg" when `newest_p0_at` increases, and a polite live region announces queue changes.
 
 ## Assets
 

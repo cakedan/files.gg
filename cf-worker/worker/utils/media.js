@@ -2,7 +2,7 @@
 // and album ZIPs, all by vanity; the preview kinds; and the album ZIP plan (which items, in which
 // order, under which names). Pure: no Worker globals, so it is unit-tested with `node --test`.
 
-import { visibleAlbumItems } from './viewer.js';
+import { isExpired, visibleAlbumItems } from './viewer.js';
 import { isForcedText, sanitizeFilename } from './security.js';
 import { uniqueNames } from './zip.js';
 
@@ -27,6 +27,24 @@ export const ALBUM_RESOURCES = Object.freeze({
 
 // 2 GiB of item bytes; under it no ZIP64 is needed (contract §3).
 export const ZIP_LIMIT = 2147483648;
+// Each entry costs a cache read and a storage fetch (subrequests), so an album with more items
+// than this is "too large" for one ZIP and gets the same per-item download panel.
+export const ZIP_MAX_ENTRIES = 500;
+
+// milestone-4.md §6.3, checked again here (fail closed): an item goes into a ZIP only with an
+// `items_access` entry whose `safety` is ok (or flagged) and which hasn't expired. A missing entry
+// or a missing `safety` is never treated as ok.
+export function zippableItem(itemsAccess, id, nowMs = Date.now()) {
+  const entry = itemsAccess && Object.hasOwn(itemsAccess, id) ? itemsAccess[id] : null;
+  if (!entry || typeof(entry) !== 'object') {
+    return false;
+  }
+  const safety = entry.safety;
+  if (!safety || typeof(safety) !== 'object' || (safety.state !== 'ok' && safety.state !== 'flagged')) {
+    return false;
+  }
+  return !isExpired(entry, nowMs);
+}
 // The internal lookup refuses anything longer.
 const MAX_VANITY_LENGTH = 256;
 
@@ -162,7 +180,9 @@ function uploadedAt(item) {
 // Items come from the shown items (viewer.js), each read through `items_storage[<id>]`
 // ({ key, size, filename }, contract §5). A paginated album payload (`next_cursor`) may list fewer
 // items than `items_storage`; the rest are appended in `items_storage` order, with the same
-// visibility rule from `items_access`.
+// visibility rule from `items_access`. Only `ok` items are ever listed (milestone-4.md §6.3), so
+// pending, hidden, removed and blocked items are never in a ZIP; every item also needs an ok,
+// unexpired `items_access` entry (zippableItem), so a lookup missing one fails closed.
 export function albumZipPlan(data, nowMs = Date.now()) {
   const storageMap = (data && data.items_storage && typeof(data.items_storage) === 'object') ? data.items_storage : {};
   const itemsAccess = (data && data.items_access && typeof(data.items_access) === 'object') ? data.items_access : {};
@@ -174,7 +194,7 @@ export function albumZipPlan(data, nowMs = Date.now()) {
   for (const item of visibleAlbumItems(data, nowMs)) {
     const id = String(item.id);
     const storage = storageMap[id];
-    if (item.id === undefined || item.id === null || !storage || seen.has(id)) {
+    if (item.id === undefined || item.id === null || !storage || seen.has(id) || !zippableItem(itemsAccess, id, nowMs)) {
       continue;
     }
     seen.add(id);
@@ -186,7 +206,7 @@ export function albumZipPlan(data, nowMs = Date.now()) {
         continue;
       }
       const visibility = itemsAccess[id] && itemsAccess[id].visibility;
-      if (linkAlbum && visibility !== 'link') {
+      if ((linkAlbum && visibility !== 'link') || !zippableItem(itemsAccess, id, nowMs)) {
         continue;
       }
       seen.add(id);
@@ -203,5 +223,6 @@ export function albumZipPlan(data, nowMs = Date.now()) {
   // items_storage always carries sizes (contract §5). Without one the cap can't be checked up
   // front; the stream is then sent without Content-Length and the writer still refuses to pass
   // the 32-bit limit.
-  return { entries, total, tooLarge: total !== null && total > ZIP_LIMIT };
+  const tooLarge = (total !== null && total > ZIP_LIMIT) || entries.length > ZIP_MAX_ENTRIES;
+  return { entries, total, tooLarge };
 }

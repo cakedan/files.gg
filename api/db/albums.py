@@ -3,7 +3,7 @@
 
 from db import queries
 from db.models import Album, AlbumFile, columns, from_row
-from utils.albums import ALBUM_LIVE_SQL, PAGE_SIZE, SHOWN_SQL
+from utils.albums import ALBUM_LIVE_SQL, ALBUM_VISIBLE_SQL, PAGE_SIZE, SHOWN_SQL
 
 ALBUM_COLUMNS = columns(Album, 'al')
 ALBUM_FILE_COLUMNS = columns(AlbumFile, 'af')
@@ -22,7 +22,8 @@ async def _all(conn, sql, params=()):
 # --- albums ----------------------------------------------------------------------------------------
 
 async def get_album_by_vanity(conn, vanity):
-    """A live album (not deleted, expired or hidden by moderation), else None."""
+    """A live album (not deleted or expired), else None. Since milestone 4 a hidden or removed
+    album is returned too: its pages answer 410 ALBUM_REMOVED (check `moderation_state`)."""
     row = await _one(conn, 'SELECT {} FROM albums AS al WHERE al.vanity = %s AND {}'.format(
         ALBUM_COLUMNS, ALBUM_LIVE_SQL), (vanity,))
     return row and from_row(Album, row)
@@ -188,9 +189,11 @@ async def file_albums(conn, file_ids):
 
 
 async def attach_albums(conn, files):
+    """Owner files: their albums, and (milestone-4 §6.2) their notice and NSFW review."""
     by_file = await file_albums(conn, [f.id for f in files])
     for f in files:
         f.albums = by_file.get(f.id, [])
+    await queries.attach_safety(conn, files)
     return files
 
 
@@ -199,7 +202,7 @@ async def shown_in_albums(conn, file_id):
     [{"id", "vanity", "access_version"}]. Signed URLs through an album grant work only for these."""
     rows = await _all(conn, 'SELECT al.id, al.vanity, al.access_version FROM album_files af '
                             'JOIN albums al ON al.id = af.album_id JOIN files f ON f.id = af.file_id '
-                            'WHERE af.file_id = %s AND {} AND {} ORDER BY al.id'.format(ALBUM_LIVE_SQL, SHOWN_SQL),
+                            'WHERE af.file_id = %s AND {} AND {} ORDER BY al.id'.format(ALBUM_VISIBLE_SQL, SHOWN_SQL),
                       (file_id,))
     return [{'id': str(r[0]), 'vanity': r[1], 'access_version': r[2]} for r in rows]
 
@@ -209,7 +212,7 @@ async def album_showing(conn, file_id, album_id, access_version):
     else None (an album token opens only those)."""
     row = await _one(conn, 'SELECT {} FROM album_files af JOIN albums al ON al.id = af.album_id '
                            'JOIN files f ON f.id = af.file_id WHERE af.file_id = %s AND af.album_id = %s '
-                           'AND al.access_version = %s AND {} AND {}'.format(ALBUM_COLUMNS, ALBUM_LIVE_SQL, SHOWN_SQL),
+                           'AND al.access_version = %s AND {} AND {}'.format(ALBUM_COLUMNS, ALBUM_VISIBLE_SQL, SHOWN_SQL),
                      (file_id, album_id, access_version))
     return row and from_row(Album, row)
 
@@ -221,3 +224,24 @@ async def anonymous_album_expiry(conn, album_ids):
             'UPDATE albums al SET expires_at = (SELECT max(f.expires_at) FROM album_files af JOIN files f '
             'ON f.id = af.file_id WHERE af.album_id = al.id AND f.deleted_at IS NULL) '
             'WHERE al.id = ANY(%s) AND al.owner_user_id IS NULL', (list(album_ids),))
+
+
+# --- trust & safety (contract milestone-4 §4.4, §6.3, §6.4) ------------------------------------------------
+
+async def any_shown_nsfw(conn, album_id):
+    """Any shown item is NSFW (the album payload's `nsfw` is this or the album's own mark)."""
+    from safety.states import NSFW_SQL
+    row = await _one(conn, 'SELECT EXISTS (SELECT 1 FROM album_files af JOIN files f ON f.id = af.file_id '
+                           'JOIN albums al ON al.id = af.album_id WHERE af.album_id = %s AND {} AND {})'.format(
+                               SHOWN_SQL, NSFW_SQL), (album_id,))
+    return bool(row[0])
+
+
+async def pending_count(conn, album_id):
+    """Items that would be shown once their scan passes."""
+    from safety.states import PENDING_SQL_SUB
+    from utils.albums import VISIBILITY_SQL
+    row = await _one(conn, 'SELECT count(*) FROM album_files af JOIN files f ON f.id = af.file_id '
+                           'JOIN albums al ON al.id = af.album_id WHERE af.album_id = %s AND {} AND {} AND {}'.format(
+                               queries.LIVE, VISIBILITY_SQL, PENDING_SQL_SUB), (album_id,))
+    return int(row[0])

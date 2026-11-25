@@ -4,16 +4,10 @@ Read queries mirror the SQL Peewee generated (joins, filters and ordering),
 so result sets and their order are unchanged.
 """
 
-import time
-
-from datetime import datetime, timezone
-
 from db.models import (
-    File, FileHash, FileHashAsset, Mimetype, MimetypeExtension, UploadPart, UploadSession, User, columns, from_row,
-    width,
+    File, FileHash, FileHashAsset, Mimetype, MimetypeExtension, UploadPart, UploadSession, columns, from_row, width,
 )
 
-USER_COLUMNS = columns(User)
 FILE_COLUMNS = columns(File, 'f')
 HASH_COLUMNS = columns(FileHash, 'h')
 MIMETYPE_COLUMNS = columns(Mimetype, 'm')
@@ -36,76 +30,18 @@ async def _all(conn, sql, params=()):
 
 # --- users ------------------------------------------------------------------
 
-async def get_user(conn, user_id, bot=None):
-    sql = 'SELECT {} FROM users WHERE id = %s'.format(USER_COLUMNS)
-    params = [user_id]
-    if bot is not None:
-        sql += ' AND bot = %s'
-        params.append(bot)
-    row = await _one(conn, sql + ' LIMIT 1', params)
-    return row and from_row(User, row)
-
-
-async def get_user_by_email(conn, email):
-    row = await _one(conn, 'SELECT {} FROM users WHERE email = %s LIMIT 1'.format(USER_COLUMNS), (email,))
-    return row and from_row(User, row)
-
-
-async def user_exists(conn, username, discriminator):
-    row = await _one(conn, 'SELECT 1 FROM users WHERE username = %s AND discriminator = %s LIMIT 1',
-                     (username, discriminator))
-    return row is not None
+async def get_user(conn, user_id):
+    """A user that isn't permanently deleted, with `premium` (utils/accounts.py)."""
+    from utils.accounts import load_user
+    return await load_user(conn, user_id)
 
 
 async def get_users(conn, user_ids):
     if not user_ids:
         return {}
-    rows = await _all(conn, 'SELECT {} FROM users WHERE id = ANY(%s)'.format(USER_COLUMNS), (list(user_ids),))
-    return {row[0]: from_row(User, row) for row in rows}
-
-
-def _whole_second(seconds):
-    """A timestamptz on a whole second: token checks compare whole seconds."""
-    return datetime.fromtimestamp(seconds, timezone.utc)
-
-
-async def create_user(conn, id, email, username, discriminator, password):
-    # truncated to the second, as Peewee's TimestampField default stored it
-    at = _whole_second(int(time.time()))
-    row = await _one(
-        conn,
-        'INSERT INTO users (id, email, bot, username, discriminator, password, flags, verified, '
-        'last_email_reset_at, last_password_reset_at) '
-        'VALUES (%s, %s, false, %s, %s, %s, 0, false, %s, %s) '
-        'RETURNING {}'.format(USER_COLUMNS),
-        (id, email, username, discriminator, password, at, at),
-    )
-    return from_row(User, row)
-
-
-async def mark_email_verified(conn, user_id, email):
-    # rounded to the second, as Peewee stored an explicit time.time()
-    at = _whole_second(int(round(time.time())))
-    await conn.execute(
-        'UPDATE users SET email = %s, last_email_reset_at = %s, verified = true WHERE id = %s',
-        (email, at, user_id),
-    )
-
-
-async def set_password(conn, user_id, password_hash):
-    at = _whole_second(int(round(time.time())))
-    await conn.execute(
-        'UPDATE users SET password = %s, last_password_reset_at = %s WHERE id = %s',
-        (password_hash, at, user_id),
-    )
-
-
-async def claim_fingerprint_files(conn, user_id, fingerprint):
-    """Anonymous files uploaded with this fingerprint now belong to the user."""
-    await conn.execute(
-        'UPDATE files SET user_id = %s, fingerprint = NULL WHERE fingerprint = %s',
-        (user_id, fingerprint),
-    )
+    from utils.accounts import USER_SELECT, user_from_row
+    rows = await _all(conn, USER_SELECT + ' WHERE u.id = ANY(%s)', (list(user_ids),))
+    return {row[0]: user_from_row(row) for row in rows}
 
 
 # --- mimetypes --------------------------------------------------------------
@@ -306,17 +242,20 @@ async def create_file_hash(conn, id, blake2b, md5, sha1, size):
 
 async def create_file(conn, id, vanity, mimetype_id, extension, filename, fhash, user, fingerprint, size=None,
                       expires_at=None, visibility='link', password_hash=None, unlock_ttl=3600,
-                      password_expires_at=None, uploader_ip_hash=None):
+                      password_expires_at=None, uploader_ip_hash=None, nsfw_marked=False,
+                      uploader_abuse_ip_hash=None, uploader_ip_sealed=None, upload_key_id=None):
     """Insert a file; returns None if the vanity was taken meanwhile."""
     row = await _one(
         conn,
         'INSERT INTO files AS f (id, vanity, mimetype_id, extension, filename, hash_id, user_id, fingerprint, '
-        'view_count, size, expires_at, visibility, password_hash, unlock_ttl, password_expires_at, uploader_ip_hash) '
-        'VALUES (%s, %s, %s, %s, %s, %s, %s, %s, 0, %s, %s, %s, %s, %s, %s, %s) '
+        'view_count, size, expires_at, visibility, password_hash, unlock_ttl, password_expires_at, uploader_ip_hash, '
+        'nsfw_marked, uploader_abuse_ip_hash, uploader_ip_sealed, upload_key_id) '
+        'VALUES (%s, %s, %s, %s, %s, %s, %s, %s, 0, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s) '
         'ON CONFLICT (vanity) DO NOTHING RETURNING {}'.format(FILE_COLUMNS),
         (id, vanity, mimetype_id, extension, filename, fhash.id, user.id if user else None, fingerprint,
          fhash.size if size is None else size, expires_at, visibility, password_hash, unlock_ttl,
-         password_expires_at, uploader_ip_hash),
+         password_expires_at, uploader_ip_hash, nsfw_marked, uploader_abuse_ip_hash, uploader_ip_sealed,
+         upload_key_id),
     )
     if row is None:
         return None
@@ -491,3 +430,23 @@ async def soft_delete_files(conn, where, params):
                             'RETURNING f.id, f.hash_id'.format(where), params)
     await after_delete_async(conn, [r[0] for r in rows], [r[1] for r in rows])
     return [r[0] for r in rows]
+
+
+# --- trust & safety (contract milestone-4 §6.2) --------------------------------------------------------
+
+async def attach_safety(conn, files):
+    """Each owner file's `safety_extra`: its newest notice and its NSFW review request."""
+    ids = [f.id for f in files]
+    if not ids:
+        return files
+    notices = {int(r[0]): r[1] for r in await _all(
+        conn, "SELECT DISTINCT ON (target->>'id') target->>'id', id FROM user_warnings WHERE target->>'kind' = 'file' "
+              "AND target->>'id' = ANY(%s) ORDER BY target->>'id', id DESC", ([str(i) for i in ids],))}
+    reviews = {r[0]: r[1] for r in await _all(
+        conn, "SELECT DISTINCT ON (file_id) file_id, resolved_at IS NULL FROM content_flags WHERE source = 'owner' "
+              "AND file_id = ANY(%s) ORDER BY file_id, id DESC", (ids,))}
+    for f in files:
+        review = reviews.get(f.id)
+        f.safety_extra = {'notice_id': str(notices[f.id]) if f.id in notices else None,
+                          'nsfw_review': 'none' if review is None else ('open' if review else 'done')}
+    return files

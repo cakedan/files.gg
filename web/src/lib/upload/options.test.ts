@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import {
   accessChoices,
+  canMarkNsfw,
   canNeverExpire,
   defaultExpiry,
   defaultPickerState,
@@ -99,5 +100,18 @@ describe('password settings', () => {
     expect(past.errors.expiry).toBeDefined();
     const later = resolvePickers({ ...defaultPickerState(user), expiry: 'custom', expiryCustomAt: now + 2 * DAY * 1000 }, user, now);
     expect(later.params.expires_in).toBe(2 * DAY);
+  });
+});
+
+describe('the NSFW mark (milestone-4 §4.3)', () => {
+  it('sends nsfw=true only for signed-in users allowed to mark', () => {
+    const allowed = { anonymous: false, limits: { max_expiry: null, allow_no_expiry: true, nsfw_allowed: true } };
+    const state = { ...defaultPickerState(allowed), nsfw: true };
+    expect(resolvePickers(state, allowed).params.nsfw).toBe(true);
+    expect(canMarkNsfw(allowed)).toBe(true);
+    const restricted = { ...allowed, limits: { ...allowed.limits, nsfw_allowed: false } };
+    expect(resolvePickers(state, restricted).params.nsfw).toBeUndefined();
+    expect(canMarkNsfw({ anonymous: true, limits: null })).toBe(false);
+    expect(resolvePickers({ ...defaultPickerState({ anonymous: true }), nsfw: true }, { anonymous: true }).params.nsfw).toBeUndefined();
   });
 });

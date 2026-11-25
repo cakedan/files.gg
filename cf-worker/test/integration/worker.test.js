@@ -230,7 +230,7 @@ describe('viewer shell states', () => {
     assertShellHeaders(response);
   });
 
-  it('caches lookups for 30 s, negative ones too', async () => {
+  it('caches lookups for 5 s, negative ones too', async () => {
     await page('/cached1');
     await page('/cached1.png');
     assert.equal(lookups('files', 'cached1'), 1);
@@ -320,7 +320,7 @@ describe('albums', () => {
     assert.doesNotMatch(hidden.text, /Mine|notes\.txt/);
   });
 
-  it('caches album lookups for 30 s, negative ones too', async () => {
+  it('caches album lookups for 5 s, negative ones too', async () => {
     await page('/a/albnocollage');
     await page('/a/albnocollage/1');
     assert.equal(lookups('albums', 'albnocollage'), 1);
@@ -439,14 +439,17 @@ describe('bots and embeds (PLAN.md §1.4 item 3, contract §4)', () => {
 
 describe('the old frontend is gone (milestone-3.md §0)', () => {
   it('/auth, /dashboard, /details, /legal and /options are plain vanity lookups now', async () => {
-    for (const path of ['/auth/login', '/auth/verify/tok', '/dashboard', '/dashboard/files', '/details/123', '/legal/terms', '/options']) {
+    // `/auth/login` and `/dashboard/files` contain reserved segments (milestone-6.md §6.3), so they
+    // are missing without a lookup.
+    for (const path of ['/auth/session', '/auth/verify/tok', '/dashboard', '/dashboard/uploads', '/details/123', '/legal/terms', '/options', '/auth/login', '/dashboard/files']) {
       const response = await page(path);
       assert.equal(response.status, 404, path);
       assertShellHeaders(response);
       const shell = parseShell(response.text);
       assert.deepEqual([shell.page, shell.state], ['file', 'missing'], path);
       assert.doesNotMatch(response.text, /script unavailable|assets\/stable/);
-      assert.equal(lookups('files', path.slice(1).split('.')[0]), 1, path);
+      const reserved = path === '/auth/login' || path === '/dashboard/files';
+      assert.equal(lookups('files', path.slice(1).split('.')[0]), reserved ? 0 : 1, path);
     }
   });
 });

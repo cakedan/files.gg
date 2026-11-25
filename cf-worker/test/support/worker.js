@@ -33,9 +33,9 @@ export { NOW_S };
 
 
 // --- Fixture data --------------------------------------------------------------------------
-// The internal lookups (milestone-3.md §5) for every file of the page fixtures, plus files and
-// albums for each access case. Payloads are snake_case with times in epoch seconds (§4), and their
-// URLs are unsigned, as the internal lookup returns them.
+// The internal lookups (milestone-3.md §5, milestone-4.md §6.3) for every file of the page
+// fixtures, plus files and albums for each access and safety case. Payloads are snake_case with
+// times in epoch seconds (§4), and their URLs are unsigned, as the internal lookup returns them.
 
 const files = {};
 const albums = {};
@@ -49,8 +49,24 @@ const PREVIEW_EXT = { peaks: 'json', hover: 'mp4' };
 const PREVIEW_TYPE = { json: 'application/json', mp4: 'video/mp4', webp: 'image/webp' };
 export const previewExt = (kind) => PREVIEW_EXT[kind] || 'webp';
 
+export const OK = Object.freeze({ state: 'ok', reason: null });
+
+// The accounts in the fixtures (milestone-6.md §16.10): U owns most files and the domain
+// i.example.com, V is another user, P's account is pending deletion.
+export const USER_U = '42';
+export const USER_V = '77';
+export const USER_P = '88';
+
 // `previews`: { '<kind>': body | { body, content_type, width?, height? } } (contract §3, §5).
-function addFile(vanity, { visibility = 'link', s3 = true, accessVersion = 0, previews, ...file }) {
+// milestone-4.md §6.3: `safety` is the lookup's { state, reason } (null leaves it out, like an API
+// that doesn't send it), `serveInline` its `serve_inline` (null leaves it out), and `csam: true`
+// makes the lookup answer 404 like an unknown vanity, as the API does for hash-matched CSAM.
+// milestone-6.md §10.7: `owner` is `owner_user_id` (null for anonymous), `servedOn` `served_on`
+// and `ownerState` `owner_state`.
+function addFile(vanity, {
+  visibility = 'link', s3 = true, accessVersion = 0, previews, safety = OK, serveInline = true, csam = false,
+  owner = USER_U, servedOn = 'files.gg', ownerState = 'active', ...file
+}) {
   const id = String(nextId++);
   const hash = `h-${vanity.replace(/\W/g, '-')}`;
   const extension = (file.filename.match(/\.([^.]+)$/) || [])[1] || '';
@@ -68,13 +84,24 @@ function addFile(vanity, { visibility = 'link', s3 = true, accessVersion = 0, pr
       password_expires_at: file.password_expires_at ?? null,
       show_name_when_locked: !!file.show_name_when_locked,
     },
-    owner_user_id: '42',
+    owner_user_id: owner,
+    served_on: servedOn,
+    owner_state: ownerState,
     albums: [],
     storage: { key: `files/${hash}`, size: Buffer.byteLength(body) },
     previews: {},
     previews_version: null,
+    safety,
+    serve_inline: serveInline,
     bytes: { s3, body },
+    csam,
   };
+  if (safety === null) {
+    delete files[vanity].safety;
+  }
+  if (serveInline === null) {
+    delete files[vanity].serve_inline;
+  }
   delete files[vanity].file.password_expires_at;
   delete files[vanity].file.show_name_when_locked;
   delete files[vanity].file.body;
@@ -164,10 +191,20 @@ addFile('zmissing', { s3: false, kind: 'text', filename: 'lost.txt', mimetype: '
 
 // `collage`: true stores a collage object. `sizes`: { '<file vanity>': size } overrides the
 // items_storage sizes (the ZIP cap). Item `visibility` is part of the public payload.
-function addAlbum(vanity, { visibility = 'link', accessVersion = 0, items, title = 'Trip', collage = false, sizes = {}, ...album }) {
+// milestone-4.md §6.3, as the API does it: album.items, items_access and items_storage list only
+// items whose state is `ok`, and `pending_count` counts the pending ones that would be shown.
+// `safety` is the album's own (null leaves it out).
+function addAlbum(vanity, {
+  visibility = 'link', accessVersion = 0, items: allItems, title = 'Trip', collage = false, sizes = {}, safety = OK,
+  owner = USER_U, servedOn = 'files.gg', ownerState = 'active', ...album
+}) {
   const id = String(nextId++);
+  const stateOf = (item) => (files[item].safety && files[item].safety.state) || 'pending';
+  const eligible = (item) => visibility !== 'link' || files[item].access.visibility === 'link';
+  const items = allItems.filter((item) => stateOf(item) === 'ok');
+  const pendingCount = allItems.filter((item) => stateOf(item) === 'pending' && eligible(item)).length;
   // milestone-3.md §4: a link album shows only link items; a protected album shows every item.
-  const shown = items.filter((item) => visibility !== 'link' || files[item].access.visibility === 'link');
+  const shown = items.filter(eligible);
   albums[vanity] = {
     album: {
       id, vanity, title, visibility, url: `https://files.gg/a/${vanity}`,
@@ -182,17 +219,27 @@ function addAlbum(vanity, { visibility = 'link', accessVersion = 0, items, title
     access: { visibility, access_version: accessVersion, unlock_ttl: 3600, password_expires_at: null, show_name_when_locked: false },
     items_access: Object.fromEntries(items.map((item) => [files[item].file.id, {
       visibility: files[item].access.visibility, access_version: files[item].access.access_version,
+      safety: { state: 'ok', reason: null }, expires_at: files[item].file.expires_at ?? null,
     }])),
     items_storage: Object.fromEntries(shown.map((item) => [files[item].file.id, {
       key: files[item].storage.key, size: sizes[item] ?? Buffer.byteLength(files[item].bytes.body), filename: files[item].file.filename,
     }])),
     collage: collage ? { key: `derived/albums/${id}/collage-${COLLAGE_VERSION}.webp`, version: COLLAGE_VERSION } : null,
+    safety,
+    pending_count: pendingCount,
+    owner_user_id: owner,
+    served_on: servedOn,
+    owner_state: ownerState,
   };
+  if (safety === null) {
+    delete albums[vanity].safety;
+  }
   if (collage) {
     objects[albums[vanity].collage.key] = { s3: true, body: `WEBP collage of ${vanity}` };
   }
-  // contract §5: each file lookup lists the albums it is shown in, with their vanities and versions.
-  for (const item of shown) {
+  // contract §5: each file lookup lists the albums it is shown in, with their vanities and versions
+  // (a hidden or removed album shows nothing).
+  for (const item of (safety && safety.state === 'ok') ? shown : []) {
     files[item].albums.push({ id, vanity, access_version: accessVersion });
   }
   return albums[vanity];
@@ -217,12 +264,125 @@ addAlbum('collage', { items: ['img1'], title: 'Named collage', collage: true });
 // A file without an id (a broken lookup) that is still listed in a protected album.
 addAlbum('albnoid', { visibility: 'password', accessVersion: 0, items: ['noid'], title: 'No id' });
 
+// Milestone 4: every safety state (milestone-4.md §2.4, §6.3, §10), each with a preview.
+const thumbOnly = { thumb: 'WEBP state thumb' };
+const png = (filename, extra = {}) => ({ kind: 'image', filename, mimetype: 'image/png', size: 12, previews: thumbOnly, ...extra });
+addFile('spend', png('pending.png', { safety: { state: 'pending', reason: null } }));
+addFile('spendpw', png('pending-pw.png', { visibility: 'password', accessVersion: 1, safety: { state: 'pending', reason: null } }));
+addFile('spendpriv', png('pending-priv.png', { visibility: 'private', safety: { state: 'pending', reason: null } }));
+addFile('shid', png('hidden.png', { safety: { state: 'hidden', reason: 'review' } }));
+addFile('shidpw', png('hidden-pw.png', { visibility: 'password', accessVersion: 2, safety: { state: 'hidden', reason: 'review' } }));
+addFile('shidpriv', png('hidden-priv.png', { visibility: 'private', safety: { state: 'hidden', reason: 'review' } }));
+addFile('srem', png('removed.png', { safety: { state: 'removed', reason: 'copyright' } }));
+addFile('sremmal', png('malware.exe.png', { safety: { state: 'removed', reason: 'malware' } }));
+addFile('sremx', png('removed-x.png', { safety: { state: 'removed', reason: 'not-a-reason' } }));
+addFile('sblk', png('blocked.png', { safety: { state: 'blocked', reason: null } }));
+addFile('sblkpw', png('blocked-pw.png', { visibility: 'password', safety: { state: 'blocked', reason: null } }));
+addFile('scsam', png('never-shown.png', { csam: true, safety: { state: 'blocked', reason: null } }));
+addFile('snosafety', png('no-safety.png', { safety: null }));
+addFile('sflagged', png('flagged-state.png', { safety: { state: 'flagged', reason: null } }));
+addFile('snsfw', png('sensitive.png', { nsfw: true, width: 800, height: 600 }));
+addFile('snsfwvid', { kind: 'video', filename: 'sensitive.mp4', mimetype: 'video/mp4', size: 12, nsfw: true, previews: { poster } });
+addFile('sraw', png('undecodable.png', { serveInline: false, previews: { thumb: 'WEBP raw thumb', display: 'WEBP raw display' } }));
+addFile('srawvid', { kind: 'video', filename: 'undecodable.mp4', mimetype: 'video/mp4', size: 12, serveInline: false, previews: { poster } });
+addFile('srawnone', png('no-serve-inline.png', { serveInline: null }));
+addFile('sstaff', png('staff-only.png', { visibility: 'private', accessVersion: 3 }));
+for (const vanity of ['spend', 'shid', 'srem', 'sblk', 'snsfw', 'sraw']) {
+  files[vanity].file.thumbnail = { url: files[vanity].file.assets.thumb.url, type: 'thumb' };
+}
+files.snsfwvid.file.thumbnail = { url: files.snsfwvid.file.assets.poster.url, type: 'poster', width: 1280, height: 720 };
+
+addAlbum('amix', { items: ['img1', 'spend', 'shid', 'sblk', 'spendpriv'], title: 'Mixed', collage: true });
+addAlbum('apend', { items: ['spend'], title: 'Pending only', collage: true });
+addAlbum('apendpw', { visibility: 'password', accessVersion: 1, items: ['spendpw'], title: 'Pending locked' });
+addAlbum('apendpriv', { visibility: 'private', items: ['spend'], title: 'Pending private' });
+addAlbum('arem', { items: ['img1'], title: 'Removed album', collage: true, safety: { state: 'removed', reason: 'terms' } });
+addAlbum('ahid', { items: ['img1'], title: 'Hidden album', collage: true, safety: { state: 'hidden', reason: null } });
+addAlbum('ahidpw', { visibility: 'password', accessVersion: 5, items: ['pwalb'], title: 'Hidden locked', collage: true, safety: { state: 'hidden', reason: 'review' } });
+addAlbum('aremhid', { items: ['spend'], title: 'Removed and pending', safety: { state: 'removed', reason: 'copyright' } });
+addAlbum('anosafety', { items: ['img1'], title: 'No safety', collage: true, safety: null });
+addAlbum('ansfwitem', { items: ['img1', 'snsfw'], title: 'Has NSFW', collage: true });
+addAlbum('amarked', { items: ['img1'], title: 'Marked', collage: true, nsfw: true });
+
+// Milestone 6 (milestone-6.md §8.8, §10.6, §16.10): domain-only, other owners, anonymous files
+// and pending deletions, each with a preview.
+addFile('dolink', png('domain-only.png', { servedOn: 'custom' }));
+addFile('dopw', png('domain-only-pw.png', { visibility: 'password', accessVersion: 2, servedOn: 'custom' }));
+addFile('dopriv', png('domain-only-priv.png', { visibility: 'private', accessVersion: 1, servedOn: 'custom' }));
+addFile('dopaused', png('paused.png', { servedOn: 'files.gg' }));
+addFile('dounknown', png('served-on-unknown.png', { servedOn: 'somewhere' }));
+addFile('upw', png('u-password.png', { visibility: 'password', accessVersion: 3 }));
+addFile('vlink', png('v.png', { owner: USER_V }));
+addFile('vpw', png('v-password.png', { owner: USER_V, visibility: 'password', accessVersion: 1 }));
+addFile('anonlink', png('anonymous.png', { owner: null }));
+addFile('pdlink', png('pending-deletion.png', { owner: USER_P, ownerState: 'pending_deletion' }));
+addFile('pdpw', png('pending-deletion-pw.png', { owner: USER_P, ownerState: 'pending_deletion', visibility: 'password', accessVersion: 1 }));
+addFile('pdweird', png('owner-state-unknown.png', { owner: USER_P, ownerState: 'frozen' }));
+addFile('pdu', png('u-pending.png', { ownerState: 'pending_deletion' }));
+addFile('pdnull', png('owner-state-null.png', { ownerState: null }));
+addFile('ulink', { kind: 'image', filename: 'u.png', mimetype: 'image/png', size: 12, width: 640, height: 480 });
+for (const vanity of ['dolink', 'vlink', 'pdlink']) {
+  files[vanity].file.thumbnail = { url: files[vanity].file.assets.thumb.url, type: 'thumb' };
+}
+addAlbum('adolink', { items: ['dolink'], title: 'Domain only', collage: true, servedOn: 'custom' });
+addAlbum('adopw', { visibility: 'password', accessVersion: 4, items: ['dolink'], title: 'Domain only locked', collage: true, servedOn: 'custom' });
+addAlbum('avlink', { items: ['vlink'], title: 'V album', collage: true, owner: USER_V });
+addAlbum('aanon', { items: ['anonlink'], title: 'Anonymous album', collage: true, owner: null });
+addAlbum('apdlink', { items: ['pdlink'], title: 'Pending deletion', collage: true, owner: USER_P, ownerState: 'pending_deletion' });
+
+// The domain lookup (milestone-6.md §10.7), by hostname: { domain } as the API answers it.
+// `lookupHostname` makes the payload name another hostname (a lookup that doesn't match).
+const domains = {};
+let nextDomainId = 9000000000000000000n;
+function addDomain(hostname, { user = USER_U, scope = 'own', serving = true, lookupHostname = hostname } = {}) {
+  domains[hostname] = { domain: { id: String(nextDomainId++), hostname: lookupHostname, user_id: user, scope, serving } };
+  return domains[hostname];
+}
+addDomain('i.example.com');
+addDomain('any.example.com', { scope: 'any' });
+addDomain('failing.example.com');
+addDomain('weird.example.com', { scope: 'everything' });
+addDomain('v.example.com', { user: USER_V });
+addDomain('pending.example.com', { serving: false });
+addDomain('paused.example.com', { serving: false });
+addDomain('disabled.example.com', { serving: false });
+addDomain('gone.example.com', { user: USER_P, serving: false });
+addDomain('nostr.example.com', { serving: 'true' });
+addDomain('mismatch.example.com', { lookupHostname: 'i.example.com' });
+// For the HTTP DCV passthrough test: a "custom hostname" that is the mock upstream itself.
+addDomain('127.0.0.1');
+
 export const FILES = files;
 export const ALBUMS = albums;
 export const OBJECTS = objects;
+export const DOMAINS = domains;
+
+// The session cookie tokens (milestone-6.md §16.11).
+export const SESSION_TOKEN = 'fgs_0123456789ABCDEFGHIJabcdefghij3CXBkC';
+export const SESSION_SET_COOKIE = `__Host-filesgg_session=${SESSION_TOKEN}; Path=/; Secure; HttpOnly; SameSite=Lax; Max-Age=15552000`;
+export const SESSION_CLEAR_COOKIE = '__Host-filesgg_session=; Path=/; Secure; HttpOnly; SameSite=Lax; Max-Age=0';
+export const LOCAL_SET_COOKIE = `filesgg_session=${SESSION_TOKEN}; Path=/; HttpOnly; SameSite=Lax; Max-Age=15552000`;
+// Every other cookie an upstream might set; none of them may ever reach the browser.
+export const FOREIGN_SET_COOKIES = Object.freeze([
+  '__cf_bm=abc; Path=/; Domain=files.gg; HttpOnly',
+  'tracker=1; Path=/',
+  '__Host-filesgg_session_x=evil; Path=/; Secure',
+  '__host-filesgg_session=evil; Path=/; Secure',
+  'session=evil; Domain=files.gg; Path=/',
+]);
 
 
 // --- Signed URLs, as the API writes them (contract §3) ---------------------------------------
+
+// A staff URL (milestone-4.md §10.3) for one of a file's paths: `staff=<staff id>`, signed with
+// `staff:<staff id>:<file id>`, valid for `ttl` seconds (10 minutes at most).
+export const STAFF_ID = '555555555555555555';
+export function signedForStaff(vanity, path, { staffId = STAFF_ID, ttl = 600, fileId, grantStaffId, ...options } = {}) {
+  const url = new URL(path, 'https://cdn.files.gg');
+  url.searchParams.set('staff', staffId);
+  const grant = `staff:${grantStaffId ?? staffId}:${fileId ?? files[vanity].file.id}`;
+  return signUrl(url.pathname + url.search, grant, { expires: NOW_S() + ttl, ...options });
+}
 
 // A URL for one of a file's paths, signed with the file's current grant (or `version`).
 export function signedForFile(vanity, path, { version, ...options } = {}) {
@@ -296,6 +456,23 @@ export async function startUpstream() {
     const url = new URL(req.url, 'http://upstream');
     state.requests.push({ method: req.method, path: url.pathname, search: url.search, headers: req.headers, body });
 
+    // API: the domain lookup by hostname (milestone-6.md §10.7), with both headers, like the others.
+    const domainLookup = /^\/internal\/domains\/([^/]+)$/.exec(url.pathname);
+    if (domainLookup) {
+      const hostname = decodeURIComponent(domainLookup[1]);
+      if (state.failLookups.has(hostname)) {
+        return send(res, 502, 'text/html', 'Bad Gateway');
+      }
+      if (req.headers['x-filesgg-origin-secret'] !== SECRETS.ORIGIN_SHARED_SECRET
+          || req.headers['x-filesgg-internal-lookup'] !== '1') {
+        return send(res, 404, 'application/json', '{"code":"UNKNOWN_DOMAIN"}');
+      }
+      const found = Object.hasOwn(domains, hostname) ? domains[hostname] : null;
+      if (!found) {
+        return send(res, 404, 'application/json', '{"code":"UNKNOWN_DOMAIN"}', { 'cache-control': 'no-store' });
+      }
+      return send(res, 200, 'application/json', JSON.stringify(found), { 'cache-control': 'no-store' });
+    }
     // API: internal lookups by vanity (contract §5). Wrong or missing secret: 404, like an
     // unknown vanity. There are no lookups by id.
     const internal = /^\/internal\/(files|albums)\/(.+)$/.exec(url.pathname);
@@ -305,22 +482,40 @@ export async function startUpstream() {
       if (state.failLookups.has(vanity)) {
         return send(res, 502, 'text/html', 'Bad Gateway');
       }
-      if (req.headers['x-filesgg-origin-secret'] !== SECRETS.ORIGIN_SHARED_SECRET) {
+      // As the API: the secret alone (every forwarded client request has it) is not a lookup.
+      if (req.headers['x-filesgg-origin-secret'] !== SECRETS.ORIGIN_SHARED_SECRET
+          || req.headers['x-filesgg-internal-lookup'] !== '1') {
         return send(res, 404, 'application/json', '{"code":"UNKNOWN_FILE"}');
       }
       const table = (kind === 'files') ? files : albums;
       const found = Object.hasOwn(table, vanity) ? table[vanity] : null;
-      if (!found) {
+      // milestone-4.md §6.3: hash-matched CSAM answers exactly like an unknown vanity.
+      if (!found || found.csam) {
         return send(res, 404, 'application/json', `{"code":"${kind === 'files' ? 'UNKNOWN_FILE' : 'UNKNOWN_ALBUM'}"}`, { 'cache-control': 'no-store' });
       }
-      const { bytes, ...payload } = found;
+      const { bytes, csam, ...payload } = found;
       return send(res, 200, 'application/json', JSON.stringify(payload), { 'cache-control': 'no-store' });
     }
     if (url.pathname.startsWith('/internal/')) {
       return send(res, 404, 'application/json', '{"code":"NOT_FOUND"}');
     }
+    // API: sign-in and sign-out set and clear the session cookie (milestone-6.md §3.2), both the
+    // production and the local name, among cookies nobody may ever pass on.
+    if (url.pathname === '/auth/login' || url.pathname === '/auth/logout') {
+      const session = (url.pathname === '/auth/login') ? [SESSION_SET_COOKIE, LOCAL_SET_COOKIE] : [SESSION_CLEAR_COOKIE];
+      res.setHeader('set-cookie', [...FOREIGN_SET_COOKIES.slice(0, 2), ...session, ...FOREIGN_SET_COOKIES.slice(2)]);
+      return send(res, 200, 'application/json', JSON.stringify({ path: url.pathname, method: req.method }), {
+        'access-control-allow-origin': '*',
+        'access-control-allow-credentials': 'true',
+      });
+    }
+    // Cloudflare's validation paths on a custom hostname (milestone-6.md §10.8 step 1): the origin
+    // answers them, never the Worker.
+    if (url.pathname.startsWith('/.well-known/acme-challenge/')) {
+      return send(res, 200, 'text/plain', `dcv ${url.pathname.split('/').pop()}`, { 'set-cookie': 'dcv=1; Path=/' });
+    }
     // API: anything else echoes, with the API's own (too loose) CORS headers.
-    if (url.pathname.startsWith('/users/') || url.pathname === '/auth/login') {
+    if (url.pathname.startsWith('/users/')) {
       return send(res, 200, 'application/json', JSON.stringify({ path: url.pathname, method: req.method }), {
         'access-control-allow-origin': '*',
         'access-control-allow-credentials': 'true',
@@ -331,7 +526,7 @@ export async function startUpstream() {
       return send(res, 200, 'text/html', '<html><head><meta property="og:image" content="/img.png"></head></html>');
     }
     if (url.pathname === '/remote/img.png') {
-      return send(res, 200, 'image/png', 'PNG');
+      return send(res, 200, 'image/png', 'PNG', { 'set-cookie': 'session=evil; Domain=files.gg; Path=/' });
     }
     return send(res, 404, 'text/plain', 'Not Found');
   });

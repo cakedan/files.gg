@@ -1,11 +1,16 @@
-import { lazy, Suspense, useCallback, useEffect, useState } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react';
 
 import { clearAccess, loadAccess, saveAccess } from '../../lib/access';
-import { api, ApiError, type AccessGrant, type AccessKind, type UnlockResponse } from '../../lib/api';
-import { FileCard } from '../components/FileCard';
+import { ApiError, type AccessGrant, type AccessKind, type UnlockResponse } from '../../lib/api';
+import { FileView } from '../components/FileView';
+import { siteName } from '../host/context';
+import { PendingCard, RemovedCard } from '../components/SafetyCards';
 import { MissingCard, UnavailableCard } from '../components/StateCards';
+import type { RemovedReason } from '../types';
 import { contentFrom, type Content } from './content';
+import { viewerApi } from './hostApi';
 import { LockScreen, PasswordExpiredCard } from './LockScreen';
+import { classifyUnlockError, type UnlockError } from './unlockErrors';
 import { useAccessRefresh } from './useAccessRefresh';
 
 const AlbumPage = lazy(() => import('../album/AlbumPage'));
@@ -28,6 +33,10 @@ type Phase =
   | { status: 'locked' }
   | { status: 'missing' }
   | { status: 'unavailable' }
+  // Milestone 4 §12: `FILE_PENDING`, `FILE_REMOVED` or `ALBUM_REMOVED` from unlock or /view.
+  // `run` re-mounts the pending card for each in-page reload, so its schedule continues.
+  | { status: 'pending'; run: number }
+  | { status: 'removed'; reason: RemovedReason }
   | { status: 'unlocked'; content: Content; grant: AccessGrant; scope: 'unlock' | 'owner' };
 
 function Unlocked({
@@ -37,6 +46,7 @@ function Unlocked({
   kind,
   vanity,
   onExpired,
+  onMissing,
 }: {
   content: Content;
   grant: AccessGrant;
@@ -44,13 +54,15 @@ function Unlocked({
   kind: AccessKind;
   vanity: string;
   onExpired: () => void;
+  onMissing: () => void;
 }) {
-  // The payload's URLs are already signed for this visitor; they're used as they are.
-  const shown = useAccessRefresh({ grant, content }, { kind, vanity, scope, onExpired });
+  // The payload's URLs are already signed for this visitor (and, on a custom domain,
+  // rehosted with their signatures intact); they're used as they are.
+  const shown = useAccessRefresh({ grant, content }, { kind, vanity, scope, onExpired, onMissing });
 
   const title = shown.kind === 'file' ? shown.file.filename : null;
   useEffect(() => {
-    if (title) document.title = `${title} · files.gg`;
+    if (title) document.title = `${title} · ${siteName()}`;
   }, [title]);
 
   if (shown.kind === 'album') {
@@ -60,12 +72,27 @@ function Unlocked({
       </Suspense>
     );
   }
-  return (
-    <main className="flex min-h-dvh items-center justify-center px-3 py-6">
-      <FileCard file={shown.file} />
-    </main>
-  );
+  return <FileView file={shown.file} />;
 }
+
+function stateFromError(error: UnlockError, run: number): Phase | null {
+  if (error.kind === 'missing') return { status: 'missing' };
+  if (error.kind === 'pending') return { status: 'pending', run };
+  if (error.kind === 'removed') return { status: 'removed', reason: error.reason ?? 'terms' };
+  return null;
+}
+
+/**
+ * Whether a failed `/view` means the stored unlock token is no good: `401
+ * UNLOCK_EXPIRED`, or a `404` (`UNKNOWN_FILE` / `UNKNOWN_ALBUM`: it's gone). Anything
+ * else (offline, 5xx, 429) is transient and keeps the token for the next try.
+ */
+const dropsToken = (error: unknown) =>
+  error instanceof ApiError && ((error.status === 401 && error.code === 'UNLOCK_EXPIRED') || error.status === 404);
+
+/** Offline, a server error or a rate limit: worth a Retry, not a lock screen or "doesn't exist". */
+const isTransient = (error: unknown) =>
+  error instanceof ApiError && (error.isNetworkError || error.status >= 500 || error.status === 429);
 
 /**
  * Protected files and albums (lazy chunk). In order:
@@ -73,13 +100,27 @@ function Unlocked({
  * 2. a stored unlock token for this vanity: `GET …/view`;
  * unlock and `/view` both return the payload with signed URLs, plus `token` and `expires_at`;
  * 3. otherwise the lock screen (`password`), or "doesn't exist" (`private`).
- * `401 UNLOCK_EXPIRED` drops the stored token; `404` means missing.
+ * `401 UNLOCK_EXPIRED` drops the stored token. `404` (from `/view`, unlock or refresh)
+ * means missing, whatever the protection: the API answers it for unknown content and
+ * for an owner whose account is pending deletion (milestone-6 §8.8).
+ *
+ * On a custom domain the calls go to `api.files.gg` without credentials and the URLs
+ * are rehosted (host/hostApi.ts); unlock tokens live in that domain's own storage.
+ *
+ * `#t=` / `#pw=` secrets are stripped from the URL on load and owner passes are never
+ * stored, so the pending and unavailable cards' reloads happen in the page: they run
+ * these steps again with the secrets still in memory, never `location.reload()`.
  */
 export default function LockedPage({ kind, vanity, protection, name, passwordExpired, password, ownerPass }: LockedPageProps) {
   const [phase, setPhase] = useState<Phase>({ status: 'checking' });
   // A `#pw=` password is used for one automatic unlock only, never again after expiry.
+  // An unlock answered `FILE_PENDING` puts its password here, for the in-page reloads.
   const [linkPassword, setLinkPassword] = useState(password);
   const fallback = useCallback((): Phase => ({ status: protection === 'private' ? 'missing' : 'locked' }), [protection]);
+  // Bumped by an in-page reload: runs the checks below again.
+  const [attempt, setAttempt] = useState(0);
+  const pendingRuns = useRef(0);
+  const reload = useCallback(() => setAttempt((count) => count + 1), []);
 
   useEffect(() => {
     let cancelled = false;
@@ -91,7 +132,7 @@ export default function LockedPage({ kind, vanity, protection, name, passwordExp
 
       for (const candidate of candidates) {
         try {
-          const response = await api.view(kind, vanity, candidate.token);
+          const response = await viewerApi.view(kind, vanity, candidate.token);
           const content = contentFrom(kind, response);
           if (cancelled) return;
           if (content) {
@@ -102,12 +143,19 @@ export default function LockedPage({ kind, vanity, protection, name, passwordExp
           }
         } catch (error) {
           if (cancelled) return;
-          if (candidate.scope === 'unlock') clearAccess(kind, vanity);
-          if (error instanceof ApiError && error.isNetworkError) {
+          if (candidate.scope === 'unlock' && dropsToken(error)) clearAccess(kind, vanity);
+          // Pending or removed: the grant is fine, the content just isn't viewable now.
+          // Missing (404): it's gone for everyone, or offline with its owner's account.
+          const state = stateFromError(classifyUnlockError(error), ++pendingRuns.current);
+          if (state) {
+            setPhase(state);
+            return;
+          }
+          if (isTransient(error)) {
             setPhase({ status: 'unavailable' });
             return;
           }
-          // 401 UNLOCK_EXPIRED / 404 UNKNOWN_FILE: try the next candidate, then fall back.
+          // 401 UNLOCK_EXPIRED: try the next candidate, then fall back.
         }
       }
       if (!cancelled) setPhase(fallback());
@@ -115,7 +163,7 @@ export default function LockedPage({ kind, vanity, protection, name, passwordExp
     return () => {
       cancelled = true;
     };
-  }, [kind, vanity, ownerPass, protection, fallback]);
+  }, [kind, vanity, ownerPass, protection, fallback, attempt]);
 
   const onUnlocked = useCallback(
     (response: UnlockResponse) => {
@@ -133,6 +181,15 @@ export default function LockedPage({ kind, vanity, protection, name, passwordExp
   );
 
   const onExpired = useCallback(() => setPhase(fallback()), [fallback]);
+  const onMissing = useCallback(() => setPhase({ status: 'missing' }), []);
+  const onUnavailable = useCallback((error: UnlockError, password: string) => {
+    const state = stateFromError(error, ++pendingRuns.current);
+    if (!state) return;
+    // A pending unlock is tried again with the same password (the lock screen re-mounts
+    // and unlocks with it); a removed one never is.
+    setLinkPassword(state.status === 'pending' ? password : undefined);
+    setPhase(state);
+  }, []);
 
   switch (phase.status) {
     case 'checking':
@@ -146,18 +203,28 @@ export default function LockedPage({ kind, vanity, protection, name, passwordExp
           kind={kind}
           vanity={vanity}
           onExpired={onExpired}
+          onMissing={onMissing}
         />
       );
     default:
       return (
         <main className="flex min-h-dvh items-center justify-center px-3 py-6">
           {phase.status === 'missing' && <MissingCard />}
-          {phase.status === 'unavailable' && <UnavailableCard />}
+          {phase.status === 'unavailable' && <UnavailableCard onRetry={reload} />}
+          {phase.status === 'pending' && <PendingCard key={phase.run} target={{ kind, vanity }} reload={reload} />}
+          {phase.status === 'removed' && <RemovedCard target={{ kind, vanity }} reason={phase.reason} />}
           {phase.status === 'locked' &&
             (passwordExpired ? (
               <PasswordExpiredCard kind={kind} />
             ) : (
-              <LockScreen kind={kind} vanity={vanity} name={name} initialPassword={linkPassword} onUnlocked={onUnlocked} />
+              <LockScreen
+                kind={kind}
+                vanity={vanity}
+                name={name}
+                initialPassword={linkPassword}
+                onUnlocked={onUnlocked}
+                onUnavailable={onUnavailable}
+              />
             ))}
         </main>
       );

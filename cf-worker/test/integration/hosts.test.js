@@ -23,8 +23,8 @@ let worker;
 before(async () => {
   upstream = await startUpstream();
   s3 = await startS3();
-  // CORS_ALLOWED_ORIGINS empty: the default is the MAIN_HOST origin.
-  worker = await startWorker({ upstream, s3 }, { vars: { ...HOSTS, CORS_ALLOWED_ORIGINS: '' } });
+  // As e2e/ runs it: the local session cookie name.
+  worker = await startWorker({ upstream, s3 }, { vars: { ...HOSTS, SESSION_COOKIE_NAME: 'filesgg_session' } });
 });
 
 after(async () => {
@@ -64,22 +64,28 @@ describe('configurable hosts', () => {
     assert.equal((await worker.request(`http://cdn.files.localhost:8787${signedForFile('pw1', '/files/pw1.png')}`)).status, 200);
   });
 
-  it('passes API_HOST through with credentialed CORS for the MAIN_HOST origin', async () => {
-    const response = await worker.request('http://api.files.localhost:8787/users/@me', { headers: { origin: MAIN } });
+  it('passes API_HOST through with `*` CORS and no cookie', async () => {
+    const response = await worker.request('http://api.files.localhost:8787/users/@me', {
+      headers: { origin: MAIN, cookie: 'filesgg_session=fgs_0123456789ABCDEFGHIJabcdefghij3CXBkC' },
+    });
     assert.equal(response.status, 200);
-    assert.equal(upstream.requests.at(-1).path, '/users/@me');
-    assert.equal(response.headers['access-control-allow-origin'], MAIN);
-    assert.equal(response.headers['access-control-allow-credentials'], 'true');
-
-    const evil = await worker.request('http://api.files.localhost:8787/users/@me', { headers: { origin: 'https://files.gg' } });
-    assert.equal(evil.headers['access-control-allow-origin'], '*');
-    assert.equal(evil.headers['access-control-allow-credentials'], undefined);
+    const sent = upstream.requests.at(-1);
+    assert.equal(sent.path, '/users/@me');
+    assert.equal(sent.headers.cookie, undefined);
+    assert.equal(sent.headers['x-filesgg-via'], undefined);
+    assert.equal(response.headers['access-control-allow-origin'], '*');
+    assert.equal(response.headers['access-control-allow-credentials'], undefined);
   });
 
-  it('passes MAIN_HOST/api/* through as a credentialed route', async () => {
-    const response = await worker.request(`${MAIN}/api/users/@me`, { headers: { origin: MAIN } });
+  it('forwards the SESSION_COOKIE_NAME cookie on MAIN_HOST/api/* only, never as credentialed CORS', async () => {
+    const response = await worker.request(`${MAIN}/api/users/@me`, {
+      headers: { origin: MAIN, cookie: '__Host-filesgg_session=prod; filesgg_session=fgs_local; other=1' },
+    });
     assert.equal(response.status, 200);
-    assert.equal(response.headers['access-control-allow-credentials'], 'true');
+    const sent = upstream.requests.at(-1);
+    assert.equal(sent.headers.cookie, 'filesgg_session=fgs_local');
+    assert.equal(sent.headers['x-filesgg-via'], 'main');
+    assert.equal(response.headers['access-control-allow-credentials'], undefined);
   });
 
   it('answers PROXY_HOST, still behind the proxy secret', async () => {

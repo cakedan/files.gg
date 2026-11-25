@@ -11,6 +11,7 @@ A protected album's URLs (items, cover, collage, download) are signed with the a
 import re
 
 from db.models import epoch
+from safety import states, webrisk
 from utils import payloads
 from utils.cdn_signing import Grant, path_segment
 from utils.urls import cdn_url, public_url
@@ -26,9 +27,12 @@ COLLAGE_SIZE = (1200, 630)
 
 # aliases: f = files, al = albums
 FILE_LIVE_SQL = '(f.deleted_at IS NULL AND (f.expires_at IS NULL OR f.expires_at > now()))'
-SHOWN_SQL = "({} AND (al.visibility <> 'link' OR f.visibility = 'link'))".format(FILE_LIVE_SQL)
-ALBUM_LIVE_SQL = ("(al.deleted_at IS NULL AND (al.expires_at IS NULL OR al.expires_at > now()) "
-                  "AND al.moderation_state = 'visible')")
+VISIBILITY_SQL = "(al.visibility <> 'link' OR f.visibility = 'link')"
+# milestone-4 §6.4: and the item's effective state is `ok` or `flagged`
+SHOWN_SQL = "({} AND {} AND {})".format(FILE_LIVE_SQL, VISIBILITY_SQL, states.SHOWN_SQL_SUB)
+# not deleted or expired; a hidden or removed album is live (its pages answer 410)
+ALBUM_LIVE_SQL = "(al.deleted_at IS NULL AND (al.expires_at IS NULL OR al.expires_at > now()))"
+ALBUM_VISIBLE_SQL = "({} AND al.moderation_state = 'visible')".format(ALBUM_LIVE_SQL)
 
 _CONTROL = re.compile('[\x00-\x09\x0b-\x1f\x7f-\x9f]')
 
@@ -46,6 +50,8 @@ def clean_text(value, limit, field):
 
 def shown(album, fobj):
     """The Python twin of SHOWN_SQL, for a live file."""
+    if fobj.hash is not None and not states.shown(fobj.hash.scan_state, fobj.moderation_state):
+        return False
     return album.visibility != 'link' or fobj.visibility == 'link'
 
 
@@ -141,7 +147,8 @@ def _expired(fobj):
     return fobj.expires_at is not None and epoch(fobj.expires_at) <= int(time.time())
 
 
-def album_payload(album, items, count, total_size, next_cursor=None, cover_items=None, grant=None):
+def album_payload(album, items, count, total_size, next_cursor=None, cover_items=None, grant=None, nsfw=None,
+                  owner=False):
     """The public album payload (contract §4). `items` are [(file, position, caption)]
     already filtered to shown items. `grant` (the album grant of an unlock, a token or the
     owner) signs a protected album's URLs; without one they're plain."""
@@ -155,7 +162,8 @@ def album_payload(album, items, count, total_size, next_cursor=None, cover_items
         'title': album.title or '',
         'description': album.description or '',
         'layout': album.layout,
-        'nsfw': False,
+        # milestone-4 §4.4: the album's own mark, or any shown item being NSFW
+        'nsfw': bool(album.nsfw or nsfw),
         'visibility': album.visibility,
         'expires_at': epoch(album.expires_at),
         'count': count,
@@ -164,15 +172,32 @@ def album_payload(album, items, count, total_size, next_cursor=None, cover_items
         'download_url': download_url(album, grant),
         'items': [data for _, data in rendered],
     }
+    data['link_warnings'], data['link_warning_types'] = webrisk.payload_fields(album.link_warnings)
     cover_source = rendered if cover_items is None else [
         (f, payloads.public_file(f, grant=grant, album_item=True)) for f in cover_items]
     cover = cover_of(album, cover_source)
     if cover is not None:
         data['cover'] = cover
     collage = collage_of(album, grant)
-    if collage is not None:
+    # a public NSFW album omits its collage (milestone-4 §4.6); owner payloads keep it
+    if collage is not None and (owner or not data['nsfw']):
         data['collage'] = collage
     return data
+
+
+def album_state(album):
+    """`ok`, `hidden` or `removed` (milestone-4 §6.3)."""
+    return {'visible': 'ok'}.get(album.moderation_state, album.moderation_state)
+
+
+def album_safety(album, notice_id=None, owner=False):
+    state = album_state(album)
+    if owner:
+        reason = None
+        if state != 'ok':
+            reason = 'review' if album.moderation_auto or album.moderation_rule == 'csam' else album.moderation_rule
+        return {'state': state, 'reason': reason, 'notice_id': None if album.moderation_rule == 'csam' else notice_id}
+    return {'state': state, 'reason': states.public_reason(state, album.moderation_rule)}
 
 
 def locked_album(album, password_expired=False):
@@ -196,16 +221,22 @@ def owner_fields(album):
     }
 
 
-def owner_album(album, items):
+def owner_album(album, items, notice_id=None):
     """The owner album (contract §6): every item (shown or not) as an owner file with
     `position`, `caption` and `shown`; counts and cover follow what the public sees. The
     album's own URLs (cover, collage, download) are signed for 1 h with the album grant,
     each item's with its own file grant."""
     grant = Grant.owner_album(album)
     visible = [(f, p, c) for f, p, c in items if fobj_is_shown(album, f)]
-    data = album_payload(album, visible, len(visible), sum(f.size or 0 for f, _, _ in visible), grant=grant)
+    nsfw = any(payloads.nsfw_of(f)[0] for f, _, _ in visible)
+    data = album_payload(album, visible, len(visible), sum(f.size or 0 for f, _, _ in visible), grant=grant,
+                         nsfw=nsfw, owner=True)
     data['items'] = [item_dict(f, p, c, owner=True, album=album) for f, p, c in items]
     data.update(owner_fields(album))
+    # milestone-4 §6.2
+    data['nsfw_marked'] = bool(album.nsfw)
+    data['safety'] = album_safety(album, notice_id, owner=True)
+    data['link_warnings'], data['link_warning_types'] = webrisk.payload_fields(album.link_warnings)
     return data
 
 

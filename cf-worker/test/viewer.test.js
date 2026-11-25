@@ -26,9 +26,13 @@ const imageFile = {
   size: 123456, width: 800, height: 600, cdn_url: 'https://cdn.files.gg/files/img1.png', url: 'https://files.gg/img1.png',
   uploaded_at: NOW_S - 1, expires_at: null,
 };
-const found = (file, access = {}) => ({
+const OK = { state: 'ok', reason: null };
+const found = (file, access = {}, extra = {}) => ({
   status: 'found',
-  data: { file, access: { visibility: 'link', access_version: 0, unlock_ttl: 3600, password_expires_at: null, show_name_when_locked: false, ...access } },
+  data: {
+    file, access: { visibility: 'link', access_version: 0, unlock_ttl: 3600, password_expires_at: null, show_name_when_locked: false, ...access },
+    safety: OK, serve_inline: true, ...extra,
+  },
 });
 
 
@@ -169,9 +173,12 @@ describe('decideAlbumShell', () => {
     id: '900', vanity: 'alb1', title: 'Trip', url: 'https://files.gg/a/alb1',
     items: [{ ...imageFile, id: '1', visibility: 'link', position: 0, caption: '' }, { ...imageFile, id: '2', visibility: 'link', position: 1, caption: '' }],
   };
-  const lookup = (access, itemsAccess = {}, overrides = {}) => ({
+  const lookup = (access, itemsAccess = {}, overrides = {}, extra = {}) => ({
     status: 'found',
-    data: { album: { ...album, ...overrides }, access: { visibility: 'link', access_version: 0, show_name_when_locked: false, ...access }, items_access: itemsAccess },
+    data: {
+      album: { ...album, ...overrides }, access: { visibility: 'link', access_version: 0, show_name_when_locked: false, ...access }, items_access: itemsAccess,
+      safety: OK, pending_count: 0, ...extra,
+    },
   });
 
   it('link album: album-data and "Title · N files"', () => {
@@ -355,7 +362,9 @@ describe('classifyStablePath (web/README.md §1 order)', () => {
     '/a/Ab3dE6gH': 'album', '/a/Ab3dE6gH/3': 'album',
     '/api/users/@me': 'api',
     // The old frontend's pages are gone (milestone-3.md §0): these are vanities now.
-    '/auth/login': 'file', '/dashboard/files': 'file', '/legal': 'file', '/options': 'file', '/details/1': 'file',
+    '/auth/session': 'file', '/dashboard/uploads': 'file', '/legal': 'file', '/options': 'file', '/details/1': 'file',
+    // ...except where they contain a reserved segment (milestone-6.md §6.3): never looked up.
+    '/auth/login': 'missing', '/dashboard/files': 'missing',
     '/img1': 'file', '/img1.png': 'file', '/abcd/xyz.png': 'file', '/favicon': 'file', '/apple': 'file',
   };
   for (const [path, route] of Object.entries(cases)) {

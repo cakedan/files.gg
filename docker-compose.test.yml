@@ -1,5 +1,7 @@
-# API test suite against a real Postgres 19 (the same image as docker-compose.yml) and MinIO for B2.
-# Turnstile's siteverify is mocked (httpx.MockTransport), so the suite runs offline. One live test against
+# API test suite against a real Postgres 19 (the same image as docker-compose.yml), MinIO for B2 (with an
+# Object Lock evidence bucket) and clamd (the contract's ClamAV image) with a tiny test-only signature database.
+# The test image is the worker's environment (Python 3.14, the media and scanning tools, the NSFW model).
+# Turnstile's siteverify, PhotoDNA and Web Risk are mocked or stood in, so the suite runs offline. One live test against
 # Cloudflare's testing keys runs only with FILESGG_NETWORK_TESTS=1 (it needs internet).
 # From the repo root:
 #
@@ -39,6 +41,23 @@ services:
     tmpfs:
       - /data:mode=1777
 
+  # milestone-4 §5.2: the same image as docker-compose.yml, but offline: no freshclam and no official databases.
+  # clamd loads only api/tests/fixtures/clamav/db (EICAR by hash, and a test-only PUA string), mounted read-only.
+  clamav:
+    image: clamav/clamav:1.5.5-debian@sha256:85f35b3eee903dbd96c5ca250c5aa13d230d97987c0f876f7d46f001f9414239
+    command: ["clamd", "--foreground", "--config-file=/etc/clamav/clamd-test.conf"]
+    environment:
+      CLAMAV_NO_FRESHCLAMD: "true"
+      CLAMAV_NO_MILTERD: "true"
+    volumes:
+      - ./api/tests/fixtures/clamav/clamd.conf:/etc/clamav/clamd-test.conf:ro
+      - ./api/tests/fixtures/clamav/db:/var/lib/clamav-test:ro
+    healthcheck:
+      test: ["CMD", "clamdscan", "--config-file=/etc/clamav/clamd-test.conf", "--ping", "1"]
+      interval: 2s
+      timeout: 5s
+      retries: 60
+
   tests:
     build:
       context: ./api
@@ -48,6 +67,8 @@ services:
         condition: service_healthy
       minio:
         condition: service_started
+      clamav:
+        condition: service_healthy
     environment:
       TEST_DATABASE_ADMIN_URL: postgresql://postgres:postgres@postgres:5432/postgres
       VIEW_HASH_SECRET: test-view-hash-secret
@@ -60,3 +81,6 @@ services:
       CDN_SIGNING_SECRET: test-cdn-signing-secret
       # Cloudflare's documented testing secret that always passes (used only by the opt-in live test)
       TURNSTILE_SECRET: 1x0000000000000000000000000000000AA
+      # milestone-4: clamd above; the matcher, the evidence bucket and the test keys are set by tests/conftest.py
+      CLAMAV_HOST: clamav
+      CLAMAV_PORT: "3310"

@@ -5,6 +5,7 @@ import { formatBytes } from '../../lib/format';
 import type { AlbumData, AlbumItem } from '../types';
 import { downloadUrl } from '../urls';
 import { albumArtist, albumName, trackTitle } from './layout';
+import { LinkedText } from './LinkedText';
 import { createQueue, formatDuration, nextRepeat, nextTrack, previousTrack, setShuffle, type QueueState } from './playback';
 
 const trackDuration = (item: AlbumItem) => item.media?.duration ?? item.duration;
@@ -113,7 +114,11 @@ export function AlbumTracklist({ album, title }: { album: AlbumData; title: stri
                 <span className="flex min-w-0 flex-1 flex-col">
                   <span className="truncate text-sm font-medium">{trackTitle(track)}</span>
                   {trackArtist && trackArtist !== artist && <span className="truncate text-xs text-muted">{trackArtist}</span>}
-                  {track.caption && <span className="truncate text-xs text-muted">{track.caption}</span>}
+                  {track.caption && (
+                    <span className="truncate text-xs text-muted">
+                      <LinkedText text={track.caption} interactive={false} />
+                    </span>
+                  )}
                 </span>
                 <span className="shrink-0 text-sm text-muted tabular-nums">{formatDuration(trackDuration(track))}</span>
               </button>

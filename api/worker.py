@@ -40,6 +40,11 @@ def main(argv=None):
     from utils.snowflake_nodes import start_process_lease, stop_process_lease
 
     queues = parse_queues(options.queues)
+    # milestone-4 §3.1, §13: the scanner and rescanner refuse to start without a real matcher
+    # (standin needs FILESGG_DEV_TOOLS=1) and the evidence settings
+    if {'scan', 'rescan'} & set(queues):
+        from safety.settings import check_scanner
+        check_scanner()
     poll_interval = float(os.getenv('WORKER_POLL_INTERVAL', '1'))
     stop = threading.Event()
 

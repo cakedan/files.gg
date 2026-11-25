@@ -27,6 +27,8 @@ export default defineConfig(({ command, mode }) => {
         input: {
           viewer: resolve('./viewer.html'),
           app: resolve('./app.html'),
+          // milestone-6 §10.10: files.gg/challenge, the Turnstile frame for custom domains. No React.
+          challenge: resolve('./challenge.html'),
         },
         output: {
           codeSplitting: {

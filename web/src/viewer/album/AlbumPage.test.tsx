@@ -56,10 +56,8 @@ describe('AlbumPage', () => {
     const link = screen.getByRole('link', { name: 'https://example.com/notes' });
     expect(link).toHaveAttribute('rel', 'nofollow ugc noopener');
     expect(screen.getByRole('link', { name: /download all/i })).toHaveAttribute('href', 'https://cdn.files.gg/albums/download/v1.zip');
-    expect(screen.getByRole('link', { name: /report/i })).toHaveAttribute(
-      'href',
-      `/report?url=${encodeURIComponent('https://files.gg/a/v1')}`,
-    );
+    // Milestone 4: a real link to the album's report page, which opens the dialog on click.
+    expect(screen.getByRole('link', { name: /report/i })).toHaveAttribute('href', '/a/v1/report');
   });
 
   it('opens the lightbox from a tile, syncs the URL, moves with arrows and closes with Escape', async () => {
@@ -93,12 +91,64 @@ describe('AlbumPage', () => {
     expect(within(screen.getByRole('dialog')).getByText('2 / 3')).toBeInTheDocument();
   });
 
-  it('shows one NSFW interstitial for the whole album', () => {
+  it('shows one NSFW interstitial for the whole album, and no media before Show', () => {
     render(<AlbumPage album={album({ nsfw: true })} />);
-    expect(screen.getByRole('heading', { name: /marked nsfw/i })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'This album may contain sensitive content' })).toBeInTheDocument();
     expect(screen.queryByRole('heading', { name: 'Trip' })).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: 'Show album' }));
+    expect(document.querySelector('img')).toBeNull();
+    expect(screen.getByRole('link', { name: 'Leave' })).toHaveAttribute('href', '/');
+    fireEvent.click(screen.getByRole('button', { name: 'Show' }));
     expect(screen.getByRole('heading', { name: 'Trip' })).toBeInTheDocument();
+    // Inside, NSFW items aren't blurred or gated again.
+    expect(document.querySelector('img')).not.toBeNull();
+  });
+
+  it('gates an unmarked album that has an NSFW item (§4.4)', () => {
+    render(<AlbumPage album={album({ items: [image(1), image(2, { nsfw: true }), image(3)] })} />);
+    expect(screen.getByRole('heading', { name: 'This album may contain sensitive content' })).toBeInTheDocument();
+  });
+
+  it('skips the interstitial with "Always show sensitive media", and the checkbox sets it', () => {
+    const first = render(<AlbumPage album={album({ nsfw: true })} />);
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Always show sensitive media' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Show' }));
+    expect(localStorage.getItem('filesgg.showSensitive')).toBe('1');
+    first.unmount();
+    render(<AlbumPage album={album({ nsfw: true })} />);
+    expect(screen.getByRole('heading', { name: 'Trip' })).toBeInTheDocument();
+    localStorage.removeItem('filesgg.showSensitive');
+  });
+
+  it('renders flagged links in the description and captions as text with a warning, never as links', () => {
+    const flagged = 'https://bad.example/x';
+    render(
+      <AlbumPage
+        album={album({
+          description: `Safe https://example.com/notes and bad ${flagged}.`,
+          link_warnings: [flagged],
+          items: [image(1, { caption: `See ${flagged}` }), image(2), image(3)],
+        })}
+      />,
+    );
+    expect(screen.getByRole('link', { name: 'https://example.com/notes' })).toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: flagged })).not.toBeInTheDocument();
+    const warnings = screen.getAllByRole('button', { name: 'This link may be dangerous' });
+    expect(warnings).toHaveLength(2);
+    // The album-level banner, with Google's attribution (lazy).
+    fireEvent.click(warnings[0]!);
+    const dialog = screen.getByRole('alertdialog');
+    expect(within(dialog).getByText(/suspected of hosting malware, phishing or unwanted software/)).toBeInTheDocument();
+    expect(within(dialog).getByRole('link', { name: 'Advisory provided by Google' })).toHaveAttribute(
+      'href',
+      'https://docs.cloud.google.com/web-risk/docs/advisory',
+    );
+    expect(within(dialog).getByRole('button', { name: 'Copy link' })).toBeInTheDocument();
+    expect(within(dialog).queryByRole('button', { name: /continue|open/i })).not.toBeInTheDocument();
+  });
+
+  it('shows the album link-warnings banner', async () => {
+    render(<AlbumPage album={album({ link_warnings: ['https://bad.example/x'] })} />);
+    expect(await screen.findByRole('heading', { name: 'This album contains a link that may be dangerous' })).toBeInTheDocument();
   });
 
   it('renders the list layout with captions', () => {

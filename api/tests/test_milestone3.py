@@ -252,7 +252,8 @@ def test_hidden_items_and_empty_albums(client, media_db):
     c = text_file(client, owner)
     other = make_album(client, owner, [c['id']])
     media_db.execute("UPDATE albums SET moderation_state = 'removed' WHERE id = %s", (int(other['id']),))
-    assert client.get('/albums/' + other['vanity']).status_code == 404
+    # milestone-4 §6.4: a removed album answers 410 ALBUM_REMOVED (it was a 404)
+    assert client.get('/albums/' + other['vanity']).json()['code'] == 'ALBUM_REMOVED'
     assert lookup(client, c)['albums'] == []
 
 
@@ -823,7 +824,8 @@ def test_internal_lookups(client, media_db):
     created = text_file(client, owner)
     body = client.get('/internal/files/' + created['vanity'], headers=ORIGIN).json()
     assert body['file']['id'] == created['id']
-    assert set(body) == {'file', 'access', 'owner_user_id', 'albums', 'storage', 'previews', 'previews_version'}
+    assert set(body) == {'file', 'access', 'owner_user_id', 'albums', 'storage', 'previews', 'previews_version',
+                         'safety', 'serve_inline'}
     assert body['storage'] == {'key': 'files/' + hash_of(media_db, created), 'size': created['size']}
     # no lookups by id: every CDN path names a vanity
     for path in ('/internal/file-ids/' + created['id'], '/internal/album-ids/1'):
@@ -832,14 +834,19 @@ def test_internal_lookups(client, media_db):
     album = make_album(client, owner, [created['id']])
     body = client.get('/internal/albums/' + album['vanity'], headers=ORIGIN).json()
     assert body['album']['id'] == album['id']
-    assert set(body) == {'album', 'access', 'items_access', 'items_storage', 'collage'}
-    assert body['items_access'] == {created['id']: {'visibility': 'link', 'access_version': 0}}
+    assert set(body) == {'album', 'access', 'items_access', 'items_storage', 'collage', 'safety', 'pending_count'}
+    assert body['items_access'] == {created['id']: {'visibility': 'link', 'access_version': 0,
+                                                    'safety': {'state': 'ok', 'reason': None},
+                                                    'expires_at': created['expires_at']}}
     assert body['items_storage'] == {created['id']: {
         'key': 'files/' + hash_of(media_db, created), 'size': created['size'], 'filename': created['filename']}}
     assert body['access'] == {'visibility': 'link', 'access_version': 0, 'unlock_ttl': 3600,
                               'password_expires_at': None, 'show_name_when_locked': False}
     assert body['collage'] is None
     assert client.get('/internal/albums/' + album['vanity']).json()['code'] == 'UNKNOWN_ALBUM'
+    # the secret alone (any request the Worker forwards) is not a lookup
+    assert client.get('/internal/albums/' + album['vanity'],
+                      headers={'X-Filesgg-Origin-Secret': 'test-origin-secret'}).json()['code'] == 'UNKNOWN_ALBUM'
     # deleted targets are unknown
     client.request('DELETE', '/users/@me/files/' + created['id'], headers=owner)
     assert client.get('/internal/files/' + created['vanity'], headers=ORIGIN).status_code == 404

@@ -162,6 +162,8 @@ def test_one_file_payload_shape(client, appdb):
         'id', 'vanity', 'kind', 'name', 'extension', 'filename', 'mimetype', 'size', 'url', 'cdn_url',
         'visibility', 'uploaded_at', 'expires_at', 'views', 'media', 'width', 'height', 'duration', 'framecount',
         'processing', 'assets', 'nsfw',
+        # milestone-4 §6.1
+        'warnings', 'link_warnings', 'link_warning_types',
     }
     assert data['uploaded_at'] == Snowflake.decode(fobj.id)['timestamp'] // 1000
     assert data['expires_at'] is None and data['kind'] == 'text' and data['views'] == 1

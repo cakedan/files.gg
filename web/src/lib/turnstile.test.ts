@@ -30,6 +30,20 @@ describe('loadTurnstile', () => {
     expect(document.head.querySelectorAll('script')).toHaveLength(1);
   });
 
+  it('forgets a script that loaded without defining turnstile, so Retry can load it again', async () => {
+    const attempt = loadTurnstile();
+    document.head.querySelector('script')!.dispatchEvent(new Event('load'));
+    await expect(attempt).rejects.toThrow('turnstile-missing');
+    expect(document.head.querySelector('script')).toBeNull();
+    const retry = loadTurnstile();
+    expect(retry).not.toBe(attempt);
+    const scripts = document.head.querySelectorAll(`script[src="${TURNSTILE_SCRIPT}"]`);
+    expect(scripts).toHaveLength(1);
+    window.turnstile = { render: () => 'w', reset: () => undefined, remove: () => undefined, getResponse: () => undefined };
+    scripts[0]!.dispatchEvent(new Event('load'));
+    await expect(retry).resolves.toBe(window.turnstile);
+  });
+
   it('uses the always-pass testing key in dev and tests', () => {
     expect(TURNSTILE_SITE_KEY).toBe(TURNSTILE_TEST_SITE_KEYS.passVisible);
     expect(TURNSTILE_TEST_SITE_KEYS).toEqual({

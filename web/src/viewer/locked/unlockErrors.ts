@@ -1,6 +1,17 @@
 import { ApiError } from '../../lib/api';
+import { REMOVED_REASONS, type RemovedReason } from '../types';
 
-export type UnlockErrorKind = 'wrong' | 'rate-limited' | 'expired' | 'captcha' | 'verification' | 'network' | 'other';
+export type UnlockErrorKind =
+  | 'wrong'
+  | 'rate-limited'
+  | 'expired'
+  | 'captcha'
+  | 'verification'
+  | 'network'
+  | 'pending'
+  | 'removed'
+  | 'missing'
+  | 'other';
 
 export interface UnlockError {
   kind: UnlockErrorKind;
@@ -8,6 +19,8 @@ export interface UnlockError {
   retryAt?: number;
   /** The password came from a `#pw=` link. */
   fromLink?: boolean;
+  /** `removed`: the public reason (milestone-4 §2.4). */
+  reason?: RemovedReason;
 }
 
 /** Maps an unlock failure to a UI state (contract §5 order: Turnstile, rate limit, expiry, password). */
@@ -25,7 +38,21 @@ export function classifyUnlockError(error: unknown, nowMs: number = Date.now()):
         return { kind: 'expired' };
       case 'CAPTCHA_INVALID':
         return { kind: 'captcha' };
+      // Milestone 4 §12: the file or album isn't viewable right now, whatever the password.
+      case 'FILE_PENDING':
+        return { kind: 'pending' };
+      case 'FILE_REMOVED':
+      case 'ALBUM_REMOVED': {
+        const reason = (error.body as { reason?: unknown } | undefined)?.reason;
+        return {
+          kind: 'removed',
+          reason: (REMOVED_REASONS as readonly unknown[]).includes(reason) ? (reason as RemovedReason) : 'terms',
+        };
+      }
     }
+    // Unknown, deleted, expired, or the owner's account is pending deletion (milestone-6
+    // §8.8): every host shows it as missing, never as removed.
+    if (error.status === 404) return { kind: 'missing' };
     if (error.isNetworkError) return { kind: 'network' };
     return { kind: 'other' };
   }
@@ -56,6 +83,12 @@ export function unlockErrorMessage(error: UnlockError, nowMs: number = Date.now(
       return "The human check couldn't load. Check your connection or disable blockers for challenges.cloudflare.com.";
     case 'network':
       return "Couldn't reach files.gg. Check your connection and try again.";
+    case 'pending':
+      return "It's still being checked. Try again in a few seconds.";
+    case 'removed':
+      return "It's no longer available.";
+    case 'missing':
+      return "It doesn't exist or has expired.";
     case 'other':
       return "Couldn't unlock right now. Try again in a moment.";
   }

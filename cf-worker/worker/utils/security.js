@@ -1,7 +1,7 @@
 // Pure helpers for hardening cdn.files.gg (docs/redesign/PLAN.md, "Hardening cdn.files.gg").
 // No Worker globals in here, so everything can be unit-tested with `node --test`.
 
-import { DEFAULT_HOSTS, DEFAULT_ORIGINS, isMainHost } from './hosts.js';
+import { DEFAULT_ORIGINS } from './hosts.js';
 import { boolean } from './inputtypes.js';
 
 
@@ -28,7 +28,6 @@ export function isForcedText(mimetype) {
   return FORCED_TEXT_MIMETYPES.includes(value) || value.endsWith('+xml');
 }
 
-export const DEFAULT_ALLOWED_ORIGINS = Object.freeze([DEFAULT_ORIGINS.main]);
 // X-Filesgg-Access carries unlock tokens and owner passes for /files/<vanity>/view (contract §5).
 export const CORS_ALLOW_HEADERS = 'Authorization, Content-Type, X-Fingerprint, X-Filesgg-Access';
 export const CORS_ALLOW_METHODS = 'DELETE, GET, HEAD, OPTIONS, PATCH, POST, PUT';
@@ -189,49 +188,16 @@ export function cdnSecurityHeaders({ mainOrigin } = {}) {
 }
 
 
-// `fallback`: the origins used when the value is empty (the main site's origin).
-export function parseAllowedOrigins(value, fallback = DEFAULT_ALLOWED_ORIGINS) {
-  if (Array.isArray(value)) {
-    value = value.join(',');
-  }
-  if (typeof(value) !== 'string' || !value.trim()) {
-    return fallback.slice();
-  }
-  const origins = value.split(',')
-    .map((origin) => origin.trim().replace(/\/+$/, '').toLowerCase())
-    .filter((origin) => origin && origin !== '*' && origin !== 'null');
-  return (origins.length) ? origins : fallback.slice();
-}
-
-// API passthrough: everything on API_HOST (api.files.gg), plus MAIN_HOST/api/* (the stable
-// router's proxy). `hosts` comes from utils/hosts.js getHosts(env).
-export function isCredentialedRoute(hostname, pathname, hosts = DEFAULT_HOSTS) {
-  const host = String(hostname || '').toLowerCase();
-  if (host === hosts.api) {
-    return true;
-  }
-  return isMainHost(host, hosts) && /^\/+api(?:\/|$)/.test(String(pathname || ''));
-}
-
-// Credentialed routes reflect an allowlisted origin; everything else is `*` without credentials.
-export function corsHeaders({ origin, allowedOrigins = DEFAULT_ALLOWED_ORIGINS, credentialed = false } = {}) {
-  const headers = {
+// CORS (milestone-6.md §12 item 2): never credentialed. Every cross-origin caller, of the API
+// passthroughs and of the CDN alike, gets `*` without Access-Control-Allow-Credentials, so no
+// browser ever sends the session cookie cross-origin with an approved response (a credentialed
+// preflight against `*` fails). Same-origin calls to files.gg/api/* need no CORS at all.
+export function corsHeaders() {
+  return {
     'Access-Control-Allow-Headers': CORS_ALLOW_HEADERS,
     'Access-Control-Allow-Methods': CORS_ALLOW_METHODS,
+    'Access-Control-Allow-Origin': '*',
   };
-
-  const normalized = (typeof(origin) === 'string') ? origin.trim().toLowerCase() : '';
-  if (credentialed && normalized && allowedOrigins.includes(normalized)) {
-    headers['Access-Control-Allow-Origin'] = origin.trim();
-    headers['Access-Control-Allow-Credentials'] = 'true';
-  } else {
-    headers['Access-Control-Allow-Origin'] = '*';
-  }
-  if (credentialed) {
-    // The answer depends on Origin, so caches must key on it.
-    headers['Vary'] = 'Origin';
-  }
-  return headers;
 }
 
 
@@ -246,7 +212,8 @@ function getQueryValue(query, key) {
 }
 
 // Decides content-type and content-disposition for a file served from cdn.files.gg/files/...
-export function decideCdnResponse({ mimetype, query, filename } = {}) {
+// `inline: false` (a download-only file, milestone-4.md §2.3) always gives `attachment`.
+export function decideCdnResponse({ mimetype, query, filename, inline = true } = {}) {
   let contentType = String(mimetype || 'application/octet-stream');
   if (isForcedText(contentType)) {
     contentType = 'text/plain';
@@ -255,7 +222,7 @@ export function decideCdnResponse({ mimetype, query, filename } = {}) {
   }
 
   let disposition = 'attachment';
-  if (isInlineAllowed(contentType) && !boolean(getQueryValue(query, 'download'))) {
+  if (inline && isInlineAllowed(contentType) && !boolean(getQueryValue(query, 'download'))) {
     disposition = 'inline';
   }
 
@@ -289,16 +256,57 @@ export function isValidProxyToken(token, secret) {
 
 export const CLIENT_IP_HEADER = 'X-Filesgg-Client-Ip';
 export const ORIGIN_SECRET_HEADER = 'X-Filesgg-Origin-Secret';
+// Set only by domains/internal.js on its own lookups. The API's /internal routes need it as well
+// as the secret, and every forwarded (client) request has it removed below, so a request proxied
+// through the passthrough can never authenticate as an internal lookup.
+export const INTERNAL_LOOKUP_HEADER = 'X-Filesgg-Internal-Lookup';
+// `main` on requests forwarded from files.gg/api/* only (milestone-6.md §3.4, §12): the API reads a
+// session cookie only from those. Client copies are always removed, like the lookup header.
+export const VIA_HEADER = 'X-Filesgg-Via';
+export const VIA_MAIN = 'main';
+
+// True for any path that reaches the API's /internal routes, however it is spelled (percent
+// encoding, backslashes, repeated slashes, dot segments, case). The passthroughs refuse these.
+export function isInternalApiPath(pathname) {
+  let path = String(pathname || '/');
+  for (let i = 0; i < 3; i++) {
+    let decoded;
+    try {
+      decoded = decodeURIComponent(path);
+    } catch {
+      break;
+    }
+    if (decoded === path) {
+      break;
+    }
+    path = decoded;
+  }
+  path = path.replace(/\\/g, '/').replace(/\/{2,}/g, '/');
+  try {
+    path = new URL(path.startsWith('/') ? path : '/' + path, 'https://internal.invalid').pathname;
+  } catch {
+    // keep the cleaned path
+  }
+  path = path.toLowerCase();
+  return path === '/internal' || path.startsWith('/internal/');
+}
 
 // Returns `{ headers, trusted }`: a copy of `headers` (a Headers object or a plain object) for the
-// API request. Incoming copies of both headers are always removed. With a secret, the secret and
-// the client IP (default: the incoming CF-Connecting-IP) are set; without one, neither is (fail
-// closed) and `trusted` is false.
-export function originRequestHeaders(headers, secret, clientIp) {
+// API request. Incoming copies of these headers are always removed, and so is the client's
+// `Cookie` (milestone-6.md §12). With a secret, the secret and the client IP (default: the
+// incoming CF-Connecting-IP) are set; without one, neither is (fail closed) and `trusted` is false.
+//
+// `main: true` (files.gg/api/* only) marks the request `X-Filesgg-Via: main` and gives it
+// `sessionCookie` (the `<name>=<value>` from utils/cookies.js sessionCookieHeader(), or null) as its
+// only cookie. Both need the secret: an untrusted request carries neither.
+export function originRequestHeaders(headers, secret, clientIp, { main = false, sessionCookie = null } = {}) {
   const result = new Headers(headers || {});
   const incomingClientIp = result.get('cf-connecting-ip');
   result.delete(CLIENT_IP_HEADER);
   result.delete(ORIGIN_SECRET_HEADER);
+  result.delete(INTERNAL_LOOKUP_HEADER);
+  result.delete(VIA_HEADER);
+  result.delete('cookie');
 
   if (typeof(secret) !== 'string' || !secret) {
     return { headers: result, trusted: false };
@@ -308,6 +316,12 @@ export function originRequestHeaders(headers, secret, clientIp) {
   const ip = (clientIp === undefined) ? incomingClientIp : clientIp;
   if (typeof(ip) === 'string' && ip.trim()) {
     result.set(CLIENT_IP_HEADER, ip.trim());
+  }
+  if (main) {
+    result.set(VIA_HEADER, VIA_MAIN);
+    if (typeof(sessionCookie) === 'string' && sessionCookie) {
+      result.set('cookie', sessionCookie);
+    }
   }
   return { headers: result, trusted: true };
 }

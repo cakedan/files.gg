@@ -1,4 +1,4 @@
-import { Clock, ExternalLink, Images, Infinity as InfinityIcon, KeyRound, Link2, Lock, Pencil, Trash2 } from 'lucide-react';
+import { Clock, Eye, EyeOff, ExternalLink, Images, Infinity as InfinityIcon, KeyRound, Link2, Lock, MessageSquareWarning, Pencil, Trash2 } from 'lucide-react';
 
 import type { OwnerFile } from '../../lib/api';
 import type { MenuItem } from '../components/Menu';
@@ -13,7 +13,17 @@ export interface FileHandlers {
   changeAccess: (files: OwnerFile[]) => void;
   addToAlbum: (files: OwnerFile[]) => void;
   remove: (files: OwnerFile[]) => void;
+  /** Milestone 4 (§4.5): mark or unmark as sensitive. Signed in only. */
+  setSensitive?: ((files: OwnerFile[], nsfw: boolean) => void) | undefined;
+  /** Ask for a review of an automatic NSFW mark. */
+  askReview?: ((file: OwnerFile) => void) | undefined;
 }
+
+/** Why Unmark is disabled (§4.5, §11.2). */
+export const NSFW_LOCKED_HINT = 'Marked by files.gg. Ask for a review instead.';
+
+/** "Ask for review" is offered for files the classifier marked, once (§4.5). */
+export const canAskReview = (file: OwnerFile) => file.safety?.nsfw_source === 'auto' && file.safety.nsfw_review === 'none';
 
 /** Row actions (contract §8): Copy link, Open, Open as owner, Rename, Set expiry, Change access, Delete. */
 export function fileMenuItems(file: OwnerFile, handlers: FileHandlers): MenuItem[] {
@@ -31,6 +41,16 @@ export function fileMenuItems(file: OwnerFile, handlers: FileHandlers): MenuItem
     },
     { label: 'Change access…', icon: Lock, onSelect: () => handlers.changeAccess([file]) },
     { label: 'Add to album…', icon: Images, onSelect: () => handlers.addToAlbum([file]) },
+    { label: 'Mark as sensitive', icon: EyeOff, onSelect: () => handlers.setSensitive?.([file], true), hidden: !handlers.setSensitive || Boolean(file.nsfw) },
+    {
+      label: 'Unmark as sensitive',
+      icon: Eye,
+      onSelect: () => handlers.setSensitive?.([file], false),
+      hidden: !handlers.setSensitive || !file.nsfw,
+      disabled: Boolean(file.safety?.nsfw_locked),
+      hint: file.safety?.nsfw_locked ? NSFW_LOCKED_HINT : undefined,
+    },
+    { label: 'Ask for review…', icon: MessageSquareWarning, onSelect: () => handlers.askReview?.(file), hidden: !handlers.askReview || !canAskReview(file) },
     { label: 'Delete', icon: Trash2, onSelect: () => handlers.remove([file]), danger: true },
   ];
 }

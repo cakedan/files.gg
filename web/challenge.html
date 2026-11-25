@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="dark" />
+    <meta name="robots" content="noindex" />
+    <title>files.gg check</title>
+    <!-- Transparent, so it sits in the lock screen or report form like the direct widget. -->
+    <style>
+      html,
+      body {
+        margin: 0;
+        background: transparent;
+      }
+      body {
+        display: flex;
+        justify-content: center;
+        overflow: hidden;
+        font: 13px/1.4 system-ui, sans-serif;
+        color: #b5bac1;
+      }
+      #status {
+        margin: 0;
+        padding: 8px;
+        text-align: center;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="turnstile"></div>
+    <p id="status" role="status" hidden></p>
+    <!-- filesgg:challenge-data (the worker inlines <script id="challenge-data" type="application/json">{"host":"…","action":"…"}</script> here) -->
+    <script type="module" src="/src/challenge/main.ts"></script>
+  </body>
+</html>
