@@ -2,6 +2,7 @@ import { Clock, Eye, EyeOff, ExternalLink, Gauge, Globe, Images, Infinity as Inf
 
 import type { OwnerFile } from '../../lib/api';
 import { sourceKindOf } from '../../lib/convertKinds';
+import { ADULT_REGION_TEXT } from '../../lib/upload/options';
 import type { MenuItem } from '../components/Menu';
 
 export interface FileHandlers {
@@ -16,6 +17,8 @@ export interface FileHandlers {
   remove: (files: OwnerFile[]) => void;
   /** Milestone 4 (§4.5): mark or unmark as sensitive. Signed in only. */
   setSensitive?: ((files: OwnerFile[], nsfw: boolean) => void) | undefined;
+  /** Milestone 7 §11.4: adult content isn't available from the owner's country, so files can't be marked (unmarking still works). */
+  adultRegionBlocked?: boolean | undefined;
   /** Ask for a review of an automatic NSFW mark. */
   askReview?: ((file: OwnerFile) => void) | undefined;
   /** Milestone 6 §10.9: copies `direct_url` (files whose payload has one). */
@@ -64,7 +67,14 @@ export function fileMenuItems(file: OwnerFile, handlers: FileHandlers): MenuItem
     { label: 'View limit…', icon: Gauge, onSelect: () => handlers.editViewLimit?.(file), hidden: !handlers.editViewLimit },
     { label: 'Add to album…', icon: Images, onSelect: () => handlers.addToAlbum([file]) },
     { label: 'Convert…', icon: Wand2, onSelect: () => handlers.convert?.([file]), hidden: !handlers.convert || !canConvert(file) },
-    { label: 'Mark as sensitive', icon: EyeOff, onSelect: () => handlers.setSensitive?.([file], true), hidden: !handlers.setSensitive || Boolean(file.nsfw) },
+    {
+      label: 'Mark as sensitive',
+      icon: EyeOff,
+      onSelect: () => handlers.setSensitive?.([file], true),
+      hidden: !handlers.setSensitive || Boolean(file.nsfw),
+      disabled: Boolean(handlers.adultRegionBlocked),
+      hint: handlers.adultRegionBlocked ? ADULT_REGION_TEXT : undefined,
+    },
     {
       label: 'Unmark as sensitive',
       icon: Eye,

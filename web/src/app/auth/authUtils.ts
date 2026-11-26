@@ -14,9 +14,18 @@ export function signedInToast(hadGuest: boolean, pendingDeletion: boolean): stri
   return hadGuest && !pendingDeletion ? CLAIMED_TOAST : undefined;
 }
 
-/** `GET /auth/config`: Discord is hidden when the API has no Discord app (§15). */
-export function useAuthConfig() {
-  return useQuery({ queryKey: ['auth', 'config'], queryFn: ({ signal }) => accountApi.config(signal), staleTime: Infinity, retry: false });
+/**
+ * `GET /auth/config`: Discord is hidden when the API has no Discord app (§15); the minimum age and
+ * whether adult content is available come from the visitor's country (milestone-7 §11.3).
+ */
+export function useAuthConfig(enabled = true) {
+  return useQuery({ queryKey: ['auth', 'config'], queryFn: ({ signal }) => accountApi.config(signal), staleTime: Infinity, retry: false, enabled });
+}
+
+/** `minimum_age` when the API gave a usable one (milestone-7 §11.4); null until then, so nothing is guessed. */
+export function useMinimumAge(): number | null {
+  const age = useAuthConfig().data?.minimum_age;
+  return typeof age === 'number' && Number.isInteger(age) && age > 0 ? age : null;
 }
 
 /** The validated `?next=` (§6.1), as a path below `/app`. */

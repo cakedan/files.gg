@@ -137,6 +137,26 @@ describe('owner NSFW actions (milestone-4 §4.5, §11.2)', () => {
     expect(screen.queryByText('This file may contain sensitive content')).not.toBeInTheDocument();
   });
 
+  it('from a blocked region (milestone-7 §11.4), Mark is disabled with the reason; Unmark still works', () => {
+    const blocked = { adultRegionBlocked: true };
+    expect(labels(ownerFile({ nsfw: false, safety: safety() }), blocked)).toContainEqual(['Mark as sensitive', true, "Adult content isn't available in your region."]);
+    expect(labels(ownerFile({ nsfw: true, safety: safety({ nsfw_source: 'uploader' }) }), blocked)).toContainEqual(['Unmark as sensitive', false, null]);
+  });
+
+  it('the drawer from a blocked region: one line instead of Mark as sensitive; a marked file can still be unmarked', () => {
+    const setSensitive = vi.fn();
+    const view = wrap(<FileDrawer file={withThumb({ nsfw: false, safety: safety() })} handlers={handlers({ adultRegionBlocked: true, setSensitive })} onClose={vi.fn()} />);
+    const section = screen.getByRole('region', { name: 'Sensitive content' });
+    expect(within(section).getByText("Adult content isn't available in your region.")).toBeInTheDocument();
+    expect(within(section).queryByRole('button', { name: 'Mark as sensitive' })).toBeNull();
+    view.unmount();
+
+    wrap(<FileDrawer file={withThumb({ nsfw: true, safety: safety({ nsfw_source: 'uploader' }) })} handlers={handlers({ adultRegionBlocked: true, setSensitive })} onClose={vi.fn()} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Unmark as sensitive' }));
+    expect(setSensitive).toHaveBeenCalledWith([expect.objectContaining({ nsfw: true })], false);
+    expect(screen.queryByText("Adult content isn't available in your region.")).toBeNull();
+  });
+
   it('the drawer explains a removed file and links its notice instead of showing it', () => {
     const file = withThumb({ safety: safety({ state: 'removed', reason: 'copyright', notice_id: 'n1' }) });
     wrap(<FileDrawer file={file} handlers={handlers()} onClose={vi.fn()} />);

@@ -13,6 +13,7 @@ import { apiUrl } from '../../test/apiStub';
 
 let album: OwnerAlbum;
 let putResponse: (ids: string[]) => Response;
+let limits: Record<string, unknown>;
 
 function setup() {
   const router = createMemoryRouter(
@@ -71,6 +72,7 @@ beforeEach(() => {
   mockLayout();
   const files = ['a', 'b', 'c'].map((name, i) => ownerFile({ id: String(i + 1), name }));
   album = ownerAlbum([...files, ownerFile({ id: '4', name: 'secret', visibility: 'password' })]);
+  limits = { storage: { used: 0, limit: 1e10 }, max_file_size_single: 1, max_file_size_chunked: 1, max_expiry: null, allow_no_expiry: true, anonymous: false, nsfw_allowed: true };
   putResponse = (ids) => json({ ...album, items: ids.map((id, position) => ({ ...album.items.find((item) => item.id === id)!, position })) });
   vi.stubGlobal(
     'fetch',
@@ -83,6 +85,7 @@ beforeEach(() => {
         return json({ ...album, items: album.items.map((item) => (item.id === '2' ? { ...item, caption } : item)) });
       }
       if (url.pathname === '/users/@me/albums/900' && init?.method === 'DELETE') return json(null, 204);
+      if (url.pathname === '/users/@me/limits') return json(limits);
       return json({}, 404);
     }),
   );
@@ -141,5 +144,28 @@ describe('AlbumEditorPage', () => {
     fireEvent.click(within(dialog).getByRole('button', { name: 'Delete album and files' }));
     await waitFor(() => expect(router.state.location.pathname).toBe('/albums'));
     expect(vi.mocked(fetch).mock.calls.some(([url, init]) => String(url).endsWith('/users/@me/albums/900?delete_files=true') && init?.method === 'DELETE')).toBe(true);
+  });
+});
+
+describe('AlbumEditorPage from a blocked region (milestone-7 §11.4)', () => {
+  it('one line instead of the "Mark album as sensitive" switch', async () => {
+    limits = { ...limits, nsfw_allowed: false, adult_region_blocked: true };
+    setup();
+    expect(await screen.findByText("Adult content isn't available in your region.")).toBeInTheDocument();
+    expect(screen.queryByRole('switch', { name: 'Mark album as sensitive' })).toBeNull();
+  });
+
+  it('an album marked before keeps its switch, so it can be unmarked', async () => {
+    limits = { ...limits, nsfw_allowed: false, adult_region_blocked: true };
+    album = { ...album, nsfw: true, nsfw_marked: true };
+    setup();
+    expect(await screen.findByRole('switch', { name: 'Mark album as sensitive' })).toBeChecked();
+    expect(screen.queryByText("Adult content isn't available in your region.")).toBeNull();
+  });
+
+  it('elsewhere, the switch as before', async () => {
+    setup();
+    expect(await screen.findByRole('switch', { name: 'Mark album as sensitive' })).not.toBeChecked();
+    expect(screen.queryByText("Adult content isn't available in your region.")).toBeNull();
   });
 });

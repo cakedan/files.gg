@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import {
   accessChoices,
+  adultRegionBlocked,
   canMarkNsfw,
   canNeverExpire,
   defaultExpiry,
@@ -113,6 +114,29 @@ describe('the NSFW mark (milestone-4 §4.3)', () => {
     expect(resolvePickers(state, restricted).params.nsfw).toBeUndefined();
     expect(canMarkNsfw({ anonymous: true, limits: null })).toBe(false);
     expect(resolvePickers({ ...defaultPickerState({ anonymous: true }), nsfw: true }, { anonymous: true }).params.nsfw).toBeUndefined();
+  });
+});
+
+describe('regional rules (milestone-7 §11.4)', () => {
+  const limits = { max_expiry: null, allow_no_expiry: true, nsfw_allowed: true };
+
+  it('signed in, the limits say the region blocks adult content: nothing can be marked, even from the defaults', () => {
+    const blocked: PickerContext = { anonymous: false, limits: { ...limits, nsfw_allowed: false, adult_region_blocked: true }, defaults: { expires_in: null, visibility: 'link', nsfw: true } };
+    expect(adultRegionBlocked(blocked)).toBe(true);
+    expect(canMarkNsfw(blocked)).toBe(false);
+    expect(defaultPickerState(blocked).nsfw).toBe(false);
+    expect(resolvePickers({ ...defaultPickerState(blocked), nsfw: true }, blocked).params.nsfw).toBeUndefined();
+    // Even if nsfw_allowed were left true, the region wins.
+    expect(canMarkNsfw({ anonymous: false, limits: { ...limits, adult_region_blocked: true } })).toBe(false);
+    expect(adultRegionBlocked({ anonymous: false, limits: { ...limits, adult_region_blocked: false } })).toBe(false);
+  });
+
+  it('signed out, /auth/config says whether adult content is available; unknown is not blocked', () => {
+    expect(adultRegionBlocked({ anonymous: true, limits: null, adultContentAvailable: false })).toBe(true);
+    expect(adultRegionBlocked({ anonymous: true, limits: null, adultContentAvailable: true })).toBe(false);
+    expect(adultRegionBlocked({ anonymous: true, limits: null })).toBe(false);
+    // Signed in, only the limits count.
+    expect(adultRegionBlocked({ anonymous: false, limits, adultContentAvailable: false })).toBe(false);
   });
 });
 

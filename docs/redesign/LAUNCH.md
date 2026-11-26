@@ -43,6 +43,7 @@ Every value the stack needs, who produces it, and the variable it goes into. `.e
 | Discord sign-in (optional) | `DISCORD_CLIENT_ID`, `DISCORD_CLIENT_SECRET`, `DISCORD_REDIRECT_URI=https://files.gg/app/auth/discord`, all three or none | `.env` | Dan, Discord | 4.5 |
 | Custom domains | `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ZONE_ID`, `CUSTOM_DOMAIN_TARGET=domains.files.gg` | `.env` | Dan, Cloudflare | 2.5 |
 | Origin certificate | `nginx/certificates/certificate.cert`, `certificate.key` (files on the server, never committed) | server | Dan creates, Claude installs | 2.3 |
+| Adult content blocked by country | `ADULT_BLOCKED_COUNTRIES` (default `GB`; comma-separated country codes); `ops/deploy.sh` passes it to the Worker too | `.env` | Dan, with the lawyer | Decisions, 2026-11-25 |
 | Body limit | `PROXY_BODY_LIMIT_BYTES` (default `104857600`) and nginx `client_max_body_size` (together) | `.env`, `nginx/nginx.conf` | Claude, after the check | 7.5 |
 
 **Never in production:** `FILESGG_DEV_TOOLS`, `SESSION_COOKIE_INSECURE`, `FILESGG_ALLOW_LEGAL_PLACEHOLDERS`, `STANDIN_MODE`, `WEB_RISK_STANDIN_FILE`, `DOMAIN_DNS_STUB`, `DEBUG`, `VITE_API_URL`. `ops/check-env.sh` refuses each of them, and refuses `CSAM_MATCHER` other than `photodna`.
@@ -276,14 +277,14 @@ The production build refuses to ship while any placeholder remains (milestone-5 
 
 ### 5.5 The other legal questions — **Dan**, with a lawyer
 From PLAN.md §4 item 8, milestone-4 §15, milestone-5 §19 and milestone-6 §17:
-1. **UK and EU duties** (the Online Safety Act, the Digital Services Act): what applies at files.gg's size (risk assessments, a point of contact, notice-and-action, transparency).
-2. **Age verification:** whether hosting marked adult content requires it anywhere files.gg has users (UK OSA, US state laws). Today: 18+ is a statement, not a check.
+1. **UK and EU duties** (the Online Safety Act, the Digital Services Act): what applies at files.gg's size (risk assessments, a point of contact, notice-and-action, transparency). *Operator in the US, so an EU representative (Decisions, 2026-11-25).*
+2. **Age verification:** whether hosting marked adult content requires it anywhere files.gg has users (UK OSA, US state laws). Today: 18+ is a statement, not a check. *Decided: hidden from the UK instead (Decisions, 2026-11-25); the lawyer checks the US one-third laws, including Texas HB 18 for platforms.*
 3. **The evidence preservation period** (`EVIDENCE_RETENTION_DAYS`, 365) and keeping **sealed uploader IPs** for 30 days (`ABUSE_IP_KEEP_DAYS`).
 4. **What a CyberTipline report includes**, and who files it.
 5. **The DMCA good-faith and perjury statements** in the report and appeal forms (PLAN.md Milestone 4 follow-ups).
 6. **The public report copy:** no time-bound promises ("We review every report. Child-safety reports are prioritised.").
 7. **Erasure requests from suspended accounts**, and law-enforcement holds against deletion (milestone-6 §17).
-8. **The minimum age** (13, and 18 for adult content) and the EU countries where consent needs an older age.
+8. **The minimum age** (13, and 18 for adult content) and the EU countries where consent needs an older age. *Decided: 13, or 16 in the EU and EEA (Decisions, 2026-11-25).*
 9. **The security policy page.** `security.txt` says `Policy: https://files.gg/legal/security`, and that page doesn't exist (the Worker answers `/legal/security` with the missing page). Either write it (Claude can draft it: scope, how to report, safe harbour, what's out of scope) or drop the `Policy:` line. **Claude** does whichever Dan picks before launch.
 - **Check:** each has a written answer in this file (append them under "Decisions" below) or a change in the Terms or Privacy Policy.
 
@@ -438,3 +439,8 @@ One line per alert in `monitoring/grafana/provisioning/alerting/alerts.yml` (con
 ## Decisions
 
 Record the answers to the open items here as they're made, with the date: the body-limit result (§7.5), the evidence key's final capabilities (§3.3), Authenticated Origin Pulls on the fallback origin (§2.4), the legal answers (§5.4, §5.5), the server location (§1.1) and the launch date (§5.6).
+
+**2026-11-25 (Dan; the lawyer confirms each):**
+- **The operator is based in the United States** (§5.4 `[OPERATOR]`; still to decide: Dan personally or a company). With no establishment in the EU, files.gg needs a **DSA legal representative** in an EU country (Art. 13), and very likely a GDPR Art. 27 representative too; the lawyer confirms whether UK GDPR also needs one. Firms offer both as a service. They fill `[EU/UK REPRESENTATIVE, if needed]`.
+- **Adult content is hidden from the UK** (§5.5 item 2). UK visitors (Cloudflare's country) can't view, upload or mark adult content; everything else works there, and it stays as today everywhere else. This is instead of real age checks, which the Online Safety Act requires for porn (Ofcom has fined small sites £80k to £1.35M). The lawyer weighs VPNs, and what the UK duties still need (illegal-content and children's risk assessments). Built (contract milestone-7 §11): the Worker answers 451 for adult files, albums, previews and ZIPs to UK visitors, and the API refuses marking, uploading, defaults, key defaults and conversions of adult content from the UK. **For the lawyer:** VPNs and Tor (unknown countries aren't blocked); a password-protected adult file tells a UK visitor it's adult (the 451 comes before the lock); staff in the UK can't review adult content (staff links are blocked too); and the Privacy §7 wording, now the 13/16 rule.
+- **The minimum age is 13, or 16 in the EU and EEA** (§5.5 item 8). Sixteen covers every EU country's age of digital consent (13 to 16); the EEA adds Norway, Iceland and Liechtenstein, under the same GDPR. 18 for adult content everywhere, as today. **Built (contract milestone-7 §11): the Terms, Privacy §7 and the sign-up line say 16 for EU and EEA visitors (and for an unknown country).

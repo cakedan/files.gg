@@ -59,6 +59,10 @@ Every request reaches files.gg through Cloudflare, which sees your IP address (s
 - **Daily hashes for view counts and anonymous upload limits.** To count unique views, and to apply the anonymous upload limit, we use hashes made with a key that changes every day and is never stored, so after that day they can't be linked to an IP address. We delete them after 2 days<!-- VIEW_SEEN_KEEP_DAYS = 2 and UPLOADER_IP_KEEP_SECONDS = 2 days, api/jobs/tasks.py -->.
 - **The uploader's IP address, sealed.** For each upload, we also keep the uploader's IP address encrypted to a key that's kept offline, never on our servers. It's opened only when we must report child sexual abuse material to the authorities, or to answer a valid legal request. We delete it after 30 days<!-- ABUSE_IP_KEEP_DAYS = 30 (files.uploader_ip_sealed), api/safety/settings.py and api/safety/tasks.py -->.
 
+### Your country
+
+Cloudflare works out which country you're connecting from, from your IP address. files.gg uses it to apply the regional rules in our [Terms](/legal/terms): the minimum age, and whether adult content is available where you are. We don't store it for this.
+
 ### Sign-in sessions
 
 When you sign in, we keep a session: how you signed in, when, when it was last used, your browser's user agent (as your browser sends it, up to 256 characters), and the country Cloudflare reports for your connection at sign-in and at last use. We don't keep IP addresses with sessions. You can see and end your sessions in **Settings**.
@@ -174,7 +178,7 @@ You can complain to the data protection authority where you live or work (in the
 
 ## 7. Children
 
-You must be 13 or older to use files.gg, and 18 or older to upload, mark or view adult content. In some countries, including several in the EU, you must be older than 13 (up to 16) to agree to the use of your personal data yourself; if that's you, you may use files.gg only with your parent or guardian's consent. If you believe a child under 13 is using files.gg, tell us at [PRIVACY CONTACT].
+You must be 13 or older to use files.gg, or 16 or older in the European Union, Iceland, Liechtenstein and Norway, and 18 or older to upload, mark or view adult content. If you believe a child under that age is using files.gg, tell us at [PRIVACY CONTACT].
 
 ## 8. Transfers, security, changes and contact
 

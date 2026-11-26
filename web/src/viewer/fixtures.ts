@@ -90,6 +90,9 @@ export const FIXTURE_NAMES = [
   // Milestone 6 §19 (view limits)
   'limited',
   'limited-password',
+  // Milestone 7 §11.2 (adult content from a blocked country)
+  'region',
+  'region-album',
 ] as const;
 export type FixtureName = (typeof FIXTURE_NAMES)[number];
 
@@ -656,6 +659,10 @@ function fixtures(now: number, media: FixtureMedia): Record<FixtureName, Fixture
       state: 'locked',
       file: { vanity: 'limitedpw', protected: 'password', filename: 'limited-notes.pdf', view_limited: true, views_remaining: 3 },
     },
+    // ---- Milestone 7 ----
+    // §11.2: an adult file or album from a blocked country: HTTP 451, `{ vanity }` only.
+    region: { page: 'file', state: 'region', file: { vanity: 'adult1234' } },
+    'region-album': { page: 'album', state: 'region', album: { vanity: 'adultalbum' } },
   };
 }
 

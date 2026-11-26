@@ -1,4 +1,4 @@
-import { Ban, Hourglass, Loader2, RefreshCw } from 'lucide-react';
+import { Ban, Hourglass, Loader2, MapPinOff, RefreshCw } from 'lucide-react';
 import { useEffect, useState } from 'react';
 
 import { Button, LinkButton } from '../../components/Button';
@@ -6,7 +6,7 @@ import { mainUrl } from '../host/context';
 import type { RemovedReason, StateTarget } from '../types';
 import { nextStep, readProgress, withProgress } from './pendingReload';
 import { StateCard } from './StateCards';
-import { removedMessage, TERMS_URL } from './stateCopy';
+import { ADULT_TERMS_URL, removedMessage, TERMS_URL } from './stateCopy';
 
 /*
  * Milestone 4 shell states (milestone-4 §2.4, §11.1). A chunk of their own: almost
@@ -90,6 +90,24 @@ export function RemovedCard({ target, reason }: { target: StateTarget; reason: R
           Terms
         </a>{' '}
         to see what isn't allowed on files.gg.
+      </p>
+      <LinkButton href={mainUrl('/')}>Go to files.gg</LinkButton>
+    </StateCard>
+  );
+}
+
+/** `region` (HTTP 451, milestone-7 §11.4): adult content from a blocked country. The shell has nothing of the file. */
+export function RegionCard() {
+  return (
+    <StateCard>
+      <MapPinOff aria-hidden className="size-10 text-muted" />
+      <h1 className="text-lg font-semibold">This isn't available in your region.</h1>
+      <p className="text-sm text-muted">
+        Adult content can't be viewed where you are. See the{' '}
+        <a href={mainUrl(ADULT_TERMS_URL)} className="text-gg underline-offset-2 hover:underline">
+          Terms
+        </a>
+        .
       </p>
       <LinkButton href={mainUrl('/')}>Go to files.gg</LinkButton>
     </StateCard>

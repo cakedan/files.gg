@@ -12,6 +12,7 @@ import { apiUrl } from '../../test/apiStub';
 
 let library: OwnerFile[];
 let deleteResponse: () => Promise<Response>;
+let limitsExtra: Record<string, unknown>;
 
 function setup(path = '/files') {
   const router = createMemoryRouter(
@@ -44,6 +45,7 @@ const listCalls = () =>
 beforeEach(() => {
   library = ['alpha', 'bravo', 'charlie', 'delta', 'echo'].map((name, i) => ownerFile({ id: String(i + 1), name, size: 1000 * (i + 1) }));
   deleteResponse = async () => json({ deleted: [] });
+  limitsExtra = {};
   vi.stubGlobal(
     'fetch',
     vi.fn(async (input: string, init?: RequestInit) => {
@@ -61,7 +63,7 @@ beforeEach(() => {
         }
         return response;
       }
-      if (url.pathname === '/users/@me/limits') return json({ storage: { used: 0, limit: 1e10 }, max_file_size_single: 1, max_file_size_chunked: 1, max_expiry: null, allow_no_expiry: true, anonymous: false });
+      if (url.pathname === '/users/@me/limits') return json({ storage: { used: 0, limit: 1e10 }, max_file_size_single: 1, max_file_size_chunked: 1, max_expiry: null, allow_no_expiry: true, anonymous: false, ...limitsExtra });
       return json({}, 404);
     }),
   );
@@ -144,5 +146,28 @@ describe('FilesPage selection and bulk delete', () => {
     expect(await screen.findByText('charlie.png')).toBeInTheDocument();
     expect(screen.getByText('bravo.png')).toBeInTheDocument();
     expect(screen.getByRole('alert')).toHaveTextContent("Couldn't delete: This file doesn't exist or has expired.");
+  });
+});
+
+describe('FilesPage from a blocked region (milestone-7 §11.4)', () => {
+  it('the bulk bar says adult content isn\'t available instead of offering Mark as sensitive; Unmark stays', async () => {
+    limitsExtra = { nsfw_allowed: false, adult_region_blocked: true };
+    setup();
+    await screen.findByText('alpha.png');
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Select alpha.png' }));
+    const bar = screen.getByRole('region', { name: 'Selected files' });
+    expect(await within(bar).findByText("Adult content isn't available in your region.")).toBeInTheDocument();
+    expect(within(bar).queryByRole('button', { name: 'Mark as sensitive' })).toBeNull();
+    expect(within(bar).getByRole('button', { name: 'Unmark' })).toBeInTheDocument();
+  });
+
+  it('elsewhere, the bulk bar offers Mark as sensitive', async () => {
+    limitsExtra = { nsfw_allowed: true, adult_region_blocked: false };
+    setup();
+    await screen.findByText('alpha.png');
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Select alpha.png' }));
+    const bar = screen.getByRole('region', { name: 'Selected files' });
+    expect(within(bar).getByRole('button', { name: 'Mark as sensitive' })).toBeInTheDocument();
+    expect(within(bar).queryByText("Adult content isn't available in your region.")).toBeNull();
   });
 });

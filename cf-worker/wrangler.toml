@@ -58,6 +58,12 @@ S3_ENDPOINT = ""
 S3_REGION = ""
 S3_BUCKET_FILES = ""
 
+# Where adult content isn't served (docs/redesign/contracts/milestone-7.md §11): comma-separated
+# ISO country codes, checked against Cloudflare's `request.cf.country`. NSFW files, previews, albums,
+# collages and ZIPs answer 451 there. Empty means GB. ops/deploy.sh passes the server's .env value
+# (`--var ADULT_BLOCKED_COUNTRIES:...`, the same one the API gets) when it's set; otherwise this one.
+ADULT_BLOCKED_COUNTRIES = "GB"
+
 # Secrets are never stored here. Set each one once per Worker with `npx wrangler secret put <NAME>`:
 #
 #   ORIGIN_SHARED_SECRET       Must equal the API's. Sent as X-Filesgg-Origin-Secret on every API
@@ -93,3 +99,4 @@ API_HOST = "api-staging.files.gg"
 S3_ENDPOINT = ""
 S3_REGION = ""
 S3_BUCKET_FILES = ""
+ADULT_BLOCKED_COUNTRIES = "GB"

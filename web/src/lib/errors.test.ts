@@ -93,3 +93,9 @@ describe('milestone 5: conversions and Redis rate limits (§12, §18)', () => {
     expect(errorMessage(err(503, 'RATE_LIMIT_UNAVAILABLE'))).toBe('Try again in a moment.');
   });
 });
+
+describe('milestone 7: regional rules (§11.3, §11.4)', () => {
+  it('ADULT_CONTENT_UNAVAILABLE says adult content is not available in the region', () => {
+    expect(errorMessage(err(451, 'ADULT_CONTENT_UNAVAILABLE'))).toBe("Adult content isn't available in your region.");
+  });
+});

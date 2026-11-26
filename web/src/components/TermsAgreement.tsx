@@ -2,8 +2,11 @@ import { PRIVACY_PATH, TERMS_PATH } from './SiteFooter';
 
 const link = 'text-gg hover:underline';
 
-/** Under **Create account**, on email and Discord sign-up (milestone-5 §19.2). No checkbox: the button is the agreement. */
-export function SignUpAgreement() {
+/**
+ * Under **Create account**, on email and Discord sign-up (milestone-5 §19.2). No checkbox: the button is the agreement.
+ * The age is `/auth/config`'s `minimum_age` (milestone-7 §11.4); until it's known, the age clause is left out.
+ */
+export function SignUpAgreement({ minimumAge }: { minimumAge: number | null }) {
   return (
     <p className="text-center text-xs text-muted">
       By creating an account, you agree to the{' '}
@@ -14,7 +17,7 @@ export function SignUpAgreement() {
       <a href={PRIVACY_PATH} className={link}>
         Privacy Policy
       </a>
-      , and confirm you’re 13 or older.
+      {minimumAge !== null ? `, and confirm you’re ${minimumAge} or older.` : '.'}
     </p>
   );
 }

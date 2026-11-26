@@ -2,7 +2,6 @@ import { useId, useState } from 'react';
 import { Link, Navigate, useNavigate } from 'react-router';
 
 import { Button } from '../../components/Button';
-import { SignUpAgreement } from '../../components/TermsAgreement';
 import { useTurnstile } from '../../components/useTurnstile';
 import { accountApi } from '../../lib/accountApi';
 import { GUEST_KEY } from '../../lib/api';
@@ -18,6 +17,7 @@ import { UsernameField } from '../account/UsernameField';
 import { AuthCard, FormError } from './AuthLayout';
 import { authErrorMessage, signedInToast, useNext, useSignedInTarget } from './authUtils';
 import { DiscordButton } from './DiscordButton';
+import { SignUpTerms } from './SignUpTerms';
 
 /** `/app/register` (milestone-6 §4.3, §13.2). */
 export default function RegisterPage() {
@@ -147,7 +147,7 @@ export default function RegisterPage() {
         <Button type="submit" variant="primary" disabled={pending} className="w-full">
           {pending ? 'Creating your account…' : 'Create account'}
         </Button>
-        <SignUpAgreement />
+        <SignUpTerms />
         <TurnstileField mount={turnstile.mount} status={turnstile.status} retry={turnstile.retry} />
       </form>
       <DiscordButton next={next} />

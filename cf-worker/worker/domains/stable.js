@@ -11,6 +11,7 @@ import { DEFAULT_HOSTS, getHosts, hostPattern, isMainHost, originFor } from '../
 import { renderChallenge, renderViewer, serveApp, serveSecurityTxt, serveStatic } from '../shell.js';
 import { parseChallengeQuery } from '../utils/domains.js';
 import { domainServing } from '../utils/owners.js';
+import { adultBlockedFor } from '../utils/region.js';
 import { classifyStablePath, decideAlbumShell, decideFileShell, publicPageHead } from '../utils/viewer.js';
 import { botRefusalResponse } from '../utils/viewlimits.js';
 
@@ -99,11 +100,15 @@ async function handle(event) {
     case 'missing': return await renderViewer(event, { page: 'file', state: 'missing', dataId: 'file-data', data: null, status: 404 });
     case 'album': {
       const lookup = await internalLookup(event, 'albums', route.vanity);
-      return await renderViewer(event, decideAlbumShell({ lookup, vanity: route.vanity }));
+      const adultBlocked = adultBlockedFor(event.environment, event.originalRequest);
+      return await renderViewer(event, decideAlbumShell({ lookup, vanity: route.vanity, adultBlocked }));
     }
     case 'file': {
       const lookup = await internalLookup(event, 'files', route.vanity);
-      const shell = decideFileShell({ lookup, vanity: route.vanity, headers: event.originalRequest.headers, mainOrigin: mainOriginOf(event) });
+      const shell = decideFileShell({
+        lookup, vanity: route.vanity, headers: event.originalRequest.headers, mainOrigin: mainOriginOf(event),
+        adultBlocked: adultBlockedFor(event.environment, event.originalRequest),
+      });
       if (shell.redirect) {
         // ShareX, Telegram and embeds of `link` files go straight to cdn_url (PLAN.md §1.4 item 3).
         return new ApiRedirect(shell.redirect);

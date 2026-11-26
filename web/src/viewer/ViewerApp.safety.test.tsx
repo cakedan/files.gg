@@ -100,6 +100,18 @@ describe('removed (milestone-4 §11.1)', () => {
   });
 });
 
+describe('region (milestone-7 §11.4)', () => {
+  it.each(['file', 'album'] as const)('a %s says it isn\'t available, links the Terms and shows nothing of it', async (kind) => {
+    const { container } = render(<ViewerApp state={{ page: 'region', kind }} />);
+    expect(await screen.findByRole('heading', { name: "This isn't available in your region." })).toBeInTheDocument();
+    expect(screen.getByText(/Adult content can't be viewed where you are\./)).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Terms' })).toHaveAttribute('href', '/legal/terms#adult-content');
+    expect(container.querySelectorAll('img, video, audio, iframe')).toHaveLength(0);
+    expect(screen.queryByRole('button', { name: /download|show|report/i })).not.toBeInTheDocument();
+    expect(document.title).toBe('files.gg');
+  });
+});
+
 describe('CSAM-blocked looks exactly like missing (milestone-4 §2.4)', () => {
   it('renders the same markup and title as an unknown file', () => {
     const missing = render(<ViewerApp state={{ page: 'missing' }} />);

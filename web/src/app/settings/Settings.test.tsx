@@ -77,6 +77,46 @@ describe('Settings → Uploads (milestone-5 §21)', () => {
     expect(within(panel).getByRole('button', { name: 'Save defaults' })).toBeDisabled();
   });
 
+  it('from a blocked region (milestone-7 §11.4): one line instead of the adult-content checkbox', async () => {
+    setup(ME, { 'GET /users/@me/limits': () => ({ ...USER_LIMITS, nsfw_allowed: false, adult_region_blocked: true }) });
+    renderDashboard('/settings/uploads');
+    const panel = await screen.findByRole('region', { name: 'Upload defaults' });
+    expect(await within(panel).findByText("Adult content isn't available in your region.")).toBeInTheDocument();
+    expect(within(panel).queryByLabelText('Mark uploads as adult content', { exact: false })).toBeNull();
+  });
+
+  it('from a blocked region, a default saved before is hidden too, and other fields save with it unchanged', async () => {
+    const saved = { expires_in: null, visibility: 'link' as const, nsfw: true };
+    const { fetchMock } = setup(
+      { ...ME, settings: { ...ME.settings, upload_defaults: saved } },
+      {
+        'GET /users/@me/limits': () => ({ ...USER_LIMITS, nsfw_allowed: false, adult_region_blocked: true }),
+        'PATCH /users/@me': ({ body }) => ({ ...ME, settings: { ...ME.settings, upload_defaults: { ...saved, ...body.settings.upload_defaults } } }),
+      },
+    );
+    renderDashboard('/settings/uploads');
+    const panel = await screen.findByRole('region', { name: 'Upload defaults' });
+    expect(await within(panel).findByText("Adult content isn't available in your region.")).toBeInTheDocument();
+    expect(within(panel).queryByLabelText('Mark uploads as adult content', { exact: false })).toBeNull();
+    fireEvent.click(within(panel).getByRole('radio', { name: /Only me/ }));
+    fireEvent.click(within(panel).getByRole('button', { name: 'Save defaults' }));
+    expect(await screen.findByText('Upload defaults saved.')).toBeInTheDocument();
+    expect(calls(fetchMock).find((call) => call.method === 'PATCH')!.body).toEqual({ settings: { upload_defaults: { expires_in: null, visibility: 'private', nsfw: true } } });
+  });
+
+  it('shows ADULT_CONTENT_UNAVAILABLE from the API as the region sentence', async () => {
+    setup(ME, {
+      'GET /users/@me/limits': () => USER_LIMITS,
+      'PATCH /users/@me': () => jsonResponse({ code: 'ADULT_CONTENT_UNAVAILABLE', message: "Adult content isn't available in your region", status: 451 }, 451),
+    });
+    renderDashboard('/settings/uploads');
+    const panel = await screen.findByRole('region', { name: 'Upload defaults' });
+    await waitFor(() => expect(within(panel).getByLabelText('Mark uploads as adult content', { exact: false })).toBeEnabled());
+    fireEvent.click(within(panel).getByLabelText('Mark uploads as adult content', { exact: false }));
+    fireEvent.click(within(panel).getByRole('button', { name: 'Save defaults' }));
+    expect(await within(panel).findByRole('alert')).toHaveTextContent("Adult content isn't available in your region.");
+  });
+
   it('lists a saved expiry that isn’t a preset, and shows the API’s field error', async () => {
     setup(
       { ...ME, settings: { ...ME.settings, upload_defaults: { expires_in: 3 * 86400, visibility: 'private', nsfw: false } } },

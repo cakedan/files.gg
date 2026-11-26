@@ -284,6 +284,8 @@ if [ -n "$worker" ]; then
   account=$(env_value CLOUDFLARE_ACCOUNT_ID)
   # empty: the production Worker (wrangler.toml's top level); `staging` for the staging run's .env
   worker_env=$(env_value WORKER_ENV)
+  # where adult content isn't served (milestone-7 §11.1); empty keeps wrangler.toml's default, GB
+  adult_blocked=$(env_value ADULT_BLOCKED_COUNTRIES)
   (
     cd cf-worker
     npm ci --no-audit --no-fund --silent
@@ -296,7 +298,8 @@ if [ -n "$worker" ]; then
     npx wrangler deploy ${worker_env:+--env "$worker_env"} \
       --var "S3_ENDPOINT:$endpoint" \
       --var "S3_REGION:$(env_value S3_REGION)" \
-      --var "S3_BUCKET_FILES:$(env_value S3_BUCKET_FILES)"
+      --var "S3_BUCKET_FILES:$(env_value S3_BUCKET_FILES)" \
+      ${adult_blocked:+--var "ADULT_BLOCKED_COUNTRIES:$adult_blocked"}
   ) || die "the website or the Worker failed to deploy; the stack itself is on $(git rev-parse --short HEAD)"
 else
   log "skipping the website and the Worker (--no-worker)"

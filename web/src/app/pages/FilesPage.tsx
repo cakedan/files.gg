@@ -58,6 +58,8 @@ export default function FilesPage() {
   const apiParams = useMemo(() => toApiParams(state), [state]);
   const files = useMyFiles(apiParams);
   const limits = useMyLimits();
+  // Milestone 7 §11.4: from a blocked country, files can't be marked as sensitive (only signed in can mark at all).
+  const adultRegionBlocked = limits.data?.adult_region_blocked === true;
   const items = useMemo(() => files.data?.items ?? [], [files.data]);
   const order = useMemo(() => items.map((file) => file.id), [items]);
   const now = useNow(RELATIVE_REFRESH_MS);
@@ -135,6 +137,7 @@ export default function FilesPage() {
                 onError: (error) => notify(errorMessage(error), 'error'),
               },
             ),
+      adultRegionBlocked,
       askReview: anonymous ? undefined : (file) => setDialog({ type: 'review', files: [file] }),
       // Milestone 6 §19.3: anonymous uploaders set a view limit only at upload.
       editViewLimit: anonymous ? undefined : (file) => setDialog({ type: 'viewLimit', files: [file] }),
@@ -151,7 +154,7 @@ export default function FilesPage() {
               { onSuccess: () => notify('View limit removed.'), onError: (error) => notify(errorMessage(error), 'error') },
             ),
     }),
-    [actions, anonymous, expiry, notify, sensitive, viewLimit, linkDomain, navigate],
+    [actions, anonymous, adultRegionBlocked, expiry, notify, sensitive, viewLimit, linkDomain, navigate],
   );
 
   const confirmDelete = (list: OwnerFile[]) => {

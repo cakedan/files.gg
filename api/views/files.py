@@ -8,7 +8,7 @@ from sanic import Blueprint
 import db
 from db import queries
 from utils import access, access_token, errors, limits as limits_module, params, passwords, payloads, storage as storage_module
-from utils import uploading, view_hash, view_limits
+from utils import regions, uploading, view_hash, view_limits
 from utils.auth import guest_of
 from utils.cdn_signing import Grant
 from utils.generators import Snowflake
@@ -113,6 +113,10 @@ async def create_file(request):
         if key is not None:
             # milestone-5 §21: what the tool doesn't send comes from the owner's upload defaults
             args = upload_defaults.for_key_upload(args, user)
+        if args.nsfw:
+            # milestone-7 §11.3: never from a blocked country, the defaults' mark included (never stored unmarked);
+            # a raw body hasn't been read yet
+            regions.refuse_adult(request)
         return await _create_file(request, args, user, upload, declared, key)
     finally:
         if upload is not None:

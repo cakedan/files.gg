@@ -14,6 +14,7 @@ import { epochMs } from '../../lib/time';
 import { checkLimits } from '../../lib/upload/limits';
 import { defaultPickerState, resolvePickers, type PickerContext, type PickerState } from '../../lib/upload/options';
 import { fileKey, forgetUpload, listResumable, type ResumableUpload } from '../../lib/upload/resumeStore';
+import { useAuthConfig } from '../auth/authUtils';
 import { UploadAlbumResult, UploadAlbumToggle } from '../upload/UploadAlbumPanel';
 import { UploadOptions } from '../upload/UploadOptions';
 import { UploadRow } from '../upload/UploadRow';
@@ -51,7 +52,12 @@ export default function UploadPage({ embedded = false }: { embedded?: boolean })
 
   // Signed in, the pickers start from the account's upload defaults (milestone-5 §21); the page sends what it shows.
   const defaults = me.data?.settings.upload_defaults ?? null;
-  const context: PickerContext = useMemo(() => ({ anonymous, limits: limits.data ?? null, defaults }), [anonymous, limits.data, defaults]);
+  // Milestone 7 §11.4: signed out, whether adult content is available here comes from /auth/config.
+  const adultContentAvailable = useAuthConfig(anonymous).data?.adult_content_available;
+  const context: PickerContext = useMemo(
+    () => ({ anonymous, limits: limits.data ?? null, defaults, adultContentAvailable }),
+    [anonymous, limits.data, defaults, adultContentAvailable],
+  );
   const [pickers, setPickers] = useState<PickerState>(() => defaultPickerState({ anonymous: true }));
   const [touched, setTouched] = useState(false);
   // Defaults follow sign-in state, limits and the upload defaults until the user changes something.

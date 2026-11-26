@@ -8,6 +8,9 @@
    if PROXIES_COUNT >= 1 (our nginx overwrites it with $remote_addr), else the
    socket peer.
 
+The country Cloudflare derives from the client's IP (X-Filesgg-Client-Country, ISO 3166-1 alpha-2) is believed
+the same way, only with the secret: utils/regions.py, `request.ctx.client_country` (milestone-7 §11.1).
+
 The secret header is removed from the request once checked, so nothing later
 in the request can log or echo it.
 """

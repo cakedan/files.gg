@@ -5,6 +5,7 @@ import { Link } from 'react-router';
 import { Button, LinkButton } from '../../components/Button';
 import type { OwnerFile } from '../../lib/api';
 import { formatBytes, formatDimensions } from '../../lib/format';
+import { ADULT_REGION_TEXT } from '../../lib/upload/options';
 import { useSignedValue } from '../../lib/signedUrls';
 import { epochMs, formatFullDate, formatRelative, RELATIVE_REFRESH_MS } from '../../lib/time';
 import { useNow } from '../../lib/useNow';
@@ -217,7 +218,7 @@ export default function FileDrawer({ file, handlers, onClose }: FileDrawerProps)
                   <Eye aria-hidden className="size-4" />
                   Unmark as sensitive
                 </Button>
-              ) : (
+              ) : handlers.adultRegionBlocked ? null : (
                 <Button onClick={() => handlers.setSensitive!([file], true)}>
                   <EyeOff aria-hidden className="size-4" />
                   Mark as sensitive
@@ -230,6 +231,7 @@ export default function FileDrawer({ file, handlers, onClose }: FileDrawerProps)
                 </Button>
               )}
             </div>
+            {!file.nsfw && handlers.adultRegionBlocked && <p className="text-xs text-muted">{ADULT_REGION_TEXT}</p>}
             {file.nsfw && file.safety?.nsfw_locked && <p className="text-xs text-muted">{NSFW_LOCKED_HINT}</p>}
             {file.safety?.nsfw_review === 'open' && <p className="text-xs text-muted">You asked for a review. A moderator will check it.</p>}
           </section>

@@ -2,6 +2,8 @@ import { useId } from 'react';
 
 import {
   accessChoices,
+  ADULT_REGION_TEXT,
+  adultRegionBlocked,
   ANONYMOUS_EXPIRY_NOTE,
   canMarkNsfw,
   expiryChoices,
@@ -97,7 +99,9 @@ export function UploadOptions({ state, onChange, context, errors, conversion = f
         />
       )}
 
-      {conversion ? null : canMarkNsfw(context) ? (
+      {conversion ? null : adultRegionBlocked(context) ? (
+        <p className="text-xs text-muted">{ADULT_REGION_TEXT}</p>
+      ) : canMarkNsfw(context) ? (
         <label className="flex items-start gap-2 text-sm">
           <input type="checkbox" checked={state.nsfw} onChange={(event) => onChange({ nsfw: event.target.checked })} className="mt-0.5 size-4 accent-gg" />
           <span className="flex flex-col">

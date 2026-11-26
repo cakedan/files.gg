@@ -89,8 +89,8 @@ export function useMyFiles(params: MyFilesParams = {}, enabled = true) {
   });
 }
 
-export function useMyLimits() {
-  return useQuery({ queryKey: queryKeys.myLimits, queryFn: ({ signal }) => withGuest(() => api.myLimits(signal)) });
+export function useMyLimits(enabled = true) {
+  return useQuery({ queryKey: queryKeys.myLimits, queryFn: ({ signal }) => withGuest(() => api.myLimits(signal)), enabled });
 }
 
 export function useMyAlbums(params: MyAlbumsParams = {}, enabled = true) {

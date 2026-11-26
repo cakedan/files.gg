@@ -12,7 +12,7 @@ from sanic import Blueprint
 from sanic.exceptions import NotFound
 
 import db
-from utils import accounts, errors, params, upload_defaults, usernames
+from utils import accounts, errors, params, regions, upload_defaults, usernames
 from utils.auth import require_session
 from utils.responses import ApiResponse
 from utils.wrappers import route
@@ -55,7 +55,12 @@ async def patch_user(request, user_id):
                 raise errors.invalid_parameters({'settings.show_name_on_albums': 'Must be true or false'})
             changes['show_name_on_albums'] = settings['show_name_on_albums']
         if 'upload_defaults' in settings:
-            changes['upload_defaults'] = Jsonb(upload_defaults.update(user, settings['upload_defaults']))
+            value = upload_defaults.update(user, settings['upload_defaults'])
+            if settings['upload_defaults'].get('nsfw') is True and (user.upload_defaults or {}).get('nsfw') is not True:
+                # milestone-7 §11.3: an adult default can't be turned on from a blocked country. One saved elsewhere
+                # can be re-saved (Settings → Uploads sends every default), but uploads from here still refuse it.
+                regions.refuse_adult(request)
+            changes['upload_defaults'] = Jsonb(value)
     async with db.connection() as conn:
         if changes:
             await conn.execute('UPDATE users SET {} WHERE id = %s'.format(

@@ -29,8 +29,8 @@ from safety import ip as abuse_ip
 from safety.run import in_thread
 from safety.settings import safety_settings
 from utils import (
-    conversion_outputs, conversions as rules, convert_queue, errors, limits as limits_module, passwords, standing,
-    upload_defaults, uploading, view_hash, view_limits,
+    conversion_outputs, conversions as rules, convert_queue, errors, limits as limits_module, passwords, payloads,
+    regions, standing, upload_defaults, uploading, view_hash, view_limits,
 )
 from utils.generators import Snowflake
 from utils.helpers import client_ip
@@ -403,6 +403,9 @@ async def create_conversion(request):
                 raise errors.conversion_requires_account()
         if access_error is not None:
             raise access_error
+        # milestone-7 §11.3: an output inherits its sources' NSFW, so nothing adult is converted from a blocked country
+        if regions.request_blocked(request) and any(payloads.nsfw_of(f)[0] for f in files):
+            raise errors.adult_content_unavailable()
         # the target and its options, then 5. sizes
         plan = plan_for(caller, files, kind, raw_target, body.get('options'), album)
         plan.settings, password = await output_settings(conn, request, caller, plan, output)
@@ -453,10 +456,14 @@ async def create_batch(request):
                 except ApiError as error:
                     candidates.append((vanity, error))
         plans, skipped, generated = [], [], None
+        blocked = regions.request_blocked(request)
         for vanity, found in candidates:
             try:
                 if isinstance(found, ApiError):
                     raise found
+                if blocked and payloads.nsfw_of(found)[0]:
+                    # milestone-7 §11.3: skipped like any other source this caller can't use here
+                    raise errors.adult_content_unavailable()
                 kind = rules.kind_of(found)
                 plan = plan_for(caller, [found], kind, body.get('target'), body.get('options'))
                 plan.settings, plan.password = await output_settings(conn, request, caller, plan, output,

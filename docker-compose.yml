@@ -60,6 +60,9 @@ x-api-environment: &api-environment
   # libsodium public key (base64) the raw uploader IP is sealed to; the private key stays offline (milestone-4 §3.6)
   EVIDENCE_PUBLIC_KEY: ${EVIDENCE_PUBLIC_KEY:?EVIDENCE_PUBLIC_KEY must be set (the evidence key pair's public key, base64)}
   NSFW_THRESHOLD: ${NSFW_THRESHOLD:-0.85}
+  # Milestone 7 §11: comma-separated country codes where adult content can't be uploaded or marked (the API) or viewed
+  # (the Worker, which ops/deploy.sh gives the same value); empty means GB. ops/check-env.sh checks the format.
+  ADULT_BLOCKED_COUNTRIES: ${ADULT_BLOCKED_COUNTRIES:-GB}
   # Milestone 6 (docs/redesign/contracts/milestone-6.md §15). Without the Discord pair, Discord sign-in is off
   # (GET /auth/config); without the Cloudflare token, custom domains are off (503 DOMAINS_UNAVAILABLE). Production
   # sets all of them (ops/check-env.sh). The worker gets them too: domain_checker, domain_delete, account_export and

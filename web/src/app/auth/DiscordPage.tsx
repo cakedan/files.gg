@@ -3,7 +3,6 @@ import { useEffect, useId, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router';
 
 import { Button } from '../../components/Button';
-import { SignUpAgreement } from '../../components/TermsAgreement';
 import { useTurnstile } from '../../components/useTurnstile';
 import { accountApi, type DiscordCallbackResponse } from '../../lib/accountApi';
 import { ApiError, GUEST_KEY } from '../../lib/api';
@@ -18,6 +17,7 @@ import { UsernameField } from '../account/UsernameField';
 import { AuthCard, FormError } from './AuthLayout';
 import { authErrorMessage, signedInToast } from './authUtils';
 import { captureQuery, firstStep } from './discordCallback';
+import { SignUpTerms } from './SignUpTerms';
 
 type Signup = Extract<DiscordCallbackResponse, { status: 'signup_required' }>;
 
@@ -197,7 +197,7 @@ function ChooseUsername({ signup, oauth, hadGuest, onError }: { signup: Signup; 
         <Button type="submit" variant="primary" disabled={pending} className="w-full">
           {pending ? 'Creating your account…' : 'Create account'}
         </Button>
-        <SignUpAgreement />
+        <SignUpTerms />
         <TurnstileField mount={turnstile.mount} status={turnstile.status} retry={turnstile.retry} />
       </form>
     </AuthCard>

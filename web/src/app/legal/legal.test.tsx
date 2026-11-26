@@ -78,6 +78,29 @@ describe('the Terms and Privacy pages (milestone-5 §19.1, §19.4, §19.5)', () 
     expect(screen.getAllByRole('link', { name: 'Privacy Policy' })[0]).toHaveAttribute('href', '/legal/privacy');
   });
 
+  it('the regional rules (milestone-7 §11.4): the ages, and adult content in the United Kingdom', async () => {
+    renderPublic('/legal/terms');
+    await screen.findByRole('heading', { level: 1, name: 'Terms of Service' });
+    const prose = document.querySelector('.doc-prose')!;
+    expect(prose).toHaveTextContent('You must be 13 or older to use files.gg, or 16 or older in the European Union, Iceland, Liechtenstein and Norway.');
+    const adult = screen.getByRole('heading', { level: 3, name: /Adult content/ });
+    expect(adult).toHaveAttribute('id', 'adult-content');
+    // The UK sentence is in the adult-content section, after its heading and before the next section.
+    const after: string[] = [];
+    for (let node = adult.nextElementSibling; node && node.tagName !== 'H2' && node.tagName !== 'H3'; node = node.nextElementSibling) after.push(node.textContent ?? '');
+    expect(after).toContain("Adult content isn't available in the United Kingdom: it can't be viewed, uploaded or marked from there.");
+  });
+
+  it('the Privacy Policy explains the country and that it isn\'t stored (milestone-7 §11.4)', async () => {
+    renderPublic('/legal/privacy');
+    const heading = await screen.findByRole('heading', { level: 3, name: /Your country/ });
+    const text = heading.nextElementSibling!.textContent;
+    expect(text).toContain("which country you're connecting from, from your IP address");
+    expect(text).toContain('regional rules');
+    expect(text).toContain("We don't store it for this.");
+    expect(document.querySelector('.doc-prose')).toHaveTextContent('or 16 or older in the European Union, Iceland, Liechtenstein and Norway');
+  });
+
   it('shows the draft banner while placeholders remain, and marks them', async () => {
     renderPublic('/legal/terms');
     const banner = await screen.findByRole('note');

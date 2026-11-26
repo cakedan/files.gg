@@ -347,6 +347,8 @@ def test_limits_endpoint(client, seeded):
         'allow_no_expiry': True,
         'anonymous': False,
         'nsfw_allowed': True,
+        # milestone-7 §11.3
+        'adult_region_blocked': False,
         # Milestone 3
         'album_max_files': 500,
         'albums_max': 1000,

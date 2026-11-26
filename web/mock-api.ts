@@ -30,7 +30,9 @@
  *
  * Knobs (env): MOCK_CHUNK_DELAY_MS (default 400), MOCK_CHUNK_FAIL_RATE (default 0),
  * MOCK_PROCESSING_MS (default 1500), MOCK_SCAN_MS (default 2500: how long a new upload
- * stays `pending`), MOCK_DERIVE_MS (default 6000: how long it then stays `processing`).
+ * stays `pending`), MOCK_DERIVE_MS (default 6000: how long it then stays `processing`),
+ * MOCK_COUNTRY (default US: the visitor's country for milestone-7 §11's regional rules; GB
+ * blocks adult content, an EEA country raises the minimum age to 16).
  */
 
 import { createHash, createHmac, randomBytes, randomInt, timingSafeEqual } from 'node:crypto';
@@ -349,7 +351,18 @@ function guestOf(req: IncomingMessage): string | null {
 /** milestone-6 §9.2: Cloudflare's per-request body limit caps single-request uploads. */
 const PROXY_BODY_LIMIT_BYTES = 100 * MIB;
 
+/** Milestone 7 §11.1: the EEA, where the minimum age is 16 (and for an unknown country). */
+const EEA = new Set('AT BE BG HR CY CZ DK EE FI FR DE GR HU IE IT LV LT LU MT NL PL PT RO SK SI ES SE IS LI NO'.split(' '));
+
+/** Milestone 7 §11: the regional rules for MOCK_COUNTRY (`ADULT_BLOCKED_COUNTRIES` is the API's default, GB). */
+function region() {
+  const country = (process.env.MOCK_COUNTRY ?? 'US').trim().toUpperCase();
+  const known = /^[A-Z]{2}$/.test(country) && country !== 'XX' && country !== 'T1';
+  return { minimumAge: !known || EEA.has(country) ? 16 : 13, adultBlocked: known && country === 'GB' };
+}
+
 function limitsFor(anonymous: boolean, key: string) {
+  const { adultBlocked } = region();
   if (anonymous) {
     return {
       storage: { used: usageOf(key), limit: null },
@@ -362,6 +375,7 @@ function limitsFor(anonymous: boolean, key: string) {
       album_max_files: ANONYMOUS_ALBUM_MAX_FILES,
       albums_max: null,
       nsfw_allowed: false,
+      adult_region_blocked: adultBlocked,
       premium: false,
       custom_domains: { used: 0, limit: 0 },
       upload_keys: { used: 0, limit: 0 },
@@ -381,7 +395,8 @@ function limitsFor(anonymous: boolean, key: string) {
     anonymous: false,
     album_max_files: ALBUM_MAX_FILES,
     albums_max: ALBUMS_MAX,
-    nsfw_allowed: !activeRestriction(userId, 'uploads') && !activeRestriction(userId, 'suspended'),
+    nsfw_allowed: !adultBlocked && !activeRestriction(userId, 'uploads') && !activeRestriction(userId, 'suspended'),
+    adult_region_blocked: adultBlocked,
     premium,
     custom_domains: { used: userId ? countedDomains(userId).length : 0, limit: premium ? PREMIUM_CUSTOM_DOMAINS : 0 },
     upload_keys: { used: userId ? activeKeys(userId).length : 0, limit: UPLOAD_KEYS_MAX },
@@ -4994,7 +5009,8 @@ async function accountRoute(req: IncomingMessage, res: ServerResponse, path: str
 
   // ---- Auth (§3–§5) ----
   if (method === 'GET' && path === '/auth/config') {
-    send(res, 200, { discord: true });
+    const { minimumAge, adultBlocked } = region();
+    send(res, 200, { discord: true, minimum_age: minimumAge, adult_content_available: !adultBlocked });
     return true;
   }
   if (method === 'GET' && path === '/auth/session') {

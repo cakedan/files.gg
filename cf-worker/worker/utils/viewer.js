@@ -7,6 +7,7 @@ import { element } from './html.js';
 import { domainAllows, ownerPendingDeletion, servedOnCustom } from './owners.js';
 import { shouldRedirectToCdn } from './pages.js';
 import { albumSafety, fileSafety, itemShowable, pendingCount, servesInline } from './safety.js';
+import { REGION_CACHE_CONTROL, REGION_STATUS } from './region.js';
 import { formatBytes } from './tools.js';
 import { isLinkPreviewBot, LIMITED_FILE_TITLE, viewLimitOf } from './viewlimits.js';
 
@@ -339,6 +340,15 @@ export function removedShell(page, vanity, reason) {
   };
 }
 
+// milestone-7.md §11.2: adult content asked for from a country where it's unavailable. 451, never
+// kept, the vanity only and the default meta tags (no name, size, image or description).
+export function regionShell(page, vanity) {
+  return {
+    page, state: 'region', dataId: `${page}-data`, data: { vanity }, status: REGION_STATUS,
+    cacheControl: REGION_CACHE_CONTROL,
+  };
+}
+
 // A file served download-only (`serve_inline: false`, milestone-4.md §2.3) is `kind: "file"`, and
 // its previews aren't served, so their URLs are dropped. The API already does this; this is the
 // Worker's own guard.
@@ -372,7 +382,11 @@ export function hiddenByOwner(data, domain = null) {
 // View limits (milestone-6.md §19.5), after the visibility check: a used-up limit is missing; a
 // link-preview bot gets { refuse: 'view-limited' } (403, utils/viewlimits.js); a password file keeps its
 // lock screen with `view_limited` and `views_remaining`; a link file is the `limited` shell.
-export function decideFileShell({ lookup, vanity, headers, nowMs = Date.now(), mainOrigin = DEFAULT_ORIGINS.main, domain = null }) {
+//
+// Regional rules (milestone-7.md §11.2): `adultBlocked` (utils/region.js adultBlockedFor) makes an
+// NSFW file the `region` shell (451), after the missing, removed and hidden states and before
+// pending, view limits, the lock and the redirect (so bots get the 451 too).
+export function decideFileShell({ lookup, vanity, headers, nowMs = Date.now(), mainOrigin = DEFAULT_ORIGINS.main, domain = null, adultBlocked = false }) {
   const missing = { page: 'file', state: 'missing', dataId: 'file-data', data: null, status: 404 };
   if (lookup.status === 'unavailable') {
     return UNAVAILABLE('file');
@@ -408,11 +422,14 @@ export function decideFileShell({ lookup, vanity, headers, nowMs = Date.now(), m
     // The action fired (or the limit is unreadable): the normal missing state, never "limit reached".
     return missing;
   }
-  if (safety.state === 'pending') {
-    return pendingShell('file', shownVanity);
-  }
   if (safety.state === 'hidden' || safety.state === 'removed') {
     return removedShell('file', shownVanity, safety.reason);
+  }
+  if (adultBlocked && file.nsfw === true) {
+    return regionShell('file', shownVanity);
+  }
+  if (safety.state === 'pending') {
+    return pendingShell('file', shownVanity);
   }
 
   if (viewLimit) {
@@ -520,7 +537,11 @@ export function albumIsNsfw(album, items = []) {
 // steps of milestone-6.md §10.8 (`domain` as for files); private;
 // hidden or removed; nothing shown yet with `pending_count > 0` (or no `safety` at all) is
 // `pending`; password is locked; a link album with nothing shown is missing.
-export function decideAlbumShell({ lookup, vanity, nowMs = Date.now(), domain = null }) {
+//
+// Regional rules (milestone-7.md §11.2): with `adultBlocked`, an album that albumIsNsfw() is the
+// `region` shell (451), after missing (a link album with nothing shown included), removed and
+// hidden, and before pending and the lock.
+export function decideAlbumShell({ lookup, vanity, nowMs = Date.now(), domain = null, adultBlocked = false }) {
   const missing = { page: 'album', state: 'missing', status: 404 };
   if (lookup.status === 'unavailable') {
     return UNAVAILABLE('album');
@@ -547,15 +568,19 @@ export function decideAlbumShell({ lookup, vanity, nowMs = Date.now(), domain = 
     return removedShell('album', shownVanity, safety.reason);
   }
   const items = visibleAlbumItems(lookup.data, nowMs);
-  if (safety.state === 'pending' || (!items.length && pendingCount(lookup.data) > 0)) {
+  const pending = safety.state === 'pending' || (!items.length && pendingCount(lookup.data) > 0);
+  if (access.visibility === 'link' && !items.length && !pending) {
+    return missing;
+  }
+  if (adultBlocked && albumIsNsfw(album, items)) {
+    return regionShell('album', shownVanity);
+  }
+  if (pending) {
     return pendingShell('album', shownVanity);
   }
 
   switch (access.visibility) {
     case 'link': {
-      if (!items.length) {
-        return missing;
-      }
       const removed = (Array.isArray(album.items) ? album.items.length : 0) - items.length;
       const data = { ...album, items };
       if (removed > 0 && typeof(album.count) === 'number') {

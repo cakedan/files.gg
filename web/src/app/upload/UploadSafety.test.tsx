@@ -48,6 +48,37 @@ describe('Upload page safety (milestone-4 §4.3, §11.2)', () => {
     expect(within(terms).getByRole('link', { name: 'Terms' })).toHaveAttribute('href', '/legal/terms');
   });
 
+  it('signed in from a blocked region (milestone-7 §11.4): one line instead of the checkbox', async () => {
+    signIn();
+    stubApi({
+      'GET /users/@me': () => ({ ...ME, settings: { ...ME.settings, upload_defaults: { ...ME.settings.upload_defaults, nsfw: true } } }),
+      'GET /users/@me/badges': () => NO_BADGES,
+      'GET /users/@me/limits': () => limits(false, { nsfw_allowed: false, adult_region_blocked: true }),
+    });
+    renderDashboard('/upload');
+    expect(await screen.findByText("Adult content isn't available in your region.")).toBeInTheDocument();
+    expect(screen.queryByRole('checkbox', { name: /Adult content/ })).not.toBeInTheDocument();
+  });
+
+  it('signed out from a blocked region: /auth/config says so, and the line replaces the sign-in hint', async () => {
+    installTurnstile();
+    localStorage.setItem('filesgg.guest', 'fp1');
+    stubApi({ 'GET /users/@me/limits': () => limits(true), 'GET /auth/config': () => ({ discord: true, minimum_age: 13, adult_content_available: false }) });
+    renderDashboard('/upload');
+    expect(await screen.findByText("Adult content isn't available in your region.")).toBeInTheDocument();
+    expect(screen.queryByText('Sign in to upload sensitive media.')).not.toBeInTheDocument();
+    expect(screen.queryByRole('checkbox', { name: /Adult content/ })).not.toBeInTheDocument();
+  });
+
+  it('signed out where adult content is available: the sign-in hint as before', async () => {
+    installTurnstile();
+    localStorage.setItem('filesgg.guest', 'fp1');
+    stubApi({ 'GET /users/@me/limits': () => limits(true), 'GET /auth/config': () => ({ discord: true, minimum_age: 13, adult_content_available: true }) });
+    renderDashboard('/upload');
+    expect(await screen.findByText('Sign in to upload sensitive media.')).toBeInTheDocument();
+    expect(screen.queryByText("Adult content isn't available in your region.")).not.toBeInTheDocument();
+  });
+
   it('restricted: explains until when and disables the dropzone', async () => {
     signIn();
     const until = Math.floor(new Date('2030-01-15T12:00:00Z').getTime() / 1000);

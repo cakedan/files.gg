@@ -18,6 +18,8 @@ const ReportPage = lazy(() => import('./report/ReportPage'));
 /** `pending` and `removed` (milestone-4 §2.4): rare, so not in the entry bundle. */
 const PendingCard = lazy(() => import('./components/SafetyCards').then((m) => ({ default: m.PendingCard })));
 const RemovedCard = lazy(() => import('./components/SafetyCards').then((m) => ({ default: m.RemovedCard })));
+/** `region` (milestone-7 §11.4): adult content from a blocked country. Rare too. */
+const RegionCard = lazy(() => import('./components/SafetyCards').then((m) => ({ default: m.RegionCard })));
 /** A custom domain's `/` (milestone-6 §10.8): only custom domains ever load it. */
 const DomainHomeCard = lazy(() => import('./host/DomainHomeCard'));
 
@@ -109,6 +111,7 @@ export function ViewerApp({ state, secrets = { rest: '' } }: { state: BootState;
         {state.page === 'domain-home' && <DomainHomeCard />}
         {state.page === 'pending' && <PendingCard target={state.target} />}
         {state.page === 'removed' && <RemovedCard target={state.target} reason={state.reason} />}
+        {state.page === 'region' && <RegionCard />}
       </Suspense>
     </main>
   );

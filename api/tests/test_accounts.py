@@ -892,7 +892,7 @@ def test_suspended_accounts_allowlist(client, appdb):
 
 def test_auth_config_and_session_cleanup(client, appdb):
     from jobs import accounts as account_jobs
-    assert client.get('/auth/config').json() == {'discord': False}
+    assert client.get('/auth/config').json() == {'discord': False, 'minimum_age': 16, 'adult_content_available': True}
     user_id = make_user(appdb)
     token = new_session(user_id, appdb)
     appdb.execute("UPDATE sessions SET revoked_at = now() - interval '31 days', revoked_reason = 'user' WHERE "

@@ -107,7 +107,7 @@ def signup(client, body, username=None, headers=None, **extra):
 
 
 def test_config_and_the_authorize_url(client, discord):
-    assert client.get('/auth/config').json() == {'discord': True}
+    assert client.get('/auth/config').json() == {'discord': True, 'minimum_age': 16, 'adult_content_available': True}
     verifier, body = authorize(client)
     url = urlsplit(body['url'])
     assert '{}://{}{}'.format(url.scheme, url.netloc, url.path) == 'https://discord.com/oauth2/authorize'
@@ -131,7 +131,7 @@ def test_config_and_the_authorize_url(client, discord):
 
 
 def test_discord_off_without_its_credentials(client, appdb):
-    assert client.get('/auth/config').json() == {'discord': False}
+    assert client.get('/auth/config').json() == {'discord': False, 'minimum_age': 16, 'adult_content_available': True}
     response = client.post('/auth/discord/authorize', headers=VIA_MAIN, json={'purpose': 'login',
                                                                               'code_challenge': pkce()[1]})
     assert (response.status_code, response.json()['code']) == (503, 'DISCORD_UNAVAILABLE')

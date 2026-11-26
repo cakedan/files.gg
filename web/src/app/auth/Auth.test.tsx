@@ -10,17 +10,19 @@ import { forgetDiscordQuery } from './discordCallback';
 const TOKEN = 'XXXX.DUMMY.TOKEN.XXXX';
 const ok = (user = ME) => ({ expires_at: 1800000000, user });
 const shared = {
-  'GET /auth/config': () => ({ discord: true }),
+  'GET /auth/config': () => ({ discord: true, minimum_age: 13, adult_content_available: true }),
   'GET /users/@me/badges': () => NO_BADGES,
   'GET /users/@me/limits': () => ({ storage: { used: 0, limit: 1e10 }, max_file_size_single: 1, max_file_size_chunked: 1, max_expiry: null, allow_no_expiry: true, anonymous: false }),
   'GET /users/@me/files': () => ({ count: 0, items: [], size: 0, total: { count: 0, size: 0 } }),
   'GET /users/@me/warnings': () => ({ count: 0, unacknowledged: 0, items: [] }),
 };
 
-/** milestone-5 §19.2: the line under Create account, with the Terms and the Privacy Policy. */
-function expectSignUpAgreement() {
+/** milestone-5 §19.2: the line under Create account, with the Terms and the Privacy Policy (and milestone-7 §11.4's age). */
+async function expectSignUpAgreement(age = 13) {
   const line = screen.getByText(/By creating an account, you agree to the/);
-  expect(line).toHaveTextContent('By creating an account, you agree to the Terms and the Privacy Policy, and confirm you’re 13 or older.');
+  await waitFor(() =>
+    expect(line).toHaveTextContent(`By creating an account, you agree to the Terms and the Privacy Policy, and confirm you’re ${age} or older.`),
+  );
   expect(within(line).getByRole('link', { name: 'Terms' })).toHaveAttribute('href', '/legal/terms');
   expect(within(line).getByRole('link', { name: 'Privacy Policy' })).toHaveAttribute('href', '/legal/privacy');
 }
@@ -93,6 +95,25 @@ describe('sign in (milestone-6 §4.1, §13.2)', () => {
 });
 
 describe('create account (§4.3, §13.2)', () => {
+  it('confirms the minimum age /auth/config gives (milestone-7 §11.4): 16 in the EU', async () => {
+    stubApi({ ...shared, 'GET /auth/config': () => ({ discord: true, minimum_age: 16, adult_content_available: true }) });
+    renderDashboard('/register');
+    await screen.findByLabelText('Username');
+    await expectSignUpAgreement(16);
+  });
+
+  it('leaves the age out rather than guessing while /auth/config is loading or failed', async () => {
+    let answer: (value: Response) => void = () => {};
+    const config = new Promise<Response>((resolve) => (answer = resolve));
+    stubApi({ ...shared, 'GET /auth/config': () => config });
+    renderDashboard('/register');
+    await screen.findByLabelText('Username');
+    const line = screen.getByText(/By creating an account, you agree to the/);
+    expect(line).toHaveTextContent(/^By creating an account, you agree to the Terms and the Privacy Policy\.$/);
+    await act(async () => answer(jsonResponse({ code: 'INTERNAL', message: 'x', status: 500 }, 500)));
+    expect(line).toHaveTextContent(/^By creating an account, you agree to the Terms and the Privacy Policy\.$/);
+  });
+
   it('lowercases the username, checks it after 400 ms with the reason, and maps field errors', async () => {
     const fetchMock = stubApi({
       ...shared,
@@ -101,7 +122,7 @@ describe('create account (§4.3, §13.2)', () => {
     });
     renderDashboard('/register');
     fireEvent.change(await screen.findByLabelText('Username'), { target: { value: 'Dan.W' } });
-    expectSignUpAgreement();
+    await expectSignUpAgreement();
     expect(screen.getByLabelText('Username')).toHaveValue('dan.w');
     expect(await screen.findByText('That username is taken.', {}, { timeout: 2000 })).toBeInTheDocument();
     expect(calls(fetchMock).filter((call) => call.path === '/users/@me/username/check')).toHaveLength(1);
@@ -257,7 +278,7 @@ describe('Discord (§5.2–§5.5)', () => {
     expect(screen.getByLabelText('Username')).toHaveValue('danw');
     expect(screen.getByLabelText(/Display name/)).toHaveValue('Dan W');
     expect(screen.getByText('We’ll use dan@example.com from Discord.')).toBeInTheDocument();
-    expectSignUpAgreement();
+    await expectSignUpAgreement();
     fireEvent.click(screen.getByRole('button', { name: 'Create account' }));
     await waitFor(() => expect(router.state.location.pathname).toBe('/'));
     expect(calls(fetchMock).find((call) => call.path === '/auth/discord/signup')!.body).toEqual({ signup_token: 'sut', username: 'danw', display_name: 'Dan W', turnstile_token: TOKEN });

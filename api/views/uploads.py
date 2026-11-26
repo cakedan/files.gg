@@ -21,7 +21,7 @@ import jobs
 from db import queries
 from db.models import epoch
 from utils import errors, filetypes, limits as limits_module, passwords, payloads, storage as storage_module, uploading
-from utils import view_limits
+from utils import regions, view_limits
 from utils.cdn_signing import Grant
 from utils.generators import Snowflake
 from utils.helpers import client_ip
@@ -187,6 +187,9 @@ async def create_upload(request, args):
     if key is not None:
         # milestone-5 §21: what the tool doesn't send comes from the owner's upload defaults
         args = upload_defaults.for_key_upload(args, user)
+    if args.nsfw:
+        # milestone-7 §11.3: never from a blocked country, the defaults' mark included (never stored unmarked)
+        regions.refuse_adult(request)
     settings = safety_settings()
     abuse_hash, sealed_ip = abuse_ip.for_request(client_ip(request), settings)
     async with db.connection() as conn:

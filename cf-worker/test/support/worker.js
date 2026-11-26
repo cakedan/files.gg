@@ -350,6 +350,22 @@ addAlbum('avlink', { items: ['vlink'], title: 'V album', collage: true, owner: U
 addAlbum('aanon', { items: ['anonlink'], title: 'Anonymous album', collage: true, owner: null });
 addAlbum('apdlink', { items: ['pdlink'], title: 'Pending deletion', collage: true, owner: USER_P, ownerState: 'pending_deletion' });
 
+// Milestone 7 §11.2: adult content and the regional rule. An NSFW file with every preview kind, a
+// locked one, a removed one, a clean one, and albums made NSFW by an item or by the mark.
+export const REGION_PREVIEW_KINDS = Object.freeze(['thumb', 'thumb-2x', 'display', 'poster', 'cover', 'waveform', 'peaks', 'hover', 'document']);
+addFile('rnsfw', {
+  kind: 'video', filename: 'adult-secret-name.mp4', mimetype: 'video/mp4', size: 12, nsfw: true,
+  previews: Object.fromEntries(REGION_PREVIEW_KINDS.map((kind) => [kind, `adult ${kind} bytes`])),
+});
+files.rnsfw.file.thumbnail = { url: files.rnsfw.file.assets.poster.url, type: 'poster' };
+addFile('rnsfwpw', png('adult-locked-name.png', { visibility: 'password', accessVersion: 2, nsfw: true, show_name_when_locked: true }));
+addFile('rnsfwrem', png('adult-removed-name.png', { nsfw: true, safety: { state: 'removed', reason: 'terms' } }));
+addFile('rclean', png('clean-name.png'));
+addAlbum('rnsfwalb', { items: ['rclean', 'rnsfw'], title: 'Adult album title', description: 'Adult album description', collage: true });
+addAlbum('rmarked', { items: ['rclean'], title: 'Marked album title', collage: true, nsfw: true });
+addAlbum('rnsfwalbpw', { visibility: 'password', accessVersion: 3, items: ['rnsfwpw'], title: 'Locked adult title', collage: true });
+addAlbum('rcleanalb', { items: ['rclean'], title: 'Clean album title', collage: true });
+
 // The domain lookup (milestone-6.md §10.7), by hostname: { domain } as the API answers it.
 // `lookupHostname` makes the payload name another hostname (a lookup that doesn't match).
 const domains = {};

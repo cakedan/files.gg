@@ -22,7 +22,9 @@ export interface Choice<T> {
 export interface PickerContext {
   anonymous: boolean;
   /** From `/users/@me/limits`; null while loading or unavailable. */
-  limits?: Pick<MyLimitsResponse, 'max_expiry' | 'allow_no_expiry' | 'nsfw_allowed'> | null;
+  limits?: Pick<MyLimitsResponse, 'max_expiry' | 'allow_no_expiry' | 'nsfw_allowed' | 'adult_region_blocked'> | null;
+  /** Milestone 7 §11.4: signed out, `/auth/config`'s `adult_content_available`; undefined while loading or unavailable. */
+  adultContentAvailable?: boolean | undefined;
   /** Milestone 5 §21: the account's upload defaults (`user.settings.upload_defaults`), where the pickers start. */
   defaults?: UploadDefaults | null;
 }
@@ -226,7 +228,17 @@ export function defaultPickerState(context: PickerContext, nowMs: number = Date.
 }
 
 /** Adult content can be marked at upload by signed-in users who aren't restricted: `nsfw_allowed` (§4.3, §13). */
-export const canMarkNsfw = ({ anonymous, limits }: PickerContext) => !anonymous && limits?.nsfw_allowed === true;
+export const canMarkNsfw = (context: PickerContext) => !context.anonymous && context.limits?.nsfw_allowed === true && !adultRegionBlocked(context);
+
+/** Milestone 7 §11.4: shown where adult content would be offered, when the visitor's country blocks it. */
+export const ADULT_REGION_TEXT = "Adult content isn't available in your region.";
+
+/**
+ * Milestone 7 §11.4: adult content isn't available from the visitor's country. Signed in, the limits'
+ * `adult_region_blocked`; signed out, `/auth/config`'s `adult_content_available` (or the anonymous limits').
+ */
+export const adultRegionBlocked = ({ anonymous, limits, adultContentAvailable }: PickerContext) =>
+  limits?.adult_region_blocked === true || (anonymous && adultContentAvailable === false);
 
 export type PickerErrors = Partial<Record<'expiry' | 'visibility' | 'password' | 'unlockTtl' | 'passwordExpiry' | 'viewLimit' | 'viewLimitAction', string>>;
 

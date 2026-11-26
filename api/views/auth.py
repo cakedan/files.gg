@@ -2,7 +2,7 @@
 a successful sign-in sets the HttpOnly session cookie and never returns the token. Every POST here needs
 the CSRF header (utils/auth.py).
 
-    GET  /auth/config                 { discord }
+    GET  /auth/config                 { discord, minimum_age, adult_content_available }
     GET  /auth/guest                  { guest }: an anonymous guest token
     GET  /auth/session                { user | null }, never 401
     POST /auth/login                  { email, password, turnstile_token }
@@ -28,7 +28,7 @@ from sanic import Blueprint
 import db
 from db.models import epoch
 from utils import accounts, auth as auth_module, credentials, discord, errors, mail, params, passwords, standing
-from utils import usernames
+from utils import regions, usernames
 from utils.account_settings import account_settings
 from utils.email_domain import domain_accepts_mail
 from utils.generators import Snowflake
@@ -76,7 +76,13 @@ def check_email_syntax(value):
 
 @route(auth, '/config', ['GET'])
 async def auth_config(request):
-    return ApiResponse({'discord': account_settings().discord_enabled})
+    # milestone-7 §11.3: the minimum age and whether adult content is available, from the request's country
+    country = regions.country_of(request)
+    return ApiResponse({
+        'discord': account_settings().discord_enabled,
+        'minimum_age': regions.minimum_age(country),
+        'adult_content_available': not regions.adult_blocked(country),
+    })
 
 
 @route(auth, '/guest', ['GET'])

@@ -3,6 +3,7 @@
 
 import { DEFAULT_ORIGINS } from './hosts.js';
 import { boolean } from './inputtypes.js';
+import { normalizeCountry } from './region.js';
 
 
 export const FALLBACK_FILENAME = 'file';
@@ -252,6 +253,10 @@ export const INTERNAL_LOOKUP_HEADER = 'X-Filesgg-Internal-Lookup';
 // session cookie only from those. Client copies are always removed, like the lookup header.
 export const VIA_HEADER = 'X-Filesgg-Via';
 export const VIA_MAIN = 'main';
+// The visitor's country (milestone-7.md §11.1): `request.cf.country` (utils/region.js clientCountry),
+// set only with the secret, like the client IP. Client copies are always removed, and so is the
+// client's CF-IPCountry (wrangler's harness passes one straight through; the API never reads it).
+export const CLIENT_COUNTRY_HEADER = 'X-Filesgg-Client-Country';
 
 // True for any path that reaches the API's /internal routes, however it is spelled (percent
 // encoding, backslashes, repeated slashes, dot segments, case). The passthroughs refuse these.
@@ -284,13 +289,18 @@ export function isInternalApiPath(pathname) {
 // `Cookie` (milestone-6.md §12). With a secret, the secret and the client IP (default: the
 // incoming CF-Connecting-IP) are set; without one, neither is (fail closed) and `trusted` is false.
 //
+// `country` (utils/region.js clientCountry(), never a header) is sent as X-Filesgg-Client-Country
+// with the secret only; null (unknown) sends none.
+//
 // `main: true` (files.gg/api/* only) marks the request `X-Filesgg-Via: main` and gives it
 // `sessionCookie` (the `<name>=<value>` from utils/cookies.js sessionCookieHeader(), or null) as its
 // only cookie. Both need the secret: an untrusted request carries neither.
-export function originRequestHeaders(headers, secret, clientIp, { main = false, sessionCookie = null } = {}) {
+export function originRequestHeaders(headers, secret, clientIp, { main = false, sessionCookie = null, country = null } = {}) {
   const result = new Headers(headers || {});
   const incomingClientIp = result.get('cf-connecting-ip');
   result.delete(CLIENT_IP_HEADER);
+  result.delete(CLIENT_COUNTRY_HEADER);
+  result.delete('cf-ipcountry');
   result.delete(ORIGIN_SECRET_HEADER);
   result.delete(INTERNAL_LOOKUP_HEADER);
   result.delete(VIA_HEADER);
@@ -304,6 +314,10 @@ export function originRequestHeaders(headers, secret, clientIp, { main = false, 
   const ip = (clientIp === undefined) ? incomingClientIp : clientIp;
   if (typeof(ip) === 'string' && ip.trim()) {
     result.set(CLIENT_IP_HEADER, ip.trim());
+  }
+  const code = normalizeCountry(country);
+  if (code) {
+    result.set(CLIENT_COUNTRY_HEADER, code);
   }
   if (main) {
     result.set(VIA_HEADER, VIA_MAIN);

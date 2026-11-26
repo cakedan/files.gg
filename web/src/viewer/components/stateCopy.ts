@@ -3,6 +3,9 @@ import type { FileWarning, RemovedReason, StateTarget } from '../types';
 /** Where the removed cards' "Terms" link goes. */
 export const TERMS_URL = '/legal/terms';
 
+/** Milestone 7 §11.4: the region card's link, to the Terms' adult-content rules. */
+export const ADULT_TERMS_URL = '/legal/terms#adult-content';
+
 /** §11.1's sentences, per public reason. Albums say "album" instead of "file". */
 export function removedMessage(kind: StateTarget['kind'], reason: RemovedReason): string {
   switch (reason) {

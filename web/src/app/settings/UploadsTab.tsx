@@ -7,7 +7,7 @@ import type { UploadDefaults, User, Visibility } from '../../lib/api';
 import { errorMessage, fieldErrors } from '../../lib/errors';
 import { useMyLimits } from '../../lib/queries';
 import { setSessionUser } from '../../lib/session';
-import { accessChoices, canMarkNsfw, expiryChoices, type Choice, type PickerContext } from '../../lib/upload/options';
+import { accessChoices, ADULT_REGION_TEXT, adultRegionBlocked, canMarkNsfw, expiryChoices, type Choice, type PickerContext } from '../../lib/upload/options';
 import { Field, VisibilityField } from '../access/AccessFields';
 import { fieldClass } from '../access/fieldUtils';
 import { Panel, Result } from './Panel';
@@ -61,6 +61,9 @@ export default function UploadsTab({ user }: { user: User }) {
   const errors = fieldErrors(save.error);
   const changed = draft.expires_in !== saved.expires_in || draft.visibility !== saved.visibility || draft.nsfw !== saved.nsfw;
   const nsfwAllowed = canMarkNsfw(context);
+  // Milestone 7 §11.4: from a blocked country, one line instead of the checkbox. A default saved before
+  // stays as it is: the API refuses only turning it on, never re-saving one that's already on.
+  const regionBlocked = adultRegionBlocked(context);
   const change = (patch: Partial<UploadDefaults>) => {
     setMessage(null);
     save.reset();
@@ -103,23 +106,27 @@ export default function UploadsTab({ user }: { user: User }) {
               error={errors[`${FIELD}.visibility`]}
             />
           </div>
-          <label className="flex items-start gap-3 text-sm">
-            <input
-              type="checkbox"
-              checked={draft.nsfw}
-              disabled={!nsfwAllowed && !draft.nsfw}
-              onChange={(event) => change({ nsfw: event.target.checked })}
-              className="mt-0.5 accent-gg"
-            />
-            <span>
-              Mark uploads as adult content
-              <span className="block text-xs text-muted">
-                {nsfwAllowed
-                  ? 'Visitors see a warning before they open. Conversions follow the file they came from instead.'
-                  : 'Your account can’t mark uploads as adult content right now.'}
+          {regionBlocked ? (
+            <p className="text-xs text-muted">{ADULT_REGION_TEXT}</p>
+          ) : (
+            <label className="flex items-start gap-3 text-sm">
+              <input
+                type="checkbox"
+                checked={draft.nsfw}
+                disabled={!nsfwAllowed && !draft.nsfw}
+                onChange={(event) => change({ nsfw: event.target.checked })}
+                className="mt-0.5 accent-gg"
+              />
+              <span>
+                Mark uploads as adult content
+                <span className="block text-xs text-muted">
+                  {nsfwAllowed
+                    ? 'Visitors see a warning before they open. Conversions follow the file they came from instead.'
+                    : 'Your account can’t mark uploads as adult content right now.'}
+                </span>
               </span>
-            </span>
-          </label>
+            </label>
+          )}
           <div>
             <Button type="submit" variant="primary" disabled={!changed || save.isPending}>
               {save.isPending ? 'Saving…' : 'Save defaults'}

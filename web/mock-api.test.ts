@@ -742,7 +742,7 @@ describe('mock API: sessions, CSRF and sign-in (milestone-6 §3, §4)', () => {
 
   it('signs in by email, sets and clears the cookie, and answers /auth/session either way', async () => {
     expect((await call('GET', '/auth/session', undefined, {})).body).toEqual({ user: null });
-    expect((await call('GET', '/auth/config', undefined, {})).body).toEqual({ discord: true });
+    expect((await call('GET', '/auth/config', undefined, {})).body).toEqual({ discord: true, minimum_age: 13, adult_content_available: true });
     expect((await call('POST', '/auth/login', { email: 'mock@example.com', password: MOCK_PASSWORD }, freshIp())).body.code).toBe('CAPTCHA_INVALID');
     const wrong = await call('POST', '/auth/login', { email: 'MOCK@example.com', password: 'nope', turnstile_token: TURNSTILE }, freshIp());
     expect(wrong).toMatchObject({ status: 400, body: { code: 'INVALID_CREDENTIALS', message: 'Wrong email or password.' } });

@@ -3,6 +3,7 @@ import { conversionMessage, isConversionCode } from './conversionErrors';
 import { formatBytes } from './format';
 import { DISPLAY_NAME_REASON_TEXT, USERNAME_REASON_TEXT, type DisplayNameProblem, type UsernameReason } from './usernames';
 import { PASSWORD_PROBLEM_TEXT, type PasswordProblem } from './passwordStrength';
+import { ADULT_REGION_TEXT } from './upload/options';
 
 /** Every contract §7 code, plus the client's own. */
 export const UPLOAD_ERROR_CODES = [
@@ -207,6 +208,9 @@ export function errorMessage(error: unknown): string {
       return 'This file was removed.';
     case 'ALBUM_REMOVED':
       return 'This album was removed.';
+    // Milestone 7 §11.3: adult content from a blocked country (451).
+    case 'ADULT_CONTENT_UNAVAILABLE':
+      return ADULT_REGION_TEXT;
     case 'NSFW_LOCKED':
       return 'files.gg marked this file as sensitive, so it can’t be unmarked. Ask for a review instead.';
     case 'DMCA_FIELDS_REQUIRED':

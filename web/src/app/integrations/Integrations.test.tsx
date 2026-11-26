@@ -129,6 +129,30 @@ describe('Integrations (milestone-6 §7, §13.3)', () => {
     expect(screen.getByText(/-F "view_limit=5" -F "view_limit_action=private"/)).toBeInTheDocument();
   });
 
+  it('from a blocked region (milestone-7 §11.4), one line instead of the sensitive checkbox', async () => {
+    setup({
+      'GET /users/@me/upload-keys': () => ({ items: [], limit: 20 }),
+      'GET /users/@me/limits': () => ({ ...LIMITS, nsfw_allowed: false, adult_region_blocked: true }),
+    });
+    renderDashboard('/integrations');
+    fireEvent.click(await screen.findByRole('button', { name: 'Create key' }));
+    const dialog = screen.getByRole('dialog', { name: 'Create an upload key' });
+    expect(await within(dialog).findByText("Adult content isn't available in your region.")).toBeInTheDocument();
+    expect(within(dialog).queryByRole('checkbox', { name: /Mark uploads as sensitive/ })).toBeNull();
+  });
+
+  it('elsewhere, the sensitive checkbox and no region line', async () => {
+    setup({
+      'GET /users/@me/upload-keys': () => ({ items: [], limit: 20 }),
+      'GET /users/@me/limits': () => ({ ...LIMITS, nsfw_allowed: true, adult_region_blocked: false }),
+    });
+    renderDashboard('/integrations');
+    fireEvent.click(await screen.findByRole('button', { name: 'Create key' }));
+    const dialog = screen.getByRole('dialog', { name: 'Create an upload key' });
+    expect(await within(dialog).findByRole('checkbox', { name: /Mark uploads as sensitive/ })).toBeInTheDocument();
+    expect(within(dialog).queryByText("Adult content isn't available in your region.")).toBeNull();
+  });
+
   it('disables Create key at 20 active keys, and revokes after confirming', async () => {
     const items = Array.from({ length: 20 }, (_, i) => key(i + 1));
     const fetchMock = setup({ 'GET /users/@me/upload-keys': () => ({ items, limit: 20 }), 'DELETE /users/@me/upload-keys/:id': () => jsonResponse(null, 204) });

@@ -6,7 +6,7 @@ import { accountApi, type CreatedUploadKey, type UploadKeyScope } from '../../li
 import { errorMessage } from '../../lib/errors';
 import { useMyAlbums, useMyLimits } from '../../lib/queries';
 import { NO_SHAREX_DEFAULTS, sharexArguments, type SharexDefaults } from '../../lib/sharex';
-import { parseViewLimit, VIEW_LIMIT_HINT, VIEW_LIMIT_MAX, VIEW_LIMIT_MIN } from '../../lib/upload/options';
+import { ADULT_REGION_TEXT, parseViewLimit, VIEW_LIMIT_HINT, VIEW_LIMIT_MAX, VIEW_LIMIT_MIN } from '../../lib/upload/options';
 import type { ViewLimitAction } from '../../lib/api';
 import { useSession } from '../../lib/session';
 import { fieldClass } from '../access/fieldUtils';
@@ -88,6 +88,8 @@ export function CreateKeyDialog({ onClose, onCreated }: { onClose: () => void; o
   });
   const set = <K extends keyof SharexDefaults>(key: K, value: SharexDefaults[K]) => setDefaults((current) => ({ ...current, [key]: value }));
   const nsfwAllowed = limits.data?.nsfw_allowed !== false;
+  // Milestone 7 §11.4: from a blocked country, a line instead of the checkbox.
+  const regionBlocked = limits.data?.adult_region_blocked === true;
   const usableDomains = (domains.data?.items ?? []).filter((domain) => domain.status !== 'disabled' && domain.status !== 'failed');
 
   return (
@@ -248,12 +250,14 @@ export function CreateKeyDialog({ onClose, onCreated }: { onClose: () => void; o
               </select>
             </div>
           )}
-          {nsfwAllowed && (
+          {regionBlocked ? (
+            <p className="text-xs text-muted">{ADULT_REGION_TEXT}</p>
+          ) : nsfwAllowed ? (
             <label className="flex items-center gap-2 text-sm">
               <input type="checkbox" checked={defaults.nsfw} onChange={(event) => set('nsfw', event.target.checked)} className="accent-gg" />
               Mark uploads as sensitive (else the account default)
             </label>
-          )}
+          ) : null}
           {albumsScope && (
             <div className="flex flex-col gap-1.5">
               <label htmlFor={`${id}-album`} className="text-sm">

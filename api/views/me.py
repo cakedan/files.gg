@@ -13,7 +13,7 @@ from db import albums as album_queries
 from db import queries
 from utils import access, access_settings, access_token, errors, limits as limits_module, passwords, payloads
 from utils import albums as album_rules
-from utils import uploading, urls, view_limits
+from utils import regions, uploading, urls, view_limits
 from utils.generators import Snowflake
 from utils.owner import Caller, caller_of
 from utils.params import Arg, Args
@@ -103,7 +103,10 @@ async def fetch_me_limits(request):
         from utils import standing
         async with db.connection() as conn:
             restricted = bool(await standing.restrictions(conn, user.id))
-    body['nsfw_allowed'] = user is not None and not restricted
+    # milestone-7 §11.3: nor from a country where adult content is unavailable, and `adult_region_blocked` says so
+    blocked = regions.request_blocked(request)
+    body['nsfw_allowed'] = user is not None and not restricted and not blocked
+    body['adult_region_blocked'] = blocked
     return ApiResponse(body)
 
 
@@ -210,6 +213,9 @@ async def patch_file(request, args, file_id):
     now = access.now()
     async with db.connection() as conn:
         caller = await caller_of(conn, request)
+        if args.nsfw:
+            # milestone-7 §11.3: marking, not unmarking
+            regions.refuse_adult(request)
         fobj = await _owner_file(conn, caller, file_id)
         password = await access_settings.NewPassword.from_args(args)
         changes, _ = access_settings.access_changes(fobj, args, sent, now, password, anonymous=caller.anonymous)
@@ -323,6 +329,9 @@ async def bulk_nsfw(request, args):
     """Up to 100 ids; ids you don't own, or can't unmark, are skipped (milestone-4 §6.2)."""
     async with db.connection() as conn:
         caller = await caller_of(conn, request)
+        if args.nsfw:
+            # milestone-7 §11.3: marking, not unmarking
+            regions.refuse_adult(request)
         if caller.anonymous:
             raise errors.nsfw_requires_account()
         files = await _owner_files(conn, caller, args.file_ids)
@@ -786,6 +795,9 @@ async def patch_my_album(request, args, album_id):
     now = access.now()
     async with db.connection() as conn:
         caller, album = await _my_album(conn, request, album_id, edit=True)
+        if args.nsfw:
+            # milestone-7 §11.3: marking, not unmarking
+            regions.refuse_adult(request)
         password = await access_settings.NewPassword.from_args(args)
         changes, _ = access_settings.access_changes(album, args, sent, now, password, anonymous=caller.anonymous)
         for field in ('title', 'description'):

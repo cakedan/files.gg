@@ -23,7 +23,7 @@ from sanic.exceptions import NotFound
 
 import db
 from safety.run import in_thread
-from utils import accounts, credentials, domains, errors, mail, params, upload_keys, usernames
+from utils import accounts, credentials, domains, errors, mail, params, regions, upload_keys, usernames
 from utils.account_settings import account_settings
 from utils.auth import require_session
 from utils.generators import Snowflake
@@ -115,6 +115,10 @@ async def create_key(request):
     expires_in = body.get('expires_in')
     if expires_in is not None and (isinstance(expires_in, bool) or expires_in not in upload_keys.EXPIRIES):
         raise errors.invalid_parameters({'expires_in': 'null, or 30, 90 or 365 days in seconds'})
+    sharex_options = body.get('sharex')
+    if isinstance(sharex_options, dict) and sharex_options.get('nsfw') is True:
+        # milestone-7 §11.3: a key whose uploads default to adult can't be made from a blocked country
+        regions.refuse_adult(request)
     secret = credentials.generate(credentials.KEY_PREFIX)
     key_id = Snowflake.generate()
     async with db.connection() as conn:

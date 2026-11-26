@@ -380,6 +380,14 @@ describe('milestone 4 boot states (milestone-4 §10.1, §11.1)', () => {
     });
   });
 
+  it('parses region for files and albums without reading the payload (milestone-7 §11.2)', () => {
+    const named = json({ vanity: 'abc', filename: 'secret.png', cdn_url: 'https://cdn.files.gg/files/abc.png', title: 'Secret' });
+    expect(parseBoot({ page: 'file', state: 'region', fileJson: json({ vanity: 'abc' }) })).toEqual({ page: 'region', kind: 'file' });
+    expect(parseBoot({ page: 'file', state: 'region', fileJson: named })).toEqual({ page: 'region', kind: 'file' });
+    expect(parseBoot({ page: 'album', state: 'region', albumJson: named })).toEqual({ page: 'region', kind: 'album' });
+    expect(parseBoot({ page: 'album', state: 'region', albumJson: null })).toEqual({ page: 'region', kind: 'album' });
+  });
+
   it('keeps anything malformed missing', () => {
     const cases = [
       { page: 'file', state: 'pending', fileJson: json({ vanity: 'abc' }) },

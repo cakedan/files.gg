@@ -196,6 +196,11 @@ def nsfw_requires_account():
     return coded('NSFW_REQUIRES_ACCOUNT', 403, 'Sign in to upload sensitive media')
 
 
+def adult_content_unavailable():
+    """Milestone-7 §11.3: adult content can't be uploaded or marked from this country (ADULT_BLOCKED_COUNTRIES)."""
+    return coded('ADULT_CONTENT_UNAVAILABLE', 451, "Adult content isn't available in your region")
+
+
 def encrypted_archive_requires_account():
     return coded('ENCRYPTED_ARCHIVE_REQUIRES_ACCOUNT', 403, 'Sign in to upload encrypted archives')
 
@@ -219,6 +224,7 @@ def upload_rejection(code):
         'MALWARE_DETECTED': malware_detected,
         'FILE_TYPE_NOT_ALLOWED': file_type_not_allowed,
         'NSFW_REQUIRES_ACCOUNT': nsfw_requires_account,
+        'ADULT_CONTENT_UNAVAILABLE': adult_content_unavailable,
         'ENCRYPTED_ARCHIVE_REQUIRES_ACCOUNT': encrypted_archive_requires_account,
         'ENCRYPTED_PDF_REQUIRES_ACCOUNT': encrypted_pdf_requires_account,
     }[code]()

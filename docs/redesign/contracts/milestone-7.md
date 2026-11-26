@@ -165,3 +165,51 @@ Every step that isn't code, in order, each marked **Dan** (an account, a payment
 - Cloudflare's body limit unit (the §5.1 check on the real zone).
 - Authenticated Origin Pulls with Cloudflare for SaaS custom hostnames (Cloudflare's docs describe zone-level and per-hostname certificates; confirm which applies to the fallback origin).
 - Sanic's behaviour when two containers share the API's upstream during a rollover, under the load test.
+
+## 11. Regional rules: adult content and the minimum age (decided 2026-11-25)
+
+Dan's decisions (`LAUNCH.md` "Decisions", 2026-11-25; the lawyer confirms): **adult content is not available in the UK** (instead of the Online Safety Act's age checks), and **the minimum age is 13, or 16 in the EU and EEA** (18 for adult content everywhere, as today). Both depend on the visitor's country, which only Cloudflare knows.
+
+### 11.1 The country and the setting
+
+- **The country** is `request.cf.country` in the Worker (ISO 3166-1 alpha-2, upper case), and nothing else: never a request header (wrangler's test harness passes a client's `CF-IPCountry` straight through, and production must not trust one). Cloudflare's `XX` (unknown) and `T1` (Tor) count as unknown.
+- **The Worker forwards it** to the API on every forwarded request, as `X-Filesgg-Client-Country: <CC>`, next to `X-Filesgg-Client-Ip` and only with the origin secret (`originRequestHeaders` in `worker/utils/security.js`). Client-sent copies are always removed, with or without a secret, like the other `X-Filesgg-*` headers. No country (absent, `XX`, `T1`): no header.
+- **The API believes it** only from the trusted Worker (`client_ip.from_trusted_worker`), validated as two letters `A`–`Z`; otherwise the country is unknown (`None`). It's on `request.ctx.client_country`, set where `request.ctx.client_ip` is. It's never stored or logged.
+- **`ADULT_BLOCKED_COUNTRIES`**: comma-separated country codes where adult content is unavailable; unset or empty means `GB`. One `.env` value feeds both enforcers: compose passes it to `api` (`${ADULT_BLOCKED_COUNTRIES:-GB}`), and `ops/deploy.sh` passes it to the Worker with `--var` like the S3 values; `wrangler.toml` `[vars]` (and `[env.staging.vars]`) default it to `GB`. `ops/check-env.sh` refuses a value that isn't comma-separated two-letter codes. Unknown countries are never blocked.
+- **The EEA list** (API only, a constant): AT BE BG HR CY CZ DK EE FI FR DE GR HU IE IT LV LT LU MT NL PL PT RO SK SI ES SE, IS LI NO. **Minimum age:** 16 there, and 16 for an unknown country (the conservative statement); 13 elsewhere.
+
+### 11.2 Worker: nothing adult is served to a blocked country
+
+A request from a blocked country for adult content gets **451 Unavailable For Legal Reasons**, `Cache-Control: no-store`, and leaks nothing about the file beyond what the URL already says:
+
+- **Viewer shells** (`decideFileShell`, `decideAlbumShell`, so files.gg and custom domains alike): a file whose lookup says `nsfw: true`, or an album that `albumIsNsfw`, gets the shell with `state: 'region'`, status 451, and boot data `{ vanity }` only (no name, size, og image or description: the default meta). The order: missing, removed and hidden first (their own states, unchanged), then **region**, then the lock, view limits and the rest. A 451 is never counted as a view, and bots get the same 451.
+- **CDN** (`cdn.js`, also used by custom domains): a file's bytes, every preview kind (thumbnails, posters, waveforms, `display`, `document`) and an album's collage and ZIP, when the file's lookup has `nsfw: true` or the album `albumIsNsfw`: 451 with the CDN's usual error body for that route. Checked after the lookup and the missing/removed checks, before the signature, so a valid signed URL or a staff URL doesn't get past it (UK staff can't review adult content; noted for the lawyer).
+- A new helper (`worker/utils/region.js`): `clientCountry(request)`, `adultBlocked(env, country)` from `ADULT_BLOCKED_COUNTRIES`. Unit tests for the parsing (unset, empty, spaces, lower case) and integration tests: with `ADULT_BLOCKED_COUNTRIES=US` (the harness's country) an nsfw file's shell, bytes and previews and an nsfw album's shell, collage and ZIP are 451 with nothing of the file in the body; a non-nsfw file is served as before; the default `GB` serves the harness's `US` normally; a client's `CF-IPCountry`/`X-Filesgg-Client-Country` never reaches the API, and the Worker's own does (with the secret only).
+
+### 11.3 API: nothing adult is uploaded or marked from a blocked country
+
+- `api/utils/regions.py`: `adult_blocked(country)` (from `ADULT_BLOCKED_COUNTRIES`, read like the other settings) and `minimum_age(country)`.
+- **Refused with `451 ADULT_CONTENT_UNAVAILABLE`** ("Adult content isn't available in your region") when `adult_blocked(request.ctx.client_country)`:
+  - `POST /files` and `POST /uploads` with `nsfw` true, **including when it comes from the account's or the upload key's defaults** (never silently uploaded unmarked);
+  - `PATCH /users/@me/files/<id>` and `POST /users/@me/files/nsfw` with `nsfw: true`;
+  - `PATCH /users/@me/albums/<id>` with `nsfw: true`;
+  - saving `upload_defaults.nsfw: true` (Settings → Uploads) and creating or changing an upload key with an nsfw default.
+  
+  Unmarking (`nsfw: false`), the NSFW review request, reports, the scanner's own NSFW marking and staff actions are unchanged. The refusal is checked before any upload bytes are read where the endpoint allows (`POST /uploads` at session creation; `POST /files` before streaming).
+- **`GET /users/@me/limits`**: `nsfw_allowed` is also false when blocked, and a new `adult_region_blocked: bool` says why.
+- **`GET /auth/config`** (public): `{ discord, minimum_age, adult_content_available }`, from the request's country.
+- `ADULT_CONTENT_UNAVAILABLE` in `errors.py`'s code table; the upload-refusal metric counts it by code with no change.
+- Tests: the header is believed only with the secret, validated, and absent otherwise; each refusal above from `GB` with the secret, and the same requests allowed from `US` and with no country; unmarking allowed from `GB`; defaults and key defaults refused from `GB`; `/auth/config` gives 16 for `DE`, `NO` and no country, 13 for `US` and `GB`; `ADULT_BLOCKED_COUNTRIES` parsing.
+
+### 11.4 Web
+
+- **Viewer `state: 'region'`** (file and album pages): "This isn't available in your region." and "Adult content can't be viewed where you are." with a link to the Terms (`/legal/terms#adult-content`). No file details.
+- **Where adult content is offered** (the Upload page's sensitive toggle, the upload-key dialog, Settings → Uploads defaults, a file's and an album's "Mark as sensitive", the bulk action): hidden as today when `nsfw_allowed` is false; when `adult_region_blocked` is true, one line says "Adult content isn't available in your region." instead of nothing. Signed-out visitors use `/auth/config`'s `adult_content_available`.
+- **`ADULT_CONTENT_UNAVAILABLE`** has a message in `lib/errors.ts` (the same sentence).
+- **Sign-up** (`TermsAgreement`): "…and confirm you're `<minimum_age>` or older", from `/auth/config`; until it loads, the age clause is left out rather than guessed.
+- **Terms** (`web/src/content/legal/terms.md`): "You must be 13 or older to use files.gg, or 16 or older in the European Union, Iceland, Liechtenstein and Norway." The adult-content section (anchor `adult-content`) adds: "Adult content isn't available in the United Kingdom: it can't be viewed, uploaded or marked from there." **Privacy** (`privacy.md`): files.gg uses the country Cloudflare derives from your IP address to apply these regional rules, and doesn't store it.
+- Tests for each of the above, including the region state's text and that it shows no file data.
+
+### 11.5 Docs
+
+`.env.example` documents `ADULT_BLOCKED_COUNTRIES`; `LAUNCH.md` §0's table lists it; `cf-worker/README.md` lists the new var and header; `api` docs list the header next to `X-Filesgg-Client-Ip`.

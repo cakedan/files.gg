@@ -663,6 +663,7 @@ const SIGNED_IN_LIMITS = {
   album_max_files: 500,
   albums_max: 1000,
   nsfw_allowed: true, // milestone-4 §13: signed in and not restricted
+  adult_region_blocked: false, // milestone-7 §11.3: e2e runs from a country where adult content is available
 };
 const PREMIUM_LIMITS = {
   ...SIGNED_IN_LIMITS,
@@ -691,6 +692,7 @@ await step('8. limits: anonymous and signed-in values', async () => {
     album_max_files: 50,
     albums_max: null,
     nsfw_allowed: false, // milestone-4 §13
+    adult_region_blocked: false, // milestone-7 §11.3
   }, 'anonymous limits');
   equal(anonymousStorage.limit, null, 'anonymous storage.limit');
   // Anonymous usage is counted per guest and per IP; step 1 uploaded from this IP.
@@ -1413,7 +1415,11 @@ await step('20. sessions: HttpOnly cookie on files.localhost only, CSRF, no Bear
 
 await step('21. register: a new unverified account, username checks, and it claims the anonymous uploads of its guest', async () => {
   const config = await new Caller('visitor').call('/auth/config');
-  equal([config.status, config.data], [200, { discord: false }], 'GET /api/auth/config: Discord is off locally (DISCORD_* unset)');
+  equal([config.status, config.data.discord], [200, false], 'GET /api/auth/config: Discord is off locally (DISCORD_* unset)');
+  // milestone-7 §11: the country is wrangler dev's (where this runs). The suite marks files as adult, so it needs a
+  // country where that's available; the minimum age is 16 in the EU and EEA, 13 elsewhere.
+  equal(config.data.adult_content_available, true, 'GET /api/auth/config: adult content is available here (e2e must not run from a blocked country)');
+  check([13, 16].includes(config.data.minimum_age), 'GET /api/auth/config: minimum_age is 13 or 16 (the Worker forwarded a country)', config.data);
   const discord = await new Caller('visitor').call('/auth/discord/authorize', { method: 'POST', json: { purpose: 'login', code_challenge: 'SkrKhQFbMBX5ptYerKJJajG2CIJ-X_1O1IyRGzbnMZ8' } });
   equal([discord.status, discord.data.code], [503, 'DISCORD_UNAVAILABLE'], 'POST /api/auth/discord/authorize: 503 DISCORD_UNAVAILABLE');
 

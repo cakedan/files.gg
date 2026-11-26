@@ -30,6 +30,7 @@ import {
 } from '../utils/domains.js';
 import { getHosts, originFor, publicOrigins } from '../utils/hosts.js';
 import { domainServing } from '../utils/owners.js';
+import { adultBlockedFor } from '../utils/region.js';
 import { CDN_EXPOSE_HEADERS, corsHeaders } from '../utils/security.js';
 import { decideAlbumShell, decideFileShell } from '../utils/viewer.js';
 import { botRefusalResponse } from '../utils/viewlimits.js';
@@ -128,12 +129,14 @@ async function handle(event) {
     case 'missing': return await renderViewer(event, { page: 'file', state: 'missing', dataId: 'file-data', data: null, status: 404 }, site);
     case 'album': {
       const lookup = rehostLookup(await internalLookup(event, 'albums', route.vanity), site);
-      return await renderViewer(event, decideAlbumShell({ lookup, vanity: route.vanity, domain }), site);
+      const adultBlocked = adultBlockedFor(event.environment, event.originalRequest);
+      return await renderViewer(event, decideAlbumShell({ lookup, vanity: route.vanity, domain, adultBlocked }), site);
     }
     case 'file': {
       const lookup = rehostLookup(await internalLookup(event, 'files', route.vanity), site);
       const shell = decideFileShell({
         lookup, vanity: route.vanity, headers: event.originalRequest.headers, mainOrigin: site.origin, domain,
+        adultBlocked: adultBlockedFor(event.environment, event.originalRequest),
       });
       if (shell.redirect) {
         // Bots and embeds of `link` files: the rehosted cdn_url, https://<host>/files/<vanity>.<ext>.

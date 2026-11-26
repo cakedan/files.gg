@@ -16,7 +16,7 @@ You can reach us at [CONTACT EMAIL]. To report a file, album, user or custom dom
 
 ## 2. Who can use files.gg
 
-- You must be **13 or older** to use files.gg.
+- You must be **13 or older** to use files.gg, or **16 or older** in the European Union, Iceland, Liechtenstein and Norway.
 - You must be **18 or older** to upload, mark or view adult content.
 - If you're under 18, or under the age of majority where you live, a parent or guardian must agree to these Terms for you, and they're responsible for how you use files.gg.
 - You can't use files.gg if we've suspended or banned you, or if the law where you are forbids it.
@@ -83,6 +83,10 @@ You also may not:
 - upload with tools or scripts other than through upload keys, or automate the website (including its human checks);
 - use a custom domain to impersonate someone or to make harmful content look trustworthy.
 
+**Blocked file types.** Executables, installers and other file types that are mostly used to spread malware can't be uploaded (for example `.exe`, `.msi`, `.apk`, `.dmg`, `.jar`, disk images, macro-enabled Office documents, and archives that contain any of these). Anonymous uploads of encrypted archives are refused, because they can't be scanned.
+
+### Adult content
+
 **Adult content** is allowed, with these rules:
 
 - you must be 18 or older, and signed in to an account, to upload it;
@@ -91,7 +95,7 @@ You also may not:
 
 Adult content files show a warning before anyone can see them, and never appear in embeds. Our classifier marks adult content that wasn't marked, but it's a safety net, not your excuse: repeatedly uploading unmarked adult content earns notices and strikes (section 7).
 
-**Blocked file types.** Executables, installers and other file types that are mostly used to spread malware can't be uploaded (for example `.exe`, `.msi`, `.apk`, `.dmg`, `.jar`, disk images, macro-enabled Office documents, and archives that contain any of these). Anonymous uploads of encrypted archives are refused, because they can't be scanned.
+Adult content isn't available in the United Kingdom: it can't be viewed, uploaded or marked from there.
 
 ## 6. Scanning
 

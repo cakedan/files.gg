@@ -3,6 +3,7 @@ import { DomainRouter } from 'cf-worker-router';
 import { sessionCookieHeader, sessionCookieName } from '../utils/cookies.js';
 import { apiOrigin, getStringBinding } from '../utils/env.js';
 import { DEFAULT_HOSTS, hostPattern } from '../utils/hosts.js';
+import { clientCountry } from '../utils/region.js';
 import { isInternalApiPath, originRequestHeaders } from '../utils/security.js';
 
 export const API_HOSTNAME = DEFAULT_HOSTS.api;
@@ -42,8 +43,8 @@ export function createRouter(hosts = DEFAULT_HOSTS) {
 let warnedMissingSecret = false;
 
 // Every request to the API goes through here: client-supplied X-Filesgg-* headers and the client's
-// Cookie are dropped, and the client IP is vouched for with the ORIGIN_SHARED_SECRET binding (see
-// cf-worker/README.md). `main: true` (files.gg/api/* only) forwards the session cookie alone and
+// Cookie are dropped, and the client IP and country (`request.cf.country`, milestone-7.md §11.1) are
+// vouched for with the ORIGIN_SHARED_SECRET binding (see cf-worker/README.md). `main: true` (files.gg/api/* only) forwards the session cookie alone and
 // marks the request `X-Filesgg-Via: main` (milestone-6.md §3.4, §12).
 export function forOrigin(request, event, { main = false } = {}) {
   const sessionCookie = (main)
@@ -53,7 +54,7 @@ export function forOrigin(request, event, { main = false } = {}) {
     request.headers,
     getStringBinding(event.environment, 'ORIGIN_SHARED_SECRET'),
     event.originalRequest.headers.get('cf-connecting-ip'),
-    { main, sessionCookie },
+    { main, sessionCookie, country: clientCountry(event.originalRequest) },
   );
   if (!trusted && !warnedMissingSecret) {
     warnedMissingSecret = true;

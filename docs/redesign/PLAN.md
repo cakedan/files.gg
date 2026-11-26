@@ -1542,6 +1542,7 @@ Open, from "Trust & safety" (Phase 1):
    - the Terms and Privacy updates;
    - UK/EU obligations;
    - whether hosting marked adult content requires age verification anywhere files.gg has users.
+   - *Decided 2026-11-25 (Dan; the lawyer confirms): the operator is in the US (so an EU legal representative), adult content is hidden from the UK instead of age checks, and the minimum age is 13, or 16 in the EU and EEA. Details and what to build: [`LAUNCH.md`](LAUNCH.md) "Decisions".*
 9. ~~Turnstile on anonymous uploads?~~ **Human verification on the website, upload keys for ShareX and tools** (decided 2026-11-24; see "Human verification and upload keys").
 10. ~~Separate user-content domain?~~ **No: keep `cdn.files.gg` and harden it** (decided 2026-11-24; see "Hardening cdn.files.gg").
 11. ~~Should anonymous visitors convert?~~ **Yes, with smaller limits** (decided 2026-11-24). Starting defaults, in config through `get_limits()`:

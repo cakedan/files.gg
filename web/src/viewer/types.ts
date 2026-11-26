@@ -213,6 +213,8 @@ export type BootState =
   | { page: 'locked'; target: LockedTarget }
   /** Milestone 6 §19.5: a view-limited file (`data-state="limited"`). */
   | { page: 'limited'; target: LimitedTarget }
+  /** Milestone 7 §11.2: adult content from a blocked country (`data-state="region"`, HTTP 451). Nothing of the file. */
+  | { page: 'region'; kind: 'file' | 'album' }
   | { page: 'unavailable' }
   | { page: 'missing' }
   | { page: 'file'; file: FileData }

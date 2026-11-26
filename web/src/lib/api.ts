@@ -636,8 +636,10 @@ export interface MyLimitsResponse {
   album_max_files?: number;
   /** Milestone 3: 1000, or null anonymous. */
   albums_max?: number | null;
-  /** Milestone 4 (§13): true signed in and not restricted, false anonymous. */
+  /** Milestone 4 (§13): true signed in and not restricted, false anonymous. Milestone 7 §11.3: also false when blocked by region. */
   nsfw_allowed?: boolean;
+  /** Milestone 7 §11.3: adult content isn't available from the caller's country (why `nsfw_allowed` is false). */
+  adult_region_blocked?: boolean;
   /** Milestone 6 (§9.2): premium raises storage, chunked and single-request limits. */
   premium?: boolean;
   /** The single-request limit before the proxy's body cap (§9.2, §9.5). */

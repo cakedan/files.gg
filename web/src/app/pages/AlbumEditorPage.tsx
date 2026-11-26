@@ -17,6 +17,7 @@ import { AlbumItemCard } from '../albums/AlbumItemCard';
 import { CoverDialog } from '../albums/CoverDialog';
 import { SortableGrid } from '../albums/SortableGrid';
 import { useAlbumOrder, type OrderStatus } from '../albums/useAlbumOrder';
+import { ADULT_REGION_TEXT, useAdultRegionBlocked } from '../safety/region';
 import { ConfirmDialog } from '../components/ConfirmDialog';
 import { useToast } from '../components/toastContext';
 import { AccessBadge } from '../files/AccessBadge';
@@ -84,6 +85,7 @@ function Editor({ album }: { album: OwnerAlbum }) {
   const notify = useToast();
   const navigate = useNavigate();
   const readOnly = !useSignedIn();
+  const adultRegionBlocked = useAdultRegionBlocked(!readOnly);
   const update = useUpdateAlbum(album.id);
   const caption = useSetCaption(album.id);
   const removeItem = useRemoveAlbumItem(album.id);
@@ -221,6 +223,7 @@ function Editor({ album }: { album: OwnerAlbum }) {
             marked={Boolean(album.nsfw_marked)}
             fromItems={Boolean(album.nsfw) && !album.nsfw_marked}
             disabled={readOnly}
+            regionBlocked={adultRegionBlocked}
             onChange={(nsfw) => save({ nsfw }, nsfw ? 'Album marked as sensitive.' : 'Album unmarked.')}
           />
         </div>
@@ -312,9 +315,25 @@ function Editor({ album }: { album: OwnerAlbum }) {
   );
 }
 
-/** "Mark album as sensitive" (milestone-4 §4.5, §11.2): the album's own mark. */
-function SensitiveSwitch({ marked, fromItems, disabled, onChange }: { marked: boolean; fromItems: boolean; disabled: boolean; onChange: (nsfw: boolean) => void }) {
+/**
+ * "Mark album as sensitive" (milestone-4 §4.5, §11.2): the album's own mark. From a blocked country
+ * (milestone-7 §11.4), one line instead, unless the album is already marked and can still be unmarked.
+ */
+function SensitiveSwitch({
+  marked,
+  fromItems,
+  disabled,
+  regionBlocked,
+  onChange,
+}: {
+  marked: boolean;
+  fromItems: boolean;
+  disabled: boolean;
+  regionBlocked: boolean;
+  onChange: (nsfw: boolean) => void;
+}) {
   const id = useId();
+  if (regionBlocked && !marked) return <p className="text-xs text-muted">{ADULT_REGION_TEXT}</p>;
   return (
     <div className="flex flex-col gap-1.5">
       <div className="flex items-center gap-3">

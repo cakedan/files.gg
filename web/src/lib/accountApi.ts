@@ -14,9 +14,13 @@ export interface SignInResponse {
   user: User;
 }
 
-/** `GET /auth/config` (§15). */
+/** `GET /auth/config` (§15), with the visitor's regional rules (milestone-7 §11.3). */
 export interface AuthConfig {
   discord: boolean;
+  /** 16 in the EU and EEA (and for an unknown country), 13 elsewhere. */
+  minimum_age?: number;
+  /** False when adult content isn't available from the visitor's country. */
+  adult_content_available?: boolean;
 }
 
 export type DiscordPurpose = 'login' | 'link' | 'reauth';

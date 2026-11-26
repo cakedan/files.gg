@@ -7,7 +7,8 @@
 # Refused: a required variable missing, empty or still a placeholder (CHANGE_ME, example.com); a dev-only
 # flag set (FILESGG_DEV_TOOLS, SESSION_COOKIE_INSECURE, FILESGG_ALLOW_LEGAL_PLACEHOLDERS, the stand-ins, DEBUG);
 # CSAM_MATCHER anything but photodna; a generated secret that's too short; a public URL that isn't https; nginx's
-# client_max_body_size not matching PROXY_BODY_LIMIT_BYTES; the origin certificate missing, not matching its key, or
+# client_max_body_size not matching PROXY_BODY_LIMIT_BYTES; ADULT_BLOCKED_COUNTRIES not comma-separated two-letter
+# country codes; the origin certificate missing, not matching its key, or
 # expiring within 30 days (NGINX_CERT_DIR, default nginx/certificates). Values are never printed.
 #
 # Exit 0 when everything passed, 1 otherwise (every problem is listed).
@@ -127,6 +128,17 @@ fi
 webhook=$(env_value GRAFANA_ALERT_DISCORD_WEBHOOK)
 if [ -n "$webhook" ] && ! is_placeholder "$webhook" && [[ ! $webhook =~ ^https://(discord|discordapp)\.com/api/webhooks/ ]]; then
   problem "GRAFANA_ALERT_DISCORD_WEBHOOK must be a Discord webhook URL (https://discord.com/api/webhooks/...)"
+fi
+
+# milestone-7 §11.1: the countries where adult content is unavailable, read by the API and the Worker; empty means GB.
+# Spaces around the commas and lower case are fine (both read it that way). UK isn't a country code: Cloudflare says GB.
+adult_blocked=$(env_value ADULT_BLOCKED_COUNTRIES)
+if [ -n "$adult_blocked" ]; then
+  if [[ ! $adult_blocked =~ ^[[:space:]]*[A-Za-z]{2}[[:space:]]*(,[[:space:]]*[A-Za-z]{2}[[:space:]]*)*$ ]]; then
+    problem "ADULT_BLOCKED_COUNTRIES must be comma-separated two-letter country codes (e.g. GB or GB,US)"
+  elif [[ ,$(printf '%s' "$adult_blocked" | tr -d '[:space:]' | tr '[:lower:]' '[:upper:]'), == *,UK,* ]]; then
+    problem "ADULT_BLOCKED_COUNTRIES has UK: the United Kingdom's country code is GB"
+  fi
 fi
 
 # nginx's extra API host names are for the staging run only (docs/redesign/LAUNCH.md §7), and end up in its config

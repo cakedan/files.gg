@@ -70,7 +70,7 @@ def create_app(name='filesgg', database_url=None, storage=None):
     from sanic_ext import Extend
 
     import db
-    from utils import auth as auth_module, cdn_signing, client_ip, http, metrics, tokens
+    from utils import auth as auth_module, cdn_signing, client_ip, http, metrics, regions, tokens
     from utils.generators import EPOCH, Snowflake
     from utils.email import Email
     from utils.access import ACCESS_HEADER
@@ -227,6 +227,8 @@ def create_app(name='filesgg', database_url=None, storage=None):
         request.ctx.internal_lookup = client_ip.internal_lookup(request.headers, app.ctx.origin_secret)
         request.ctx.client_ip = client_ip.resolve(
             request.headers, request.ip, app.ctx.origin_secret, app.ctx.proxies_count)
+        # milestone-7 §11.1: the visitor's country, only from the Worker (never stored or logged)
+        request.ctx.client_country = regions.from_headers(request.headers, request.ctx.from_worker)
         client_ip.scrub(request.headers)
         # access tokens never stay in the headers (nothing can log them)
         request.ctx.access_token = request.headers.get(ACCESS_HEADER)

@@ -11,6 +11,8 @@
  *                                    `{ type: "any" | "file" | "album", vanity? }`; else missing
  *   3. data-state="unavailable"   -> unavailable (Retry button)
  *   4. data-state="missing"       -> missing (also CSAM-blocked and private files)
+ *   4'. data-state="region"       -> region (milestone-7 §11.2): adult content from a blocked
+ *                                    country. The payload (`{ vanity }`) is never read
  *   4a. data-state="pending"      -> pending, from `{ vanity, pending: true }`; else missing
  *   4b. data-state="removed"      -> removed, from `{ vanity, removed: <reason> }`; else missing
  *   4c. data-state="locked"       -> locked (contract §4), when the script tag holds
@@ -367,6 +369,7 @@ export function parseBoot({ page, state, fileJson, albumJson, reportJson }: Boot
   }
   if (state === 'unavailable') return { page: 'unavailable' };
   if (state === 'missing') return { page: 'missing' };
+  if (state === 'region') return { page: 'region', kind: page === 'album' ? 'album' : 'file' };
   if (state === 'pending' || state === 'removed') {
     const kind = page === 'album' ? 'album' : 'file';
     const data = parseJson(kind === 'album' ? albumJson : fileJson);

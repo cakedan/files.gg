@@ -9,7 +9,8 @@
 // Anything else is 404. Password and private targets are served only through signed URLs
 // (utils/signing.js), checked before any byte (or cached byte) is touched.
 //
-// Per request (milestone-4.md §10.2, milestone-6.md §10.8): parse → lookup (404 / 503) → staff
+// Per request (milestone-4.md §10.2, milestone-6.md §10.8): parse → lookup (404 / 503) → the
+// regional rule (451, milestone-7.md §11.2) → staff
 // grant → the owner's pending deletion (404) → access check (signature; a view-limited file always
 // needs one, milestone-6.md §19.5) → domain-only (a `link`
 // file of an owner whose domain-only mode is in effect needs a signature too, else 404) → safety
@@ -20,6 +21,13 @@
 // `site` of { kind: 'custom', domain }: there the content must be allowed by the domain's scope
 // (else 404), a pending deletion is 404, `staff=` is never accepted (401 for password targets, 404
 // otherwise), and domain-only doesn't apply.
+//
+// Regional rules (milestone-7.md §11.2): an NSFW file (its bytes and every preview) or an album that
+// albumIsNsfw() (its collage and ZIP), asked for from a country where adult content is unavailable,
+// is 451 with `no-store`. It's checked after the lookup and the missing checks (expired, the
+// domain's scope, a pending deletion, an album with nothing shown) and never for a blocked, hidden
+// or removed target (those keep their own answers), but before staff URLs and signatures, so
+// neither gets past it.
 
 import { ApiError, DomainRouter } from 'cf-worker-router';
 
@@ -43,9 +51,10 @@ import {
   contentDisposition,
   decideCdnResponse,
 } from '../utils/security.js';
+import { adultBlockedFor, REGION_CACHE_CONTROL, REGION_STATUS } from '../utils/region.js';
 import { albumSafety, cdnStateStatus, fileSafety, pendingCount, servesInline } from '../utils/safety.js';
 import { albumGrant, grantForFileRequest, verifySignedUrl, verifyStaffUrl } from '../utils/signing.js';
-import { isExpired, SECURITY_TXT_PATH, visibleAlbumItems } from '../utils/viewer.js';
+import { albumIsNsfw, isExpired, SECURITY_TXT_PATH, visibleAlbumItems } from '../utils/viewer.js';
 import { isViewLimited } from '../utils/viewlimits.js';
 import { createZipStream, zipSize } from '../utils/zip.js';
 
@@ -151,6 +160,17 @@ function denied(access) {
   return cdnError(access.visibility === 'password' ? 401 : 404, PROTECTED_CACHE_CONTROL);
 }
 
+// Safety states that keep their own answer (404 or 410, after the access check) over the regional rule.
+const OWN_STATE_OVER_REGION = Object.freeze(['blocked', 'hidden', 'removed']);
+
+// milestone-7.md §11.2: the 451 for adult content from a blocked country, or null.
+function regionRefusal(event, nsfw, state) {
+  if (!nsfw || OWN_STATE_OVER_REGION.includes(state) || !adultBlockedFor(event.environment, event.originalRequest)) {
+    return null;
+  }
+  return cdnError(REGION_STATUS, REGION_CACHE_CONTROL);
+}
+
 function verify(event, grant) {
   return verifySignedUrl({
     secret: getStringBinding(event.environment, 'CDN_SIGNING_SECRET'),
@@ -213,6 +233,7 @@ async function isStaffRequest(event, data) {
 // check, domain-only, then the safety state. Returns { response } (the refusal) or
 // { staff, isProtected } (`isProtected`: private, no-store).
 async function checkFile(event, data, access, site) {
+  const region = () => regionRefusal(event, data.file.nsfw === true, fileSafety(data).state);
   if (site.kind === 'custom') {
     // milestone-6.md §10.8 steps 4-5: another owner's file on an `own` domain, or a pending
     // deletion, is missing; §10.9: staff URLs work only on cdn.files.gg, so `staff=` here is a bad
@@ -220,10 +241,19 @@ async function checkFile(event, data, access, site) {
     if (!domainAllows(site.domain, data) || ownerPendingDeletion(data)) {
       return { response: cdnError(404, PROTECTED_CACHE_CONTROL) };
     }
+    const refusal = region();
+    if (refusal) {
+      return { response: refusal };
+    }
     if (event.url.searchParams.has('staff')) {
       return { response: denied(access) };
     }
   } else {
+    // Before the staff URL (milestone-7.md §11.2); a pending deletion stays missing below.
+    const refusal = ownerPendingDeletion(data) ? null : region();
+    if (refusal) {
+      return { response: refusal };
+    }
     if (await isStaffRequest(event, data)) {
       return { staff: true, isProtected: true };
     }
@@ -353,6 +383,13 @@ async function lookupAlbum(event, vanity, site) {
   if ((site.kind === 'custom' && !domainAllows(site.domain, data)) || ownerPendingDeletion(data)) {
     return { response: cdnError(404, PROTECTED_CACHE_CONTROL) };
   }
+  const safety = albumSafety(data);
+  const items = visibleAlbumItems(data);
+  // milestone-7.md §11.2, before the signature; an album with nothing shown stays missing below.
+  const region = items.length ? regionRefusal(event, albumIsNsfw(album, items), safety.state) : null;
+  if (region) {
+    return { response: region };
+  }
   if (site.kind === 'custom' && event.url.searchParams.has('staff')) {
     return { response: denied(access) };
   }
@@ -370,12 +407,11 @@ async function lookupAlbum(event, vanity, site) {
     }
     signedOnly = true;
   }
-  const safety = albumSafety(data);
   if (safety.state !== 'ok') {
     // Hidden or removed: 410. A lookup without a known state fails closed like a pending file.
     return { response: cdnError(cdnStateStatus(safety.state), PROTECTED_CACHE_CONTROL) };
   }
-  if (!visibleAlbumItems(data).length) {
+  if (!items.length) {
     // Nothing shown (yet, when items are still being checked).
     const pending = pendingCount(data) > 0;
     return { response: cdnError(404, (isProtected || pending) ? PROTECTED_CACHE_CONTROL : null) };

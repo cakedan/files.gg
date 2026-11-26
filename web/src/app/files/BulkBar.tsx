@@ -3,6 +3,7 @@ import { Clock, Eye, EyeOff, Images, Infinity as InfinityIcon, Lock, Trash2, Wan
 import { Button } from '../../components/Button';
 import type { OwnerFile } from '../../lib/api';
 import { formatBytes } from '../../lib/format';
+import { ADULT_REGION_TEXT } from '../../lib/upload/options';
 import { canConvert, type FileHandlers } from './fileMenu';
 import { pluralize } from './fileLabels';
 
@@ -46,10 +47,14 @@ export function BulkBar({ files, handlers, onClear }: { files: OwnerFile[]; hand
           )}
           {handlers.setSensitive && (
             <>
-              <Button variant="ghost" onClick={() => handlers.setSensitive!(files, true)}>
-                <EyeOff aria-hidden className="size-4" />
-                Mark as sensitive
-              </Button>
+              {handlers.adultRegionBlocked ? (
+                <span className="self-center px-2 text-xs text-muted">{ADULT_REGION_TEXT}</span>
+              ) : (
+                <Button variant="ghost" onClick={() => handlers.setSensitive!(files, true)}>
+                  <EyeOff aria-hidden className="size-4" />
+                  Mark as sensitive
+                </Button>
+              )}
               <Button
                 variant="ghost"
                 onClick={() => handlers.setSensitive!(files, false)}
