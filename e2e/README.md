@@ -95,7 +95,7 @@ docker compose -p filesgg-e2e exec api python -m tools.entitlements list
 | The Worker | `wrangler dev` on `127.0.0.1:8787`, started in the background by `up.sh` | Config generated from `cf-worker/wrangler.toml` without the routes (so `Host` is kept), with `MAIN_HOST`, `CDN_HOST` and `API_HOST` set to `files.localhost`, `cdn.files.localhost` and `api.files.localhost`; every other host is a custom domain. `SESSION_COOKIE_NAME=filesgg_session`. `API_ORIGIN` points at the API, `S3_ENDPOINT` at MinIO. |
 | The web app | Built by `up.sh` into `~/.cache/filesgg-e2e/web-dist` (never `web/dist`) | No `VITE_API_URL`: it calls `/api` same-origin (milestone-6 §13.1). Cloudflare's always-pass testing site key from `web/src/lib/config.ts`. |
 | The API's public URLs | `PUBLIC_URL=http://files.localhost:8787`, `CDN_URL=http://cdn.files.localhost:8787`, `API_PUBLIC_URL=http://api.files.localhost:8787` | There's no `ALLOWED_ORIGINS` any more: nothing is credentialed cross-origin. |
-| Account settings (Milestone 6) | The API and every worker container | `SESSION_COOKIE_INSECURE=1` (cookie `filesgg_session` without `Secure`; production refuses to boot with it), the mock Cloudflare's `CLOUDFLARE_*`, and `DOMAIN_DNS_STUB=1` (dev only, with `FILESGG_DEV_TOOLS=1`). `DISCORD_*` and `POSTMARK_SERVER_TOKEN` are unset. |
+| Account settings (Milestone 6) | The API and every worker container | `SESSION_COOKIE_INSECURE=1` (cookie `filesgg_session` without `Secure`; production refuses to boot with it), the mock Cloudflare's `CLOUDFLARE_*`, and `DOMAIN_DNS_STUB=1` (dev only, with `FILESGG_DEV_TOOLS=1`). `DISCORD_*` and `CLOUDFLARE_EMAIL_TOKEN` are unset. |
 | Trust & safety settings | Every API, worker and scanner container | `CSAM_MATCHER=standin` with `FILESGG_DEV_TOOLS=1` (the stand-in matcher refuses to run without it, and the API refuses to boot without a matcher), `ABUSE_HASH_SECRET` and `EVIDENCE_PUBLIC_KEY` from `.env`. The scanner and rescanner also get `CLAMAV_HOST=clamav`, `CLAMAV_PORT=3310`, `S3_BUCKET_EVIDENCE=filesgg-evidence` and the MinIO key as `S3_EVIDENCE_ACCESS_KEY_ID` / `S3_EVIDENCE_SECRET_ACCESS_KEY`. `WEB_RISK_API_KEY` is unset, so Web Risk is `skipped` (it fails open). |
 
 **Generated files:** in `e2e/.local/`, which is git-ignored:
@@ -121,7 +121,7 @@ Why outside: when the checkout is in a synced folder (iCloud Desktop & Documents
 
 **Local differences from production:**
 - MinIO has one key, so the Worker reads with the same key the API writes with. In production, the Worker's key is read-only.
-- No email is sent: `POSTMARK_SERVER_TOKEN` is unset (the API logs that account emails fail with 503; nothing else depends on them).
+- No email is sent: `CLOUDFLARE_EMAIL_TOKEN` is unset (the API logs that account emails fail with 503; nothing else depends on them).
 - The session cookie is `filesgg_session` without `Secure`, not `__Host-filesgg_session`.
 - Cloudflare's custom hostnames API is the mock, and DNS checks for custom domains are stubbed (`DOMAIN_DNS_STUB=1`).
 - `wrangler dev` passes a client's `CF-Connecting-IP` through to the Worker (Cloudflare's edge overwrites it in production), and the Worker vouches for it to the API. `run.mjs` uses that to be several viewers (view limits) and a fresh address for registering.

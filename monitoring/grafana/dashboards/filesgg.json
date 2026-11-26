@@ -1820,7 +1820,7 @@
         "type": "prometheus",
         "uid": "prometheus"
       },
-      "description": "Postmark sends; failed and unconfigured never reached the inbox",
+      "description": "Account emails sent through Cloudflare Email Service; failed and unconfigured never reached the inbox",
       "gridPos": {
         "h": 8,
         "w": 8,

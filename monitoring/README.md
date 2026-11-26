@@ -65,7 +65,7 @@ refuses `/internal/*` on every host, so the endpoint is unreachable from outside
 | `filesgg_ratelimit_refusals_total` | scope | the rate limiter |
 | `filesgg_ratelimit_unavailable_total` | fail (`open`: let through, `closed`: 503) | the rate limiter, when Redis fails |
 | `filesgg_redis_errors_total` | client (`ratelimit`, `convert_queue`, `metrics`) | Redis commands that failed |
-| `filesgg_emails_total` | tag, outcome (`sent`, `failed`, `unconfigured`) | Postmark sends |
+| `filesgg_emails_total` | tag, outcome (`sent`, `failed`, `unconfigured`) | Account emails sent through Cloudflare Email Service |
 | `filesgg_turnstile_verifications_total` | action, outcome (`passed`, `failed`, `mismatch`, `missing`, `error`, `unconfigured`) | Turnstile checks |
 | `filesgg_scheduled_task_last_success_timestamp_seconds` | task | the scheduler (gauge) |
 

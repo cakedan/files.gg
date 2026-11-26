@@ -424,7 +424,7 @@ def test_login_and_register_claim_anonymous_files(client, appdb, monkeypatch, ou
     assert me['id'] != str(guest_id) and me['email_verified'] is False and 'token' not in response.json()
     user_id = int(me['id'])
     assert appdb.fetchone('SELECT user_id, guest_id FROM files WHERE id = %s', (int(file_id),)) == (user_id, None)
-    assert outbox and outbox[0]['to'] == email and outbox[0]['to_name'] == username
+    assert outbox and outbox[0]['to'] == email
     assert outbox[0]['tag'] == 'auth-verify' and '/app/verify#token=' in outbox[0]['text']
     assert appdb.fetchone('SELECT password_hash FROM users WHERE id = %s', (user_id,))[0].startswith('$argon2id$')
 

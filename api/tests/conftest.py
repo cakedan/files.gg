@@ -568,7 +568,7 @@ def set_premium(user_id, db=None, expires_days=None):
 
 @pytest.fixture
 def outbox(monkeypatch):
-    """Every account email, sent from the API (async) or the worker (sync), without Postmark."""
+    """Every account email, sent from the API (async) or the worker (sync), without sending anything."""
     from utils.email import Email
     sent = []
 

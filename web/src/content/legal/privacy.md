@@ -119,9 +119,8 @@ We don't sell your personal data or share it for advertising. We share it only w
 
 | Provider | What for | What they receive |
 |---|---|---|
-| **Cloudflare** | Our network and CDN, the human check (Turnstile), and custom domains | Every request to files.gg, including your IP address; the hostnames of custom domains. Cloudflare's CSAM Scanning Tool also checks images served through it. |
+| **Cloudflare** | Our network and CDN, the human check (Turnstile), custom domains, and account emails | Every request to files.gg, including your IP address; the hostnames of custom domains. Cloudflare's CSAM Scanning Tool also checks images served through it. For account emails: your email address and the email's content. |
 | **Backblaze B2** (United States) | File storage, and encrypted database backups | Your files, previews and data exports; backups are encrypted before they're sent. |
-| **Postmark** | Account emails | Your email address, username and the email's content. |
 | **Discord** | Signing in with Discord, only if you use it | Discord already has your account; we receive your profile from them (section 2). |
 | **Microsoft PhotoDNA** | Matching images against known child sexual abuse material | Scaled-down copies of the images in each upload: pictures, video and animation frames, audio cover art, the first pages of PDFs, and images inside archives. |
 | **Google Web Risk** | Checking links for malware and phishing | Links found in text files, PDFs and album text. |

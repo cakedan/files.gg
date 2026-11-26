@@ -39,7 +39,7 @@ Every value the stack needs, who produces it, and the variable it goes into. `.e
 | CSAM matcher | `CSAM_MATCHER=photodna`, `PHOTODNA_SUBSCRIPTION_KEY`, `PHOTODNA_MATCH_URL` | `.env` | Dan, Microsoft | 4.2 |
 | Web Risk | `WEB_RISK_API_KEY` | `.env` | Dan, Google Cloud | 4.3 |
 | Turnstile | `VITE_TURNSTILE_SITE_KEY` (web build), `TURNSTILE_SECRET`, `TURNSTILE_HOSTNAMES=files.gg` | `.env` | Dan, Cloudflare | 2.7 |
-| Email | `POSTMARK_SERVER_TOKEN`, `EMAIL_FROM` (default `files.gg <noreply@mail.files.gg>`) | `.env` | Dan, Postmark | 4.4 |
+| Email | `CLOUDFLARE_EMAIL_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`, `EMAIL_FROM` (default `noreply@mail.files.gg`) | `.env` | Dan, Cloudflare | 4.4 |
 | Discord sign-in (optional) | `DISCORD_CLIENT_ID`, `DISCORD_CLIENT_SECRET`, `DISCORD_REDIRECT_URI=https://files.gg/app/auth/discord`, all three or none | `.env` | Dan, Discord | 4.5 |
 | Custom domains | `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ZONE_ID`, `CUSTOM_DOMAIN_TARGET=domains.files.gg` | `.env` | Dan, Cloudflare | 2.5 |
 | Origin certificate | `nginx/certificates/certificate.cert`, `certificate.key` (files on the server, never committed) | server | Dan creates, Claude installs | 2.3 |
@@ -145,7 +145,7 @@ These change HTML or block API clients, so they're off:
 
 ### 2.9 Email Routing — **Dan**
 - **Email → Email Routing:** enable (Cloudflare adds its MX and SPF records on `files.gg`), verify the destination mailbox, then add routes for **`abuse@`**, **`support@`**, **`dmca@`**, **`privacy@`** and **`security@`** (`security.txt` lists `security@` and `abuse@`) to the staffed mailbox.
-- Sending is from `mail.files.gg` (§4.4), so Email Routing's records on `files.gg` don't conflict with Postmark's.
+- Sending is from `mail.files.gg` (§4.4), so Email Routing's records on `files.gg` don't conflict with the sending records (on `cf-bounce.mail.files.gg`).
 - **Check:** a mail from an outside account to each address arrives; `dig MX files.gg` shows Cloudflare's servers.
 
 ---
@@ -189,7 +189,7 @@ These change HTML or block API clients, so they're off:
 ## 4. Vendors
 
 ### 4.1 Budget alerts — **Dan**
-- B2 (Caps & Alerts: daily storage, download and transaction caps with alerts), Google Cloud (a budget on the Web Risk project), Cloudflare (billing notifications for custom hostnames), Postmark (usage alert).
+- B2 (Caps & Alerts: daily storage, download and transaction caps with alerts), Google Cloud (a budget on the Web Risk project), Cloudflare (billing notifications for custom hostnames and Workers Paid usage, which includes email sending).
 - **Check:** each console shows the alert.
 
 ### 4.2 PhotoDNA — **Dan** (application), **Claude** (configuration)
@@ -203,14 +203,14 @@ These change HTML or block API clients, so they're off:
 - Pricing (checked 2026-11-25): `uris.search` free for 100,000 calls a month, then $0.50 per 1,000. **Never call `threatLists.computeDiff` from this project** (it reprices `uris.search` at $50 per 1,000). Set a budget alert (§4.1).
 - **Check** (Claude), with Google's own test page: `curl -s "https://webrisk.googleapis.com/v1/uris:search?threatTypes=MALWARE&uri=http%3A%2F%2Ftestsafebrowsing.appspot.com%2Fs%2Fmalware.html&key=$WEB_RISK_API_KEY"` from the server answers with a `threat`; a text file containing that URL on staging gets the link warning, and its **Learn more** links open `https://staging.files.gg/help/link-warnings#malware`.
 
-### 4.4 Postmark — **Dan** (account, approval), **Claude** (DNS, tests)
-- Create the account and a **Server** "files.gg" (transactional message stream `outbound`). New accounts send only to their own domain until Postmark **approves** the account: request approval early.
-- **Sender Signatures → Add Domain:** `mail.files.gg`. Postmark then shows the exact records to add in Cloudflare DNS, **DNS only** (grey cloud):
-  - **DKIM:** a `TXT` record at `<selector>pm._domainkey.mail.files.gg` with the key Postmark shows;
-  - **Return-Path:** `CNAME` `pm-bounces.mail.files.gg` → `pm.mtasv.net` (this is what makes SPF align; no SPF `include` is needed on `mail.files.gg`);
-  - **DMARC:** `TXT` at `_dmarc.mail.files.gg`: `v=DMARC1; p=none; rua=mailto:dmarc@files.gg` to start (tighten to `quarantine` after a few clean weeks). Add `dmarc@` to Email Routing (§2.9) to receive the reports.
-- Server → **API Tokens** → `POSTMARK_SERVER_TOKEN`. `EMAIL_FROM` stays `files.gg <noreply@mail.files.gg>`. Open and link tracking stay off (the emails carry one-time links).
-- **Check:** Postmark's domain page shows DKIM and Return-Path **Verified**; on staging, sign up, verify, forgot-password and each milestone-6 §2.7 template reach Gmail, Outlook and iCloud inboxes (not spam), and Gmail's "Show original" says `DKIM: PASS`, `SPF: PASS`, `DMARC: PASS`.
+### 4.4 Cloudflare Email Service — **Dan** (plan, onboarding, token), **Claude** (config, tests)
+Account email (verification, password resets, notices) is sent through Cloudflare Email Service's REST API (`api/utils/email.py`). It's in **beta** (as of 2026-11); PLAN.md §4 item 14 has why, and Postmark is the fallback if it misbehaves.
+- **Plan:** sending to any address needs **Workers Paid** (on Free, only to verified destination addresses). It includes 3,000 emails a month, then $0.35 per 1,000.
+- **Compute → Email Service → Email Sending → Onboard Domain:** `mail.files.gg`. Cloudflare adds the records itself (the zone is on Cloudflare DNS): MX and SPF on `cf-bounce.mail.files.gg`, DKIM at `cf-bounce._domainkey.mail.files.gg`, and `_dmarc.mail.files.gg` with `p=reject` if there's no DMARC record yet. To get reports, add `rua=mailto:dmarc@files.gg` to that record and `dmarc@` to Email Routing (§2.9).
+- **API token** (My Profile → API Tokens → Create): only the account's **Email Sending: Edit** permission → `CLOUDFLARE_EMAIL_TOKEN`. The account's id → `CLOUDFLARE_ACCOUNT_ID`. `EMAIL_FROM` stays `noreply@mail.files.gg`.
+- **New accounts get a conservative daily quota** that rises with use (no number is published); over it, sends fail with 429 and the API answers `503 EMAIL_UNAVAILABLE`. Watch `filesgg_emails_total{outcome="failed"}` in the first week.
+- Bounces and complaints go on Cloudflare's suppression list; a send to a suppressed address fails (logged with Cloudflare's error code). There's no open or click tracking, so one-time links are never rewritten.
+- **Check** on staging: the domain shows as verified; sign up, verify, forgot-password and each milestone-6 §2.7 template reach Gmail, Outlook and iCloud inboxes (not spam), and Gmail's "Show original" says `DKIM: PASS`, `SPF: PASS`, `DMARC: PASS`. **Also try** `EMAIL_FROM=files.gg <noreply@mail.files.gg>`: the REST API documents plain addresses only, so keep the display name only if those sends succeed and show "files.gg" as the sender; otherwise leave the plain address.
 
 ### 4.5 Discord application — **Dan**, optional
 **Optional.** Leave `DISCORD_CLIENT_ID`, `DISCORD_CLIENT_SECRET` and `DISCORD_REDIRECT_URI` empty and Discord sign-in is off: the sign-in and register pages, Settings → Security and the re-auth dialog show no Discord button, and `ops/check-env.sh` accepts it. It can be added any time later with a redeploy (`ops/deploy.sh --no-build`).
@@ -400,7 +400,7 @@ From PLAN.md "Before the first deploy" and contract §6:
 - **The admin queue** (`/app/admin`): P0 first (child safety, NCII), then P1 (malware, Web Risk flags, `scan_failing` holds); the NSFW review requests (to judge `NSFW_THRESHOLD`).
 - **Scans:** nothing pending for more than a minute or two; `scan_failing` holds retried or explained.
 - **Conversions:** oldest job per queue; `failure_reason` counts (`killed_SIGKILL` means a pool needs more memory or fewer processes, milestone-5 §16).
-- **Vendors:** B2 (storage, downloads, Class B and C transactions), Web Risk calls against the 100,000 free, PhotoDNA against its allowance, Postmark bounces and spam complaints, Cloudflare (Worker errors and CPU time under **Workers & Pages → files-gg → Metrics**, 413s and 5xx in Analytics, custom hostnames against the 100 included).
+- **Vendors:** B2 (storage, downloads, Class B and C transactions), Web Risk calls against the 100,000 free, PhotoDNA against its allowance, Email Service sends, bounces and complaints (**Compute → Email Service**; `filesgg_emails_total{outcome="failed"}` in Grafana), Cloudflare (Worker errors and CPU time under **Workers & Pages → files-gg → Metrics**, 413s and 5xx in Analytics, custom hostnames against the 100 included).
 - **Backups:** healthchecks.io green; `dc exec backup-db restic snapshots` grows daily.
 - **Watch for** the one unexplained 503 after a fresh start (PLAN.md Milestone 3 checks) and any first-unlock failures.
 - **Rate limits:** 429s by scope; loosen `RATE_LIMITS` if real users hit them.

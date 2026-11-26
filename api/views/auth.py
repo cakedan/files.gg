@@ -196,7 +196,7 @@ async def auth_register(request):
         await check_bans(conn, request)
     email, username, display_name = validate_new_account(body)
     await verify_captcha(request, text(body, 'turnstile_token'), 'register')
-    # Postmark has no mailbox check: refuse domains that can't receive mail (keeps bounces low)
+    # the email provider has no mailbox check: refuse domains that can't receive mail (keeps bounces low)
     if not await domain_accepts_mail(email):
         raise errors.invalid_email()
     password_hash = await passwords.hash(text(body, 'password'))

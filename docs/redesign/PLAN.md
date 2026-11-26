@@ -1567,20 +1567,19 @@ Open, from "Trust & safety" (Phase 1):
 12. ~~Where does Postgres run, and how is it backed up?~~ **Postgres 19.0 (latest major) in Docker, with restic + Ofelia backups to B2, matching `notsobot.api`'s setup** (decided 2026-11-24; built; §2.1 item 8).
     - ~~**Still open:** where the API and worker servers themselves run.~~ **One dedicated server for the whole stack** (decided 2026-11-25, [`contracts/milestone-7.md`](contracts/milestone-7.md) decision 1).
 13. ~~Backblaze region?~~ **US** (decided 2026-11-24).
-14. ~~Email provider?~~ **Postmark** for sending (decided 2026-11-24; built). Cloudflare Email Routing (free) for receiving `abuse@`, `support@` and `dmca@`.
-    - `api/utils/email.py` sends over Postmark's HTTP API.
-    - Messages are rendered in code (`api/utils/email_templates.py`, HTML plus plain text, usernames escaped). Open and link tracking are off, because the emails carry one-time links.
-    - Failures return a generic 503 and log Postmark's reason for staff only.
-    - Mailgun's mailbox check at sign-up is replaced by an MX-record check (`api/utils/email_domain.py`, dnspython). It allows sign-up if DNS itself is down, since the verification email is still required.
-    - **Config:** `POSTMARK_SERVER_TOKEN` (required in compose) and `EMAIL_FROM` (default `files.gg <noreply@mail.files.gg>`).
-    - **Before launch:** add `mail.files.gg` as a Postmark sender domain with DKIM, a custom Return-Path, SPF and DMARC (`p=none` first), and send tests to Gmail, Outlook and iCloud.
+14. ~~Email provider?~~ **Cloudflare Email Service** for sending (decided 2026-11-25, replacing Postmark, decided 2026-11-24), and Cloudflare Email Routing (free) for receiving `abuse@`, `support@` and `dmca@`.
+    - Why: files.gg already runs on Cloudflare (DNS, the Worker, Email Routing), so the sending records are added automatically and there's one vendor fewer; Workers Paid includes 3,000 emails a month, more than files.gg's account email needs. Postmark had the best measured inbox placement and stays the fallback: Cloudflare's sending is in **beta** and has no independent delivery track record yet (LAUNCH.md §4.4 checks inbox placement on staging).
+    - `api/utils/email.py` sends over the REST API (`POST /accounts/<id>/email/sending/send`, a Bearer token with only "Email Sending: Edit"). Messages are rendered in code (`api/utils/email_templates.py`, HTML plus plain text, usernames escaped); there is no open or link tracking, so the one-time links are never rewritten.
+    - Failures return a generic 503 and log Cloudflare's error code for staff only. Bounces and complaints go on Cloudflare's suppression list.
+    - There's no address-validation API, so sign-up checks the domain's MX record (`api/utils/email_domain.py`, dnspython). It allows sign-up if DNS itself is down, since the verification email is still required.
+    - **Config:** `CLOUDFLARE_EMAIL_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` (required in compose) and `EMAIL_FROM` (default `noreply@mail.files.gg`: the REST API documents plain addresses).
 15. ~~Google reCAPTCHA or Turnstile?~~ **Turnstile everywhere on the website** (decided 2026-11-24).
 16. ~~Signed-in max file size?~~ **1 GB chunked, 100 MB single-request** (decided 2026-11-24).
 17. ~~Who handles reports, and how fast?~~ **Everything stays on the website (no Discord channel); no public time promises** (decided 2026-11-24; see "Report system").
 18. ~~Custom domains?~~ **Yes, as a premium feature, using Cloudflare for SaaS, subdomains only** (decided 2026-11-24; see "Custom domains"). Still open:
     - ~~how many domains premium includes?~~ **5** (decided 2026-11-25);
     - whether root domains are worth Cloudflare's apex proxying later.
-19. ~~Email provider?~~ **Postmark**: see item 14.
+19. ~~Email provider?~~ **Cloudflare Email Service**: see item 14.
 5. ~~Logo direction?~~ **F2 "Folded tile f."** (decided 2026-11-24).
 
 ---

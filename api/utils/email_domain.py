@@ -1,6 +1,6 @@
 """Can this email address's domain receive mail? Replaces Mailgun's mailbox check at sign-up.
 
-Postmark has no address-validation API. Sending to domains that can't receive mail produces
+The email provider (Cloudflare Email Service) has no address-validation API. Sending to domains that can't receive mail produces
 hard bounces, and a high bounce rate hurts deliverability for everyone, so registration
 rejects addresses whose domain has no MX record (or, per RFC 5321, no A/AAAA fallback).
 The verification email itself remains the real proof that the mailbox exists.

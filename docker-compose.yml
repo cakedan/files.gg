@@ -22,10 +22,11 @@ x-api-environment: &api-environment
   # Defaults to the postgres service below; override to point at another host (e.g. over a private network once the
   # converters move to a second server, decision 1).
   DATABASE_URL: ${DATABASE_URL:-postgresql://filesgg:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}@postgres:5432/filesgg}
-  # account email through Postmark (api/utils/email.py). Send from the mail.files.gg subdomain with SPF, DKIM
-  # and DMARC set up in Postmark; receiving (abuse@, support@) is Cloudflare Email Routing, not this.
-  POSTMARK_SERVER_TOKEN: ${POSTMARK_SERVER_TOKEN:?POSTMARK_SERVER_TOKEN must be set (Postmark server API token)}
-  EMAIL_FROM: ${EMAIL_FROM:-files.gg <noreply@mail.files.gg>}
+  # account email through Cloudflare Email Service's REST API (api/utils/email.py), sent from the mail.files.gg
+  # subdomain onboarded in the dashboard; receiving (abuse@, support@) is Cloudflare Email Routing, not this.
+  CLOUDFLARE_EMAIL_TOKEN: ${CLOUDFLARE_EMAIL_TOKEN:?CLOUDFLARE_EMAIL_TOKEN must be set (an API token with Email Sending Edit only)}
+  CLOUDFLARE_ACCOUNT_ID: ${CLOUDFLARE_ACCOUNT_ID:?CLOUDFLARE_ACCOUNT_ID must be set (the account that sends email)}
+  EMAIL_FROM: ${EMAIL_FROM:-noreply@mail.files.gg}
   RPC_KEY: ${RPC_KEY:?RPC_KEY must be set}
   SECRET_KEY: ${SECRET_KEY:?SECRET_KEY must be set}
   # The public site and CDN origins written into file URLs, #pw=/#t= links, owner passes and email links

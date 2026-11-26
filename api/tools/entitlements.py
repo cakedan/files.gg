@@ -6,12 +6,11 @@ production (needs DATABASE_URL).
     python -m tools.entitlements list
 
 Each change writes `grant_entitlement` / `revoke_entitlement` to the audit log (`actor_kind: cli`, the
-operator's `--by <name>` in `details`) and sends `premium_changed` when Postmark is configured.
+operator's `--by <name>` in `details`) and sends `premium_changed` when email is configured.
 """
 
 import argparse
 import json
-import os
 import sys
 
 from datetime import datetime, timedelta, timezone
@@ -70,8 +69,7 @@ def main(argv=None):
     from utils.errors import ApiError
     from utils.snowflake_nodes import start_process_lease, stop_process_lease
     options = parse_args(argv)
-    Email.configure(token=os.getenv('POSTMARK_SERVER_TOKEN'), sender=os.getenv('EMAIL_FROM'),
-                    stream=os.getenv('POSTMARK_MESSAGE_STREAM'))
+    Email.configure_from_env()
     start_process_lease()
     try:
         with db.connect() as conn:

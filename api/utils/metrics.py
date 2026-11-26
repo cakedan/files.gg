@@ -196,7 +196,7 @@ METRICS = {
         ('fail', FAIL_MODES)),
 
     # outside services
-    'filesgg_emails_total': counter('Emails sent through Postmark, by tag and outcome', ('tag', EMAIL_TAGS),
+    'filesgg_emails_total': counter('Account emails sent through Cloudflare Email Service, by tag and outcome', ('tag', EMAIL_TAGS),
                                     ('outcome', EMAIL_OUTCOMES)),
     'filesgg_turnstile_verifications_total': counter(
         'Turnstile tokens checked, by action and outcome', ('action', TURNSTILE_ACTIONS),

@@ -148,12 +148,8 @@ def create_app(name='filesgg', database_url=None, storage=None):
     app.ctx.proxies_count = app.config.PROXIES_COUNT
 
     tokens.set_secret_key(os.environ['SECRET_KEY'])
-    # account email through Postmark (utils/email.py); sending fails with 503 until the token is set
-    Email.configure(
-        token=os.getenv('POSTMARK_SERVER_TOKEN'),
-        sender=os.getenv('EMAIL_FROM'),
-        stream=os.getenv('POSTMARK_MESSAGE_STREAM'),
-    )
+    # account email through Cloudflare Email Service (utils/email.py); sending fails with 503 until it's configured
+    Email.configure_from_env()
     # Turnstile (milestone-2 §8): tokens must be issued for these hostnames
     hostnames = [h.strip() for h in os.getenv('TURNSTILE_HOSTNAMES', 'files.gg').split(',') if h.strip()]
     if debug:

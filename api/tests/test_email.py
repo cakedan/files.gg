@@ -1,4 +1,4 @@
-"""Postmark email client, templates and the sign-up mail-domain check."""
+"""Cloudflare Email Service client (REST), templates and the sign-up mail-domain check."""
 
 import json
 
@@ -6,14 +6,19 @@ import httpx
 import pytest
 
 from utils import email_domain, email_templates, http
-from utils.email import POSTMARK_URL, Email, EmailUnavailable, format_address
+from utils.email import Email, EmailUnavailable, send_url
+
+ACCOUNT = '0123456789abcdef0123456789abcdef'
+SENT = {'success': True, 'errors': [], 'messages': [],
+        'result': {'message_id': 'abc', 'delivered': ['a@example.com'], 'queued': [], 'permanent_bounces': [],
+                   'suppressed_recipients': []}}
 
 
 @pytest.fixture
-def postmark(monkeypatch):
+def cloudflare(monkeypatch):
     """Route the shared outbound client through a mock transport and record requests."""
     calls = []
-    state = {'status': 200, 'body': {'ErrorCode': 0, 'Message': 'OK', 'MessageID': 'abc'}}
+    state = {'status': 200, 'body': SENT}
 
     def handler(request):
         calls.append(request)
@@ -21,53 +26,66 @@ def postmark(monkeypatch):
 
     client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
     monkeypatch.setattr(http, '_client', client)
-    Email.configure(token='server-token', sender='files.gg <noreply@mail.files.gg>')
+    Email.configure(token='email-token', account_id=ACCOUNT, sender='noreply@mail.files.gg')
     yield calls, state
-    Email.configure(token=None)
+    Email.configure()
 
 
-async def test_send_posts_the_postmark_payload(postmark):
-    calls, _ = postmark
-    await Email.send(to='a@example.com', to_name='alice', subject='Hi', html='<p>x</p>', text='x', tag='auth-verify')
+async def test_send_posts_the_cloudflare_payload(cloudflare):
+    calls, _ = cloudflare
+    await Email.send(to='a@example.com', subject='Hi', html='<p>x</p>', text='x', tag='auth-verify')
 
     assert len(calls) == 1
     request = calls[0]
-    assert str(request.url) == POSTMARK_URL
-    assert request.headers['X-Postmark-Server-Token'] == 'server-token'
-    body = json.loads(request.content)
-    assert body == {
-        'From': 'files.gg <noreply@mail.files.gg>',
-        'To': '"alice" <a@example.com>',
-        'Subject': 'Hi',
-        'HtmlBody': '<p>x</p>',
-        'TextBody': 'x',
-        'Tag': 'auth-verify',
-        'MessageStream': 'outbound',
-        'TrackOpens': False,
-        'TrackLinks': 'None',
+    assert str(request.url) == send_url(ACCOUNT) == \
+        'https://api.cloudflare.com/client/v4/accounts/{}/email/sending/send'.format(ACCOUNT)
+    assert request.method == 'POST'
+    assert request.headers['Authorization'] == 'Bearer email-token'
+    assert json.loads(request.content) == {
+        'from': 'noreply@mail.files.gg',
+        'to': ['a@example.com'],
+        'subject': 'Hi',
+        'html': '<p>x</p>',
+        'text': 'x',
+        'headers': {'X-Filesgg-Email': 'auth-verify'},
     }
 
 
-async def test_refusal_raises_generic_503_without_leaking_details(postmark):
-    _, state = postmark
-    state['status'], state['body'] = 422, {'ErrorCode': 406, 'Message': 'Inactive recipient secret detail'}
+async def test_refusal_raises_generic_503_without_leaking_details(cloudflare):
+    _, state = cloudflare
+    state['status'], state['body'] = 400, {'success': False, 'messages': [], 'result': None,
+                                           'errors': [{'code': 10001, 'message': 'suppressed secret detail'}]}
     with pytest.raises(EmailUnavailable) as raised:
         await Email.send(to='a@example.com', subject='s', html='h', text='t', tag='auth-forgot')
     assert raised.value.status == 503
     assert 'secret detail' not in raised.value.message
 
 
-async def test_missing_token_raises_503_without_calling_postmark(postmark):
-    calls, _ = postmark
-    Email.configure(token=None)
+@pytest.mark.parametrize('token, account', [(None, ACCOUNT), ('email-token', None)])
+async def test_unconfigured_raises_503_without_calling_cloudflare(cloudflare, token, account):
+    calls, _ = cloudflare
+    Email.configure(token=token, account_id=account)
     with pytest.raises(EmailUnavailable):
         await Email.send(to='a@example.com', subject='s', html='h', text='t', tag='auth-verify')
     assert calls == []
 
 
-def test_display_name_cannot_inject_headers():
-    assert format_address('a@example.com', 'eve"\r\nBcc: x@evil.test <') == '"eveBcc: x@evil.test" <a@example.com>'
-    assert format_address('a@example.com\r\nBcc: x@evil.test') == 'a@example.comBcc: x@evil.test'
+def test_the_recipient_and_tag_cannot_inject_headers():
+    Email.configure(token='t', account_id=ACCOUNT)
+    _, payload, _ = Email._request('a@example.com\r\nBcc: x@evil.test', 's', 'h', 't', 'auth\r\nX-Evil: 1')
+    assert payload['to'] == ['a@example.comBcc: x@evil.test']
+    assert payload['headers'] == {'X-Filesgg-Email': 'authX-Evil: 1'}
+    Email.configure()
+
+
+def test_configure_from_env(monkeypatch):
+    monkeypatch.setenv('CLOUDFLARE_EMAIL_TOKEN', 'tok')
+    monkeypatch.setenv('CLOUDFLARE_ACCOUNT_ID', ACCOUNT)
+    monkeypatch.delenv('EMAIL_FROM', raising=False)
+    Email.configure_from_env()
+    assert (Email.token, Email.account_id, Email.sender, Email.configured()) == ('tok', ACCOUNT, 'noreply@mail.files.gg',
+                                                                               True)
+    Email.configure()
 
 
 @pytest.mark.parametrize('render', [email_templates.verify_email, email_templates.reset_password])
