@@ -94,7 +94,7 @@ function ToolButton({
       title={label}
       aria-pressed={pressed}
       disabled={disabled}
-      className={`inline-flex size-8 shrink-0 items-center justify-center rounded-md text-muted hover:bg-surface-2 hover:text-text disabled:opacity-40 aria-pressed:bg-surface-2 aria-pressed:text-text ${className}`}
+      className={`inline-flex size-8 shrink-0 items-center justify-center rounded-xl text-muted hover:bg-surface-2 hover:text-text disabled:opacity-40 aria-pressed:bg-surface-2 aria-pressed:text-text ${className}`}
     >
       {children}
     </button>
@@ -708,7 +708,7 @@ export function PdfViewer({ file, doc, firstPageSize, globalKeys, syncHash }: Pd
             download={file.filename}
             aria-label="Download"
             title="Download"
-            className="inline-flex size-8 items-center justify-center rounded-md text-muted hover:bg-surface-2 hover:text-text max-sm:hidden"
+            className="inline-flex size-8 items-center justify-center rounded-xl text-muted hover:bg-surface-2 hover:text-text max-sm:hidden"
           >
             <Download aria-hidden className="size-4" />
           </a>
@@ -718,7 +718,7 @@ export function PdfViewer({ file, doc, firstPageSize, globalKeys, syncHash }: Pd
             rel="noopener noreferrer"
             aria-label="Raw"
             title="Raw"
-            className="inline-flex size-8 items-center justify-center rounded-md text-muted hover:bg-surface-2 hover:text-text max-sm:hidden"
+            className="inline-flex size-8 items-center justify-center rounded-xl text-muted hover:bg-surface-2 hover:text-text max-sm:hidden"
           >
             <ExternalLink aria-hidden className="size-4" />
           </a>

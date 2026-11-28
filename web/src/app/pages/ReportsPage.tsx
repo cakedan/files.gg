@@ -116,11 +116,11 @@ export default function ReportsPage() {
           <Button onClick={() => void reports.refetch()}>Try again</Button>
         </div>
       ) : reports.data.items.length === 0 ? (
-        <p className="rounded-lg border border-dashed border-line py-12 text-center text-sm text-muted">
+        <p className="rounded-2xl border border-dashed border-line py-12 text-center text-sm text-muted">
           {status || urlQuery ? 'No reports match.' : 'You haven’t sent any reports. Use Report on a file or album page to send one.'}
         </p>
       ) : (
-        <ul className="flex flex-col divide-y divide-line overflow-hidden rounded-lg border border-line bg-surface">
+        <ul className="flex flex-col divide-y divide-line overflow-hidden rounded-2xl border border-line bg-surface">
           {reports.data.items.map((report) => (
             <li key={report.id}>
               <Link

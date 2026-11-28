@@ -42,7 +42,7 @@ function AppealStatus({ notice, now }: { notice: Notice; now: number }) {
   const heading = appeal.state === 'open' ? 'Appeal sent' : appeal.state === 'granted' ? 'Appeal granted' : 'Appeal denied';
   const at = appeal.state === 'open' ? appeal.appealed_at : appeal.decided_at;
   return (
-    <div className={`flex flex-col gap-1 rounded-md border px-3 py-2 text-sm ${appeal.state === 'granted' ? 'border-gg/40 bg-gg/5' : 'border-line bg-bg'}`}>
+    <div className={`flex flex-col gap-1 rounded-xl border px-3 py-2 text-sm ${appeal.state === 'granted' ? 'border-gg/40 bg-gg/5' : 'border-line bg-bg'}`}>
       <p className="font-medium">
         {heading}
         {at !== null && (
@@ -75,7 +75,7 @@ export function NoticeCard({ notice, now, headingLevel = 2 }: { notice: Notice; 
   const Icon = account ? ShieldAlert : notice.action === 'scan_block' ? FileWarning : Gavel;
 
   return (
-    <article aria-labelledby={`${id}-title`} className={`flex flex-col gap-3 rounded-lg border bg-surface p-4 ${unacknowledged ? 'border-warn/50' : 'border-line'}`}>
+    <article aria-labelledby={`${id}-title`} className={`flex flex-col gap-3 rounded-2xl border bg-surface p-4 ${unacknowledged ? 'border-warn/50' : 'border-line'}`}>
       <header className="flex items-start gap-3">
         <Icon aria-hidden className={`mt-0.5 size-5 shrink-0 ${account ? 'text-danger' : 'text-warn'}`} />
         <div className="flex min-w-0 flex-1 flex-col gap-0.5">
@@ -94,7 +94,7 @@ export function NoticeCard({ notice, now, headingLevel = 2 }: { notice: Notice; 
       </header>
 
       {notice.message && (
-        <blockquote className="rounded-md border-l-2 border-line bg-bg px-3 py-2 text-sm break-words whitespace-pre-wrap">
+        <blockquote className="rounded-xl border border-line bg-bg px-3 py-2 text-sm break-words whitespace-pre-wrap">
           <span className="sr-only">Message from files.gg staff: </span>
           {notice.message}
         </blockquote>

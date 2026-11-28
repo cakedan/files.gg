@@ -12,7 +12,7 @@ export function KeyResult({ result, onClose }: { result: CreateKeyResult; onClos
   const config = buildSharexConfig({ keyName: created.key.name, secret: created.secret, requestUrl, args });
   const curl = curlSnippet({ secret: created.secret, requestUrl, args });
   return (
-    <section aria-labelledby="new-key-title" className="flex flex-col gap-4 rounded-lg border border-gg/40 bg-surface p-4">
+    <section aria-labelledby="new-key-title" className="flex flex-col gap-4 rounded-2xl border border-gg/40 bg-surface p-4">
       <header className="flex flex-col gap-1">
         <h2 id="new-key-title" className="text-base font-semibold">
           {created.key.name} is ready
@@ -27,7 +27,7 @@ export function KeyResult({ result, onClose }: { result: CreateKeyResult; onClos
           Upload key
         </span>
         <div className="flex flex-wrap items-center gap-2">
-          <code aria-labelledby="new-key-label" className="min-w-0 flex-1 rounded-md border border-line bg-bg px-3 py-2 font-mono text-xs break-all">
+          <code aria-labelledby="new-key-label" className="min-w-0 flex-1 rounded-xl border border-line bg-bg px-3 py-2 font-mono text-xs break-all">
             {created.secret}
           </code>
           <CopyButton text={created.secret} label="Copy" variant="secondary" aria-label="Copy the upload key" />
@@ -44,7 +44,7 @@ export function KeyResult({ result, onClose }: { result: CreateKeyResult; onClos
         <span className="text-sm font-medium" id="new-key-curl">
           curl
         </span>
-        <pre aria-labelledby="new-key-curl" className="overflow-x-auto rounded-md border border-line bg-bg p-3 font-mono text-xs whitespace-pre">
+        <pre aria-labelledby="new-key-curl" className="overflow-x-auto rounded-xl border border-line bg-bg p-3 font-mono text-xs whitespace-pre">
           {curl}
         </pre>
         <div>

@@ -115,7 +115,7 @@ function Control({ option, value, onChange, id, facts, state }: { option: Format
             aria-label={`${option.label} picker`}
             value={/^#[0-9a-f]{6}$/i.test(String(value)) ? String(value) : '#ffffff'}
             onChange={(event) => onChange(event.target.value)}
-            className="h-9 w-12 shrink-0 cursor-pointer rounded-md border border-line bg-bg p-1"
+            className="h-10.5 w-12 shrink-0 cursor-pointer rounded-xl border border-line bg-bg p-1"
           />
           <input id={id} type="text" value={String(value)} onChange={(event) => onChange(event.target.value)} spellCheck={false} className={`${fieldClass} w-28 font-mono`} />
         </span>

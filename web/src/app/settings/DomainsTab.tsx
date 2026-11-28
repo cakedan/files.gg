@@ -137,7 +137,7 @@ function Records({ domain }: { domain: Domain }) {
       <p className="text-sm">Add these two records at your DNS provider:</p>
       <ul className="flex flex-col gap-2" aria-label={`DNS records for ${domain.hostname}`}>
         {domain.records.map((record) => (
-          <li key={record.type} className="flex flex-col gap-1.5 rounded-md border border-line bg-bg p-3 text-sm">
+          <li key={record.type} className="flex flex-col gap-1.5 rounded-xl border border-line bg-bg p-3 text-sm">
             <div className="flex items-center gap-2">
               <span className="rounded bg-surface-2 px-1.5 py-0.5 font-mono text-xs font-semibold">{record.type}</span>
               <span className={`text-xs ${record.ok ? 'text-gg' : 'text-muted'}`}>{record.ok ? 'Found' : 'Not seen yet'}</span>
@@ -194,7 +194,7 @@ function DomainCard({ domain, expanded }: { domain: Domain; expanded: boolean })
   const recordsShown = pending || domain.status === 'failing' || domain.status === 'failed' || expanded || showRecords;
 
   return (
-    <article aria-label={domain.hostname} className="flex flex-col gap-3 rounded-lg border border-line bg-surface p-4">
+    <article aria-label={domain.hostname} className="flex flex-col gap-3 rounded-2xl border border-line bg-surface p-5">
       <header className="flex flex-wrap items-center gap-2">
         <Globe aria-hidden className="size-4 text-muted" />
         <h3 className="min-w-0 font-mono text-sm font-semibold break-all">{domain.hostname}</h3>

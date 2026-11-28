@@ -20,6 +20,7 @@ import { UploadOptions } from '../upload/UploadOptions';
 import { UploadRow } from '../upload/UploadRow';
 import { useUploadAlbum } from '../upload/useUploadAlbum';
 import { useUploadQueue } from '../upload/useUploadQueue';
+import { buttonClass } from '../../components/buttonClass';
 
 /**
  * PLAN.md Phase 3 "Upload": drop anywhere, paste or pick; chunked and resumable above 10 MiB. `embedded` is
@@ -189,7 +190,7 @@ export default function UploadPage({ embedded = false }: { embedded?: boolean })
       </header>
 
       {restriction && (
-        <div role="alert" className="flex items-start gap-3 rounded-lg border border-danger/50 bg-danger/10 px-4 py-3 text-sm">
+        <div role="alert" className="flex items-start gap-3 rounded-2xl border border-danger/50 bg-danger/10 px-4 py-3 text-sm">
           <Ban aria-hidden className="mt-0.5 size-5 shrink-0 text-danger" />
           <div className="flex flex-col gap-1">
             <p className="font-semibold">
@@ -219,7 +220,7 @@ export default function UploadPage({ embedded = false }: { embedded?: boolean })
 
       <div
         aria-disabled={restricted || undefined}
-        className={`flex flex-col items-center gap-3 rounded-lg border-2 border-dashed px-4 py-10 text-center transition-colors ${
+        className={`flex flex-col items-center gap-3 rounded-2xl border-2 border-dashed px-4 py-10 text-center transition-colors ${
           dragging && !restricted ? 'border-gg bg-gg/5' : 'border-line'
         } ${restricted ? 'opacity-50' : ''}`}
       >
@@ -269,7 +270,7 @@ export default function UploadPage({ embedded = false }: { embedded?: boolean })
       </div>
 
       {resumable.length > 0 && (
-        <section aria-label="Interrupted uploads" className="flex flex-col gap-2 rounded-lg border border-warn/40 bg-warn/5 p-3">
+        <section aria-label="Interrupted uploads" className="flex flex-col gap-2 rounded-2xl border border-warn/40 bg-warn/5 p-3">
           <h2 className="text-sm font-semibold">Interrupted uploads</h2>
           <ul className="flex flex-col gap-2">
             {resumable.map((entry) => (
@@ -277,7 +278,7 @@ export default function UploadPage({ embedded = false }: { embedded?: boolean })
                 <span className="min-w-0 flex-1 truncate">
                   Re-select <strong>{entry.name}</strong> ({formatBytes(entry.size)}) to resume
                 </span>
-                <label className="inline-flex h-8 cursor-pointer items-center rounded-md bg-surface-2 px-3 text-sm font-medium hover:bg-line">
+                <label className={buttonClass('secondary', 'cursor-pointer', 'sm')}>
                   Re-select
                   <input
                     type="file"

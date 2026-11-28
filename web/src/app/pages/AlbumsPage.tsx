@@ -88,7 +88,7 @@ export default function AlbumsPage() {
       </header>
 
       {anonymous && (
-        <p className="rounded-md border border-line bg-surface px-3 py-2 text-sm text-muted">
+        <p className="rounded-xl border border-line bg-surface px-3 py-2 text-sm text-muted">
           Without an account, albums are made from a multi-file upload and can't be edited afterwards. <SignInLink /> to make and edit albums.
         </p>
       )}
@@ -105,7 +105,7 @@ export default function AlbumsPage() {
           <Button onClick={() => void albums.refetch()}>Try again</Button>
         </div>
       ) : albums.data.items.length === 0 ? (
-        <div className="flex flex-col items-center gap-3 rounded-lg border border-dashed border-line py-12 text-center">
+        <div className="flex flex-col items-center gap-3 rounded-2xl border border-dashed border-line py-12 text-center">
           <p className="text-sm text-muted">No albums yet. Make one here, or pick files on the Files page and choose Add to album.</p>
           {!anonymous && (
             <Button variant="primary" onClick={() => setCreating(true)}>
@@ -119,7 +119,7 @@ export default function AlbumsPage() {
             <li key={album.id}>
               <Link
                 to={`/albums/${album.id}`}
-                className="group flex h-full flex-col overflow-hidden rounded-lg border border-line bg-surface transition-colors hover:border-gg/50"
+                className="group flex h-full flex-col overflow-hidden rounded-2xl border border-line bg-surface transition-colors hover:border-gg/50"
               >
                 <AlbumCover album={album} />
                 <span className="flex flex-col gap-1 p-3">

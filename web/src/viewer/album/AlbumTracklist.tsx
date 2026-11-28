@@ -72,8 +72,8 @@ export function AlbumTracklist({ album, title }: { album: AlbumData; title: stri
 
   return (
     <div className="flex flex-col gap-4 pb-40">
-      <section className="flex flex-col gap-4 rounded-lg border border-line bg-surface p-4 shadow-card sm:flex-row sm:items-end sm:p-5">
-        <CoverArt url={cover} className="aspect-square w-full max-w-[16rem] shrink-0 self-center rounded-md sm:w-48 sm:self-auto" />
+      <section className="flex flex-col gap-4 rounded-2xl border border-line bg-surface p-5 shadow-card sm:flex-row sm:items-end sm:p-5">
+        <CoverArt url={cover} className="aspect-square w-full max-w-[16rem] shrink-0 self-center rounded-xl sm:w-48 sm:self-auto" />
         <div className="flex min-w-0 flex-col gap-1">
           <p className="text-xs font-semibold tracking-wide text-muted uppercase">Album</p>
           <h2 className="text-xl font-semibold break-words sm:text-2xl">{name ?? title}</h2>
@@ -95,7 +95,7 @@ export function AlbumTracklist({ album, title }: { album: AlbumData; title: stri
         </div>
       </section>
 
-      <ol className="overflow-hidden rounded-lg border border-line bg-surface" aria-label="Tracks">
+      <ol className="overflow-hidden rounded-2xl border border-line bg-surface" aria-label="Tracks">
         {tracks.map((track, index) => {
           const active = started && index === queue.current;
           const trackArtist = track.media?.tags?.artist;

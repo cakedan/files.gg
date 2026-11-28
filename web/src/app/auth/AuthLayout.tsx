@@ -42,7 +42,7 @@ export function AuthCard({ title, description, children, footer }: { title: stri
   }, [title]);
   return (
     <div className="flex flex-col gap-4">
-      <section className="flex flex-col gap-5 rounded-xl border border-line bg-surface p-5 shadow-card sm:p-6">
+      <section className="flex flex-col gap-5 rounded-2xl border border-line bg-surface p-5 shadow-card sm:p-6">
         <header className="flex flex-col gap-1">
           <h1 className="text-xl font-semibold tracking-tight">{title}</h1>
           {description && <div className="text-sm text-muted">{description}</div>}
@@ -57,7 +57,7 @@ export function AuthCard({ title, description, children, footer }: { title: stri
 export function FormError({ children }: { children: ReactNode }) {
   if (!children) return null;
   return (
-    <p role="alert" className="rounded-md border border-danger/40 bg-danger/10 px-3 py-2 text-sm text-danger">
+    <p role="alert" className="rounded-xl border border-danger/40 bg-danger/10 px-3 py-2 text-sm text-danger">
       {children}
     </p>
   );

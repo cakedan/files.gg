@@ -1,6 +1,6 @@
 import type { PasswordExpiryValue } from '../../lib/upload/options';
 
-export const fieldClass = 'h-9 rounded-md border border-line bg-bg px-2 text-sm text-text disabled:opacity-50';
+export const fieldClass = 'h-10.5 rounded-xl border border-line bg-bg px-3 text-[15px] text-text disabled:opacity-50';
 
 /** <select> values are strings; expiry values are 'never' | 'custom' | seconds. */
 export const encodeChoice = (value: string | number) => String(value);

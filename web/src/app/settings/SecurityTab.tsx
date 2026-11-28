@@ -79,7 +79,7 @@ function EmailPanel({ user, run, locked }: { user: User; run: Run; locked: boole
       )}
       {user.email && !user.email_verified && !user.pending_email && !locked && <ResendButton label="Resend verification email" />}
       {user.pending_email && (
-        <div className="flex flex-wrap items-center gap-2 rounded-md border border-line bg-surface-2 px-3 py-2 text-sm">
+        <div className="flex flex-wrap items-center gap-2 rounded-xl border border-line bg-surface-2 px-3 py-2 text-sm">
           <span className="min-w-0 flex-1">
             Waiting for you to confirm <span className="font-medium break-all">{user.pending_email}</span>. We sent a link there; your current email works until then.
           </span>
@@ -237,7 +237,7 @@ function LoginMethodsPanel({ user, run, locked }: { user: User; run: Run; locked
   if (hidden) return null;
   return (
     <Panel title="Login methods" description="Connected accounts you can sign in with.">
-      <div className="flex flex-wrap items-center gap-3 rounded-md border border-line px-3 py-2">
+      <div className="flex flex-wrap items-center gap-3 rounded-xl border border-line px-3 py-2">
         {discord?.avatar_url ? (
           <img src={discord.avatar_url} alt="" width={32} height={32} className="size-8 rounded-full" referrerPolicy="no-referrer" />
         ) : (
@@ -310,7 +310,7 @@ function SessionsPanel() {
       ) : sessions.isError ? (
         <Result error={errorMessage(sessions.error)} />
       ) : (
-        <ul className="flex flex-col divide-y divide-line rounded-md border border-line" aria-label="Sessions">
+        <ul className="flex flex-col divide-y divide-line rounded-xl border border-line" aria-label="Sessions">
           {sessions.data.items.map((session) => (
             <li key={session.id} className="flex flex-wrap items-center gap-3 px-3 py-2">
               <Monitor aria-hidden className="size-5 shrink-0 text-muted" />

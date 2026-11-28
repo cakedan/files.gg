@@ -7,7 +7,7 @@ export function Avatar({ user, size = 'md' }: { user: Pick<PublicUser, 'id' | 'u
   return (
     <span
       aria-hidden
-      className={`inline-flex shrink-0 items-center justify-center rounded-md font-semibold text-white ${sizes[size]}`}
+      className={`inline-flex shrink-0 items-center justify-center rounded-xl font-semibold text-white ${sizes[size]}`}
       style={{ backgroundColor: avatarColor(user.id) }}
       data-testid="avatar"
     >

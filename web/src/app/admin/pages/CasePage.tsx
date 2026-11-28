@@ -147,7 +147,7 @@ function CloseForm({ detail }: { detail: CaseDetail }) {
               onChange={(event) => setMessage(event.target.value)}
               rows={2}
               maxLength={2000}
-              className="w-full resize-y rounded-md border border-line bg-bg px-3 py-2 text-sm"
+              className="w-full resize-y rounded-xl border border-line bg-bg px-3 py-2 text-[15px]"
             />
             <p className="text-xs text-muted">Left empty, reporters get the text shown.</p>
           </div>
@@ -227,7 +227,7 @@ function AppealDecision({ detail }: { detail: CaseDetail }) {
         )}
       </dl>
       {counter && (
-        <details className="rounded-md border border-line px-3 py-2 text-sm">
+        <details className="rounded-xl border border-line px-3 py-2 text-sm">
           <summary className="cursor-pointer font-medium">Counter-notice</summary>
           <dl className="mt-2 grid gap-x-4 gap-y-1 sm:grid-cols-[auto_1fr]">
             {Object.entries(counter).map(([key, value]) => (
@@ -242,7 +242,7 @@ function AppealDecision({ detail }: { detail: CaseDetail }) {
       )}
       {detail.status === 'open' && notice.appeal.state === 'open' ? (
         sameModerator ? (
-          <p role="alert" className="rounded-md border border-warn/50 bg-warn/10 px-3 py-2 text-sm">
+          <p role="alert" className="rounded-xl border border-warn/50 bg-warn/10 px-3 py-2 text-sm">
             You took the original action, so another staff member has to decide this appeal. It stays in the queue under “Needs second review”.
           </p>
         ) : (
@@ -277,7 +277,7 @@ function AppealDecision({ detail }: { detail: CaseDetail }) {
               <label htmlFor={`${id}-reply`} className="text-sm font-medium">
                 Reply to the owner
               </label>
-              <textarea id={`${id}-reply`} value={message} onChange={(event) => setMessage(event.target.value)} rows={3} maxLength={2000} className="w-full resize-y rounded-md border border-line bg-bg px-3 py-2 text-sm" />
+              <textarea id={`${id}-reply`} value={message} onChange={(event) => setMessage(event.target.value)} rows={3} maxLength={2000} className="w-full resize-y rounded-xl border border-line bg-bg px-3 py-2 text-[15px]" />
               <p className="text-xs text-muted">The owner sees this with the decision.</p>
             </div>
             {error && (

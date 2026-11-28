@@ -39,7 +39,7 @@ export function FileThumb({ file: latest, active = false, size = 'sm', className
   const [showSensitive] = useShowSensitive();
   const small = size === 'sm';
   const iconSize = small ? 'size-5' : 'size-10';
-  const frame = `relative flex shrink-0 items-center justify-center overflow-hidden bg-well ${small ? 'size-10 rounded-md' : 'aspect-[4/3] w-full'} ${className}`;
+  const frame = `relative flex shrink-0 items-center justify-center overflow-hidden bg-well ${small ? 'size-10 rounded-xl' : 'aspect-[4/3] w-full'} ${className}`;
   const blurred = Boolean(file.nsfw) && !showSensitive;
   const sensitiveMark = blurred && (
     <span className="absolute inset-0 flex items-center justify-center" data-testid="sensitive-overlay">

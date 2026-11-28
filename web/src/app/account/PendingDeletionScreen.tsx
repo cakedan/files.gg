@@ -36,7 +36,7 @@ export function PendingDeletionScreen({ user }: { user: User & { deletion: NonNu
   }, []);
 
   return (
-    <section className="mx-auto flex max-w-xl flex-col gap-5 rounded-xl border border-danger/40 bg-surface p-5 sm:p-6" aria-labelledby="pending-deletion-title">
+    <section className="mx-auto flex max-w-xl flex-col gap-5 rounded-2xl border border-danger/40 bg-surface p-5 sm:p-6" aria-labelledby="pending-deletion-title">
       <div className="flex items-start gap-3">
         <CalendarClock aria-hidden className="mt-0.5 size-6 shrink-0 text-danger" />
         <div className="flex flex-col gap-1">

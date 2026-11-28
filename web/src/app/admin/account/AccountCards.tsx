@@ -165,7 +165,7 @@ function PremiumDialog({ type, userId, current, onClose }: { type: PremiumChange
           <label htmlFor={`${id}-note`} className="text-sm font-medium">
             Note for staff
           </label>
-          <textarea id={`${id}-note`} value={note} onChange={(event) => setNote(event.target.value)} rows={3} maxLength={2000} required className="w-full resize-y rounded-md border border-line bg-bg px-3 py-2 text-sm" />
+          <textarea id={`${id}-note`} value={note} onChange={(event) => setNote(event.target.value)} rows={3} maxLength={2000} required className="w-full resize-y rounded-xl border border-line bg-bg px-3 py-2 text-[15px]" />
           <p className="text-xs text-muted">Required. It goes in the audit log. The account gets an email.</p>
         </div>
         {change.isError && (

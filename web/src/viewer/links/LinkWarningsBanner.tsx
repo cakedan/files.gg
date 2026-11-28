@@ -22,7 +22,7 @@ export default function LinkWarningsBanner({ urls, kind = 'file' }: { urls: read
   return (
     <section
       aria-labelledby={`${id}-title`}
-      className="viewer-banner flex flex-col gap-2 rounded-lg border border-danger/40 bg-danger/10 px-4 py-3 text-sm"
+      className="viewer-banner flex flex-col gap-2 rounded-2xl border border-danger/40 bg-danger/10 px-4 py-3 text-sm"
     >
       <h2 id={`${id}-title`} className="flex items-start gap-2 font-medium text-text">
         <ShieldAlert aria-hidden className="mt-0.5 size-4 shrink-0 text-danger" />
@@ -34,11 +34,11 @@ export default function LinkWarningsBanner({ urls, kind = 'file' }: { urls: read
       </p>
       <ul className="flex flex-col gap-1" aria-label="Flagged links">
         {shown.map((url) => (
-          <li key={url} className="flex items-center gap-2 rounded-md bg-bg/60 py-1 pr-1 pl-2">
+          <li key={url} className="flex items-center gap-2 rounded-xl bg-bg/60 py-1 pr-1 pl-2">
             <code className="min-w-0 flex-1 truncate font-mono text-xs text-muted" title={url}>
               {url}
             </code>
-            <CopyButton text={url} variant="ghost" className="h-7 px-2 text-xs" aria-label={`Copy ${url}`} />
+            <CopyButton text={url} variant="ghost" size="sm" aria-label={`Copy ${url}`} />
           </li>
         ))}
       </ul>

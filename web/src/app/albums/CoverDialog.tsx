@@ -37,7 +37,7 @@ export function CoverDialog({ album, onSave, onClose }: { album: OwnerAlbum; onS
         <legend className="sr-only">Cover</legend>
         <ul className="grid grid-cols-2 gap-2 sm:grid-cols-4">
           <li>
-            <label className={`flex h-full cursor-pointer flex-col overflow-hidden rounded-md border ${choice === null ? 'border-gg ring-1 ring-gg' : 'border-line'}`}>
+            <label className={`flex h-full cursor-pointer flex-col overflow-hidden rounded-xl border ${choice === null ? 'border-gg ring-1 ring-gg' : 'border-line'}`}>
               <span className="flex aspect-[4/3] items-center justify-center bg-well">
                 <Sparkles aria-hidden className="size-8 text-gg" strokeWidth={1.5} />
               </span>
@@ -49,7 +49,7 @@ export function CoverDialog({ album, onSave, onClose }: { album: OwnerAlbum; onS
           </li>
           {candidates.map((item) => (
             <li key={item.id}>
-              <label className={`flex h-full cursor-pointer flex-col overflow-hidden rounded-md border ${choice === item.id ? 'border-gg ring-1 ring-gg' : 'border-line'}`}>
+              <label className={`flex h-full cursor-pointer flex-col overflow-hidden rounded-xl border ${choice === item.id ? 'border-gg ring-1 ring-gg' : 'border-line'}`}>
                 <FileThumb file={item} size="lg" />
                 <span className="flex min-w-0 items-center gap-1.5 p-1.5 text-xs">
                   <input type="radio" name={`${id}-cover`} checked={choice === item.id} onChange={() => setChoice(item.id)} className="accent-gg" />

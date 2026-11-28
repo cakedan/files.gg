@@ -30,7 +30,7 @@
     min-width: var(--media-min-width);
     max-width: var(--media-max-width);
     overflow: hidden;
-    border-radius: 8px;
+    border-radius: 16px;
     border: 1px solid var(--line);
     background-color: var(--surface);
     box-shadow: var(--shadow-card);

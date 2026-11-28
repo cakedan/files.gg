@@ -85,7 +85,7 @@ export default function DomainsPage() {
       ) : items.length === 0 ? (
         <p className="text-sm text-muted">{status || q ? 'No domains match these filters.' : 'No custom domains yet.'}</p>
       ) : (
-        <ul aria-label="Domains" className="flex flex-col divide-y divide-line rounded-lg border border-line bg-surface">
+        <ul aria-label="Domains" className="flex flex-col divide-y divide-line rounded-2xl border border-line bg-surface">
           {items.map((domain) => (
             <li key={domain.id} className="flex flex-wrap items-center gap-x-3 gap-y-1 px-4 py-3 text-sm">
               <Link to={`/admin/domains/${domain.id}`} className="font-mono text-gg hover:underline">

@@ -54,7 +54,7 @@ export function Toaster({ children }: { children: ReactNode }) {
 function ToastView({ toast, onDismiss }: { toast: Toast; onDismiss: (id: number) => void }) {
   const Icon = toast.tone === 'error' ? CircleAlert : CheckCircle2;
   return (
-    <div className="pointer-events-auto flex max-w-md items-start gap-2 rounded-lg border border-line bg-surface-2 px-3 py-2 text-sm shadow-card">
+    <div className="pointer-events-auto flex max-w-md items-start gap-2 rounded-xl border border-line bg-surface-2 px-3 py-2 text-sm shadow-card">
       <Icon aria-hidden className={`mt-0.5 size-4 shrink-0 ${toast.tone === 'error' ? 'text-danger' : 'text-gg'}`} />
       <span className="min-w-0 flex-1">{toast.message}</span>
       {toast.action && (

@@ -41,7 +41,7 @@ function SidebarLink({ item, nav, onNavigate }: { item: NavItem; nav: NavState; 
       end={path === '/'}
       onClick={onNavigate}
       className={({ isActive }) =>
-        `flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors ${
+        `flex h-10 items-center gap-3 rounded-xl px-3 text-sm font-medium transition-colors ${
           isActive ? 'bg-surface-2 text-text' : 'text-muted hover:bg-surface-2/60 hover:text-text'
         }`
       }
@@ -65,8 +65,8 @@ function SidebarPrimary({ item, onNavigate }: { item: NavItem; onNavigate?: () =
       to={path}
       onClick={onNavigate}
       className={({ isActive }) =>
-        `mb-2 flex items-center justify-center gap-2 rounded-md px-3 py-2 text-sm font-semibold text-gg-ink transition-colors ${
-          isActive ? 'bg-gg ring-2 ring-gg/40 ring-offset-2 ring-offset-surface' : 'bg-gg hover:bg-gg/90'
+        `mb-2 flex h-10.5 items-center justify-center gap-2 rounded-xl px-4 text-[15px] font-medium text-gg-ink transition-colors ${
+          isActive ? 'bg-gg ring-2 ring-gg/40 ring-offset-2 ring-offset-surface' : 'bg-gg hover:bg-gg-end'
         }`
       }
     >
@@ -157,7 +157,7 @@ function MobileDrawer({ open, onClose, nav }: { open: boolean; onClose: () => vo
             type="button"
             onClick={onClose}
             aria-label="Close navigation"
-            className="rounded-md p-2 text-muted hover:bg-surface-2 hover:text-text"
+            className="rounded-xl p-2 text-muted hover:bg-surface-2 hover:text-text"
           >
             <X aria-hidden className="size-5" />
           </button>
@@ -271,7 +271,7 @@ export function DashboardLayout() {
               onClick={() => setDrawerOpen(true)}
               aria-label="Open navigation"
               aria-expanded={drawerOpen}
-              className="rounded-md p-2 text-muted hover:bg-surface-2 hover:text-text"
+              className="rounded-xl p-2 text-muted hover:bg-surface-2 hover:text-text"
             >
               <Menu aria-hidden className="size-5" />
             </button>
@@ -292,7 +292,7 @@ export function DashboardLayout() {
             ) : (
               <>
                 {session.isError && (
-                  <p role="alert" className="mb-6 rounded-lg border border-danger/40 bg-danger/10 px-4 py-3 text-sm">
+                  <p role="alert" className="mb-6 rounded-2xl border border-danger/40 bg-danger/10 px-4 py-3 text-sm">
                     Couldn’t check whether you’re signed in, so this shows files uploaded from this browser.{' '}
                     <button type="button" onClick={() => void session.refetch()} className="font-medium text-gg hover:underline">
                       Try again

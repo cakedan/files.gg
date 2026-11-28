@@ -51,7 +51,7 @@ export function ExportsSection() {
         </p>
       )}
       {items.length > 0 && (
-        <ul className="flex flex-col divide-y divide-line rounded-md border border-line" aria-label="Exports">
+        <ul className="flex flex-col divide-y divide-line rounded-xl border border-line" aria-label="Exports">
           {items.map((item) => (
             <li key={item.id} className="flex flex-wrap items-center gap-x-3 gap-y-1 px-3 py-2 text-sm">
               <span className="min-w-0 flex-1">

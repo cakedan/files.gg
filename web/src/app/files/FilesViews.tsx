@@ -160,7 +160,7 @@ function Th({ children, className = '' }: { children: ReactNode; className?: str
  */
 export function FilesTable(props: FilesViewProps) {
   return (
-    <div className="overflow-x-auto rounded-lg border border-line bg-surface">
+    <div className="overflow-x-auto rounded-2xl border border-line bg-surface">
       <table className="w-full min-w-[38rem] table-fixed xl:min-w-[53rem]">
         <colgroup>
           <col className="w-10" />
@@ -207,7 +207,7 @@ function CardRow({ file, props }: { file: OwnerFile; props: FilesViewProps }) {
       onClick={(event) => {
         if (!fromControl(event)) props.onOpen(file);
       }}
-      className={`flex items-center gap-3 rounded-lg border p-2.5 ${selected ? 'border-gg/50 bg-gg/5' : 'border-line bg-surface'}`}
+      className={`flex items-center gap-3 rounded-2xl border p-2.5 ${selected ? 'border-gg/50 bg-gg/5' : 'border-line bg-surface'}`}
     >
       <RowCheckbox file={file} checked={selected} onToggle={props.onToggle} />
       <FileThumb file={file} active={active} className="size-12" />
@@ -250,7 +250,7 @@ function GridTile({ file, props }: { file: OwnerFile; props: FilesViewProps }) {
   return (
     <li
       {...bind}
-      className={`group relative flex flex-col overflow-hidden rounded-lg border ${selected ? 'border-gg/70 ring-1 ring-gg/50' : 'border-line'} bg-surface`}
+      className={`group relative flex flex-col overflow-hidden rounded-2xl border ${selected ? 'border-gg/70 ring-1 ring-gg/50' : 'border-line'} bg-surface`}
     >
       <button type="button" onClick={() => props.onOpen(file)} className="block" aria-label={`Open ${file.filename}`} tabIndex={-1}>
         <FileThumb file={file} active={active} size="lg" />

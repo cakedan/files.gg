@@ -84,13 +84,13 @@ function ReportDetail({ report }: { report: Report }) {
       </header>
 
       {report.escalated && (
-        <p className="rounded-lg border border-line bg-surface px-4 py-3 text-sm text-muted">
+        <p className="rounded-2xl border border-line bg-surface px-4 py-3 text-sm text-muted">
           Thank you. This has been escalated. For these reports the files.gg team doesn’t share details of what happens next.
         </p>
       )}
 
       {report.can_reopen && (
-        <div className="flex flex-wrap items-center gap-3 rounded-lg border border-line bg-surface px-4 py-3">
+        <div className="flex flex-wrap items-center gap-3 rounded-2xl border border-line bg-surface px-4 py-3">
           <p className="min-w-0 flex-1 text-sm text-muted">We didn’t act on this report. If you think we got it wrong, you can reopen it once, within 14 days.</p>
           <Button
             onClick={() =>
@@ -153,7 +153,7 @@ function Thread({ report, now }: { report: Report; now: number }) {
           {messages.data.items.map((message) => {
             const staff = message.author === 'staff';
             return (
-              <li key={message.id} className={`flex flex-col gap-1 rounded-lg border px-4 py-3 ${staff ? 'border-gg/30 bg-gg/5' : 'border-line bg-surface sm:ml-12'}`}>
+              <li key={message.id} className={`flex flex-col gap-1 rounded-2xl border px-4 py-3 ${staff ? 'border-gg/30 bg-gg/5' : 'border-line bg-surface sm:ml-12'}`}>
                 <div className="flex flex-wrap items-baseline justify-between gap-2 text-xs">
                   <span className={`font-semibold ${staff ? 'text-gg' : 'text-text'}`}>{staff ? 'files.gg staff' : 'You'}</span>
                   <time dateTime={new Date(epochMs(message.created_at)).toISOString()} title={formatFullDate(epochMs(message.created_at))} className="text-muted">
@@ -182,7 +182,7 @@ function Thread({ report, now }: { report: Report; now: number }) {
             onChange={(event) => setDraft(event.target.value)}
             aria-invalid={error ? true : undefined}
             aria-describedby={error ? `${id}-error` : undefined}
-            className="w-full resize-y rounded-md border border-line bg-bg px-3 py-2 text-sm"
+            className="w-full resize-y rounded-xl border border-line bg-bg px-3 py-2 text-[15px]"
           />
           {error && (
             <p id={`${id}-error`} role="alert" className="text-sm text-danger">

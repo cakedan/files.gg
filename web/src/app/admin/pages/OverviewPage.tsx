@@ -12,6 +12,7 @@ import { canRescan, isAdmin } from '../permissions';
 import { useStaff } from '../staffContext';
 import { Failure, Loading, Section, When } from '../components/bits';
 import { ConversionHealth } from '../components/ConversionHealth';
+import { fieldClass } from '../../access/fieldUtils';
 
 function Stat({ label, value, to, tone }: { label: string; value: number; to?: string; tone?: 'danger' | 'warn' }) {
   const body = (
@@ -20,7 +21,7 @@ function Stat({ label, value, to, tone }: { label: string; value: number; to?: s
       <span className="text-xs text-muted">{label}</span>
     </>
   );
-  const className = 'flex flex-col gap-0.5 rounded-lg border border-line bg-surface px-4 py-3';
+  const className = 'flex flex-col gap-0.5 rounded-2xl border border-line bg-surface px-4 py-3';
   return to ? (
     <Link to={to} className={`${className} hover:border-gg/50`}>
       {body}
@@ -86,7 +87,7 @@ function Rescans() {
           <label htmlFor={`${id}-after`} className="text-sm font-medium">
             Uploaded after (optional)
           </label>
-          <input id={`${id}-after`} type="date" value={after} onChange={(event) => setAfter(event.target.value)} className="h-9 max-w-xs rounded-md border border-line bg-bg px-2 text-sm" />
+          <input id={`${id}-after`} type="date" value={after} onChange={(event) => setAfter(event.target.value)} className={`${fieldClass} max-w-xs`} />
         </div>
         {error && (
           <p role="alert" className="text-sm text-danger">

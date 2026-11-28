@@ -1,7 +1,7 @@
 import { Check, Link2, X } from 'lucide-react';
 import type { ButtonHTMLAttributes } from 'react';
 
-import { Button, type ButtonVariant } from './Button';
+import { Button, type ButtonSize, type ButtonVariant } from './Button';
 import { useCopyState } from './useCopyState';
 
 const LABELS = {
@@ -14,6 +14,7 @@ interface CopyButtonProps extends Omit<ButtonHTMLAttributes<HTMLButtonElement>, 
   text: string;
   label?: string;
   variant?: ButtonVariant;
+  size?: ButtonSize;
   copy?: (text: string) => Promise<boolean>;
 }
 

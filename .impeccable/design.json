@@ -1,0 +1,466 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-11-28T06:21:19+00:00",
+  "title": "Design System: files.gg",
+  "extensions": {
+    "colorMeta": {
+      "gg": {
+        "role": "primary",
+        "displayName": "Signal Green",
+        "canonical": "oklch(83.0% 0.204 150.9)",
+        "tonalRamp": [
+          "#001400",
+          "#003200",
+          "#005404",
+          "#007817",
+          "#009b38",
+          "#3cba67",
+          "#81dc99",
+          "#c1ffcf"
+        ]
+      },
+      "gg-end": {
+        "role": "primary",
+        "displayName": "Deep Signal Green",
+        "canonical": "oklch(69.3% 0.155 157.0)",
+        "tonalRamp": [
+          "#001301",
+          "#00300f",
+          "#005124",
+          "#00743b",
+          "#009658",
+          "#52b57f",
+          "#8dd8ab",
+          "#c8fedc"
+        ]
+      },
+      "gg-fold": {
+        "role": "primary",
+        "displayName": "Fold Green",
+        "canonical": "oklch(51.0% 0.118 153.7)",
+        "tonalRamp": [
+          "#001102",
+          "#002d13",
+          "#084d29",
+          "#1e6f40",
+          "#3f905e",
+          "#6eb083",
+          "#9fd3ae",
+          "#d4fade"
+        ]
+      },
+      "gg-ink": {
+        "role": "primary",
+        "displayName": "Tile Ink",
+        "canonical": "oklch(28.3% 0.045 153.8)",
+        "tonalRamp": [
+          "#050e07",
+          "#1a281e",
+          "#324537",
+          "#4c6553",
+          "#6a8572",
+          "#8ea594",
+          "#b7cabc",
+          "#e5f3e8"
+        ]
+      },
+      "gg-on-light": {
+        "role": "primary",
+        "displayName": "Daylight Green",
+        "canonical": "oklch(64.7% 0.145 157.3)",
+        "tonalRamp": [
+          "#001202",
+          "#003011",
+          "#005027",
+          "#00723e",
+          "#0b955b",
+          "#59b482",
+          "#91d7ad",
+          "#cbfddd"
+        ]
+      },
+      "bg": {
+        "role": "neutral",
+        "displayName": "Frame Charcoal",
+        "canonical": "oklch(23.9% 0.006 271.2)",
+        "tonalRamp": [
+          "#0b0b0c",
+          "#232426",
+          "#3f4042",
+          "#5c5d61",
+          "#7c7d81",
+          "#9d9ea1",
+          "#c3c4c6",
+          "#eeeef0"
+        ]
+      },
+      "surface": {
+        "role": "neutral",
+        "displayName": "Card Slate",
+        "canonical": "oklch(29.7% 0.008 264.4)",
+        "tonalRamp": [
+          "#0a0b0d",
+          "#232426",
+          "#3e4043",
+          "#5c5e62",
+          "#7b7d82",
+          "#9c9ea2",
+          "#c2c4c7",
+          "#edeef1"
+        ]
+      },
+      "surface-2": {
+        "role": "neutral",
+        "displayName": "Raised Slate",
+        "canonical": "oklch(32.1% 0.009 268.4)",
+        "tonalRamp": [
+          "#0a0b0d",
+          "#232427",
+          "#3e4044",
+          "#5b5d62",
+          "#7b7d83",
+          "#9c9ea3",
+          "#c2c4c8",
+          "#edeef1"
+        ]
+      },
+      "well": {
+        "role": "neutral",
+        "displayName": "Media Well",
+        "canonical": "oklch(22.2% 0.006 271.1)",
+        "tonalRamp": [
+          "#0b0b0c",
+          "#232426",
+          "#3f4042",
+          "#5c5d61",
+          "#7c7d81",
+          "#9d9ea1",
+          "#c3c4c7",
+          "#eeeef0"
+        ]
+      },
+      "line": {
+        "role": "neutral",
+        "displayName": "Hairline Grey",
+        "canonical": "oklch(37.6% 0.011 271.1)",
+        "tonalRamp": [
+          "#0a0b0d",
+          "#232427",
+          "#3e4044",
+          "#5b5d63",
+          "#7b7d83",
+          "#9c9ea4",
+          "#c2c4c8",
+          "#edeef2"
+        ]
+      },
+      "text": {
+        "role": "neutral",
+        "displayName": "Paper White",
+        "canonical": "oklch(96.4% 0.003 264.5)",
+        "tonalRamp": [
+          "#0b0b0c",
+          "#242425",
+          "#3f4041",
+          "#5d5e5f",
+          "#7c7d7f",
+          "#9e9ea0",
+          "#c3c4c5",
+          "#eeeeef"
+        ]
+      },
+      "muted": {
+        "role": "neutral",
+        "displayName": "Quiet Grey",
+        "canonical": "oklch(78.7% 0.011 256.7)",
+        "tonalRamp": [
+          "#0a0b0d",
+          "#222427",
+          "#3d4044",
+          "#5a5e63",
+          "#797e84",
+          "#9b9fa4",
+          "#c1c4c9",
+          "#eceff2"
+        ]
+      },
+      "danger": {
+        "role": "status",
+        "displayName": "Alert Red",
+        "canonical": "oklch(75.1% 0.149 24.7)",
+        "tonalRamp": [
+          "#270000",
+          "#510000",
+          "#7e000c",
+          "#ae111f",
+          "#d93b3c",
+          "#f36f69",
+          "#ffa299",
+          "#ffd7cf"
+        ]
+      },
+      "warn": {
+        "role": "status",
+        "displayName": "Caution Amber",
+        "canonical": "oklch(78.9% 0.164 71.8)",
+        "tonalRamp": [
+          "#1d0300",
+          "#401700",
+          "#662f00",
+          "#8f4a00",
+          "#b46900",
+          "#d08f33",
+          "#eeb977",
+          "#ffe7b8"
+        ]
+      },
+      "danger-fill": {
+        "role": "status",
+        "displayName": "Deep Alert Red",
+        "canonical": "oklch(57.0% 0.195 25.1)",
+        "tonalRamp": [
+          "#270000",
+          "#510000",
+          "#7e000c",
+          "#ae111f",
+          "#d93b3c",
+          "#f36f69",
+          "#ffa299",
+          "#ffd7cf"
+        ]
+      },
+      "danger-fill-hover": {
+        "role": "status",
+        "displayName": "Deep Alert Red (hover)",
+        "canonical": "oklch(54.0% 0.195 25.0)",
+        "tonalRamp": [
+          "#270000",
+          "#510000",
+          "#7e000c",
+          "#ae111f",
+          "#d93b3c",
+          "#f36f69",
+          "#ffa299",
+          "#ffd7cf"
+        ]
+      }
+    },
+    "typographyMeta": {
+      "display": {
+        "displayName": "Display",
+        "purpose": "The home page's one headline; 30px on phones, 36px from 640px."
+      },
+      "headline": {
+        "displayName": "Headline",
+        "purpose": "Dashboard page titles."
+      },
+      "title": {
+        "displayName": "Title",
+        "purpose": "Dialog titles and section headings."
+      },
+      "control": {
+        "displayName": "Control",
+        "purpose": "Button, input and tab labels."
+      },
+      "body": {
+        "displayName": "Body",
+        "purpose": "Nearly all copy, rows and nav items."
+      },
+      "label": {
+        "displayName": "Label",
+        "purpose": "Metadata and helper text, usually Quiet Grey."
+      },
+      "overline": {
+        "displayName": "Overline",
+        "purpose": "Sidebar group headings only; uppercase."
+      },
+      "mono": {
+        "displayName": "Mono",
+        "purpose": "Upload keys, code, the text viewer."
+      }
+    },
+    "shadows": [
+      {
+        "name": "card",
+        "value": "0 9px 30px rgba(6, 6, 7, 0.3)",
+        "purpose": "The viewer card, dialogs and sheets: things that float above the frame."
+      }
+    ],
+    "motion": [
+      {
+        "name": "ease-standard",
+        "value": "cubic-bezier(0.4, 0, 0.2, 1)",
+        "purpose": "Tailwind's default for colour transitions on hover and press (150ms)."
+      },
+      {
+        "name": "duration-colors",
+        "value": "150ms",
+        "purpose": "Hover and press colour changes on buttons, chips, rows."
+      },
+      {
+        "name": "duration-grip",
+        "value": "120ms",
+        "purpose": "The viewer's resize grip fading in on card hover."
+      }
+    ],
+    "breakpoints": [
+      {
+        "name": "sm",
+        "value": "640px"
+      },
+      {
+        "name": "md",
+        "value": "768px"
+      },
+      {
+        "name": "lg",
+        "value": "1024px"
+      }
+    ]
+  },
+  "components": [
+    {
+      "name": "Primary Button",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "The one main action in a card or toolbar: Copy link, Upload, Choose files.",
+      "html": "<button class=\"ds-btn-primary\"><svg width=\"16\" height=\"16\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><rect width=\"14\" height=\"14\" x=\"8\" y=\"8\" rx=\"2\" ry=\"2\"/><path d=\"M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2\"/></svg>Copy link</button>",
+      "css": ".ds-btn-primary{font-family:system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;display:inline-flex;align-items:center;justify-content:center;gap:6px;height:42px;padding:0 16px;border:0;border-radius:12px;font-size:15px;font-weight:500;white-space:nowrap;cursor:pointer;transition:background-color .15s cubic-bezier(.4,0,.2,1),color .15s cubic-bezier(.4,0,.2,1);background:var(--gg,#3deb7e);color:var(--gg-ink,#16301f);}.ds-btn-primary:hover{background:var(--gg-end,#25b874);}.ds-btn-primary:focus-visible{outline:2px solid var(--gg,#3deb7e);outline-offset:2px;}"
+    },
+    {
+      "name": "Secondary Button",
+      "kind": "button",
+      "refersTo": "button-secondary",
+      "description": "Neighbouring actions such as Download and Raw.",
+      "html": "<button class=\"ds-btn-secondary\"><svg width=\"16\" height=\"16\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><path d=\"M12 15V3\"/><path d=\"M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4\"/><path d=\"m7 10 5 5 5-5\"/></svg>Download</button>",
+      "css": ".ds-btn-secondary{font-family:system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;display:inline-flex;align-items:center;justify-content:center;gap:6px;height:42px;padding:0 16px;border:0;border-radius:12px;font-size:15px;font-weight:500;white-space:nowrap;cursor:pointer;transition:background-color .15s cubic-bezier(.4,0,.2,1),color .15s cubic-bezier(.4,0,.2,1);background:var(--surface-2,#313338);color:var(--text,#f2f3f5);}.ds-btn-secondary:hover{background:var(--line,#3f4147);}.ds-btn-secondary:focus-visible{outline:2px solid var(--gg,#3deb7e);outline-offset:2px;}"
+    },
+    {
+      "name": "Ghost Button",
+      "kind": "button",
+      "refersTo": "button-ghost",
+      "description": "Header links and icon buttons such as Sign in, close and menu.",
+      "html": "<button class=\"ds-btn-ghost\">Sign in</button>",
+      "css": ".ds-btn-ghost{font-family:system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;display:inline-flex;align-items:center;justify-content:center;gap:6px;height:42px;padding:0 16px;border:0;border-radius:12px;font-size:15px;font-weight:500;white-space:nowrap;cursor:pointer;transition:background-color .15s cubic-bezier(.4,0,.2,1),color .15s cubic-bezier(.4,0,.2,1);background:transparent;color:var(--muted,#b5bac1);}.ds-btn-ghost:hover{background:var(--surface-2,#313338);color:var(--text,#f2f3f5);}.ds-btn-ghost:focus-visible{outline:2px solid var(--gg,#3deb7e);outline-offset:2px;}"
+    },
+    {
+      "name": "Danger Button",
+      "kind": "button",
+      "refersTo": "button-danger",
+      "description": "Destructive actions, usually inside a confirm dialog.",
+      "html": "<button class=\"ds-btn-danger\">Delete file</button>",
+      "css": ".ds-btn-danger{font-family:system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;display:inline-flex;align-items:center;justify-content:center;gap:6px;height:42px;padding:0 16px;border:0;border-radius:12px;font-size:15px;font-weight:500;white-space:nowrap;cursor:pointer;transition:background-color .15s cubic-bezier(.4,0,.2,1),color .15s cubic-bezier(.4,0,.2,1);background:var(--danger-fill,#d23336);color:#fff;}.ds-btn-danger:hover{background:var(--danger-fill-hover,#c7262d);}.ds-btn-danger:focus-visible{outline:2px solid var(--gg,#3deb7e);outline-offset:2px;}"
+    },
+    {
+      "name": "Text Field",
+      "kind": "input",
+      "refersTo": "input",
+      "description": "Recessed field on Frame Charcoal inside a card.",
+      "html": "<label class=\"ds-field\"><span class=\"ds-field-label\">View limit</span><input class=\"ds-input\" placeholder=\"Off\"><span class=\"ds-field-help\">Stop the link after this many viewers.</span></label>",
+      "css": "font-family:system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;.ds-field{display:flex;flex-direction:column;gap:6px;max-width:280px;font-family:system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;}.ds-field-label{font-size:14px;font-weight:500;color:var(--text,#f2f3f5);}.ds-input{height:42px;padding:0 12px;border:1px solid var(--line,#3f4147);border-radius:12px;background:var(--bg,#1e1f22);color:var(--text,#f2f3f5);font-size:15px;font-family:inherit;}.ds-input::placeholder{color:var(--muted,#b5bac1);}.ds-input:focus-visible{outline:2px solid var(--gg,#3deb7e);outline-offset:2px;}.ds-field-help{font-size:12px;color:var(--muted,#b5bac1);}"
+    },
+    {
+      "name": "Filter Chip",
+      "kind": "chip",
+      "refersTo": "chip",
+      "description": "Toggle chips for filters, with aria-pressed.",
+      "html": "<div class=\"ds-chips\"><button class=\"ds-chip\" aria-pressed=\"true\">Images</button><button class=\"ds-chip\" aria-pressed=\"false\">Videos</button><button class=\"ds-chip\" aria-pressed=\"false\">PDFs</button></div>",
+      "css": ".ds-chips{display:flex;gap:8px;flex-wrap:wrap;}.ds-chip{font-family:system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;height:34px;padding:0 14px;border-radius:9999px;border:1px solid var(--line,#3f4147);background:transparent;color:var(--muted,#b5bac1);font-size:14px;cursor:pointer;transition:background-color .15s,color .15s;}.ds-chip:hover{background:var(--surface-2,#313338);color:var(--text,#f2f3f5);}.ds-chip[aria-pressed=true]{border-color:color-mix(in srgb,var(--gg,#3deb7e) 60%,transparent);background:color-mix(in srgb,var(--gg,#3deb7e) 10%,transparent);color:var(--gg,#3deb7e);}.ds-chip:focus-visible{outline:2px solid var(--gg,#3deb7e);outline-offset:2px;}"
+    },
+    {
+      "name": "Card",
+      "kind": "card",
+      "refersTo": "card",
+      "description": "An in-flow dashboard card: flat, hairline, 16px corners.",
+      "html": "<section class=\"ds-card\"><h3 class=\"ds-card-title\">Expiring in the next 7 days</h3><p class=\"ds-card-body\">Nothing expires this week.</p><a class=\"ds-card-link\" href=\"#\">All temporary files</a></section>",
+      "css": ".ds-card{font-family:system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;display:flex;flex-direction:column;gap:8px;max-width:360px;padding:20px;border:1px solid var(--line,#3f4147);border-radius:16px;background:var(--surface,#2b2d31);color:var(--text,#f2f3f5);}.ds-card-title{margin:0;font-size:14px;font-weight:600;}.ds-card-body{margin:0;font-size:14px;color:var(--muted,#b5bac1);}.ds-card-link{font-size:14px;font-weight:500;color:var(--gg,#3deb7e);text-decoration:none;}.ds-card-link:hover{text-decoration:underline;}.ds-card-link:focus-visible{outline:2px solid var(--gg,#3deb7e);outline-offset:2px;border-radius:4px;}"
+    },
+    {
+      "name": "Sidebar Nav",
+      "kind": "nav",
+      "refersTo": "nav-item",
+      "description": "Dashboard sidebar group with an overline heading and an active item.",
+      "html": "<nav class=\"ds-nav\"><h2 class=\"ds-nav-head\">Library</h2><a class=\"ds-nav-item\" aria-current=\"page\" href=\"#\"><svg width=\"16\" height=\"16\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><path d=\"M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z\"/><path d=\"M14 2v4a2 2 0 0 0 2 2h4\"/></svg>Files</a><a class=\"ds-nav-item\" href=\"#\"><svg width=\"16\" height=\"16\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><path d=\"M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z\"/><path d=\"M14 2v4a2 2 0 0 0 2 2h4\"/></svg>Albums</a><a class=\"ds-nav-item\" href=\"#\"><svg width=\"16\" height=\"16\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><path d=\"M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z\"/><path d=\"M14 2v4a2 2 0 0 0 2 2h4\"/></svg>Convert</a></nav>",
+      "css": ".ds-nav{font-family:system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;display:flex;flex-direction:column;gap:2px;width:232px;padding:12px;background:var(--surface,#2b2d31);border-radius:16px;}.ds-nav-head{margin:0;padding:0 12px 4px;font-size:11px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;color:color-mix(in srgb,var(--muted,#b5bac1) 80%,transparent);}.ds-nav-item{display:flex;align-items:center;gap:12px;height:40px;padding:0 12px;border-radius:12px;font-size:14px;color:var(--muted,#b5bac1);text-decoration:none;transition:background-color .15s,color .15s;}.ds-nav-item:hover{background:color-mix(in srgb,var(--surface-2,#313338) 60%,transparent);color:var(--text,#f2f3f5);}.ds-nav-item[aria-current=page]{background:var(--surface-2,#313338);color:var(--text,#f2f3f5);}.ds-nav-item[aria-current=page] svg{color:var(--gg,#3deb7e);}.ds-nav-item:focus-visible{outline:2px solid var(--gg,#3deb7e);outline-offset:2px;}"
+    },
+    {
+      "name": "Viewer Card",
+      "kind": "custom",
+      "refersTo": "viewer-card",
+      "description": "The signature: the file in a frame, sized by the media, with a slim footer.",
+      "html": "<article class=\"ds-viewer\"><div class=\"ds-viewer-well\"><span class=\"ds-viewer-media\">1200 × 630</span></div><footer class=\"ds-viewer-foot\"><h3 class=\"ds-viewer-name\">og-image.png</h3><p class=\"ds-viewer-meta\">59.6 KB · 1200×630 · image/png</p><p class=\"ds-viewer-meta\">Uploaded 3 days ago · <span class=\"ds-viewer-exp\">Expires in 5 hours</span></p><div class=\"ds-viewer-actions\"><button class=\"ds-v-btn ds-v-p\"><svg width=\"16\" height=\"16\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><rect width=\"14\" height=\"14\" x=\"8\" y=\"8\" rx=\"2\" ry=\"2\"/><path d=\"M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2\"/></svg>Copy link</button><button class=\"ds-v-btn ds-v-s\"><svg width=\"16\" height=\"16\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><path d=\"M12 15V3\"/><path d=\"M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4\"/><path d=\"m7 10 5 5 5-5\"/></svg>Download</button></div></footer></article>",
+      "css": ".ds-viewer{font-family:system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;display:inline-flex;flex-direction:column;width:360px;overflow:hidden;border:1px solid var(--line,#3f4147);border-radius:16px;background:var(--surface,#2b2d31);color:var(--text,#f2f3f5);box-shadow:0 9px 30px rgba(6,6,7,.3);}.ds-viewer-well{display:flex;align-items:center;justify-content:center;aspect-ratio:1200/630;background:var(--well,#1a1b1e);}.ds-viewer-media{font-size:12px;color:var(--muted,#b5bac1);}.ds-viewer-foot{display:flex;flex-direction:column;align-items:center;gap:4px;padding:16px 20px 20px;text-align:center;}.ds-viewer-name{margin:0;font-size:14px;font-weight:600;}.ds-viewer-meta{margin:0;font-size:12px;color:var(--muted,#b5bac1);}.ds-viewer-exp{color:var(--warn,#faa61a);}.ds-viewer-actions{display:flex;gap:8px;margin-top:10px;}.ds-v-btn{font-family:system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;display:inline-flex;align-items:center;justify-content:center;gap:6px;height:42px;padding:0 16px;border:0;border-radius:12px;font-size:15px;font-weight:500;white-space:nowrap;cursor:pointer;transition:background-color .15s cubic-bezier(.4,0,.2,1),color .15s cubic-bezier(.4,0,.2,1);}.ds-v-p{background:var(--gg,#3deb7e);color:var(--gg-ink,#16301f);}.ds-v-p:hover{background:var(--gg-end,#25b874);}.ds-v-s{background:var(--surface-2,#313338);color:var(--text,#f2f3f5);}.ds-v-s:hover{background:var(--line,#3f4147);}.ds-v-btn:focus-visible{outline:2px solid var(--gg,#3deb7e);outline-offset:2px;}"
+    }
+  ],
+  "narrative": {
+    "northStar": "The Quiet Frame",
+    "overview": "**Creative North Star: \"The Quiet Frame\"**\n\nfiles.gg is a dark, calm frame, and the file is the picture. In the viewer, the image, video, PDF or code fills a card whose size the media decides, with a slim footer underneath: the name, the size, when it expires, and a few actions. The dashboard carries the same calm into a tool you manage files with: a sidebar, page titles, and lists of rows on tonal layers. Nothing in the interface competes with what was shared.\n\nGreen carries the meaning. It comes from the logo's folded tile and marks the action to take, the place you are in, links, and focus. Everything else is greys separated by tone and a single hairline. Depth comes from stepping between those greys, not from shadows. Only floating things (the viewer card and dialogs) cast one.\n\nThe form language is soft and friendly, echoing the rounded tile in the logo: generous 12 px corners on controls, 16 px on cards, full pills on filter chips, and 42 px controls that are easy to hit on a phone.",
+    "keyCharacteristics": [
+      "Dark only for now. The raw tokens sit on `:root` in `web/src/styles/theme.css` so a light theme can redefine them in one place.",
+      "One accent, Signal Green, used for meaning and never as decoration on large areas.",
+      "Flat tonal layers, a 1 px hairline, and one card shadow for things that float.",
+      "The system font stack; no webfonts.",
+      "Soft, rounded controls and cards that echo the logo tile."
+    ],
+    "rules": [
+      {
+        "name": "The Green Means Go Rule",
+        "body": "Signal Green marks what you can act on, where you are, and the brand. It never fills a surface larger than a button. If a screen has green that does neither, remove it.",
+        "section": "colors"
+      },
+      {
+        "name": "The Borrowed Greys Rule",
+        "body": "The neutrals (`bg`, `surface`, `surface-2`, `line`, `text`, `muted`) currently match Discord's dark theme exactly. That match is not part of the identity and is slated to change. When it does, edit the values on `:root` in `theme.css` only, keep the same tonal order (well < bg < surface < surface-2 < line), and keep WCAG 2.2 AA contrast for `muted` on `surface-2`.",
+        "section": "colors"
+      },
+      {
+        "name": "The System Voice Rule",
+        "body": "No webfonts. The viewer must boot from inlined data with a small bundle, and the wordmark is drawn from strokes, so it needs no font. Hierarchy comes from size and weight (400, 500, 600), never from a second family.",
+        "section": "typography"
+      },
+      {
+        "name": "The Numbers Line Up Rule",
+        "body": "Sizes, counts and storage figures use tabular numerals (`tabular-nums`) wherever they sit in columns or update while you watch.",
+        "section": "typography"
+      },
+      {
+        "name": "The Media Decides Rule",
+        "body": "In the viewer, never give the card a fixed width or a layout grid. The file sets the size, and the interface fits around it.",
+        "section": "layout"
+      },
+      {
+        "name": "The One Shadow Rule",
+        "body": "In-flow surfaces are flat. Only something floating above the page (the viewer card, a dialog, a menu) casts the card shadow, and nothing gets a second, different shadow.",
+        "section": "elevation"
+      },
+      {
+        "name": "The Tile Echo Rule",
+        "body": "A corner is a control (12 px), a card (16 px) or a pill. Don't invent sizes in between.",
+        "section": "shapes"
+      },
+      {
+        "name": "The Two Reds Rule",
+        "body": "Red text and red fills are different tokens. Use `danger` for text, borders and tints, and `danger-fill` behind white text. One red can't pass AA both ways on these dark surfaces.",
+        "section": "colors"
+      }
+    ],
+    "dos": [
+      "**Do** let the media set the viewer card's size, and reserve its space from the width and height before it loads.",
+      "**Do** keep one primary (Signal Green) button per card or toolbar; neighbouring actions are secondary or ghost.",
+      "**Do** separate layers by tone (Media Well < Frame Charcoal < Card Slate < Raised Slate) and a 1 px Hairline Grey, not by shadow.",
+      "**Do** use 12 px corners on controls, 16 px on cards and dialogs, and full pills on chips, with controls 42 px tall.",
+      "**Do** show status as a 10–15% tint of Alert Red or Caution Amber with a full border in the same colour at 40%.",
+      "**Do** put white text only on `danger-fill`, never on `danger`.",
+      "**Do** keep the 2 px Signal Green focus outline, offset 2 px, on every interactive element.",
+      "**Do** meet WCAG 2.2 AA contrast for all text, including Quiet Grey on Raised Slate."
+    ],
+    "donts": [
+      "**Don't** drop the fold from the logo tile, draw the f in white, or use the lockup below about 120 px wide (see `branding/README.md`).",
+      "**Don't** put a coloured stripe down one side of a rounded card (as `app/notices/NoticeCard.tsx` does today). Use a full border, a tint, or a leading icon.",
+      "**Don't** fill a surface larger than a button with Signal Green, or use it for decoration.",
+      "**Don't** add a webfont or a second type family.",
+      "**Don't** add new shadow styles; floating things use the card shadow, everything else is flat.",
+      "**Don't** treat today's Discord-matching greys as fixed identity; change them only on `:root` in `theme.css`."
+    ]
+  }
+}

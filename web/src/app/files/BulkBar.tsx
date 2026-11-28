@@ -14,7 +14,7 @@ export function BulkBar({ files, handlers, onClear }: { files: OwnerFile[]; hand
     <div
       role="region"
       aria-label="Selected files"
-      className="fixed inset-x-0 bottom-0 z-30 border-t border-line bg-surface/95 px-3 pt-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] shadow-card backdrop-blur sm:sticky sm:bottom-4 sm:rounded-lg sm:border sm:px-3 sm:py-2"
+      className="fixed inset-x-0 bottom-0 z-30 border-t border-line bg-surface/95 px-3 pt-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] shadow-card backdrop-blur sm:sticky sm:bottom-4 sm:rounded-2xl sm:border sm:px-3 sm:py-2"
     >
       <div className="flex flex-wrap items-center gap-2">
         <span className="mr-auto text-sm font-medium" aria-live="polite">

@@ -121,7 +121,7 @@ export function Menu({ label, items, className = '' }: MenuProps) {
             setOpen(true);
           }
         }}
-        className={`inline-flex size-8 shrink-0 items-center justify-center rounded-md text-muted hover:bg-surface-2 hover:text-text ${className}`}
+        className={`inline-flex size-8 shrink-0 items-center justify-center rounded-xl text-muted hover:bg-surface-2 hover:text-text ${className}`}
       >
         <MoreHorizontal aria-hidden className="size-4" />
       </button>
@@ -135,7 +135,7 @@ export function Menu({ label, items, className = '' }: MenuProps) {
             onKeyDown={onKeyDown}
             onClick={(event) => event.stopPropagation()}
             style={style}
-            className="z-[55] flex min-w-48 flex-col rounded-lg border border-line bg-surface-2 p-1 shadow-card"
+            className="z-[55] flex min-w-48 flex-col rounded-2xl border border-line bg-surface-2 p-1 shadow-card"
           >
             {visible.map(({ label: itemLabel, icon: Icon, onSelect, danger, disabled, hint }) => (
               <button
@@ -150,7 +150,7 @@ export function Menu({ label, items, className = '' }: MenuProps) {
                   close();
                   onSelect();
                 }}
-                className={`flex items-center gap-2 rounded-md px-2.5 py-1.5 text-left text-sm outline-none hover:bg-line focus-visible:bg-line focus-visible:outline-none disabled:opacity-50 ${
+                className={`flex items-center gap-2 rounded-xl px-2.5 py-1.5 text-left text-sm outline-none hover:bg-line focus-visible:bg-line focus-visible:outline-none disabled:opacity-50 ${
                   danger ? 'text-danger' : 'text-text'
                 }`}
               >

@@ -116,7 +116,7 @@ export function LimitedCard({ vanity, remaining, onOpened, onPasswordRequired, o
         </Button>
       )}
 
-      <Button variant="primary" onClick={() => void open()} disabled={busy || waiting} className="h-10">
+      <Button variant="primary" onClick={() => void open()} disabled={busy || waiting}>
         {busy ? <Loader2 aria-hidden className="size-4 animate-spin" /> : <Eye aria-hidden className="size-4" />}
         {busy ? 'Opening…' : 'Open file'}
       </Button>
@@ -220,7 +220,7 @@ export function OpenedView({ vanity, initial, onExpired, onPasswordRequired, onU
       {phase !== 'idle' && (
         <aside
           aria-label="Keeping this file open"
-          className="fixed bottom-3 left-1/2 z-20 flex w-[min(22rem,100vw-1.5rem)] -translate-x-1/2 flex-col items-center gap-2 rounded-lg border border-line bg-surface px-4 py-3 text-center shadow-lg"
+          className="fixed bottom-3 left-1/2 z-20 flex w-[min(22rem,100vw-1.5rem)] -translate-x-1/2 flex-col items-center gap-2 rounded-2xl border border-line bg-surface px-4 py-3 text-center shadow-lg"
         >
           <p className="text-sm text-muted" role="status">
             {/* Only `captcha` or `verification` fail here, so no clock is needed. */}

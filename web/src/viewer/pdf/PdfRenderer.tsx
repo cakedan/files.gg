@@ -61,7 +61,7 @@ function PasswordPrompt({ incorrect, onSubmit, onCancel }: { incorrect: boolean;
           onChange={(event) => setPassword(event.target.value)}
           aria-invalid={incorrect}
           aria-describedby={incorrect ? `${id}-error` : undefined}
-          className="h-9 rounded-md border border-line bg-bg px-3 text-sm text-text aria-invalid:border-danger"
+          className="h-10.5 rounded-xl border border-line bg-bg px-3 text-[15px] text-text aria-invalid:border-danger"
         />
         {incorrect && (
           <p id={`${id}-error`} className="text-sm text-danger">

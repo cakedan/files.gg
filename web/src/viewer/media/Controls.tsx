@@ -6,7 +6,7 @@ import { formatTime, spokenTime } from './time';
 import { SPEEDS, type PlayerApi, type PlayerState } from './usePlayer';
 
 const iconButton =
-  'inline-flex size-9 shrink-0 items-center justify-center rounded-md text-text transition-colors hover:bg-white/10 focus-visible:bg-white/10';
+  'inline-flex size-9 shrink-0 items-center justify-center rounded-xl text-text transition-colors hover:bg-white/10 focus-visible:bg-white/10';
 
 export function PlayButton({ state, onToggle }: { state: PlayerState; onToggle: () => void }) {
   const Icon = state.playing ? Pause : state.ended ? RotateCcw : Play;
@@ -175,7 +175,7 @@ export function SpeedMenu({ state, player }: { state: PlayerState; player: Playe
           id={menuId}
           role="group"
           aria-label="Playback speed"
-          className="absolute right-0 bottom-full z-20 mb-2 flex w-44 flex-col gap-1 rounded-lg border border-line bg-surface p-2 text-sm text-text shadow-card"
+          className="absolute right-0 bottom-full z-20 mb-2 flex w-44 flex-col gap-1 rounded-2xl border border-line bg-surface p-2 text-sm text-text shadow-card"
         >
           <div className="grid grid-cols-4 gap-1">
             {SPEEDS.map((rate) => (

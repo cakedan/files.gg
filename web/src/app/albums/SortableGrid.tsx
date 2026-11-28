@@ -79,7 +79,7 @@ function SortableTile({ id, label, disabled, children }: { id: string; label: st
       title="Drag to reorder"
       {...attributes}
       {...listeners}
-      className="inline-flex size-8 shrink-0 cursor-grab touch-none items-center justify-center rounded-md text-muted hover:bg-surface-2 hover:text-text active:cursor-grabbing"
+      className="inline-flex size-8 shrink-0 cursor-grab touch-none items-center justify-center rounded-xl text-muted hover:bg-surface-2 hover:text-text active:cursor-grabbing"
     >
       <GripVertical aria-hidden className="size-4" />
     </button>

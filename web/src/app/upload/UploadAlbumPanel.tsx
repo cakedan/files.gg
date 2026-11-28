@@ -9,6 +9,7 @@ import { fieldClass } from '../access/fieldUtils';
 import { pluralize } from '../files/fileLabels';
 import { ANONYMOUS_ALBUM_MAX, type UploadBatch } from './useUploadAlbum';
 import { AppLink } from '../components/AppLink';
+import { buttonClass } from '../../components/buttonClass';
 
 interface ToggleProps {
   enabled: boolean;
@@ -23,10 +24,10 @@ interface ToggleProps {
 export function UploadAlbumToggle({ enabled, onEnabled, title, onTitle, blocked, tooMany }: ToggleProps) {
   const id = useId();
   if (blocked) {
-    return <p className="rounded-lg border border-line bg-surface px-3 py-2 text-sm text-muted">Sign in to put password-protected uploads in an album.</p>;
+    return <p className="rounded-2xl border border-line bg-surface px-3 py-2 text-sm text-muted">Sign in to put password-protected uploads in an album.</p>;
   }
   return (
-    <div className="flex flex-wrap items-center gap-3 rounded-lg border border-line bg-surface px-3 py-2">
+    <div className="flex flex-wrap items-center gap-3 rounded-2xl border border-line bg-surface px-3 py-2">
       <label className="flex items-center gap-2 text-sm font-medium">
         <input
           type="checkbox"
@@ -64,7 +65,7 @@ export function UploadAlbumResult({ batch, anonymous, onRetry }: { batch: Upload
   const { step } = batch;
   if (step.status === 'creating') {
     return (
-      <div role="status" className="flex items-center gap-2 rounded-lg border border-line bg-surface p-3 text-sm text-muted">
+      <div role="status" className="flex items-center gap-2 rounded-2xl border border-line bg-surface p-3 text-sm text-muted">
         <Loader2 aria-hidden className="size-4 animate-spin" />
         Making the album…
       </div>
@@ -75,7 +76,7 @@ export function UploadAlbumResult({ batch, anonymous, onRetry }: { batch: Upload
   }
   if (step.status === 'error') {
     return (
-      <div className="flex flex-wrap items-center gap-2 rounded-lg border border-danger/40 bg-danger/10 p-3 text-sm">
+      <div className="flex flex-wrap items-center gap-2 rounded-2xl border border-danger/40 bg-danger/10 p-3 text-sm">
         <p role="alert" className="min-w-0 flex-1">
           Couldn't make the album. {errorMessage(step.error)}
         </p>
@@ -89,7 +90,7 @@ export function UploadAlbumResult({ batch, anonymous, onRetry }: { batch: Upload
   if (step.status !== 'done') return null;
   const { album, password } = step;
   return (
-    <section aria-label="Album" className="flex flex-col gap-2 rounded-lg border border-gg/40 bg-gg/5 p-3">
+    <section aria-label="Album" className="flex flex-col gap-2 rounded-2xl border border-gg/40 bg-gg/5 p-3">
       <div className="flex flex-wrap items-center gap-2">
         <Images aria-hidden className="size-5 shrink-0 text-gg" />
         <div className="flex min-w-0 flex-1 flex-col">
@@ -108,7 +109,7 @@ export function UploadAlbumResult({ batch, anonymous, onRetry }: { batch: Upload
             Open
           </LinkButton>
           {!anonymous && (
-            <AppLink to={`/albums/${album.id}`} className="inline-flex h-9 items-center gap-1.5 rounded-md px-3 text-sm font-medium text-muted hover:bg-surface-2 hover:text-text">
+            <AppLink to={`/albums/${album.id}`} className={buttonClass('ghost')}>
               <Pencil aria-hidden className="size-4" />
               Edit
             </AppLink>
@@ -116,7 +117,7 @@ export function UploadAlbumResult({ batch, anonymous, onRetry }: { batch: Upload
         </div>
       </div>
       {password && (
-        <div className="flex flex-wrap items-center gap-2 rounded-md border border-warn/40 bg-warn/10 px-3 py-2 text-sm">
+        <div className="flex flex-wrap items-center gap-2 rounded-xl border border-warn/40 bg-warn/10 px-3 py-2 text-sm">
           <KeyRound aria-hidden className="size-4 shrink-0 text-warn" />
           <span>
             Album password: <code className="font-mono font-semibold break-all">{password}</code>

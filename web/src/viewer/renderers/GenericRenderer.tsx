@@ -15,7 +15,7 @@ const DocumentConvert = lazy(() => import('../convert/DocumentConvert'));
 export function GenericRenderer({ file }: RendererProps) {
   const document = documentLabel(file.mimetype);
   return (
-    <div className="viewer-well w-[min(28rem,var(--media-max-width))] flex-col gap-3 px-6 py-10 text-center">
+    <div className="viewer-well w-[min(28rem,var(--media-max-width))] min-w-full flex-col gap-3 px-6 py-10 text-center">
       <FileTypeIcon kind={file.kind} mimetype={file.mimetype} strokeWidth={1.5} className="size-16 text-gg" />
       <div className="flex flex-col gap-0.5">
         <span className="text-sm font-medium uppercase tracking-wide text-muted">

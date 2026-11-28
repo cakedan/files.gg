@@ -32,7 +32,7 @@ export function AlbumItemCard({ item, album, index, handle, readOnly, onCaption,
       aria-label={`${index + 1}. ${item.filename}`}
       onMouseEnter={() => setHover(true)}
       onMouseLeave={() => setHover(false)}
-      className={`flex h-full flex-col overflow-hidden rounded-lg border bg-surface ${note ? 'border-warn/50' : 'border-line'}`}
+      className={`flex h-full flex-col overflow-hidden rounded-2xl border bg-surface ${note ? 'border-warn/50' : 'border-line'}`}
     >
       <div className="relative">
         <FileThumb file={item} size="lg" active={hover} className={note ? 'opacity-60' : ''} />
@@ -58,14 +58,14 @@ export function AlbumItemCard({ item, album, index, handle, readOnly, onCaption,
               onClick={onRemove}
               aria-label={`Remove ${item.filename} from the album`}
               title="Remove from album"
-              className="inline-flex size-8 shrink-0 items-center justify-center rounded-md text-muted hover:bg-surface-2 hover:text-danger"
+              className="inline-flex size-8 shrink-0 items-center justify-center rounded-xl text-muted hover:bg-surface-2 hover:text-danger"
             >
               <X aria-hidden className="size-4" />
             </button>
           )}
         </div>
         {note && (
-          <p className="flex items-start gap-1.5 rounded-md bg-warn/10 px-2 py-1.5 text-xs text-warn">
+          <p className="flex items-start gap-1.5 rounded-xl bg-warn/10 px-2 py-1.5 text-xs text-warn">
             <EyeOff aria-hidden className="mt-0.5 size-3.5 shrink-0" />
             {note}
           </p>
@@ -104,7 +104,7 @@ function CaptionField({ id, value, readOnly, onSave }: { id: string; value: stri
             setDraft(value);
           }
         }}
-        className="min-h-14 w-full resize-y rounded-md border border-line bg-bg px-2 py-1.5 text-sm placeholder:text-muted/70"
+        className="min-h-14 w-full resize-y rounded-xl border border-line bg-bg px-2 py-1.5 text-sm placeholder:text-muted/70"
       />
       {draft.length > CAPTION_MAX - 50 && (
         <span className="self-end text-xs text-muted">

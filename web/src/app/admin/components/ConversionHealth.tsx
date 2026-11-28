@@ -91,7 +91,7 @@ function FailureReasons({ jobs }: { jobs: Health['jobs'] }) {
       <h3 className="text-xs font-medium text-muted">Most common failures</h3>
       <ul className="flex flex-wrap gap-2 text-xs">
         {reasons.map(([reason, n]) => (
-          <li key={reason} className="rounded-md bg-surface-2 px-2 py-1">
+          <li key={reason} className="rounded-xl bg-surface-2 px-2 py-1">
             <code>{reason}</code> <span className="tabular-nums text-muted">×{n}</span>
           </li>
         ))}

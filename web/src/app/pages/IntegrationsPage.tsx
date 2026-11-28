@@ -90,7 +90,7 @@ function Keys({ restricted }: { restricted: boolean }) {
       </header>
 
       {restricted && (
-        <p role="status" className="rounded-md border border-warn/40 bg-warn/10 px-3 py-2 text-sm">
+        <p role="status" className="rounded-xl border border-warn/40 bg-warn/10 px-3 py-2 text-sm">
           Uploads are restricted on your account, so keys can’t upload until the restriction ends.
         </p>
       )}
@@ -111,9 +111,9 @@ function Keys({ restricted }: { restricted: boolean }) {
           {errorMessage(keys.error)}
         </p>
       ) : items.length === 0 ? (
-        <p className="rounded-lg border border-dashed border-line px-4 py-6 text-center text-sm text-muted">No upload keys yet. Create one to set up ShareX or curl.</p>
+        <p className="rounded-2xl border border-dashed border-line px-4 py-6 text-center text-sm text-muted">No upload keys yet. Create one to set up ShareX or curl.</p>
       ) : (
-        <ul className="flex flex-col divide-y divide-line rounded-lg border border-line bg-surface" aria-label="Upload keys">
+        <ul className="flex flex-col divide-y divide-line rounded-2xl border border-line bg-surface" aria-label="Upload keys">
           {items.map((key) => (
             <li key={key.id} className={`flex flex-wrap items-center gap-3 px-4 py-3 ${key.state === 'active' ? '' : 'opacity-70'}`}>
               <KeyRound aria-hidden className="size-5 shrink-0 text-muted" />

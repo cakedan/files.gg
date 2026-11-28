@@ -26,7 +26,7 @@ export function AccountMenu({ user, pathname, onNavigate }: { user: User | null;
   }
   return (
     <div className="flex items-center gap-2 px-3">
-      <Link to="/settings" onClick={onNavigate} className="flex min-w-0 flex-1 items-center gap-2 rounded-md p-1.5 hover:bg-surface-2">
+      <Link to="/settings" onClick={onNavigate} className="flex min-w-0 flex-1 items-center gap-2 rounded-xl p-1.5 hover:bg-surface-2">
         <Avatar user={user} size="sm" />
         <span className="flex min-w-0 flex-col leading-tight">
           <span className="truncate text-sm font-medium">{user.display_name || user.username}</span>

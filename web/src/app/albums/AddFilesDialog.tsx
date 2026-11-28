@@ -107,7 +107,7 @@ export function AddFilesDialog({ album, onClose }: { album: OwnerAlbum; onClose:
               return (
                 <li key={file.id}>
                   <label
-                    className={`flex h-full cursor-pointer flex-col overflow-hidden rounded-md border ${checked ? 'border-gg/70 bg-gg/5' : 'border-line'} ${already ? 'cursor-not-allowed opacity-60' : ''}`}
+                    className={`flex h-full cursor-pointer flex-col overflow-hidden rounded-xl border ${checked ? 'border-gg/70 bg-gg/5' : 'border-line'} ${already ? 'cursor-not-allowed opacity-60' : ''}`}
                   >
                     <FileThumb file={file} size="lg" />
                     <span className="flex items-start gap-1.5 p-1.5">

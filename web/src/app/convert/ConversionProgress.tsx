@@ -31,7 +31,7 @@ export function ConversionProgress({
     const running = conversion.status === 'running';
     const percent = Math.round(Math.min(1, Math.max(0, conversion.progress || 0)) * 100);
     return (
-      <div className="flex flex-col gap-3 rounded-lg border border-line bg-surface p-4" aria-live="polite">
+      <div className="flex flex-col gap-3 rounded-2xl border border-line bg-surface p-5" aria-live="polite">
         <div className="flex flex-wrap items-center gap-2">
           <Loader2 aria-hidden className="size-4 animate-spin text-gg" />
           <p className="min-w-0 flex-1 text-sm font-medium" data-testid="conversion-status">
@@ -67,7 +67,7 @@ export function ConversionProgress({
 
   const signInHint = conversion.error?.metadata?.sign_in === true && anonymous;
   return (
-    <div role="alert" className="flex flex-col gap-3 rounded-lg border border-danger/40 bg-danger/10 p-4">
+    <div role="alert" className="flex flex-col gap-3 rounded-2xl border border-danger/40 bg-danger/10 p-4">
       <p className="flex items-start gap-2 text-sm">
         <CircleAlert aria-hidden className="mt-0.5 size-4 shrink-0 text-danger" />
         <span>{outcomeMessage(conversion, anonymous)}</span>

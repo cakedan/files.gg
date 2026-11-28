@@ -77,7 +77,7 @@ export function AlbumTile({ item, index, count, width, height, onOpen }: AlbumTi
       }}
       onMouseLeave={() => setHovering(false)}
       aria-label={`Open ${item.filename} (${index + 1} of ${count})`}
-      className="group relative block overflow-hidden rounded-md bg-well"
+      className="group relative block overflow-hidden rounded-xl bg-well"
       style={{ width, height }}
     >
       {body}
@@ -104,7 +104,7 @@ export function AlbumTile({ item, index, count, width, height, onOpen }: AlbumTi
           {item.extension || item.kind}
         </span>
       )}
-      <span className="absolute inset-0 rounded-md ring-gg/70 transition group-hover:ring-2 group-focus-visible:ring-2" />
+      <span className="absolute inset-0 rounded-xl ring-gg/70 transition group-hover:ring-2 group-focus-visible:ring-2" />
     </button>
   );
 }

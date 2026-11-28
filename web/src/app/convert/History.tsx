@@ -7,6 +7,7 @@ import { epochMs, formatRelative } from '../../lib/time';
 import { ConversionLine, StatusIcon } from './BatchList';
 import { rerunSource, sourceName } from './conversionText';
 import { useHistory } from './queries';
+import { buttonClass } from '../../components/buttonClass';
 
 /**
  * §13.1 "History" (signed in): source, target, status, size change and output link,
@@ -35,7 +36,7 @@ export function History({ onRerun, onRemove, busy }: { onRerun: (conversion: Con
       ) : items.length === 0 ? (
         <p className="text-sm text-muted">Your conversions show here.</p>
       ) : (
-        <ul className="flex flex-col divide-y divide-line rounded-lg border border-line bg-surface">
+        <ul className="flex flex-col divide-y divide-line rounded-2xl border border-line bg-surface">
           {items.map((item) => {
             const output = item.output.file ?? item.output.album;
             const rerun = rerunSource(item);
@@ -56,18 +57,18 @@ export function History({ onRerun, onRemove, busy }: { onRerun: (conversion: Con
                 </span>
                 <span className="flex w-full flex-wrap justify-end gap-1">
                   {output && item.status === 'succeeded' && (
-                    <a href={output.url} target="_blank" rel="noopener" className="inline-flex h-8 items-center gap-1.5 rounded-md px-2 text-muted hover:bg-surface-2 hover:text-text">
+                    <a href={output.url} target="_blank" rel="noopener" className={buttonClass('ghost', '', 'sm')}>
                       <ExternalLink aria-hidden className="size-4" />
                       Open
                     </a>
                   )}
                   {rerun && !active && (
-                    <Button variant="ghost" className="h-8 px-2" onClick={() => onRerun(item)} disabled={busy === item.id}>
+                    <Button variant="ghost" size="sm" onClick={() => onRerun(item)} disabled={busy === item.id}>
                       <RotateCcw aria-hidden className="size-4" />
                       Run again
                     </Button>
                   )}
-                  <Button variant="ghost" className="h-8 px-2" onClick={() => onRemove(item)} disabled={busy === item.id} aria-label={active ? `Cancel ${sourceName(item)}` : `Delete ${sourceName(item)} from history`}>
+                  <Button variant="ghost" size="sm" onClick={() => onRemove(item)} disabled={busy === item.id} aria-label={active ? `Cancel ${sourceName(item)}` : `Delete ${sourceName(item)} from history`}>
                     {active ? <X aria-hidden className="size-4" /> : <Trash2 aria-hidden className="size-4" />}
                     {active ? 'Cancel' : 'Delete'}
                   </Button>

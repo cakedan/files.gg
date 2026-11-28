@@ -42,7 +42,7 @@ export function AskReviewDialog({ file, onClose, onDone }: { file: OwnerFile; on
           maxLength={2000}
           rows={3}
           onChange={(event) => setMessage(event.target.value)}
-          className="w-full resize-y rounded-md border border-line bg-bg px-3 py-2 text-sm"
+          className="w-full resize-y rounded-xl border border-line bg-bg px-3 py-2 text-[15px]"
         />
         {review.isError && (
           <p role="alert" className="text-sm text-danger">

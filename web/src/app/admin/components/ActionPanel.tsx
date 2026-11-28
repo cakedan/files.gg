@@ -201,7 +201,7 @@ export function ActionPanel({ target, details, title = 'Actions', options, caseI
           <label htmlFor={`${id}-note`} className="text-sm font-medium">
             Note for staff
           </label>
-          <textarea id={`${id}-note`} value={note} onChange={(event) => setNote(event.target.value)} rows={2} maxLength={2000} className="w-full resize-y rounded-md border border-line bg-bg px-3 py-2 text-sm" />
+          <textarea id={`${id}-note`} value={note} onChange={(event) => setNote(event.target.value)} rows={2} maxLength={2000} className="w-full resize-y rounded-xl border border-line bg-bg px-3 py-2 text-[15px]" />
           <p className="text-xs text-muted">Only staff see this. It goes in the audit log.</p>
         </div>
         {option.notifies && (
@@ -215,7 +215,7 @@ export function ActionPanel({ target, details, title = 'Actions', options, caseI
                 <label htmlFor={`${id}-message`} className="text-sm font-medium">
                   Message in the notice (optional)
                 </label>
-                <textarea id={`${id}-message`} value={message} onChange={(event) => setMessage(event.target.value)} rows={2} maxLength={2000} className="w-full resize-y rounded-md border border-line bg-bg px-3 py-2 text-sm" />
+                <textarea id={`${id}-message`} value={message} onChange={(event) => setMessage(event.target.value)} rows={2} maxLength={2000} className="w-full resize-y rounded-xl border border-line bg-bg px-3 py-2 text-[15px]" />
               </div>
             )}
           </>

@@ -144,14 +144,14 @@ export function LockScreen({ kind, vanity, name, initialPassword, onUnlocked, on
             onChange={(event) => setPassword(event.target.value)}
             aria-invalid={error?.kind === 'wrong'}
             aria-describedby={error ? `${id}-error` : undefined}
-            className="h-10 min-w-0 flex-1 rounded-md border border-line bg-bg px-3 text-sm text-text aria-invalid:border-danger"
+            className="h-10.5 min-w-0 flex-1 rounded-xl border border-line bg-bg px-3 text-[15px] text-text aria-invalid:border-danger"
           />
           <button
             type="button"
             onClick={() => setReveal(!reveal)}
             aria-label={reveal ? 'Hide password' : 'Show password'}
             aria-pressed={reveal}
-            className="flex w-10 items-center justify-center rounded-md border border-line text-muted hover:text-text"
+            className="flex w-10.5 items-center justify-center rounded-xl border border-line text-muted hover:text-text"
           >
             {reveal ? <EyeOff aria-hidden className="size-4" /> : <Eye aria-hidden className="size-4" />}
           </button>
@@ -180,7 +180,7 @@ export function LockScreen({ kind, vanity, name, initialPassword, onUnlocked, on
           </Button>
         )}
 
-        <Button type="submit" variant="primary" disabled={!password || busy || waiting} className="h-10">
+        <Button type="submit" variant="primary" disabled={!password || busy || waiting}>
           {busy ? <Loader2 aria-hidden className="size-4 animate-spin" /> : <Lock aria-hidden className="size-4" />}
           {busy ? (initialPassword && !error ? 'Unlocking…' : 'Checking…') : 'Unlock'}
         </Button>

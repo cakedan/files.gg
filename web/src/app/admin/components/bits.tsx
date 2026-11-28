@@ -5,7 +5,7 @@ import { epochMs, formatFullDate, formatRelative } from '../../../lib/time';
 import type { CaseTarget } from '../adminApi';
 import { adminError, targetHref } from '../format';
 
-const PRIORITY_STYLES = ['bg-danger text-white', 'bg-warn/20 text-warn', 'bg-surface-2 text-text', 'bg-surface-2 text-muted'] as const;
+const PRIORITY_STYLES = ['bg-danger-fill text-white', 'bg-warn/20 text-warn', 'bg-surface-2 text-text', 'bg-surface-2 text-muted'] as const;
 
 export function PriorityPill({ priority }: { priority: number }) {
   return (
@@ -53,7 +53,7 @@ export function When({ at, now }: { at: number; now: number }) {
 
 export function Section({ title, children, actions, id }: { title: string; children: ReactNode; actions?: ReactNode; id?: string }) {
   return (
-    <section aria-labelledby={id} className="flex flex-col gap-3 rounded-lg border border-line bg-surface p-4">
+    <section aria-labelledby={id} className="flex flex-col gap-3 rounded-2xl border border-line bg-surface p-5">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h2 id={id} className="text-base font-semibold">
           {title}

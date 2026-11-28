@@ -88,7 +88,7 @@ export function FilesToolbar({ state, onChange }: FilesToolbarProps) {
           <option value="password">Password</option>
           <option value="private">Only me</option>
         </select>
-        <div className="flex rounded-md border border-line p-0.5" role="group" aria-label="View">
+        <div className="flex rounded-xl border border-line p-0.5" role="group" aria-label="View">
           <button
             type="button"
             aria-pressed={state.view === 'table'}

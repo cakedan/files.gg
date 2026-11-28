@@ -97,7 +97,7 @@ export default function FileDrawer({ file, handlers, onClose }: FileDrawerProps)
   return (
     <Drawer title={file.filename} onClose={onClose}>
       <div className="flex flex-col gap-5 p-4">
-        <div className="flex min-h-48 items-center justify-center overflow-hidden rounded-lg border border-line bg-well">
+        <div className="flex min-h-48 items-center justify-center overflow-hidden rounded-2xl border border-line bg-well">
           {!servable ? (
             <p className="p-6 text-center text-sm text-muted">{file.safety?.state === 'pending' ? 'This file can’t be viewed until the check finishes.' : 'This file can’t be viewed.'}</p>
           ) : gated ? (
@@ -111,7 +111,7 @@ export default function FileDrawer({ file, handlers, onClose }: FileDrawerProps)
         {servable && file.processing && <p className="text-xs text-muted">Previews are still being made for this file.</p>}
 
         {explanation && (
-          <div className="flex flex-wrap items-center gap-2 rounded-md border border-line bg-bg px-3 py-2 text-sm">
+          <div className="flex flex-wrap items-center gap-2 rounded-xl border border-line bg-bg px-3 py-2 text-sm">
             <SafetyBadge safety={file.safety} />
             <span className="min-w-0 flex-1 text-muted">{explanation}</span>
             {file.safety?.notice_id && (
@@ -122,7 +122,7 @@ export default function FileDrawer({ file, handlers, onClose }: FileDrawerProps)
           </div>
         )}
         {warnings.map((text) => (
-          <p key={text} className="flex items-start gap-2 rounded-md border border-warn/40 bg-warn/10 px-3 py-2 text-sm">
+          <p key={text} className="flex items-start gap-2 rounded-xl border border-warn/40 bg-warn/10 px-3 py-2 text-sm">
             <AlertTriangle aria-hidden className="mt-0.5 size-4 shrink-0 text-warn" />
             {text} Visitors see this warning too.
           </p>
@@ -183,7 +183,7 @@ export default function FileDrawer({ file, handlers, onClose }: FileDrawerProps)
         </div>
 
         {(viewLimit !== null || handlers.editViewLimit) && (
-          <section aria-label="View limit" className="flex flex-col gap-2 rounded-md border border-line px-3 py-3">
+          <section aria-label="View limit" className="flex flex-col gap-2 rounded-xl border border-line px-3 py-3">
             {viewLimit !== null ? (
               <p className="text-sm">
                 <span className="font-medium">{viewsUsedLabel(file)}</span> <span className="text-muted">{viewLimitActionText(file)}</span>
@@ -210,7 +210,7 @@ export default function FileDrawer({ file, handlers, onClose }: FileDrawerProps)
         )}
 
         {handlers.setSensitive && (
-          <section aria-label="Sensitive content" className="flex flex-col gap-2 rounded-md border border-line px-3 py-3">
+          <section aria-label="Sensitive content" className="flex flex-col gap-2 rounded-xl border border-line px-3 py-3">
             <p className="text-sm text-muted">{file.nsfw ? (NSFW_SOURCES[nsfwSource ?? ''] ?? 'This file is marked as sensitive.') : 'This file isn’t marked as sensitive.'}</p>
             <div className="flex flex-wrap gap-2">
               {file.nsfw ? (
@@ -269,7 +269,7 @@ export default function FileDrawer({ file, handlers, onClose }: FileDrawerProps)
             <ul className="flex flex-wrap gap-2">
               {file.albums.map((album) => (
                 <li key={album.id}>
-                  <Link to={`/albums/${album.id}`} onClick={onClose} className="rounded-md bg-surface-2 px-2 py-1 text-sm hover:text-gg">
+                  <Link to={`/albums/${album.id}`} onClick={onClose} className="rounded-xl bg-surface-2 px-2 py-1 text-sm hover:text-gg">
                     {album.title || 'Untitled album'}
                   </Link>
                 </li>

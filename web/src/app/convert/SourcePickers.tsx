@@ -53,7 +53,7 @@ export function LibraryPicker({ onPick, onClose }: { onPick: (file: OwnerFile) =
                     type="button"
                     disabled={!convertible}
                     onClick={() => onPick(file)}
-                    className="flex w-full items-center gap-3 rounded-md px-2 py-2 text-left hover:bg-surface-2 disabled:pointer-events-none disabled:opacity-50"
+                    className="flex w-full items-center gap-3 rounded-xl px-2 py-2 text-left hover:bg-surface-2 disabled:pointer-events-none disabled:opacity-50"
                   >
                     <FileThumb file={file} size="sm" />
                     <span className="min-w-0 flex-1">
@@ -91,7 +91,7 @@ export function AlbumPicker({ onPick, onClose }: { onPick: (album: OwnerAlbumSum
           <ul className="flex flex-col divide-y divide-line">
             {items.map((album) => (
               <li key={album.id}>
-                <button type="button" onClick={() => onPick(album)} className="flex w-full items-center gap-3 rounded-md px-2 py-2 text-left hover:bg-surface-2">
+                <button type="button" onClick={() => onPick(album)} className="flex w-full items-center gap-3 rounded-xl px-2 py-2 text-left hover:bg-surface-2">
                   <span className="min-w-0 flex-1">
                     <span className="block truncate text-sm font-medium">{album.title || 'Untitled album'}</span>
                     <span className="block text-xs text-muted">{pluralize(album.count, 'file')}</span>

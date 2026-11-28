@@ -41,7 +41,7 @@ export function Dialog({ title, description, onClose, children, footer, initialF
         aria-describedby={description ? descriptionId : undefined}
         tabIndex={-1}
         onMouseDown={(event) => event.stopPropagation()}
-        className={`flex max-h-[92dvh] w-full ${SIZES[size]} flex-col rounded-t-xl border border-line bg-surface shadow-card outline-none sm:rounded-xl`}
+        className={`flex max-h-[92dvh] w-full ${SIZES[size]} flex-col rounded-t-2xl border border-line bg-surface shadow-card outline-none sm:rounded-2xl`}
       >
         <div className="flex items-start justify-between gap-3 px-5 pt-4">
           <div className="flex min-w-0 flex-col gap-1">
@@ -55,7 +55,7 @@ export function Dialog({ title, description, onClose, children, footer, initialF
             )}
           </div>
           {dismissible && (
-            <button type="button" onClick={onClose} aria-label="Close" className="-mr-1 rounded-md p-1 text-muted hover:bg-surface-2 hover:text-text">
+            <button type="button" onClick={onClose} aria-label="Close" className="-mr-1 rounded-xl p-1 text-muted hover:bg-surface-2 hover:text-text">
               <X aria-hidden className="size-5" />
             </button>
           )}

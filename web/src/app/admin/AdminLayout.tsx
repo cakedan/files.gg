@@ -7,6 +7,7 @@ import { useAdminSummary } from './adminQueries';
 import { isAdmin } from './permissions';
 import { useStaff } from './staffContext';
 import { useP0Notifications } from './useP0Notifications';
+import { buttonClass } from '../../components/buttonClass';
 
 /** The admin pages' tabs (§11.3). The audit log is for admins. */
 function AdminNav({ open, admin }: { open: number; admin: boolean }) {
@@ -80,7 +81,7 @@ export function AdminLayout() {
             role="switch"
             aria-checked={notifications.enabled}
             onClick={() => void notifications.toggle()}
-            className="inline-flex h-9 items-center gap-2 rounded-md bg-surface-2 px-3 text-sm font-medium hover:bg-line"
+            className={buttonClass('secondary')}
           >
             {notifications.enabled ? <Bell aria-hidden className="size-4 text-gg" /> : <BellOff aria-hidden className="size-4" />}
             Notify me about new P0 cases
@@ -94,13 +95,13 @@ export function AdminLayout() {
       </header>
 
       {p0 > 0 && (
-        <Link to="/admin/queue?priority=0" className="flex items-center gap-3 rounded-lg border border-danger/60 bg-danger/15 px-4 py-3 text-sm font-medium hover:bg-danger/20">
+        <Link to="/admin/queue?priority=0" className="flex items-center gap-3 rounded-2xl border border-danger/60 bg-danger/15 px-4 py-3 text-sm font-medium hover:bg-danger/20">
           <AlertOctagon aria-hidden className="size-5 shrink-0 text-danger" />
           {p0} child-safety or P0 {p0 === 1 ? 'case is' : 'cases are'} open
         </Link>
       )}
       {isAdmin(staff) && data && data.scans_stalled > 0 && (
-        <p role="status" className="flex items-center gap-3 rounded-lg border border-warn/50 bg-warn/10 px-4 py-3 text-sm">
+        <p role="status" className="flex items-center gap-3 rounded-2xl border border-warn/50 bg-warn/10 px-4 py-3 text-sm">
           <Hourglass aria-hidden className="size-5 shrink-0 text-warn" />
           Scanning is behind: {data.scans_stalled} {data.scans_stalled === 1 ? 'file' : 'files'} waiting over 10 minutes
         </p>

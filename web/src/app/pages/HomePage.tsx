@@ -92,7 +92,7 @@ export default function HomePage() {
               </h2>
               <ul className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
                 {FEATURES.map(({ icon: Icon, title, text, link }) => (
-                  <li key={title} className="flex flex-col gap-2 rounded-lg border border-line bg-surface p-4">
+                  <li key={title} className="flex flex-col gap-2 rounded-2xl border border-line bg-surface p-5">
                     <Icon aria-hidden className="size-5 text-gg" />
                     <h3 className="text-sm font-semibold">{title}</h3>
                     <p className="text-sm text-muted">{text}</p>

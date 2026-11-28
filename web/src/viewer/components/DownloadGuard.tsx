@@ -22,7 +22,7 @@ export function FileWarnings({ file }: { file: Pick<FileData, 'warnings'> }) {
   const lines = warningLines(file.warnings);
   if (lines.length === 0) return null;
   return (
-    <div role="note" className="viewer-banner flex items-start gap-2 rounded-lg border border-warn/40 bg-warn/10 px-4 py-3 text-sm">
+    <div role="note" className="viewer-banner flex items-start gap-2 rounded-2xl border border-warn/40 bg-warn/10 px-4 py-3 text-sm">
       <TriangleAlert aria-hidden className="mt-0.5 size-4 shrink-0 text-warn" />
       <div className="flex flex-col gap-1">
         {lines.map((line) => (
@@ -59,7 +59,7 @@ export function ConfirmDownload({ message, onConfirm, onCancel }: { message: str
         aria-modal="true"
         aria-labelledby={titleId}
         aria-describedby={`${titleId}-message`}
-        className="flex w-full max-w-sm flex-col gap-3 rounded-lg border border-line bg-surface p-5 shadow-card"
+        className="flex w-full max-w-sm flex-col gap-3 rounded-2xl border border-line bg-surface p-5 shadow-card"
         onClick={(event) => event.stopPropagation()}
       >
         <h2 id={titleId} className="flex items-center gap-2 text-lg font-semibold">

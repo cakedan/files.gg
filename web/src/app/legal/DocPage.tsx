@@ -26,7 +26,7 @@ function Contents({ headings, folded }: { headings: Doc['headings']; folded: boo
   if (folded) {
     return (
       <nav aria-label="Contents" className="doc-toc mt-5 lg:hidden">
-        <details className="rounded-lg border border-line bg-surface px-4 py-3">
+        <details className="rounded-2xl border border-line bg-surface px-4 py-3">
           <summary className="flex cursor-pointer items-center gap-2 text-sm font-medium">
             <List aria-hidden className="size-4" />
             Contents
@@ -82,7 +82,7 @@ export function DocPage({ doc, onOpen }: { doc: Doc; onOpen?: () => void }) {
             </p>
           )}
           {draft && (
-            <div role="note" className="doc-banner mt-5 flex gap-3 rounded-lg border border-warn/50 bg-warn/10 px-4 py-3 text-sm">
+            <div role="note" className="doc-banner mt-5 flex gap-3 rounded-2xl border border-warn/50 bg-warn/10 px-4 py-3 text-sm">
               <FileWarning aria-hidden className="mt-0.5 size-4 shrink-0 text-warn" />
               <p>
                 <strong className="font-semibold">Draft: pending legal review.</strong> Text in{' '}

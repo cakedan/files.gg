@@ -135,14 +135,14 @@ export function AppealDialog({ notice, onClose, onDone }: AppealDialogProps) {
             onChange={(event) => setMessage(event.target.value)}
             aria-invalid={errors.message ? true : undefined}
             aria-describedby={describedBy('message')}
-            className="w-full resize-y rounded-md border border-line bg-bg px-3 py-2 text-sm"
+            className="w-full resize-y rounded-xl border border-line bg-bg px-3 py-2 text-[15px]"
           />
           {fieldError('message')}
           <p className="text-xs text-muted">You can appeal each notice once.</p>
         </div>
 
         {copyright && (
-          <fieldset className="flex flex-col gap-3 rounded-lg border border-line p-3">
+          <fieldset className="flex flex-col gap-3 rounded-2xl border border-line p-3">
             <legend className="px-1 text-sm font-semibold">Counter-notice</legend>
             <div className="grid gap-3 sm:grid-cols-2">
               {TEXT_FIELDS.map((field) => {
@@ -160,7 +160,7 @@ export function AppealDialog({ notice, onClose, onDone }: AppealDialogProps) {
                       {field.label}
                     </label>
                     {field.multiline ? (
-                      <textarea {...props} rows={2} className="w-full resize-y rounded-md border border-line bg-bg px-3 py-2 text-sm" />
+                      <textarea {...props} rows={2} className="w-full resize-y rounded-xl border border-line bg-bg px-3 py-2 text-[15px]" />
                     ) : (
                       <input {...props} type={field.type ?? 'text'} className={fieldClass} />
                     )}

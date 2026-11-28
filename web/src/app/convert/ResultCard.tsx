@@ -16,6 +16,7 @@ import { pluralize } from '../files/fileLabels';
 import { useScanStatus } from '../upload/useScanStatus';
 import { AppLink } from '../components/AppLink';
 import { sizeChange } from './conversionText';
+import { buttonClass } from '../../components/buttonClass';
 
 const SCAN_TEXT: Record<string, string> = {
   checking: 'Scanning…',
@@ -49,7 +50,7 @@ export function ResultCard({ conversion, anonymous, onConvertAgain }: { conversi
   const change = sizeChange(conversion.input_size, conversion.output_size ?? output?.size ?? null);
 
   return (
-    <section aria-label="Result" className="flex flex-col gap-4 rounded-lg border border-line bg-surface p-4">
+    <section aria-label="Result" className="flex flex-col gap-4 rounded-2xl border border-line bg-surface p-5">
       <header className="flex flex-wrap items-center gap-2">
         <CheckCircle2 aria-hidden className="size-5 text-gg" />
         <h2 className="min-w-0 flex-1 truncate text-base font-semibold">{file?.filename ?? album?.title ?? 'Converted'}</h2>
@@ -57,7 +58,7 @@ export function ResultCard({ conversion, anonymous, onConvertAgain }: { conversi
       </header>
 
       {album ? (
-        <div className="flex flex-col gap-1 rounded-lg border border-line bg-well p-4 text-sm">
+        <div className="flex flex-col gap-1 rounded-2xl border border-line bg-well p-4 text-sm">
           <p className="inline-flex items-center gap-2 font-medium">
             <Images aria-hidden className="size-4 text-gg" />
             {pluralize(album.count, 'page')} in a new album
@@ -65,7 +66,7 @@ export function ResultCard({ conversion, anonymous, onConvertAgain }: { conversi
           <p className="text-muted">Each page is its own file, in order.</p>
         </div>
       ) : (
-        <div className="flex min-h-40 items-center justify-center overflow-hidden rounded-lg border border-line bg-well">
+        <div className="flex min-h-40 items-center justify-center overflow-hidden rounded-2xl border border-line bg-well">
           {!ready ? (
             <p className="flex items-center gap-2 p-6 text-sm text-muted" role="status">
               {scan.phase === 'checking' && <Loader2 aria-hidden className="size-4 animate-spin" />}
@@ -82,7 +83,7 @@ export function ResultCard({ conversion, anonymous, onConvertAgain }: { conversi
       {change && <p className="text-sm text-muted">{change}</p>}
 
       {password && (
-        <div className="flex flex-col gap-2 rounded-md border border-warn/40 bg-warn/5 p-3 text-sm">
+        <div className="flex flex-col gap-2 rounded-xl border border-warn/40 bg-warn/5 p-3 text-sm">
           <p className="inline-flex items-center gap-1.5 font-medium">
             <KeyRound aria-hidden className="size-4 text-warn" />
             Password: <code className="rounded bg-bg px-1.5 py-0.5 font-mono">{password}</code>
@@ -96,7 +97,7 @@ export function ResultCard({ conversion, anonymous, onConvertAgain }: { conversi
         {album ? (
           <>
             <CopyButton text={album.url} />
-            <AppLink to={`/albums/${album.id}`} className="inline-flex h-9 items-center gap-1.5 rounded-md bg-surface-2 px-3 text-sm font-medium hover:bg-line">
+            <AppLink to={`/albums/${album.id}`} className={buttonClass('secondary')}>
               <Images aria-hidden className="size-4" />
               Open album
             </AppLink>

@@ -4,7 +4,7 @@ import type { ReactNode } from 'react';
 export function Panel({ title, description, children, id, tone }: { title: string; description?: ReactNode; children: ReactNode; id?: string; tone?: 'danger' }) {
   const headingId = id ?? `panel-${title.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`;
   return (
-    <section aria-labelledby={headingId} className={`flex flex-col gap-4 rounded-lg border bg-surface p-4 sm:p-5 ${tone === 'danger' ? 'border-danger/40' : 'border-line'}`}>
+    <section aria-labelledby={headingId} className={`flex flex-col gap-4 rounded-2xl border bg-surface p-4 sm:p-5 ${tone === 'danger' ? 'border-danger/40' : 'border-line'}`}>
       <header className="flex flex-col gap-1">
         <h2 id={headingId} className="text-base font-semibold">
           {title}
@@ -37,5 +37,5 @@ export function Result({ error, success }: { error?: string | null | undefined; 
 
 /** The reason a locked control can't be used (suspension, §11.1). */
 export function LockedNote({ children }: { children: ReactNode }) {
-  return <p className="rounded-md border border-line bg-surface-2 px-3 py-2 text-sm text-muted">{children}</p>;
+  return <p className="rounded-xl border border-line bg-surface-2 px-3 py-2 text-sm text-muted">{children}</p>;
 }

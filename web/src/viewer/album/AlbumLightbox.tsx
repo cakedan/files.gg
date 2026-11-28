@@ -110,10 +110,10 @@ export function AlbumLightbox({ items, index, onGo, onClose }: AlbumLightboxProp
           </span>
           <div className="flex shrink-0 items-center gap-1">
             <CopyButton text={shareUrl(item.url)} variant="secondary" className="max-sm:px-2" />
-            <LinkButton href={downloadUrl(item.cdn_url)} download={item.filename} aria-label="Download" title="Download" className="px-2">
+            <LinkButton href={downloadUrl(item.cdn_url)} download={item.filename} aria-label="Download" title="Download" size="icon">
               <Download aria-hidden className="size-4" />
             </LinkButton>
-            <LinkButton href={item.cdn_url} target="_blank" rel="noopener noreferrer" aria-label="Raw" title="Raw" className="px-2" variant="ghost">
+            <LinkButton href={item.cdn_url} target="_blank" rel="noopener noreferrer" aria-label="Raw" title="Raw" size="icon" variant="ghost">
               <ExternalLink aria-hidden className="size-4" />
             </LinkButton>
             {reportTarget && <ReportButton target={reportTarget} variant="ghost" compact />}

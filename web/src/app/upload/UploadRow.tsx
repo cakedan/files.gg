@@ -68,7 +68,7 @@ function IconButton({ label, onClick, children }: { label: string; onClick: () =
       onClick={onClick}
       aria-label={label}
       title={label}
-      className="inline-flex size-8 shrink-0 items-center justify-center rounded-md text-muted hover:bg-surface-2 hover:text-text"
+      className="inline-flex size-8 shrink-0 items-center justify-center rounded-xl text-muted hover:bg-surface-2 hover:text-text"
     >
       {children}
     </button>
@@ -87,7 +87,7 @@ export function UploadRow({ item, onRemove }: { item: QueueItem; onRemove: () =>
   const link = scan.phase === 'ready' || scan.phase === 'idle' ? result?.url : undefined;
 
   return (
-    <li className="flex flex-col gap-2 rounded-lg border border-line bg-surface p-3" aria-label={file.name}>
+    <li className="flex flex-col gap-2 rounded-2xl border border-line bg-surface p-3" aria-label={file.name}>
       <div className="flex items-start gap-2">
         <span className="mt-0.5 shrink-0">
           {failed ? (
@@ -173,7 +173,7 @@ export function UploadRow({ item, onRemove }: { item: QueueItem; onRemove: () =>
             </div>
           )}
           {result?.password && (
-            <div className="flex flex-wrap items-center gap-2 rounded-md border border-warn/40 bg-warn/10 px-3 py-2 text-sm">
+            <div className="flex flex-wrap items-center gap-2 rounded-xl border border-warn/40 bg-warn/10 px-3 py-2 text-sm">
               <KeyRound aria-hidden className="size-4 shrink-0 text-warn" />
               <span>
                 Password: <code className="font-mono font-semibold break-all">{result.password}</code>

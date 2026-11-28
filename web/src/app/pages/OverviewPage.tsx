@@ -83,7 +83,7 @@ const TYPE_LABELS: Record<FileTypeFilter, string> = { image: 'Images', video: 'V
 
 function Card({ title, children, action }: { title: string; children: React.ReactNode; action?: React.ReactNode }) {
   return (
-    <section className="flex flex-col gap-3 rounded-lg border border-line bg-surface p-4" aria-label={title}>
+    <section className="flex flex-col gap-3 rounded-2xl border border-line bg-surface p-5" aria-label={title}>
       <div className="flex items-center justify-between gap-2">
         <h2 className="text-sm font-semibold">{title}</h2>
         {action}
@@ -151,7 +151,7 @@ export default function OverviewPage() {
               const data = counts[index]?.data;
               return (
                 <li key={type}>
-                  <Link to={`/files?type=${type}`} className="flex flex-col rounded-md bg-surface-2 px-3 py-2 hover:bg-line">
+                  <Link to={`/files?type=${type}`} className="flex flex-col rounded-xl bg-surface-2 px-3 py-2 hover:bg-line">
                     <span className="text-xs text-muted">{TYPE_LABELS[type]}</span>
                     <span className="text-lg font-semibold tabular-nums">{data ? data.count.toLocaleString('en') : '–'}</span>
                     <span className="text-xs text-muted">{data ? formatBytes(data.size) : ' '}</span>
@@ -220,7 +220,7 @@ export default function OverviewPage() {
           <ul className="-mx-1 flex gap-3 overflow-x-auto px-1 pb-1">
             {recent.data.items.map((file) => (
               <li key={file.id} className="w-36 shrink-0">
-                <a href={file.url} target="_blank" rel="noopener" className="flex flex-col overflow-hidden rounded-md border border-line hover:border-gg/50">
+                <a href={file.url} target="_blank" rel="noopener" className="flex flex-col overflow-hidden rounded-xl border border-line hover:border-gg/50">
                   <FileThumb file={file} size="lg" />
                   <span className="truncate px-2 pt-1.5 text-xs font-medium" title={file.filename}>
                     {file.filename}

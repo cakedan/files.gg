@@ -26,8 +26,11 @@
   --text: #f2f3f5;
   --muted: #b5bac1;
 
-  /* Status */
-  --danger: #f04747;
+  /* Status. `--danger` is for red text, borders and tints on the dark surfaces (AA as text);
+     `--danger-fill` is the solid red behind white text (AA with white). */
+  --danger: #ff857e;
+  --danger-fill: #d23336;
+  --danger-fill-hover: #c7262d;
   --warn: #faa61a;
 }
 
@@ -45,6 +48,8 @@
   --color-text: var(--text);
   --color-muted: var(--muted);
   --color-danger: var(--danger);
+  --color-danger-fill: var(--danger-fill);
+  --color-danger-fill-hover: var(--danger-fill-hover);
   --color-warn: var(--warn);
 
   --font-sans:

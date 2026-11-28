@@ -47,7 +47,7 @@ export function UploadOptions({ state, onChange, context, errors, conversion = f
   const fileLife = expiresIn !== null && Number.isFinite(expiresIn) ? expiresIn : null;
 
   return (
-    <section aria-label={conversion ? 'Output options' : 'Upload options'} className="flex flex-col gap-4 rounded-lg border border-line bg-surface p-4">
+    <section aria-label={conversion ? 'Output options' : 'Upload options'} className="flex flex-col gap-4 rounded-2xl border border-line bg-surface p-5">
       <div className="grid gap-4 sm:grid-cols-2">
         <div className="flex min-w-0 flex-col gap-4">
           <Field label="Expires" htmlFor={`${id}-expiry`} error={errors.expiry} hint={context.anonymous ? ANONYMOUS_EXPIRY_NOTE : undefined}>

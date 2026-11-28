@@ -56,7 +56,7 @@ const factsOf = (file: SourceFile): SourceFacts => ({
 
 function SourceCard({ title, detail, onChange }: { title: string; detail: string; onChange: () => void }) {
   return (
-    <div className="flex items-center gap-3 rounded-lg border border-line bg-surface px-4 py-3">
+    <div className="flex items-center gap-3 rounded-2xl border border-line bg-surface px-4 py-3">
       <div className="min-w-0 flex-1">
         <p className="truncate text-sm font-medium" title={title}>
           {title}
@@ -72,7 +72,7 @@ function SourceCard({ title, detail, onChange }: { title: string; detail: string
 
 function Notice({ children, onChange }: { children: ReactNode; onChange?: () => void }) {
   return (
-    <div role="alert" className="flex flex-wrap items-start gap-2 rounded-lg border border-line bg-surface px-4 py-3 text-sm">
+    <div role="alert" className="flex flex-wrap items-start gap-2 rounded-2xl border border-line bg-surface px-4 py-3 text-sm">
       <CircleAlert aria-hidden className="mt-0.5 size-4 shrink-0 text-warn" />
       <span className="min-w-0 flex-1">{children}</span>
       {onChange && (
@@ -110,7 +110,7 @@ function DroppedCard({ dropped, onCancel }: { dropped: DroppedSource; onCancel: 
     else if (dropped.settling) line = 'Reading the file…';
   }
   return (
-    <div className="flex flex-col gap-2 rounded-lg border border-line bg-surface px-4 py-3" aria-live="polite">
+    <div className="flex flex-col gap-2 rounded-2xl border border-line bg-surface px-4 py-3" aria-live="polite">
       <div className="flex items-center gap-3">
         {!failed && <Loader2 aria-hidden className="size-4 shrink-0 animate-spin text-gg" />}
         <div className="min-w-0 flex-1">

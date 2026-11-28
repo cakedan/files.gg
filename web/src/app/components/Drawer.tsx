@@ -35,7 +35,7 @@ export function Drawer({ title, onClose, children, actions }: DrawerProps) {
             {title}
           </h2>
           {actions}
-          <button ref={closeRef} type="button" onClick={onClose} aria-label="Close" className="rounded-md p-1.5 text-muted hover:bg-surface-2 hover:text-text">
+          <button ref={closeRef} type="button" onClick={onClose} aria-label="Close" className="rounded-xl p-1.5 text-muted hover:bg-surface-2 hover:text-text">
             <X aria-hidden className="size-5" />
           </button>
         </header>

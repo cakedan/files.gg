@@ -21,7 +21,7 @@ export function AccountBanner({ user }: { user: User }) {
     setDismissed(true);
   };
   return (
-    <div role="status" className="mb-6 flex flex-wrap items-center gap-x-3 gap-y-2 rounded-lg border border-line bg-surface px-4 py-3 text-sm">
+    <div role="status" className="mb-6 flex flex-wrap items-center gap-x-3 gap-y-2 rounded-2xl border border-line bg-surface px-4 py-3 text-sm">
       <MailWarning aria-hidden className="size-4 shrink-0 text-warn" />
       <span className="min-w-0 flex-1">
         {user.email ? 'Verify your email to recover your account and add domains.' : 'Add an email so you can recover your account.'}

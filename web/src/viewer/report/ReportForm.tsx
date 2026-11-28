@@ -33,7 +33,7 @@ import {
 import { checkSignedIn, submitReport, type ReportResult } from './send';
 
 const inputClass =
-  'w-full rounded-md border border-line bg-bg px-3 text-sm text-text placeholder:text-muted/70 aria-invalid:border-danger';
+  'w-full rounded-xl border border-line bg-bg px-3 text-[15px] text-text placeholder:text-muted/70 aria-invalid:border-danger';
 
 function FieldError({ id, message }: { id: string; message: string | undefined }) {
   if (!message) return null;
@@ -303,7 +303,7 @@ export function ReportForm({ target, initialUrl = '', onClose, titleId: givenTit
             onChange={(event) => set('url', event.target.value)}
             aria-invalid={Boolean(err('url'))}
             aria-describedby={describedBy(urlId, true, err('url'))}
-            className={`${inputClass} h-10`}
+            className={`${inputClass} h-10.5`}
           />
         </Field>
       )}
@@ -313,7 +313,7 @@ export function ReportForm({ target, initialUrl = '', onClose, titleId: givenTit
           <legend className="mb-1.5 text-sm font-medium">What should we look at?</legend>
           <div className="grid grid-cols-2 gap-1.5 max-sm:grid-cols-1">
             {ALBUM_PARTS.map((part) => (
-              <label key={part} className="flex items-center gap-2 rounded-md border border-line px-3 py-2 text-sm has-checked:border-gg">
+              <label key={part} className="flex items-center gap-2 rounded-xl border border-line px-3 py-2 text-sm has-checked:border-gg">
                 <input type="radio" name={`${id}-part`} value={part} checked={state.part === part} onChange={() => set('part', part)} className="accent-gg" />
                 {PART_LABELS[part]}
               </label>
@@ -327,7 +327,7 @@ export function ReportForm({ target, initialUrl = '', onClose, titleId: givenTit
         <legend className="mb-1.5 text-sm font-medium">Reason</legend>
         <div className="flex flex-col gap-1">
           {reasons.map((reason) => (
-            <label key={reason} className="flex items-center gap-2.5 rounded-md px-2 py-1.5 text-sm hover:bg-surface-2 has-checked:bg-surface-2">
+            <label key={reason} className="flex items-center gap-2.5 rounded-xl px-2 py-1.5 text-sm hover:bg-surface-2 has-checked:bg-surface-2">
               <input
                 type="radio"
                 name={`${id}-reason`}
@@ -343,7 +343,7 @@ export function ReportForm({ target, initialUrl = '', onClose, titleId: givenTit
         </div>
         <FieldError id={`${id}-reason-error`} message={err('reason')} />
         {state.reason === 'csam' && (
-          <p className="rounded-md bg-warn/10 px-3 py-2 text-xs text-warn">If a child is in immediate danger, contact your local emergency services.</p>
+          <p className="rounded-xl bg-warn/10 px-3 py-2 text-xs text-warn">If a child is in immediate danger, contact your local emergency services.</p>
         )}
       </fieldset>
 
@@ -379,7 +379,7 @@ export function ReportForm({ target, initialUrl = '', onClose, titleId: givenTit
             onChange={(event) => set('contactEmail', event.target.value)}
             aria-invalid={Boolean(err('contact_email'))}
             aria-describedby={describedBy(emailId, true, err('contact_email'))}
-            className={`${inputClass} h-10`}
+            className={`${inputClass} h-10.5`}
           />
         </Field>
       )}
@@ -453,7 +453,7 @@ function DmcaFieldset({
           aria-invalid={Boolean(error)}
           aria-required
           aria-describedby={describedBy(fieldId, Boolean(props.hint), error)}
-          className={`${inputClass} h-10`}
+          className={`${inputClass} h-10.5`}
         />
       </Field>
     );
@@ -500,7 +500,7 @@ function DmcaFieldset({
     );
   };
   return (
-    <fieldset className="flex flex-col gap-3 rounded-md border border-line p-3">
+    <fieldset className="flex flex-col gap-3 rounded-xl border border-line p-3">
       <legend className="px-1 text-sm font-medium">Copyright notice</legend>
       <p className="text-xs text-muted">
         A notice under 17 U.S.C. § 512(c)(3). Everything here is required.

@@ -28,7 +28,7 @@ export function AlbumDescription({ text }: { text: string }) {
 /** Shown instead of a JSON error file when the ZIP would be over the 2 GiB cap. */
 function TooLargePanel({ album }: { album: AlbumData }) {
   return (
-    <div role="status" className="flex flex-col gap-2 rounded-md border border-warn/40 bg-warn/10 p-3 text-sm">
+    <div role="status" className="flex flex-col gap-2 rounded-xl border border-warn/40 bg-warn/10 p-3 text-sm">
       <p className="font-medium text-text">This album is too large to download as one file</p>
       <p className="text-muted">Download the files one at a time instead.</p>
       <DownloadLinksGuard files={album.items}>
@@ -94,7 +94,7 @@ export function AlbumHeader({ album, shareUrl, title }: { album: AlbumData; shar
   const expiry = formatExpiry(expiresAt, now);
   const count = album.count;
   return (
-    <header className="flex flex-col gap-3 rounded-lg border border-line bg-surface p-4 shadow-card sm:p-5">
+    <header className="flex flex-col gap-3 rounded-2xl border border-line bg-surface p-5 shadow-card sm:p-5">
       <div className="flex min-w-0 flex-col gap-1">
         <h1 className="text-xl font-semibold break-words sm:text-2xl">{title}</h1>
         <p className="flex flex-wrap gap-x-3 gap-y-0.5 text-sm text-muted">

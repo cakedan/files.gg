@@ -43,7 +43,7 @@ export default function BansPage() {
       ) : items.length === 0 ? (
         <p className="text-sm text-muted">No active bans.</p>
       ) : (
-        <ul className="flex flex-col divide-y divide-line rounded-lg border border-line bg-surface">
+        <ul className="flex flex-col divide-y divide-line rounded-2xl border border-line bg-surface">
           {items.map((ban) => (
             <li key={ban.id} className="flex flex-wrap items-center gap-x-3 gap-y-1 px-4 py-3 text-sm">
               <span className="font-medium">{ban.kind === 'ip' ? 'Network' : 'Device'}</span>

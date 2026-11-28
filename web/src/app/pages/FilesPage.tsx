@@ -217,7 +217,7 @@ export default function FilesPage() {
       </header>
 
       {anonymous && (
-        <p className="rounded-md border border-line bg-surface px-3 py-2 text-sm text-muted">
+        <p className="rounded-xl border border-line bg-surface px-3 py-2 text-sm text-muted">
           You're not signed in, so these are the files uploaded from this browser. <SignInLink /> to keep them.
         </p>
       )}
@@ -236,7 +236,7 @@ export default function FilesPage() {
           <Button onClick={() => void files.refetch()}>Try again</Button>
         </div>
       ) : items.length === 0 ? (
-        <div className="flex flex-col items-center gap-3 rounded-lg border border-dashed border-line py-12 text-center">
+        <div className="flex flex-col items-center gap-3 rounded-2xl border border-dashed border-line py-12 text-center">
           {filtered ? (
             <>
               <p className="text-sm text-muted">No files match these filters.</p>

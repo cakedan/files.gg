@@ -73,7 +73,7 @@ export function SourceStep({
   }, []);
 
   return (
-    <section aria-label="Source" className={`flex flex-col items-center gap-3 rounded-lg border-2 border-dashed px-4 py-10 text-center transition-colors ${dragging ? 'border-gg bg-gg/5' : 'border-line'}`}>
+    <section aria-label="Source" className={`flex flex-col items-center gap-3 rounded-2xl border-2 border-dashed px-4 py-10 text-center transition-colors ${dragging ? 'border-gg bg-gg/5' : 'border-line'}`}>
       <FileUp aria-hidden className="size-10 text-gg" strokeWidth={1.5} />
       <p className="text-sm">Drop a file anywhere on this page, paste it, or choose one.</p>
       <div className="flex flex-wrap justify-center gap-2">

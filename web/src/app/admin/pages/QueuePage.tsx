@@ -144,11 +144,11 @@ export default function QueuePage({ bugs = false }: { bugs?: boolean }) {
       ) : cases.isError ? (
         <Failure error={cases.error} />
       ) : items.length === 0 ? (
-        <p className="rounded-lg border border-dashed border-line py-10 text-center text-sm text-muted">No cases match.</p>
+        <p className="rounded-2xl border border-dashed border-line py-10 text-center text-sm text-muted">No cases match.</p>
       ) : narrow ? (
         <ul className="flex flex-col gap-2">
           {items.map((item) => (
-            <li key={item.id} className="flex flex-col gap-1.5 rounded-lg border border-line bg-surface p-3">
+            <li key={item.id} className="flex flex-col gap-1.5 rounded-2xl border border-line bg-surface p-3">
               <div className="flex items-center gap-2">
                 <PriorityPill priority={item.priority} />
                 <Link to={`/admin/cases/${item.id}`} className="min-w-0 flex-1 truncate font-medium hover:text-gg">
@@ -170,7 +170,7 @@ export default function QueuePage({ bugs = false }: { bugs?: boolean }) {
           ))}
         </ul>
       ) : (
-        <div className="overflow-x-auto rounded-lg border border-line bg-surface">
+        <div className="overflow-x-auto rounded-2xl border border-line bg-surface">
           <table className="w-full min-w-[52rem] text-sm">
             <thead className="border-b border-line text-left text-xs text-muted">
               <tr>

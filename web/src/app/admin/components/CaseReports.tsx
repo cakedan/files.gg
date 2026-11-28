@@ -96,7 +96,7 @@ function Reply({ caseId, report }: { caseId: string; report: StaffReport }) {
         }}
         rows={2}
         maxLength={2000}
-        className="w-full resize-y rounded-md border border-line bg-bg px-3 py-2 text-sm"
+        className="w-full resize-y rounded-xl border border-line bg-bg px-3 py-2 text-[15px]"
       />
       <p className="text-xs text-muted">Reporters see replies from “files.gg staff”, never your name.</p>
       {error && (
@@ -124,7 +124,7 @@ export function CaseReports({ caseId, reports, escalated, readOnly = false }: { 
   return (
     <ul className="flex flex-col gap-3">
       {reports.map((report) => (
-        <li key={report.id} className="flex flex-col gap-2 rounded-md border border-line bg-bg p-3">
+        <li key={report.id} className="flex flex-col gap-2 rounded-xl border border-line bg-bg p-3">
           <div className="flex flex-wrap items-baseline gap-x-2 text-sm">
             <span className="font-semibold">{reportReasonLabel(report.reason)}</span>
             {report.album_part && report.album_part !== 'whole' && <span className="text-muted">· the album’s {report.album_part}</span>}
@@ -138,7 +138,7 @@ export function CaseReports({ caseId, reports, escalated, readOnly = false }: { 
           </p>
           {report.details && <p className="text-sm break-words whitespace-pre-wrap">{report.details}</p>}
           {report.dmca && (
-            <details className="rounded-md border border-line px-3 py-2 text-sm">
+            <details className="rounded-xl border border-line px-3 py-2 text-sm">
               <summary className="cursor-pointer font-medium">Copyright notice</summary>
               <dl className="mt-2 grid gap-x-4 gap-y-1 sm:grid-cols-[auto_1fr]">
                 {Object.entries(report.dmca).map(([key, value]) => (

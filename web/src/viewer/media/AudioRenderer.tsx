@@ -23,7 +23,7 @@ function Artwork({ file }: { file: FileData }) {
         alt=""
         data-testid="audio-cover"
         onError={() => setBroken(true)}
-        className="aspect-square w-full max-w-[min(20rem,40dvh)] rounded-md object-cover shadow-card"
+        className="aspect-square w-full max-w-[min(20rem,40dvh)] rounded-xl object-cover shadow-card"
       />
     );
   }
@@ -39,7 +39,7 @@ function Artwork({ file }: { file: FileData }) {
     );
   }
   return (
-    <div className="flex aspect-square w-32 items-center justify-center rounded-md bg-surface-2">
+    <div className="flex aspect-square w-32 items-center justify-center rounded-xl bg-surface-2">
       <Music aria-hidden className="size-12 text-gg" />
     </div>
   );

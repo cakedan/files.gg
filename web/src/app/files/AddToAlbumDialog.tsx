@@ -76,7 +76,7 @@ export function AddToAlbumDialog({ files, onClose, onDone }: { files: OwnerFile[
     >
       <fieldset className="flex flex-col gap-2">
         <legend className="sr-only">Album</legend>
-        <label className={`flex items-center gap-2 rounded-md border px-3 py-2 text-sm ${choice === NEW ? 'border-gg/60 bg-surface-2' : 'border-line'}`}>
+        <label className={`flex items-center gap-2 rounded-xl border px-3 py-2 text-sm ${choice === NEW ? 'border-gg/60 bg-surface-2' : 'border-line'}`}>
           <input type="radio" name={`${id}-album`} checked={choice === NEW} onChange={() => setChoice(NEW)} className="accent-gg" />
           <Plus aria-hidden className="size-4" />
           New album
@@ -109,7 +109,7 @@ export function AddToAlbumDialog({ files, onClose, onDone }: { files: OwnerFile[
             {albums.data?.items.map((album) => (
               <label
                 key={album.id}
-                className={`flex items-center gap-2 rounded-md border px-3 py-2 text-sm ${choice === album.id ? 'border-gg/60 bg-surface-2' : 'border-line'}`}
+                className={`flex items-center gap-2 rounded-xl border px-3 py-2 text-sm ${choice === album.id ? 'border-gg/60 bg-surface-2' : 'border-line'}`}
               >
                 <input type="radio" name={`${id}-album`} checked={choice === album.id} onChange={() => setChoice(album.id)} className="accent-gg" />
                 <Images aria-hidden className="size-4 text-muted" />

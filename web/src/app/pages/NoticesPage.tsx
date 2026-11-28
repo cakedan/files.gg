@@ -87,7 +87,7 @@ export default function NoticesPage() {
           <Button onClick={() => void notices.refetch()}>Try again</Button>
         </div>
       ) : notices.data.items.length === 0 ? (
-        <p className="rounded-lg border border-dashed border-line py-12 text-center text-sm text-muted">No notices. When the files.gg team acts on your files or account, it shows up here.</p>
+        <p className="rounded-2xl border border-dashed border-line py-12 text-center text-sm text-muted">No notices. When the files.gg team acts on your files or account, it shows up here.</p>
       ) : (
         <ul className="flex flex-col gap-3">
           {notices.data.items.map((notice) => (

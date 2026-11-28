@@ -160,7 +160,7 @@ export function CreateKeyDialog({ onClose, onCreated }: { onClose: () => void; o
           </select>
         </div>
 
-        <fieldset className="flex flex-col gap-3 rounded-md border border-line p-3">
+        <fieldset className="flex flex-col gap-3 rounded-xl border border-line p-3">
           <legend className="px-1 text-sm font-medium">ShareX defaults</legend>
           <p className="text-xs text-muted">
             These go only into the ShareX config and the curl example; you can change them there later. What’s left at the account default follows{' '}

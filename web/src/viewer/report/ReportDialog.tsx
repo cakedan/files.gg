@@ -50,7 +50,7 @@ export default function ReportDialog({ target, onClose }: { target: ReportableTa
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}
-        className="relative mx-auto w-full max-w-lg rounded-lg border border-line bg-surface p-5 shadow-card sm:p-6"
+        className="relative mx-auto w-full max-w-lg rounded-2xl border border-line bg-surface p-5 shadow-card sm:p-6"
       >
         <button
           type="button"

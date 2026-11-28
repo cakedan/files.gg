@@ -70,7 +70,7 @@ describe('dashboard layout (milestone-4 §11.2)', () => {
     stub({ ...ME, staff: { role: 'moderator', child_safety: false } }, { staff: { open: 4, p0: 1, mine: 1 } });
     renderDashboard('/admin');
     const link = await within(nav()).findByRole('link', { name: 'Admin, 4 open, with P0 cases' });
-    expect(link.querySelector('.bg-danger')).not.toBeNull();
+    expect(link.querySelector('.bg-danger-fill')).not.toBeNull();
     expect(await screen.findByRole('heading', { level: 1, name: 'Admin' })).toBeInTheDocument();
     expect(await screen.findByRole('link', { name: '1 child-safety or P0 case is open' })).toHaveAttribute('href', '/admin/queue?priority=0');
   });

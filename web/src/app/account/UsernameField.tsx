@@ -51,8 +51,8 @@ export function UsernameField({ value, onChange, error, current, label = 'Userna
       <label htmlFor={id} className="text-sm font-medium">
         {label}
       </label>
-      <div className="flex items-center rounded-md border border-line bg-bg focus-within:outline-2 focus-within:outline-offset-2 focus-within:outline-gg">
-        <span aria-hidden className="pl-2 text-sm text-muted">
+      <div className="flex items-center rounded-xl border border-line bg-bg focus-within:outline-2 focus-within:outline-offset-2 focus-within:outline-gg">
+        <span aria-hidden className="pl-3 text-[15px] text-muted">
           @
         </span>
         <input
@@ -67,7 +67,7 @@ export function UsernameField({ value, onChange, error, current, label = 'Userna
           autoFocus={autoFocus}
           aria-invalid={Boolean(message) || undefined}
           aria-describedby={`${id}-status`}
-          className="h-9 min-w-0 flex-1 bg-transparent pr-2 pl-0.5 text-sm text-text outline-none disabled:opacity-50"
+          className="h-10.5 min-w-0 flex-1 bg-transparent pr-3 pl-0.5 text-[15px] text-text outline-none disabled:opacity-50"
         />
       </div>
       <p id={`${id}-status`} aria-live="polite" className={`text-xs ${message ? 'text-danger' : available ? 'text-gg' : 'text-muted'}`}>

@@ -25,7 +25,7 @@ interface StaffMediaProps {
  */
 export function StaffMedia({ kind, label, urls, hashMatched = false, unavailableReason, size = 'lg' }: StaffMediaProps) {
   const [revealed, setRevealed] = useState(false);
-  const frame = `relative flex items-center justify-center overflow-hidden rounded-md bg-well ${size === 'lg' ? 'aspect-video w-full' : 'aspect-square w-full'}`;
+  const frame = `relative flex items-center justify-center overflow-hidden rounded-xl bg-well ${size === 'lg' ? 'aspect-video w-full' : 'aspect-square w-full'}`;
 
   if (hashMatched) {
     return (

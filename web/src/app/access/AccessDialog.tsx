@@ -104,7 +104,7 @@ export function AccessDialog({ target, anonymous, onClose }: AccessDialogProps) 
         }
       >
         <div className="flex flex-col gap-3">
-          <div className="flex flex-wrap items-center gap-2 rounded-md border border-warn/40 bg-warn/10 px-3 py-2 text-sm">
+          <div className="flex flex-wrap items-center gap-2 rounded-xl border border-warn/40 bg-warn/10 px-3 py-2 text-sm">
             <KeyRound aria-hidden className="size-4 shrink-0 text-warn" />
             <span>
               Password: <code className="font-mono font-semibold break-all">{generated}</code>
@@ -181,7 +181,7 @@ export function AccessDialog({ target, anonymous, onClose }: AccessDialogProps) 
         )}
 
         {breaksPasswordLinks(state, currents) && (
-          <p className="flex items-start gap-2 rounded-md border border-warn/40 bg-warn/10 px-3 py-2 text-sm">
+          <p className="flex items-start gap-2 rounded-xl border border-warn/40 bg-warn/10 px-3 py-2 text-sm">
             <TriangleAlert aria-hidden className="mt-0.5 size-4 shrink-0 text-warn" />
             Changing this breaks existing password links. Anyone who unlocked {isAlbum ? 'the album' : bulk ? 'these files' : 'the file'} will need the new
             password.

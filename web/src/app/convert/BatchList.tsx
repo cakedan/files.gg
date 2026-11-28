@@ -42,7 +42,7 @@ export function BatchList({ batchId, skipped, onCancel, onDone }: { batchId: str
   const succeeded = items.filter((item) => item.status === 'succeeded').length;
 
   return (
-    <section aria-label="Batch" className="flex flex-col gap-3 rounded-lg border border-line bg-surface p-4">
+    <section aria-label="Batch" className="flex flex-col gap-3 rounded-2xl border border-line bg-surface p-5">
       <header className="flex flex-wrap items-center gap-2">
         <h2 className="min-w-0 flex-1 text-base font-semibold" aria-live="polite">
           {batch.isPending ? 'Starting…' : finished === items.length ? `Done: ${succeeded} of ${pluralize(items.length, 'file')} converted` : `Converting ${finished} of ${pluralize(items.length, 'file')}`}
@@ -74,7 +74,7 @@ export function BatchList({ batchId, skipped, onCancel, onDone }: { batchId: str
               {output && item.status === 'succeeded' && (
                 <span className="flex gap-1">
                   <CopyButton text={output.url} variant="ghost" />
-                  <a href={output.url} target="_blank" rel="noopener" className="inline-flex size-9 items-center justify-center rounded-md text-muted hover:bg-surface-2 hover:text-text" aria-label={`Open ${output.filename}`}>
+                  <a href={output.url} target="_blank" rel="noopener" className="inline-flex size-9 items-center justify-center rounded-xl text-muted hover:bg-surface-2 hover:text-text" aria-label={`Open ${output.filename}`}>
                     <ExternalLink aria-hidden className="size-4" />
                   </a>
                 </span>

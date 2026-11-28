@@ -62,7 +62,7 @@ export function VisibilityField({ name, value, choices, onChange, error, legend 
         {choices.map((choice) => (
           <label
             key={choice.value}
-            className={`flex items-center gap-2 rounded-md border px-3 py-2 text-sm ${
+            className={`flex items-center gap-2 rounded-xl border px-3 py-2 text-sm ${
               value === choice.value ? 'border-gg/60 bg-surface-2' : 'border-line'
             } ${choice.disabled ? 'cursor-not-allowed opacity-50' : 'cursor-pointer hover:bg-surface-2'}`}
             title={choice.hint}
@@ -152,7 +152,7 @@ export function PasswordFields({
             aria-label={reveal ? 'Hide password' : 'Show password'}
             aria-pressed={reveal}
             disabled={state.generatePassword}
-            className="flex w-9 items-center justify-center rounded-md border border-line text-muted hover:text-text disabled:opacity-50"
+            className="flex w-9 items-center justify-center rounded-xl border border-line text-muted hover:text-text disabled:opacity-50"
           >
             {reveal ? <EyeOff aria-hidden className="size-4" /> : <Eye aria-hidden className="size-4" />}
           </button>
@@ -161,7 +161,7 @@ export function PasswordFields({
           type="button"
           aria-pressed={state.generatePassword}
           onClick={() => onChange({ generatePassword: !state.generatePassword })}
-          className="self-start rounded-md border border-line px-2.5 py-1 text-xs font-medium text-muted hover:text-text aria-pressed:border-gg/60 aria-pressed:text-gg"
+          className="self-start rounded-xl border border-line px-2.5 py-1 text-xs font-medium text-muted hover:text-text aria-pressed:border-gg/60 aria-pressed:text-gg"
         >
           {state.generatePassword ? 'Type my own instead' : 'Generate'}
         </button>

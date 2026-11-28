@@ -18,7 +18,7 @@ function ChoiceChip({ pressed, onClick, children, locked = false }: { pressed: b
       type="button"
       aria-pressed={pressed}
       onClick={onClick}
-      className={`inline-flex h-9 items-center gap-1.5 rounded-full border px-3.5 text-sm whitespace-nowrap transition-colors ${
+      className={`inline-flex h-8.5 items-center gap-1.5 rounded-full border px-3.5 text-sm whitespace-nowrap transition-colors ${
         pressed ? 'border-gg/60 bg-gg/10 text-gg' : locked ? 'border-dashed border-line text-muted hover:bg-surface-2' : 'border-line text-text hover:bg-surface-2'
       }`}
     >
@@ -74,7 +74,7 @@ export function TargetPicker({
       </div>
       {pickedChoice?.note && <p className="text-xs text-muted">{pickedChoice.note}</p>}
       {lockedPicked && (
-        <p className="flex flex-wrap items-center gap-1 rounded-md border border-line bg-bg px-3 py-2 text-sm" role="status">
+        <p className="flex flex-wrap items-center gap-1 rounded-xl border border-line bg-bg px-3 py-2 text-sm" role="status">
           <Lock aria-hidden className="size-4 text-muted" />
           This needs an account. {signIn}
         </p>

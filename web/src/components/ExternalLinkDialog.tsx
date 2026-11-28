@@ -44,7 +44,7 @@ export function ExternalLinkDialog({ url, onClose, flagged = false }: ExternalLi
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}
-        className="flex w-full max-w-md flex-col gap-3 rounded-lg border border-line bg-surface p-5 shadow-card"
+        className="flex w-full max-w-md flex-col gap-3 rounded-2xl border border-line bg-surface p-5 shadow-card"
         onClick={(event) => event.stopPropagation()}
       >
         <div className="flex items-start justify-between gap-3">
@@ -59,12 +59,12 @@ export function ExternalLinkDialog({ url, onClose, flagged = false }: ExternalLi
           This link was in the file, not added by files.gg. Check the address before you continue.
         </p>
         {flagged && (
-          <p className="flex items-center gap-2 rounded-md bg-danger/15 px-3 py-2 text-sm text-danger">
+          <p className="flex items-center gap-2 rounded-xl bg-danger/15 px-3 py-2 text-sm text-danger">
             <ShieldAlert aria-hidden className="size-4 shrink-0" />
             This link was flagged as possibly unsafe.
           </p>
         )}
-        <div className="rounded-md border border-line bg-bg px-3 py-2">
+        <div className="rounded-xl border border-line bg-bg px-3 py-2">
           <div className="text-sm font-semibold break-all">{info.host}</div>
           <code className="mt-1 block font-mono text-xs break-all text-muted" data-testid="external-url">
             {info.href}

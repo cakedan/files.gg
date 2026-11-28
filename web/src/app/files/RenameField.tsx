@@ -46,7 +46,7 @@ export function RenameField({ file, onSave, onCancel }: RenameFieldProps) {
           }
         }}
         onBlur={() => finish(true)}
-        className="h-8 min-w-0 flex-1 rounded-md border border-gg/60 bg-bg px-2 text-sm"
+        className="h-8 min-w-0 flex-1 rounded-xl border border-gg/60 bg-bg px-2 text-sm"
       />
       {file.extension && <span className="shrink-0 text-sm text-muted">.{file.extension}</span>}
     </span>

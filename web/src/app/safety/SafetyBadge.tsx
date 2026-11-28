@@ -48,7 +48,7 @@ export function CountBadge({ count, urgent = false, label }: { count: number; ur
   return (
     <span
       className={`ml-auto inline-flex min-w-5 items-center justify-center rounded-full px-1.5 text-xs font-semibold tabular-nums ${
-        urgent ? 'bg-danger text-white' : 'bg-gg text-gg-ink'
+        urgent ? 'bg-danger-fill text-white' : 'bg-gg text-gg-ink'
       }`}
     >
       <span aria-hidden>{count > 99 ? '99+' : count}</span>

@@ -182,7 +182,7 @@ function Editor({ album }: { album: OwnerAlbum }) {
           </p>
         )}
         {moderated && (
-          <p role="status" className="flex flex-wrap items-center gap-2 rounded-md border border-warn/40 bg-warn/10 px-3 py-2 text-sm">
+          <p role="status" className="flex flex-wrap items-center gap-2 rounded-xl border border-warn/40 bg-warn/10 px-3 py-2 text-sm">
             <span className="min-w-0 flex-1">
               {moderated.state === 'hidden'
                 ? 'This album is hidden by the files.gg team. Visitors see that it’s unavailable.'
@@ -197,7 +197,7 @@ function Editor({ album }: { album: OwnerAlbum }) {
         )}
       </header>
 
-      <section aria-label="Album settings" className="grid gap-4 rounded-lg border border-line bg-surface p-4 md:grid-cols-[1fr_auto]">
+      <section aria-label="Album settings" className="grid gap-4 rounded-2xl border border-line bg-surface p-5 md:grid-cols-[1fr_auto]">
         <div className="flex flex-col gap-4">
           <DescriptionField key={album.description} id={`${id}-description`} value={album.description} readOnly={readOnly} onSave={(description) => save({ description }, 'Description saved.')} />
           <div className="flex flex-col gap-1.5">
@@ -229,7 +229,7 @@ function Editor({ album }: { album: OwnerAlbum }) {
         </div>
         <div className="flex w-full max-w-56 flex-col gap-1.5 md:w-56">
           <span className="text-sm font-medium">Cover</span>
-          {cover ? <FileThumb file={cover} size="lg" className="rounded-md" /> : <span className="flex aspect-[4/3] items-center justify-center rounded-md bg-well text-sm text-muted">Automatic</span>}
+          {cover ? <FileThumb file={cover} size="lg" className="rounded-xl" /> : <span className="flex aspect-[4/3] items-center justify-center rounded-xl bg-well text-sm text-muted">Automatic</span>}
           {!readOnly && (
             <Button onClick={() => setDialog('cover')} disabled={album.items.length === 0}>
               <ImagePlus aria-hidden className="size-4" />
@@ -255,7 +255,7 @@ function Editor({ album }: { album: OwnerAlbum }) {
           <p className="text-xs text-muted">Drag the handle to reorder, or focus it and use space and the arrow keys. The order saves by itself.</p>
         )}
         {album.items.length === 0 ? (
-          <div className="flex flex-col items-center gap-3 rounded-lg border border-dashed border-line py-12 text-center">
+          <div className="flex flex-col items-center gap-3 rounded-2xl border border-dashed border-line py-12 text-center">
             <p className="text-sm text-muted">This album is empty. Empty albums are deleted after 7 days.</p>
           </div>
         ) : (
@@ -381,7 +381,7 @@ function TitleField({ value, readOnly, onSave }: { value: string; readOnly: bool
           if (event.key === 'Enter') event.currentTarget.blur();
           if (event.key === 'Escape') setDraft(value);
         }}
-        className="w-full rounded-md border border-transparent bg-transparent px-1 -mx-1 hover:border-line focus:border-gg/60 focus:bg-bg focus:outline-none read-only:hover:border-transparent placeholder:text-muted"
+        className="w-full rounded-xl border border-transparent bg-transparent px-1 -mx-1 hover:border-line focus:border-gg/60 focus:bg-bg focus:outline-none read-only:hover:border-transparent placeholder:text-muted"
       />
     </h1>
   );
@@ -403,7 +403,7 @@ function DescriptionField({ id, value, readOnly, onSave }: { id: string; value: 
         placeholder="Plain text. Links become clickable."
         onChange={(event) => setDraft(event.target.value)}
         onBlur={() => draft !== value && onSave(draft)}
-        className="w-full resize-y rounded-md border border-line bg-bg px-2 py-1.5 text-sm placeholder:text-muted/70"
+        className="w-full resize-y rounded-xl border border-line bg-bg px-2 py-1.5 text-sm placeholder:text-muted/70"
       />
     </div>
   );
