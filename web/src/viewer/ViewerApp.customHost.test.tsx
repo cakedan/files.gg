@@ -124,7 +124,7 @@ describe('custom host: protected files', () => {
     await frameSays({ type: MSG_TOKEN, token: 'XXXX.DUMMY.TOKEN.XXXX' });
     fireEvent.change(screen.getByLabelText('Password'), { target: { value: 'files.gg' } });
     fireEvent.click(screen.getByRole('button', { name: 'Unlock' }));
-    expect(await screen.findByRole('heading', { name: "This file doesn't exist or has expired." })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: "This link isn't available." })).toBeInTheDocument();
     expect(screen.queryByText(/removed/i)).not.toBeInTheDocument();
     // "Go to files.gg" goes to files.gg, not to this domain's /.
     expect(screen.getByRole('link', { name: 'Go to files.gg' })).toHaveAttribute('href', 'https://files.gg/');

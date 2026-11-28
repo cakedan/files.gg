@@ -26,7 +26,7 @@ const image: FileData = {
 describe('ViewerApp', () => {
   it('renders the missing state', () => {
     render(<ViewerApp state={{ page: 'missing' }} />);
-    expect(screen.getByRole('heading', { name: "This file doesn't exist or has expired." })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: "This link isn't available." })).toBeInTheDocument();
   });
 
   it('renders a Retry button when unavailable', () => {
@@ -84,11 +84,19 @@ describe('ViewerApp', () => {
   });
 
   it('opens the lightbox on click and closes it with Escape', () => {
-    render(<ViewerApp state={{ page: 'file', file: image }} />);
+    const { container } = render(<ViewerApp state={{ page: 'file', file: image }} />);
     fireEvent.click(screen.getByRole('button', { name: /open cat.png full screen/i }));
     expect(screen.getByRole('dialog')).toBeInTheDocument();
+    // The page behind is inert while it's open, so Tab can't leave the lightbox.
+    expect(container).toHaveAttribute('inert');
     fireEvent.keyDown(document, { key: 'Escape' });
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    expect(container).not.toHaveAttribute('inert');
+  });
+
+  it('says the preview is still processing', () => {
+    render(<ViewerApp state={{ page: 'file', file: { ...image, processing: true } }} />);
+    expect(screen.getByText('Preview still processing')).toBeInTheDocument();
   });
 
   it('falls back to the generic card for kinds without a renderer', () => {

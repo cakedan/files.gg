@@ -703,25 +703,30 @@ export function PdfViewer({ file, doc, firstPageSize, globalKeys, syncHash }: Pd
           <ToolButton label={fullscreen || fakeFullscreen ? 'Exit fullscreen' : 'Fullscreen'} onClick={toggleFullscreen}>
             {fullscreen || fakeFullscreen ? <Minimize aria-hidden className="size-4" /> : <Maximize aria-hidden className="size-4" />}
           </ToolButton>
-          <a
-            href={downloadUrl(file.cdn_url)}
-            download={file.filename}
-            aria-label="Download"
-            title="Download"
-            className="inline-flex size-8 items-center justify-center rounded-xl text-muted hover:bg-surface-2 hover:text-text max-sm:hidden"
-          >
-            <Download aria-hidden className="size-4" />
-          </a>
-          <a
-            href={file.cdn_url}
-            target="_blank"
-            rel="noopener noreferrer"
-            aria-label="Raw"
-            title="Raw"
-            className="inline-flex size-8 items-center justify-center rounded-xl text-muted hover:bg-surface-2 hover:text-text max-sm:hidden"
-          >
-            <ExternalLink aria-hidden className="size-4" />
-          </a>
+          {/* The card's footer has Download and Open original; fullscreen hides it, so they show here then. */}
+          {(fullscreen || fakeFullscreen) && (
+            <>
+            <a
+              href={downloadUrl(file.cdn_url)}
+              download={file.filename}
+              aria-label="Download"
+              title="Download"
+              className="inline-flex size-8 items-center justify-center rounded-xl text-muted hover:bg-surface-2 hover:text-text"
+            >
+              <Download aria-hidden className="size-4" />
+            </a>
+            <a
+              href={file.cdn_url}
+              target="_blank"
+              rel="noopener noreferrer"
+              aria-label="Open original"
+              title="Open original"
+              className="inline-flex size-8 items-center justify-center rounded-xl text-muted hover:bg-surface-2 hover:text-text"
+            >
+              <ExternalLink aria-hidden className="size-4" />
+            </a>
+            </>
+          )}
         </div>
       </div>
 

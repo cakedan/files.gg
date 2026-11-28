@@ -149,7 +149,7 @@ describe('a stored unlock token survives transient errors', () => {
     vi.stubGlobal('fetch', vi.fn(async () => json({ code: 'UNKNOWN_FILE', message: 'x', status: 404 }, 404)));
     render(<LockedPage kind="file" vanity="abc" protection="password" />);
     // milestone-6 §8.8: content of an account pending deletion is missing, never "removed".
-    expect(await screen.findByRole('heading', { name: "This file doesn't exist or has expired." })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: "This link isn't available." })).toBeInTheDocument();
     expect(screen.queryByRole('heading', { name: 'This file is password protected' })).not.toBeInTheDocument();
     expect(localStorage.getItem('filesgg.access.file.abc')).toBeNull();
   });
@@ -158,7 +158,7 @@ describe('a stored unlock token survives transient errors', () => {
     saveAccess('album', 'Ab3', { token: 'stored', expires_at: future() });
     vi.stubGlobal('fetch', vi.fn(async () => json({ code: 'UNKNOWN_ALBUM', message: 'x', status: 404 }, 404)));
     render(<LockedPage kind="album" vanity="Ab3" protection="password" />);
-    expect(await screen.findByRole('heading', { name: "This file doesn't exist or has expired." })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: "This link isn't available." })).toBeInTheDocument();
     expect(localStorage.getItem('filesgg.access.album.Ab3')).toBeNull();
   });
 

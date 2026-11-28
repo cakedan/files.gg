@@ -86,8 +86,11 @@ export function LockScreen({ kind, vanity, name, initialPassword, onUnlocked, on
         setError({ ...classified, fromLink });
         setErrorAt(at);
         if (classified.kind === 'wrong') {
-          setPassword('');
-          requestAnimationFrame(() => inputRef.current?.focus());
+          // Keep what they typed, selected: retyping replaces it, and Show reveals a typo.
+          requestAnimationFrame(() => {
+            inputRef.current?.focus();
+            inputRef.current?.select();
+          });
         }
       }
     } finally {

@@ -14,6 +14,7 @@ import type { AlbumItem } from '../types';
 import { downloadUrl, shareUrl } from '../urls';
 import { stepIndex } from './albumUrl';
 import { LinkedText } from './LinkedText';
+import { useInertOutside } from '../components/useInertOutside';
 
 interface AlbumLightboxProps {
   items: AlbumItem[];
@@ -40,6 +41,8 @@ const ownsInput = (target: EventTarget | null) =>
 export function AlbumLightbox({ items, index, onGo, onClose }: AlbumLightboxProps) {
   const item = items[index]!;
   const closeRef = useRef<HTMLButtonElement>(null);
+  const dialogRef = useRef<HTMLDivElement>(null);
+  useInertOutside(dialogRef);
   const touch = useRef<{ x: number; y: number; ignore: boolean } | null>(null);
   const count = items.length;
 
@@ -79,6 +82,7 @@ export function AlbumLightbox({ items, index, onGo, onClose }: AlbumLightboxProp
 
   return createPortal(
     <div
+      ref={dialogRef}
       role="dialog"
       aria-modal="true"
       aria-label={`${item.filename}, ${index + 1} of ${count}`}

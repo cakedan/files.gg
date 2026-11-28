@@ -122,7 +122,7 @@ describe('CSAM-blocked looks exactly like missing (milestone-4 §2.4)', () => {
     const blocked = render(<ViewerApp state={{ page: 'missing' }} />);
     expect(blocked.container.innerHTML).toBe(html);
     expect(document.title).toBe(title);
-    expect(screen.getByRole('heading', { name: "This file doesn't exist or has expired." })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: "This link isn't available." })).toBeInTheDocument();
   });
 });
 

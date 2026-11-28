@@ -22,7 +22,8 @@ export function TimeLabel({ state }: { state: PlayerState }) {
   return (
     <span className="shrink-0 px-1 text-xs whitespace-nowrap text-text tabular-nums">
       {formatTime(state.current, state.duration)}
-      <span className="text-muted"> / {formatTime(state.duration)}</span>
+      {/* No "/ 0:00" before the length is known (a file still processing has none yet). */}
+      {state.duration > 0 && <span className="text-muted"> / {formatTime(state.duration)}</span>}
     </span>
   );
 }

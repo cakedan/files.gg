@@ -2,6 +2,8 @@ import { X } from 'lucide-react';
 import { useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 
+import { useInertOutside } from '../components/useInertOutside';
+
 interface LightboxProps {
   src: string;
   alt: string;
@@ -11,6 +13,8 @@ interface LightboxProps {
 /** Full-screen image view. Esc, the close button or a click anywhere closes it. */
 export function Lightbox({ src, alt, onClose }: LightboxProps) {
   const closeRef = useRef<HTMLButtonElement>(null);
+  const dialogRef = useRef<HTMLDivElement>(null);
+  useInertOutside(dialogRef);
 
   useEffect(() => {
     const previous = document.activeElement as HTMLElement | null;
@@ -34,6 +38,7 @@ export function Lightbox({ src, alt, onClose }: LightboxProps) {
 
   return createPortal(
     <div
+      ref={dialogRef}
       role="dialog"
       aria-modal="true"
       aria-label={alt}

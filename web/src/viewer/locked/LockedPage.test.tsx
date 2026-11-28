@@ -84,13 +84,13 @@ describe('LockedPage', () => {
   it('a bad owner pass on a private file shows "doesn\'t exist"', async () => {
     mockFetch(() => json({ code: 'UNKNOWN_FILE', message: 'x', status: 404 }, 404));
     render(<LockedPage kind="file" vanity="abc" protection="private" ownerPass="bad" />);
-    expect(await screen.findByRole('heading', { name: "This file doesn't exist or has expired." })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: "This link isn't available." })).toBeInTheDocument();
   });
 
   it('an unlock answering 404 (the owner\'s account is pending deletion) shows missing', async () => {
     mockFetch(() => json({ code: 'UNKNOWN_FILE', message: 'x', status: 404 }, 404));
     render(<LockedPage kind="file" vanity="abc" protection="password" password="files.gg" />);
-    expect(await screen.findByRole('heading', { name: "This file doesn't exist or has expired." })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: "This link isn't available." })).toBeInTheDocument();
     expect(localStorage.getItem(accessStorageKey('file', 'abc'))).toBeNull();
   });
 
@@ -127,7 +127,7 @@ describe('LockedPage', () => {
     try {
       const soon = Math.floor(Date.now() / 1000) + 2;
       for (const [protection, heading] of [
-        ['private', "This file doesn't exist or has expired."],
+        ['private', "This link isn't available."],
         ['password', 'This file is password protected'],
       ] as const) {
         vi.stubGlobal(

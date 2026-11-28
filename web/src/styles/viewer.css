@@ -36,6 +36,13 @@
     box-shadow: var(--shadow-card);
   }
 
+  /* The card clips its corners (overflow: hidden), which would cut an outside focus ring on the
+     media (the image's zoom button) down to one edge. Draw it inside instead. */
+  .viewer-card .viewer-well:focus-visible,
+  .viewer-card .viewer-well :focus-visible {
+    outline-offset: -2px;
+  }
+
   /* The footer never widens the card: the media decides the width. */
   .viewer-footer {
     width: 0;

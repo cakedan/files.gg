@@ -97,6 +97,13 @@ describe('a video that can’t play (milestone-5 §13.2)', () => {
     expect(link).toHaveAttribute('target', '_blank');
   });
 
+  it('isn’t repeated in the footer: the card offers Convert to MP4 once', async () => {
+    render(<ViewerApp state={{ page: 'file', file: video }} />);
+    // The video renderer is a lazy chunk.
+    expect(await screen.findByRole('link', { name: 'Convert to MP4 to play in browser' })).toBeInTheDocument();
+    expect(screen.getAllByRole('link', { name: /convert/i })).toHaveLength(1);
+  });
+
   it('isn’t offered for audio', () => {
     render(<NotPlayable file={{ ...video, kind: 'audio', mimetype: 'audio/x-ms-wma' }} kind="audio" />);
     expect(screen.queryByRole('link', { name: /Convert/ })).not.toBeInTheDocument();

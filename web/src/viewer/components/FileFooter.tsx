@@ -24,6 +24,8 @@ import { viewsLeftLabel } from './viewLimitText';
  */
 function convertHref(file: FileData, vanity: string | null): string | null {
   if (!vanity || file.view_limit || !sourceKindOf(file)) return null;
+  // An unplayable video already offers "Convert to MP4 to play in browser" in the card (NotPlayable).
+  if (file.kind === 'video' && file.media?.playable === false) return null;
   return mainUrl(convertPath(vanity));
 }
 
@@ -70,6 +72,8 @@ export function FileFooter({ file }: { file: FileData }) {
             {expiry.label}
           </time>
         )}
+        {/* Derive hasn't finished: no poster, thumbnails or length yet. The file itself still opens. */}
+        {file.processing && <span>Preview still processing</span>}
         {/* Milestone 6 §19.7: after opening a view-limited file. */}
         {file.view_limit && <span className="text-warn">{viewsLeftLabel(file.view_limit.remaining)}</span>}
       </p>

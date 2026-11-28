@@ -20,8 +20,10 @@ export function MissingCard() {
         <Mark className="size-14 opacity-90" />
         <FileQuestion aria-hidden className="absolute -right-2 -bottom-2 size-6 rounded-full bg-surface p-0.5 text-muted" />
       </div>
-      <h1 className="text-lg font-semibold">This file doesn't exist or has expired.</h1>
-      <p className="text-sm text-muted">Check the link, or ask whoever shared it to upload it again.</p>
+      {/* The shell can't tell missing, expired and private apart. Never say "removed": a pending-deletion
+          owner's files land here too, and that word reads as moderation. */}
+      <h1 className="text-lg font-semibold">This link isn't available.</h1>
+      <p className="text-sm text-muted">It may have expired or be private. Check the link, or ask whoever shared it.</p>
       <LinkButton href={mainUrl('/')}>Go to files.gg</LinkButton>
     </StateCard>
   );

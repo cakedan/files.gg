@@ -122,7 +122,7 @@ describe('the limited card', () => {
     mockFetch(() => error('UNKNOWN_FILE', 404));
     render(<LimitedPage vanity="abc" remaining={1} />);
     fireEvent.click(screen.getByRole('button', { name: 'Open file' }));
-    expect(await screen.findByRole('heading', { name: "This file doesn't exist or has expired." })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: "This link isn't available." })).toBeInTheDocument();
     expect(document.body.textContent).not.toMatch(/limit/i);
   });
 

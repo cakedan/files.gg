@@ -25,7 +25,7 @@ describe('ViewerApp: protected pages', () => {
     const fetch = vi.fn(async () => json({ code: 'UNKNOWN_FILE', message: 'x', status: 404 }, 404));
     vi.stubGlobal('fetch', fetch);
     render(<ViewerApp state={{ page: 'missing' }} secrets={{ ownerPass: 'pass', rest: '' }} />);
-    expect(await screen.findByRole('heading', { name: "This file doesn't exist or has expired." })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: "This link isn't available." })).toBeInTheDocument();
     expect(String((fetch.mock.calls[0] as unknown as [string])[0])).toMatch(/\/access\/view\/files\/private123$/);
   });
 
@@ -33,7 +33,7 @@ describe('ViewerApp: protected pages', () => {
     const fetch = vi.fn();
     vi.stubGlobal('fetch', fetch);
     render(<ViewerApp state={{ page: 'missing' }} />);
-    expect(screen.getByRole('heading', { name: "This file doesn't exist or has expired." })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: "This link isn't available." })).toBeInTheDocument();
     expect(fetch).not.toHaveBeenCalled();
   });
 });

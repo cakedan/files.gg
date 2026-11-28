@@ -58,12 +58,14 @@ describe('LockScreen', () => {
     expect(JSON.parse(String(init.body))).toEqual({ password: 'files.gg', turnstile_token: 'XXXX.DUMMY.TOKEN.XXXX' });
   });
 
-  it('WRONG_PASSWORD clears the field and says so', async () => {
+  it('WRONG_PASSWORD says so and keeps the password, selected, so Show can reveal a typo', async () => {
     mockFetch(json({ code: 'WRONG_PASSWORD', message: 'x', status: 401 }, 401));
     render(<LockScreen kind="file" vanity="abc" onUnlocked={() => undefined} />);
     await submit('nope123');
     expect(await screen.findByRole('alert')).toHaveTextContent("That password isn't right.");
-    expect(screen.getByLabelText('Password', { selector: 'input' })).toHaveValue('');
+    const input = screen.getByLabelText<HTMLInputElement>('Password', { selector: 'input' });
+    expect(input).toHaveValue('nope123');
+    await waitFor(() => expect([input.selectionStart, input.selectionEnd]).toEqual([0, 7]));
   });
 
   it('TOO_MANY_ATTEMPTS shows a countdown and disables Unlock until it ends', async () => {
