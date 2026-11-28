@@ -2,7 +2,6 @@ import { Download, ExternalLink, Wand2 } from 'lucide-react';
 import { useId } from 'react';
 
 import { CopyButton } from '../../components/CopyButton';
-import { PRIVACY_PATH, TERMS_PATH } from '../../components/SiteFooter';
 import { LinkButton } from '../../components/Button';
 import { convertPath, documentLabel, sourceKindOf } from '../../lib/convertKinds';
 import { formatBytes, formatDimensions } from '../../lib/format';
@@ -14,6 +13,7 @@ import { downloadUrl, shareUrl } from '../urls';
 import { AccessLine } from './AccessLine';
 import { PASSWORD_SHARE_NOTE } from './accessText';
 import { ReportButton } from './ReportButton';
+import { ViewerFooterNav } from './ViewerFooterNav';
 import { fileReportTarget } from './reportPath';
 import { viewsLeftLabel } from './viewLimitText';
 
@@ -110,22 +110,7 @@ export function FileFooter({ file }: { file: FileData }) {
           <ExternalLink aria-hidden className="size-5" />
         </LinkButton>
       </div>
-      {/* Milestone 5 §19.2: on files.gg and custom domains alike, these go to files.gg. */}
-      <nav aria-label="files.gg" className="mt-1 flex flex-wrap justify-center gap-x-1.5 text-xs text-muted">
-        <a href={mainUrl(TERMS_PATH)} className="hover:text-text hover:underline">
-          Terms
-        </a>
-        <span aria-hidden>·</span>
-        <a href={mainUrl(PRIVACY_PATH)} className="hover:text-text hover:underline">
-          Privacy
-        </a>
-        {reportTarget && (
-          <>
-            <span aria-hidden>·</span>
-            <ReportButton target={reportTarget} plain />
-          </>
-        )}
-      </nav>
+      <ViewerFooterNav className="mt-1" report={reportTarget && <ReportButton target={reportTarget} plain />} />
     </footer>
   );
 }

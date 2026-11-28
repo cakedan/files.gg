@@ -15,6 +15,7 @@ import { AlbumTracklist } from './AlbumTracklist';
 import { albumShareUrl } from './albumUrl';
 import { albumName, chooseLayout } from './layout';
 import { useAlbumLightbox } from './useAlbumLightbox';
+import { ViewerFooterNav } from '../components/ViewerFooterNav';
 
 const NONE: string[] = [];
 
@@ -45,6 +46,8 @@ export default function AlbumPage({ album }: { album: AlbumData }) {
             Showing the first {album.items.length} of {album.count} files.
           </p>
         )}
+        {/* Report is in the header; this adds Terms, Privacy and the mark, as under a file. */}
+        <ViewerFooterNav className="pt-4 pb-2" />
         {index !== null && layout !== 'tracklist' && (
           <AlbumLightbox items={album.items} index={index} onGo={go} onClose={close} />
         )}

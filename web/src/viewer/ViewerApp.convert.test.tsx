@@ -60,6 +60,20 @@ describe('the footer (milestone-5 §13.2, §19.2)', () => {
     expect(within(nav).getByRole('link', { name: 'Report' })).toHaveAttribute('href', '/report/abc');
   });
 
+  it('invites visitors to share their own file, with the small mark, on files.gg', () => {
+    render(<ViewerApp state={{ page: 'file', file: image }} />);
+    const nav = screen.getByRole('navigation', { name: 'files.gg' });
+    const invite = within(nav).getByRole('link', { name: 'Share your own file' });
+    expect(invite).toHaveAttribute('href', '/');
+    expect(invite.querySelector('img')).toHaveAttribute('src', '/assets/brand/filesgg-mark-small.svg');
+  });
+
+  it('on a custom domain, shows no files.gg invitation (the domain is the customer\'s branding)', () => {
+    enterCustomHost();
+    render(<ViewerApp state={{ page: 'file', file: image }} />);
+    expect(screen.queryByRole('link', { name: 'Share your own file' })).toBeNull();
+  });
+
   it('on a custom domain, opens files.gg in a new tab and links the legal pages absolutely', () => {
     enterCustomHost();
     render(<ViewerApp state={{ page: 'file', file: image }} />);

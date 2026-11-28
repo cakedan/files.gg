@@ -72,6 +72,14 @@ describe('AlbumPage', () => {
     expect(screen.queryByText('Anyone you share it with needs the password too.')).toBeNull();
   });
 
+  it('ends with the mark, Terms and Privacy, like a file page', () => {
+    render(<AlbumPage album={album()} />);
+    const nav = screen.getByRole('navigation', { name: 'files.gg' });
+    expect(within(nav).getByRole('link', { name: 'Share your own file' })).toHaveAttribute('href', '/');
+    expect(within(nav).getByRole('link', { name: 'Terms' })).toHaveAttribute('href', '/legal/terms');
+    expect(within(nav).getByRole('link', { name: 'Privacy' })).toHaveAttribute('href', '/legal/privacy');
+  });
+
   it('opens the lightbox from a tile, syncs ?item= (milestone-6 §20.2), moves with arrows and closes with Escape', async () => {
     window.history.replaceState(null, '', '/a/v1#pw=amber-tunnel');
     const entries = window.history.length;
