@@ -34,18 +34,18 @@ describe('CopyButton', () => {
     expect(screen.getByRole('button')).toHaveTextContent('Copy link');
   });
 
-  it('shows "Copy Failed" when the copy fails or throws', async () => {
+  it('shows "Copy failed" when the copy fails or throws', async () => {
     const copy = vi.fn(async () => false);
     const { unmount } = render(<CopyButton text="x" copy={copy} />);
     await click();
-    expect(screen.getByRole('button')).toHaveTextContent('Copy Failed');
+    expect(screen.getByRole('button')).toHaveTextContent('Copy failed');
     act(() => vi.advanceTimersByTime(COPY_FEEDBACK_MS));
     expect(screen.getByRole('button')).toHaveTextContent('Copy link');
     unmount();
 
     render(<CopyButton text="x" copy={() => Promise.reject(new Error('nope'))} />);
     await click();
-    expect(screen.getByRole('button')).toHaveTextContent('Copy Failed');
+    expect(screen.getByRole('button')).toHaveTextContent('Copy failed');
   });
 
   it('restarts the timer on repeated clicks', async () => {

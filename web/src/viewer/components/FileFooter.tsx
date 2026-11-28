@@ -1,4 +1,5 @@
 import { Download, ExternalLink, Wand2 } from 'lucide-react';
+import { useId } from 'react';
 
 import { CopyButton } from '../../components/CopyButton';
 import { PRIVACY_PATH, TERMS_PATH } from '../../components/SiteFooter';
@@ -10,6 +11,8 @@ import { useNow } from '../../lib/useNow';
 import { hostContext, mainUrl } from '../host/context';
 import type { FileData } from '../types';
 import { downloadUrl, shareUrl } from '../urls';
+import { AccessLine } from './AccessLine';
+import { PASSWORD_SHARE_NOTE } from './accessText';
 import { ReportButton } from './ReportButton';
 import { fileReportTarget } from './reportPath';
 import { viewsLeftLabel } from './viewLimitText';
@@ -34,6 +37,8 @@ export function FileFooter({ file }: { file: FileData }) {
   const reportTarget = fileReportTarget(file);
   const convert = convertHref(file, reportTarget?.type === 'file' ? reportTarget.vanity : null);
   const custom = hostContext().custom;
+  const noteId = useId();
+  const passwordNote = file.visibility === 'password';
   const details = [
     // §9.2: a document shown as its preview PDF says so, with the original type.
     preview ? `${documentLabel(file.mimetype) ?? 'Document'} · preview` : null,
@@ -50,6 +55,7 @@ export function FileFooter({ file }: { file: FileData }) {
       </h1>
       <p className="truncate text-xs text-muted">{details.join(' · ')}</p>
       <p className="flex flex-wrap justify-center gap-x-3 gap-y-0.5 text-sm text-muted">
+        <AccessLine visibility={file.visibility} />
         {uploadedAt !== null && (
           <time dateTime={new Date(uploadedAt).toISOString()} title={formatFullDate(uploadedAt)}>
             {formatUploaded(uploadedAt, now)}
@@ -67,21 +73,37 @@ export function FileFooter({ file }: { file: FileData }) {
         {/* Milestone 6 §19.7: after opening a view-limited file. */}
         {file.view_limit && <span className="text-warn">{viewsLeftLabel(file.view_limit.remaining)}</span>}
       </p>
+      {passwordNote && (
+        <p id={noteId} className="mt-0.5 text-xs text-muted">
+          {PASSWORD_SHARE_NOTE}
+        </p>
+      )}
       <div className="mt-1 flex flex-wrap justify-center gap-2">
-        <CopyButton text={shareUrl(file.url)} />
-        <LinkButton href={downloadUrl(file.cdn_url)} download={file.filename}>
-          <Download aria-hidden className="size-4" />
-          Download
+        {/* Grey, with only its icon green: a green fill pulls the eye off the file (DESIGN.md, viewer card). */}
+        <CopyButton
+          text={shareUrl(file.url)}
+          variant="secondary"
+          iconOnly
+          iconClassName="text-gg"
+          aria-describedby={passwordNote ? noteId : undefined}
+        />
+        <LinkButton href={downloadUrl(file.cdn_url)} download={file.filename} size="icon" aria-label="Download" title="Download">
+          <Download aria-hidden className="size-5" />
         </LinkButton>
         {convert && (
-          <LinkButton href={convert} variant="ghost" {...(custom ? { target: '_blank', rel: 'noopener' } : {})}>
-            <Wand2 aria-hidden className="size-4" />
-            Convert
+          <LinkButton
+            href={convert}
+            variant="ghost"
+            size="icon"
+            aria-label="Convert"
+            title="Convert"
+            {...(custom ? { target: '_blank', rel: 'noopener' } : {})}
+          >
+            <Wand2 aria-hidden className="size-5" />
           </LinkButton>
         )}
-        <LinkButton href={file.cdn_url} target="_blank" rel="noopener noreferrer" variant="ghost">
-          <ExternalLink aria-hidden className="size-4" />
-          Raw
+        <LinkButton href={file.cdn_url} target="_blank" rel="noopener noreferrer" variant="ghost" size="icon" aria-label="Open original" title="Open original">
+          <ExternalLink aria-hidden className="size-5" />
         </LinkButton>
       </div>
       {/* Milestone 5 §19.2: on files.gg and custom domains alike, these go to files.gg. */}

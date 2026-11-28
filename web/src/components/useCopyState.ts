@@ -4,7 +4,7 @@ import { copyText } from '../lib/clipboard';
 
 export type CopyState = 'idle' | 'copied' | 'failed';
 
-/** How long "Copied!" / "Copy Failed" stays visible before resetting. */
+/** How long "Copied!" / "Copy failed" stays visible before resetting. */
 export const COPY_FEEDBACK_MS = 1500;
 
 /**

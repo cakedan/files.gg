@@ -156,7 +156,7 @@ export default function PdfRenderer({ file, context = 'card' }: RendererProps) {
                 ? 'Download it to open it with the password in another app.'
                 : 'It may be damaged or use features the viewer doesn’t support. You can still download it.'}
             </p>
-            <LinkButton href={downloadUrl(file.cdn_url)} download={file.filename} variant="primary">
+            <LinkButton href={downloadUrl(file.cdn_url)} download={file.filename}>
               <Download aria-hidden className="size-4" />
               Download
             </LinkButton>

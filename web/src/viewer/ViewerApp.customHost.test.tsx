@@ -79,7 +79,7 @@ describe('custom host: protected files', () => {
 
     const img = await screen.findByRole('img', { name: 'holiday.png' });
     expect(img).toHaveAttribute('src', `https://i.example.com${SIGNED_PATH}`);
-    expect(screen.getByRole('link', { name: 'Raw' })).toHaveAttribute('href', `https://i.example.com${SIGNED_PATH}`);
+    expect(screen.getByRole('link', { name: 'Open original' })).toHaveAttribute('href', `https://i.example.com${SIGNED_PATH}`);
     expect(screen.getByRole('link', { name: 'Download' })).toHaveAttribute('href', `https://i.example.com${SIGNED_PATH}&download=true`);
     expect(document.title).toBe('holiday.png · i.example.com');
 

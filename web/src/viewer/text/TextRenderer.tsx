@@ -37,7 +37,7 @@ function Fallback({ file, title, detail, onRetry }: { file: FileData; title: str
             Retry
           </Button>
         )}
-        <LinkButton href={downloadUrl(file.cdn_url)} download={file.filename} variant="primary">
+        <LinkButton href={downloadUrl(file.cdn_url)} download={file.filename}>
           <Download aria-hidden className="size-4" />
           Download
         </LinkButton>

@@ -33,7 +33,18 @@ export function FileWarnings({ file }: { file: Pick<FileData, 'warnings'> }) {
   );
 }
 
-export function ConfirmDownload({ message, onConfirm, onCancel }: { message: string; onConfirm: () => void; onCancel: () => void }) {
+export function ConfirmDownload({
+  message,
+  onConfirm,
+  onCancel,
+  byPointer = false,
+}: {
+  message: string;
+  onConfirm: () => void;
+  onCancel: () => void;
+  /** Opened by a mouse or touch click: hand focus back without a keyboard focus ring. */
+  byPointer?: boolean;
+}) {
   const titleId = useId();
   const cancelRef = useRef<HTMLButtonElement>(null);
   useEffect(() => {
@@ -49,9 +60,10 @@ export function ConfirmDownload({ message, onConfirm, onCancel }: { message: str
     document.addEventListener('keydown', onKey, true);
     return () => {
       document.removeEventListener('keydown', onKey, true);
-      previous?.focus?.();
+      // `focusVisible` (FocusOptions) is ignored where unsupported, which only brings the ring back.
+      previous?.focus?.({ focusVisible: !byPointer } as FocusOptions);
     };
-  }, [onCancel]);
+  }, [onCancel, byPointer]);
   return createPortal(
     <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/70 p-3" onClick={onCancel}>
       <div
@@ -73,7 +85,7 @@ export function ConfirmDownload({ message, onConfirm, onCancel }: { message: str
           <Button ref={cancelRef} onClick={onCancel}>
             Cancel
           </Button>
-          <Button variant="primary" onClick={onConfirm}>
+          <Button onClick={onConfirm}>
             <Download aria-hidden className="size-4" />
             Download anyway
           </Button>
@@ -92,7 +104,7 @@ export function ConfirmDownload({ message, onConfirm, onCancel }: { message: str
  * intercepted by a page; the CDN still serves warned files as downloads only.
  */
 export function DownloadLinksGuard({ files, children }: { files: readonly Pick<FileData, 'warnings' | 'cdn_url'>[]; children: ReactNode }) {
-  const [pending, setPending] = useState<{ link: HTMLAnchorElement; message: string } | null>(null);
+  const [pending, setPending] = useState<{ link: HTMLAnchorElement; message: string; byPointer: boolean } | null>(null);
   const allowNext = useRef(false);
 
   const guarded = new Map<string, string>();
@@ -112,7 +124,8 @@ export function DownloadLinksGuard({ files, children }: { files: readonly Pick<F
     if (!link || !message) return;
     event.preventDefault();
     event.stopPropagation();
-    setPending({ link, message });
+    // A keyboard activation (Enter on the link) is a click with `detail` 0.
+    setPending({ link, message, byPointer: event.detail > 0 || event.button === 1 });
   };
   const onAuxClickCapture = (event: MouseEvent<HTMLDivElement>) => {
     if (event.button === 1) intercept(event);
@@ -124,6 +137,7 @@ export function DownloadLinksGuard({ files, children }: { files: readonly Pick<F
       {pending && (
         <ConfirmDownload
           message={pending.message}
+          byPointer={pending.byPointer}
           onCancel={() => setPending(null)}
           onConfirm={() => {
             const { link } = pending;

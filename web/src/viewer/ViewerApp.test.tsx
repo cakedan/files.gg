@@ -43,10 +43,39 @@ describe('ViewerApp', () => {
     expect(screen.getByText('Expires in 5 hours')).toHaveClass('text-warn');
     expect(screen.getByRole('button', { name: 'Copy link' })).toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'Download' })).toHaveAttribute('href', `${image.cdn_url}?download=true`);
-    expect(screen.getByRole('link', { name: 'Raw' })).toHaveAttribute('target', '_blank');
+    expect(screen.getByRole('link', { name: 'Open original' })).toHaveAttribute('target', '_blank');
     const img = screen.getByRole('img', { name: 'cat.png' });
     expect(img.style.getPropertyValue('--media-w')).toBe('800');
     expect(img).toHaveClass('viewer-media-sized');
+  });
+
+  it.each([
+    ['link', 'Anyone with the link'],
+    ['password', 'Password protected'],
+    ['private', 'Only you can open this'],
+  ] as const)('says who can open a %s file', (visibility, label) => {
+    render(<ViewerApp state={{ page: 'file', file: { ...image, visibility } }} />);
+    expect(screen.getByText(label)).toBeInTheDocument();
+  });
+
+  it('tells whoever copies a password file\'s link that the next person needs the password', () => {
+    render(<ViewerApp state={{ page: 'file', file: { ...image, visibility: 'password' } }} />);
+    expect(screen.getByRole('button', { name: 'Copy link' })).toHaveAccessibleDescription('Anyone you share it with needs the password too.');
+  });
+
+  it('shows no access line or password note when the payload has no visibility', () => {
+    render(<ViewerApp state={{ page: 'file', file: image }} />);
+    expect(screen.queryByText(/Anyone with the link|Password protected|Only you can open this/)).toBeNull();
+    expect(screen.getByRole('button', { name: 'Copy link' })).not.toHaveAttribute('aria-describedby');
+  });
+
+  it('gives a file with no preview one Download, and no green-filled button (only Copy link\'s icon is green)', () => {
+    const zip: FileData = { ...image, kind: 'file', filename: 'backup.zip', mimetype: 'application/zip', extension: 'zip', width: undefined, height: undefined };
+    const { container } = render(<ViewerApp state={{ page: 'file', file: zip }} />);
+    expect(screen.getAllByRole('link', { name: 'Download' })).toHaveLength(1);
+    expect(container.querySelectorAll('.bg-gg')).toHaveLength(0);
+    const copy = screen.getByRole('button', { name: 'Copy link' });
+    expect(copy.querySelector('svg')).toHaveClass('text-gg');
   });
 
   it('shows "Expired" in red once past the expiry', () => {

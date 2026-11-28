@@ -21,7 +21,7 @@ export function ReportButton({
 }: {
   target: ReportableTarget;
   variant?: ButtonVariant;
-  /** Icon only (the album lightbox toolbar). */
+  /** A square icon button (the album header and lightbox toolbar). */
   compact?: boolean;
   /**
    * A text link (the file footer's "Terms · Privacy · Report", milestone-5 §19.2), to
@@ -58,10 +58,10 @@ export function ReportButton({
         variant={variant}
         aria-haspopup="dialog"
         aria-label={compact ? 'Report' : undefined}
-        title={compact ? 'Report this file' : undefined}
-        className={compact ? 'px-2' : ''}
+        title={compact ? `Report this ${target.type === 'album' ? 'album' : 'file'}` : undefined}
+        size={compact ? 'icon' : 'md'}
       >
-        <Flag aria-hidden className="size-4" />
+        <Flag aria-hidden className={compact ? 'size-5' : 'size-4'} />
         {!compact && 'Report'}
       </LinkButton>
       {dialog}

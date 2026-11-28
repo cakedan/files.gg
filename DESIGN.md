@@ -207,7 +207,9 @@ One saturated green against cool, near-neutral charcoal greys, plus two status c
 
 **The Two Reds Rule.** Red text and red fills are different tokens. Use `danger` for text, borders and tints, and `danger-fill` behind white text. One red can't pass AA both ways on these dark surfaces.
 
-**The Borrowed Greys Rule. The neutrals (`bg`, `surface`, `surface-2`, `line`, `text`, `muted`) currently match Discord's dark theme exactly. That match is not part of the identity and is slated to change. When it does, edit the values on `:root` in `theme.css` only, keep the same tonal order (well < bg < surface < surface-2 < line), and keep WCAG 2.2 AA contrast for `muted` on `surface-2`.
+**The Quiet Viewer Rule.** On the viewer and album pages, no button has a green fill. Copy link is a grey square with a green icon; the file is the brightest thing on the page.
+
+**The Borrowed Greys Rule.** The neutrals (`bg`, `surface`, `surface-2`, `line`, `text`, `muted`) currently match Discord's dark theme exactly. That match is not part of the identity and is slated to change. When it does, edit the values on `:root` in `theme.css` only, keep the same tonal order (well < bg < surface < surface-2 < line), and keep WCAG 2.2 AA contrast for `muted` on `surface-2`.
 
 ## Typography
 
@@ -270,7 +272,7 @@ Soft, rounded corners that echo the logo's folded tile.
 
 ### Buttons
 Soft and friendly: 42 px tall, 12 px corners, 15 px medium labels, an icon gap of 6 px, colour transitions on hover.
-- **Primary:** Signal Green with Tile Ink text; hover deepens to Deep Signal Green. Used for the main action: Copy link, Upload, Choose files.
+- **Primary:** Signal Green with Tile Ink text; hover deepens to Deep Signal Green. Used for the main action in the dashboard and on public pages: Upload, Choose files, Sign in. Not on the viewer (see the Quiet Viewer Rule).
 - **Secondary:** Raised Slate with Paper White text; hover goes to Hairline Grey. Download, Raw and other neighbouring actions.
 - **Ghost:** no fill, Quiet Grey text; hover gets Raised Slate and Paper White. Header links like Sign in, and icon buttons such as close and menu.
 - **Danger:** Deep Alert Red with white text; hover deepens to the hover fill.
@@ -302,7 +304,7 @@ Soft and friendly: 42 px tall, 12 px corners, 15 px medium labels, an icon gap o
 - **Public header:** the lockup on the left, then ghost "Sign in" and secondary "Create account" (or "Dashboard" when signed in).
 
 ### Viewer Card (signature)
-The file in a frame. Card Slate, 16 px corners, 1 px hairline and the card shadow, with the media on Media Well (or the checkerboard for transparency) sized by its own dimensions. Below it is the footer: the file name as a title; size, dimensions and type as a Label line; "Uploaded …" and the expiry in Caution Amber when it's soon; then a row of actions with Copy link as the only primary; then the Terms, Privacy and Report links. Files with no preview show a centred icon, the type and size, and a Download button in the well.
+The file in a frame. Card Slate, 16 px corners, 1 px hairline and the card shadow, with the media on Media Well (or the checkerboard for transparency) sized by its own dimensions. Below it is the footer: the file name as a title; size, dimensions and type as a Label line; "Uploaded …" and the expiry in Caution Amber when it's soon; then a row of 42 px square icon buttons: Copy link (grey, with only its link icon in Signal Green), Download (grey), and Convert when the type has targets and Open original (no fill), each with a tooltip and an accessible name; then the Terms, Privacy and Report links. Files with no preview show a centred icon, the type and size, and a Download button in the well.
 
 ### Dialogs
 A Card Slate card with 16 px corners, a hairline and the card shadow over a 60% black scrim. The title and description go at the top with a ghost close button; the body scrolls; the actions sit on the right in a footer divided by a hairline. Below 640 px it becomes a bottom sheet.
@@ -311,7 +313,7 @@ A Card Slate card with 16 px corners, a hairline and the card shadow over a 60% 
 
 ### Do:
 - **Do** let the media set the viewer card's size, and reserve its space from the width and height before it loads.
-- **Do** keep one primary (Signal Green) button per card or toolbar; neighbouring actions are secondary or ghost.
+- **Do** keep at most one primary (Signal Green) button per card or toolbar in the dashboard; on the viewer, none (the Quiet Viewer Rule).
 - **Do** separate layers by tone (Media Well < Frame Charcoal < Card Slate < Raised Slate) and a 1 px Hairline Grey, not by shadow.
 - **Do** use 12 px corners on controls, 16 px on cards and dialogs, and full pills on chips, with controls 42 px tall.
 - **Do** show status as a 10–15% tint of Alert Red or Caution Amber with a full border in the same colour at 40%.

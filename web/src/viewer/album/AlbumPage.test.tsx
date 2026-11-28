@@ -60,6 +60,18 @@ describe('AlbumPage', () => {
     expect(screen.getByRole('link', { name: /report/i })).toHaveAttribute('href', '/report/a/v1');
   });
 
+  it('says who can open the album, and notes the password next to Copy link', () => {
+    render(<AlbumPage album={album({ visibility: 'password' })} />);
+    expect(screen.getByText('Password protected')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Copy link' })).toHaveAccessibleDescription('Anyone you share it with needs the password too.');
+  });
+
+  it('shows "Anyone with the link" on a link album, with no password note', () => {
+    render(<AlbumPage album={album({ visibility: 'link' })} />);
+    expect(screen.getByText('Anyone with the link')).toBeInTheDocument();
+    expect(screen.queryByText('Anyone you share it with needs the password too.')).toBeNull();
+  });
+
   it('opens the lightbox from a tile, syncs ?item= (milestone-6 §20.2), moves with arrows and closes with Escape', async () => {
     window.history.replaceState(null, '', '/a/v1#pw=amber-tunnel');
     const entries = window.history.length;

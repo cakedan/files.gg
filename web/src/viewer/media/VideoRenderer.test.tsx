@@ -54,10 +54,11 @@ describe('VideoRenderer', () => {
     expect(element).toHaveAttribute('poster', 'https://cdn/poster.webp');
   });
 
-  it('shows "This video can\'t play in the browser" with Download when not playable', () => {
+  it('shows "This video can\'t play in the browser", with no second Download, when not playable', () => {
     render(<VideoRenderer file={video({ media: { playable: false } })} />);
     expect(screen.getByText("This video can't play in the browser")).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: /download/i })).toHaveAttribute('href', 'https://cdn.files.gg/files/clip.mp4?download=true');
+    // Download is the footer's (one per card).
+    expect(screen.queryByRole('link', { name: /download/i })).toBeNull();
     expect(document.querySelector('video')).toBeNull();
   });
 

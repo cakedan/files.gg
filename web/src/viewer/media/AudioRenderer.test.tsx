@@ -86,10 +86,11 @@ describe('AudioRenderer', () => {
     expect(localStorage.getItem(VOLUME_KEY)).toBe('0.25');
   });
 
-  it('shows Download, not a player, when not playable', () => {
+  it('shows the not-playable message, not a player or a second Download, when not playable', () => {
     render(<AudioRenderer file={audio({ media: { playable: false, tags: { title: 'Song', artist: 'Band' } } })} />);
     expect(screen.getByText("This audio can't play in the browser")).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: /download/i })).toHaveAttribute('href', 'https://cdn.files.gg/files/song.mp3?download=true');
+    // Download is the footer's (one per card).
+    expect(screen.queryByRole('link', { name: /download/i })).toBeNull();
     expect(screen.getByText('Band: Song')).toBeInTheDocument();
     expect(document.querySelector('audio')).toBeNull();
   });

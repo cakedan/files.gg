@@ -188,7 +188,7 @@ describe('scanner warnings (milestone-4 §11.1)', () => {
 
   it('also guards Raw', async () => {
     render(<ViewerApp state={{ page: 'file', file: { ...zip, warnings: ['unwanted_software'] } }} />);
-    fireEvent.click(await screen.findByRole('link', { name: 'Raw' }));
+    fireEvent.click(await screen.findByRole('link', { name: 'Open original' }));
     expect(screen.getByRole('alertdialog')).toBeInTheDocument();
   });
 

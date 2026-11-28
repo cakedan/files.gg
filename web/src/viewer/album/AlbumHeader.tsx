@@ -1,11 +1,13 @@
 import { Download, Loader2 } from 'lucide-react';
-import { lazy, Suspense, useState, type MouseEvent } from 'react';
+import { lazy, Suspense, useId, useState, type MouseEvent } from 'react';
 
 import { LinkButton } from '../../components/Button';
 import { CopyButton } from '../../components/CopyButton';
 import { formatBytes } from '../../lib/format';
 import { epochMsOrNull, formatExpiry, formatFullDate, RELATIVE_REFRESH_MS } from '../../lib/time';
 import { useNow } from '../../lib/useNow';
+import { AccessLine } from '../components/AccessLine';
+import { PASSWORD_SHARE_NOTE } from '../components/accessText';
 import { ReportButton } from '../components/ReportButton';
 import type { AlbumData } from '../types';
 import { downloadUrl } from '../urls';
@@ -65,7 +67,7 @@ export function AlbumHeader({ album, shareUrl, title }: { album: AlbumData; shar
   const now = useNow(RELATIVE_REFRESH_MS);
   const zipUrl = album.download_url;
   const [zip, setZip] = useState<'idle' | 'checking' | 'too-large'>('idle');
-  const [confirming, setConfirming] = useState(false);
+  const [confirming, setConfirming] = useState<false | { byPointer: boolean }>(false);
   // Any warned item puts the whole ZIP behind the confirmation (security review W2).
   const warning = albumDownloadWarning(album.items);
   const startDownload = () => {
@@ -81,23 +83,26 @@ export function AlbumHeader({ album, shareUrl, title }: { album: AlbumData; shar
     // Modified clicks (new tab, save link as) keep their normal behaviour, unless an item is warned.
     if (modified && !warning) return;
     event.preventDefault();
-    if (warning) setConfirming(true);
+    if (warning) setConfirming({ byPointer: event.detail > 0 });
     else startDownload();
   };
   const onAuxClick = (event: MouseEvent<HTMLAnchorElement>) => {
     if (event.button === 1 && warning) {
       event.preventDefault();
-      setConfirming(true);
+      setConfirming({ byPointer: true });
     }
   };
   const expiresAt = epochMsOrNull(album.expires_at);
   const expiry = formatExpiry(expiresAt, now);
   const count = album.count;
+  const noteId = useId();
+  const passwordNote = album.visibility === 'password';
   return (
     <header className="flex flex-col gap-3 rounded-2xl border border-line bg-surface p-5 shadow-card sm:p-5">
       <div className="flex min-w-0 flex-col gap-1">
         <h1 className="text-xl font-semibold break-words sm:text-2xl">{title}</h1>
         <p className="flex flex-wrap gap-x-3 gap-y-0.5 text-sm text-muted">
+          <AccessLine visibility={album.visibility} />
           <span>
             {count} {count === 1 ? 'file' : 'files'} · {formatBytes(album.total_size)}
           </span>
@@ -113,20 +118,34 @@ export function AlbumHeader({ album, shareUrl, title }: { album: AlbumData; shar
         </p>
       </div>
       {album.description && <AlbumDescription text={album.description} />}
+      {passwordNote && (
+        <p id={noteId} className="text-xs text-muted">
+          {PASSWORD_SHARE_NOTE}
+        </p>
+      )}
       <div className="flex flex-wrap gap-2">
-        <CopyButton text={shareUrl} />
+        <CopyButton text={shareUrl} variant="secondary" iconOnly iconClassName="text-gg" aria-describedby={passwordNote ? noteId : undefined} />
         {zipUrl && (
-          <LinkButton href={zipUrl} download onClick={onDownloadAll} onAuxClick={onAuxClick} aria-busy={zip === 'checking'}>
-            {zip === 'checking' ? <Loader2 aria-hidden className="size-4 animate-spin" /> : <Download aria-hidden className="size-4" />}
-            Download all
+          <LinkButton
+            href={zipUrl}
+            download
+            onClick={onDownloadAll}
+            onAuxClick={onAuxClick}
+            aria-busy={zip === 'checking'}
+            size="icon"
+            aria-label="Download all"
+            title="Download all"
+          >
+            {zip === 'checking' ? <Loader2 aria-hidden className="size-5 animate-spin" /> : <Download aria-hidden className="size-5" />}
           </LinkButton>
         )}
-        <ReportButton target={{ type: 'album', vanity: album.vanity }} />
+        <ReportButton target={{ type: 'album', vanity: album.vanity }} compact />
       </div>
       {zip === 'too-large' && <TooLargePanel album={album} />}
       {confirming && warning && (
         <ConfirmDownload
           message={warning}
+          byPointer={confirming.byPointer}
           onCancel={() => setConfirming(false)}
           onConfirm={() => {
             setConfirming(false);

@@ -55,7 +55,7 @@ describe('LockedPage', () => {
     const img = await screen.findByRole('img', { name: 'holiday.png' });
     expect(img).toHaveAttribute('src', SIGNED);
     expect(screen.getByRole('link', { name: 'Download' })).toHaveAttribute('href', `${SIGNED}&download=true`);
-    expect(screen.getByRole('link', { name: 'Raw' })).toHaveAttribute('href', SIGNED);
+    expect(screen.getByRole('link', { name: 'Open original' })).toHaveAttribute('href', SIGNED);
     expect(document.body.innerHTML).not.toContain('t=stored');
     const [url, init] = fetch.mock.calls[0] as unknown as [string, RequestInit];
     expect(url).toMatch(/\/access\/view\/files\/abc$/);
